@@ -12,9 +12,15 @@
     />
     <script>
       (function () {
+        var STORAGE_KEY = 'wx-viewer:color-mode';
+        var setting = null;
         try {
-          var STORAGE_KEY = 'wx-viewer:color-mode';
-          var setting = window.localStorage.getItem(STORAGE_KEY);
+          // storageが使えない(プライバシー設定等で例外)場合も、未設定として以降のOS設定判定は続行する
+          setting = window.localStorage.getItem(STORAGE_KEY);
+        } catch (e) {
+          setting = null;
+        }
+        try {
           var dark =
             setting === 'dark' ||
             (setting !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -24,7 +30,7 @@
           // 事前計算した実値。シード変更時はこの値も合わせて更新すること。
           root.style.setProperty('--md-sys-color-background', dark ? '#121316' : '#faf9fd');
         } catch (e) {
-          // storageやmatchMediaが使えない場合はブラウザ既定のlightのまま描画する
+          // matchMedia等が使えない場合はブラウザ既定のlightのまま描画する
         }
       })();
     </script>
