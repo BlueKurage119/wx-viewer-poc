@@ -1,0 +1,22 @@
+@import '@material/web/typography/md-typescale-styles.css';
+
+:root {
+  --md-ref-typeface-brand: 'Noto Sans JP', system-ui, sans-serif;
+  --md-ref-typeface-plain: 'Noto Sans JP', system-ui, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  font-family: var(--md-ref-typeface-plain);
+  background: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
