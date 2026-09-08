@@ -384,3 +384,128 @@ export interface ListBosaiBulletinsOptions {
   readonly controlStatus: ControlStatus;
   readonly includesKoto?: boolean;
 }
+
+// --- 通信履歴 ---
+export type FetchOutcome = 'success' | 'failure';
+
+export const KNOWN_FETCH_SOURCE_KINDS = [
+  'xml_feed_regular', // https://www.data.jma.go.jp/developer/xml/feed/regular.xml
+  'xml_feed_extra', // 同 extra.xml
+  'xml_feed_regular_long', // 同 regular_l.xml（初期化・復旧）
+  'xml_feed_extra_long', // 同 extra_l.xml
+  'xml_document', // フィードから辿った個別電文本体
+  'radar_target_times', // targetTimes_N1.json / N2.json
+  'radar_tile_frame', // nowc の hrpns PNG。1 フレーム分のタイル取得をまとめて 1 行（§3.1）
+  'risk_target_times', // キキクル時刻一覧
+  'risk_tile_frame', // キキクルの PNG／PBF／GeoJSON。同じく 1 フレーム＝ 1 行
+  'amedas_latest_time', // latest_time.txt
+  'amedas_point', // point/44136/{date}_{hh}.json
+  'amedas_table', // amedastable.json
+] as const;
+
+export interface FetchAttemptInput {
+  readonly sourceKind: string;
+  readonly targetRef: string | null;
+  readonly requestUrl: string;
+  readonly triggerKind: string;
+  readonly attemptNo: number;
+  readonly startedAt: UtcIso8601String;
+  readonly finishedAt: UtcIso8601String;
+  readonly durationMs: number;
+  readonly outcome: FetchOutcome;
+  readonly httpStatus: number | null;
+  readonly responseBytes: number | null;
+  /** この 1 行がまとめた取得対象の件数（タイルのフレーム行のみ）。1 リクエスト＝ 1 行なら null。 */
+  readonly itemCount: number | null;
+  /** うち失敗した件数。itemCount が null のときは null。 */
+  readonly failedItemCount: number | null;
+  readonly contentHash: string | null;
+  readonly errorKind: string | null;
+  readonly errorMessage: string | null;
+}
+
+export interface FetchAttempt extends FetchAttemptInput {
+  readonly id: number;
+}
+
+export interface ListFetchAttemptsOptions {
+  readonly sourceKind?: string;
+  readonly outcome?: FetchOutcome;
+  readonly startedAtFrom?: UtcIso8601String;
+  readonly startedAtTo?: UtcIso8601String;
+  readonly limit?: number; // 既定 100、上限 1000
+  readonly offset?: number; // 既定 0
+}
+
+// --- 電文履歴 ---
+export interface TelegramReceptionAreaInput {
+  readonly areaCode: string;
+  readonly areaName: string | null;
+  readonly codeType: string | null;
+  readonly sequence: number;
+}
+
+export interface TelegramReceptionArea extends TelegramReceptionAreaInput {
+  readonly id: number;
+}
+
+export interface TelegramReceptionInput {
+  readonly fetchAttemptId: number | null;
+  readonly feedKind: string | null;
+  readonly feedEntryId: string | null;
+  readonly documentUrl: string;
+  readonly telegramType: string | null;
+  readonly title: string | null;
+  readonly controlStatus: ControlStatus | null;
+  readonly infoType: string | null;
+  readonly eventId: string | null;
+  readonly serial: string | null;
+  readonly controlDateTime: UtcIso8601String | null;
+  readonly reportDateTime: UtcIso8601String | null;
+  readonly targetDateTime: UtcIso8601String | null;
+  readonly receivedAt: UtcIso8601String;
+  readonly adoptionResult: string | null;
+  readonly adoptionReason: string | null;
+  readonly adoptionDecidedAt: UtcIso8601String | null;
+  readonly rawBody: string | null;
+  readonly bodyBytes: number | null;
+  readonly contentHash: string | null;
+  readonly areas: readonly TelegramReceptionAreaInput[];
+}
+
+/** 一覧用。原文（rawBody）を含まない。 */
+export interface TelegramReceptionSummary extends Omit<
+  TelegramReceptionInput,
+  'rawBody' | 'areas'
+> {
+  readonly id: number;
+  readonly hasRawBody: boolean;
+  readonly areas: readonly TelegramReceptionArea[];
+}
+
+/** 詳細用。原文を含む。 */
+export interface TelegramReception extends TelegramReceptionSummary {
+  readonly rawBody: string | null;
+}
+
+export interface ListTelegramReceptionsOptions {
+  /** 指定した値の行だけを返す。NULL（不明）の行は返さない（§3.6）。 */
+  readonly controlStatus?: ControlStatus;
+  readonly telegramType?: string;
+  readonly infoType?: string;
+  readonly areaCode?: string;
+  readonly documentUrl?: string;
+  readonly adoptionResult?: string;
+  readonly receivedAtFrom?: UtcIso8601String;
+  readonly receivedAtTo?: UtcIso8601String;
+  readonly reportDateTimeFrom?: UtcIso8601String;
+  readonly reportDateTimeTo?: UtcIso8601String;
+  readonly limit?: number; // 既定 100、上限 1000
+  readonly offset?: number;
+}
+
+export interface TelegramReceptionAdoptionInput {
+  readonly adoptionResult: string | null;
+  readonly adoptionReason: string | null;
+  readonly adoptionDecidedAt: UtcIso8601String | null;
+}
