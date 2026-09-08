@@ -72,22 +72,8 @@ export function AppShell({
                 aria-hidden="true"
               >
                 <circle cx="12" cy="12" r="10" fill="currentColor" />
-                <rect
-                  x="11"
-                  y="6"
-                  width="2"
-                  height="8"
-                  rx="1"
-                  fill="var(--md-sys-color-error-container)"
-                />
-                <rect
-                  x="11"
-                  y="16"
-                  width="2"
-                  height="2"
-                  rx="1"
-                  fill="var(--md-sys-color-error-container)"
-                />
+                <rect x="11" y="6" width="2" height="8" rx="1" fill="var(--md-sys-color-error)" />
+                <rect x="11" y="16" width="2" height="2" rx="1" fill="var(--md-sys-color-error)" />
               </svg>
               受信異常
               <span>
