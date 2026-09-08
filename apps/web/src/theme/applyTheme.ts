@@ -53,10 +53,13 @@ const SURFACE_CONTAINER_TONES = {
  * シードからlight/dark片方のスキームを生成し、:root(document.documentElement)へ
  * `--md-sys-color-*` CSSカスタムプロパティとして反映する。
  */
-export function applyMd3Theme(seed: string, dark: boolean): void {
+export function applyMd3Theme(
+  seed: string,
+  dark: boolean,
+  root: HTMLElement = document.documentElement,
+): void {
   const theme = themeForSeed(seed);
   const scheme = dark ? theme.schemes.dark : theme.schemes.light;
-  const root = document.documentElement;
 
   // 1. scheme.toJSON()の全キーを --md-sys-color-{kebab} で書き出す
   const schemeJson = scheme.toJSON();
