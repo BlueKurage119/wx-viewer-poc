@@ -76,7 +76,8 @@ export function AppShell({
                 <rect x="11" y="16" width="2" height="2" rx="1" fill="#b3261e" />
               </svg>
               受信異常
-              <span>｜最終更新:{' '}
+              <span>
+                ｜最終更新:{' '}
                 {connection.lastSuccessAt
                   ? timeFormat.format(connection.lastSuccessAt)
                   : '通信成功なし'}

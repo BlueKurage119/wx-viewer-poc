@@ -53,7 +53,6 @@ npm run format:check  # Prettierの整形差分チェック(差分があれば n
 
 個別画面、気象データ取得・正規化、業務API、DB、認証、PWA、Dockerfile/Cloud Run/CIは未実装。詳細は設計書§5を参照。
 
-
 ## 共通シェル（Issue #2）
 
 設計・試作仕様は [共通シェル設計](docs/design/issue-2-common-shell.md) を参照。
