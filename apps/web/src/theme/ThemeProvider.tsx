@@ -52,11 +52,18 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [colorModeSetting, setColorModeSettingState] =
-    useState<ColorModeSetting>(readStoredColorMode);
-  const [resolvedColorMode, setResolvedColorMode] = useState<ResolvedColorMode>(() =>
-    resolveColorMode(colorModeSetting),
+export function ThemeProvider({
+  children,
+  fixedMode,
+}: {
+  children: ReactNode;
+  fixedMode?: ResolvedColorMode;
+}) {
+  const [colorModeSetting, setColorModeSettingState] = useState<ColorModeSetting>(
+    () => fixedMode ?? readStoredColorMode(),
+  );
+  const [resolvedColorMode, setResolvedColorMode] = useState<ResolvedColorMode>(
+    () => fixedMode ?? resolveColorMode(colorModeSetting),
   );
 
   const setColorModeSetting = useCallback((setting: ColorModeSetting) => {
@@ -66,6 +73,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // OS設定の変更を購読し、systemモードのときだけ追従する
   useLayoutEffect(() => {
+    if (fixedMode) {
+      setResolvedColorMode(fixedMode);
+      return;
+    }
     const mediaQuery = window.matchMedia(DARK_MEDIA_QUERY);
     const handleChange = (): void => {
       setResolvedColorMode(resolveColorMode(colorModeSetting));
@@ -73,7 +84,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     handleChange();
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [colorModeSetting]);
+  }, [colorModeSetting, fixedMode]);
 
   // 解決後のモードが変わったときにテーマを適用する
   useLayoutEffect(() => {

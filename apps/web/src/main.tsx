@@ -11,7 +11,7 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <ThemeProvider>
+    <ThemeProvider fixedMode="dark">
       <App />
     </ThemeProvider>
   </StrictMode>,
