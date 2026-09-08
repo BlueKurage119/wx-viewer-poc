@@ -92,7 +92,7 @@ npm run test -w apps/web  # test スクリプトがある対象 workspace のテ
 - コミットメッセージは種別プレフィックス（`feat`、`fix`、`doc`、`chore` など）と日本語要約を使う。
 - PR 作成時は base が `main` であることを確認する。
 - Codex が作成するコミットメッセージ、PR 本文、コメントには、Codex が作成した旨を本文中に明記する。CLI や API の投稿者名が人間のアカウントになる場合も同様とする。署名例は以下のとおりとする。
-  - コミットメッセージ: `Co-Authored-By: Codex <model> <noreply@openai.com>`
+  - コミットメッセージ: `Co-Authored-By: Codex (GPT 5.6 Terra) <noreply@openai.com>`
   - PR本文末尾・コメント: `🤖 Generated with Codex`
 
 ## 破ると静かに壊れる制約
