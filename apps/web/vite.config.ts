@@ -13,7 +13,7 @@ const terminalGuard: Connect.NextHandleFunction = (req, res, next) => {
     res.statusCode = 404;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end(
-      '<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>端末が見つかりません</title><body style="background:#121316;color:#e3e2e6;font-family:system-ui;padding:40px"><h1>許可されていない端末です</h1><p>指定された端末URLでアクセスしてください。</p></body></html>',
+      '<!doctype html><html lang="ja" style="color-scheme: only dark;"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>端末が見つかりません</title><body style="color-scheme: only dark;font-family:system-ui;padding:40px"><h1>許可されていない端末です</h1><p>指定された端末URLでアクセスしてください。</p></body></html>',
     );
     return;
   }
