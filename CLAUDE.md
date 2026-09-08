@@ -1,64 +1,46 @@
-# wx-viewer-poc
+# CLAUDE.md
 
-防災気象情報表示サービスのPoC。npm workspacesによるモノレポで、フロントエンド(`apps/web`)、バックエンド(`apps/api`)、共通コード(`packages/shared`)を管理する。技術スタック・画面構成・ポート番号は [README.md](README.md) を参照。設計の全体像は [docs/basic-design.md](docs/basic-design.md)(協議記録。【確定】【設計案】【未確定】のタグで確度を区別している)。
+## 1. 概要
 
-```bash
-npm run dev            # web(5174) + api(3001) を同時起動
-npm run build           # shared → api → web の順にビルド
-npm run typecheck       # 全workspaceの型検査
-npm run lint             # ESLintによる静的検査(--max-warnings 0)
-npm run format:check    # Prettier整形差分チェック
-npm run test -w apps/web  # 対象workspaceのテスト(package.jsonのtestスクリプトが定義されているworkspaceのみ)
-```
+- 防災気象情報表示サービスのPoC。npm workspacesによるモノレポで、フロントエンド(`apps/web`)、バックエンド(`apps/api`)、共通コード(`packages/shared`)を管理する
+- 技術スタック・画面構成・ポート番号は [README.md](README.md) を参照
+- 基本設計は [docs/basic-design.md](docs/basic-design.md)(協議記録。【確定】【設計案】【未確定】のタグで確度を区別している)
 
----
+## 2. ディレクトリ管理
 
-## 破ると静かに壊れる制約
+- このリポジトリの親フォルダ(`cmk-gsx/`)に、Git管理外の `docs/` がある。気象庁XML資料・サンプル電文・コード表(`260907_weather-data/`)、本番PoC要件定義(`260830_poc-v2-requirements/`)等が置かれているが、いずれも公開情報であり、プロジェクト間で共有する・リポジトリを重くしないという理由で外に出しているだけである。**このリポジトリ内から絶対パス等で参照・引用してよい**(`docs/data-acquisition-report.md`が既に行っている)。
+- **例外: `cmk-gsx/docs/260908_[CONFIDENTIAL]_wx-poc-image/` 配下は取り扱いに注意が必要な画像である。ファイルの複製・埋め込みはもちろん、ファイル名・内容への言及自体も、このリポジトリ内(コード・ドキュメント・コミットメッセージ・Issue・PR・コメントのいずれも)で一切行ってはならない。**
 
-**エラーも警告も出ずに壊れる**ものだけをここに集約している。変更する前に必ず読むこと。
+## 3. 絶対遵守事項
 
-### 1. `apps/web` に副作用のためだけの bare import を書かない
+### 3.1 禁止事項
 
-`apps/web/package.json` に `"sideEffects": ["*.css"]` を宣言している。CSS以外の `import './foo'` 形式(副作用目的のimport)は**本番ビルドで黙って除去される**。devサーバーでは動くため気づけない。カスタム要素の登録は「ラッパーのexportを使う」ことで成立させる。
+- `cmk-gsx/docs/260908_[CONFIDENTIAL]_wx-poc-image/` 配下への言及・複製・引用(2章参照)
+- `docs/design/issue-N-*.md` に無い機能・画面・APIを先回りして実装すること(本プロジェクトは基本設計段階であり、実装はIssue単位の設計書に基づいて着手する)
+- mainへの直接コミット(必ずブランチを切り、PRを作成する)
+- 指示を受けずに既存ファイルの削除・大幅な構造変更を行うこと
 
-### 2. `@material/material-color-utilities` は `0.3.0` 固定(キャレットなし)
+### 3.2 遵守事項
 
-`apps/web/package.json` で明示的に固定している。`npm update`等で勝手に上げない。0.4.x系は既知のパッケージング不具合(拡張子なしimportの解決失敗)があるため避けている(mj-stats-viewerでの検証を踏襲)。
+- 仕様が曖昧・矛盾する場合、勝手に補完せず質問すること。サブエージェント(designer/builder/inspector)はユーザーと直接対話できないため、統括担当(親エージェント)が窓口となる(4章参照)
+- コミット前に `npm run lint` / `npm run typecheck` / `npm run format:check` および対象workspaceのテストを実行し、エラーがないことを確かめること
+- `docs/basic-design.md`の確度タグ(【確定】【設計案】【未確定】)を尊重し、【設計案】を無断で【確定】扱いにしないこと
 
-### 3. `<md-*>` の生タグを直書きしない
+## 4. 開発の進め方
 
-Material Webのコンポーネントは必ず `apps/web/src/components/md` のバレル(`index.ts`)からexportされた型付きラッパーをimportする。未ラップのコンポーネントが必要になったら、ラッパーを追加してからバレルに載せる。
+- 会話・コミットメッセージ・ドキュメントは日本語で行う
+- Issue単位で、サブエージェント3体を直列で回す。役割ごとの規律は [`.claude/agents/`](.claude/agents/) の定義ファイルに集約してある(統括担当は、対象Issue・ブランチ名・設計書パスなど、その回に固有の情報だけを渡す)
 
-### 4. 色をハードコードしない
+  | 役割 | 担当 | model | 成果物 |
+  |---|---|---|---|
+  | ヒアリング | 統括担当(親エージェント) | — | ユーザーとの対話で確定させた判断事項(designer起動時に渡す) |
+  | 設計 | `wxviewer-designer` | opus | `docs/design/issue-N-<slug>.md`(受け入れ条件を含む)。コードは書かない |
+  | 製造 | `wxviewer-builder` | sonnet | 設計書だけを唯一の仕様として実装。コミットまで(push・PRはしない) |
+  | 検収 | `wxviewer-inspector` | opus | 受け入れ条件を実行して検証し、通過したらpushしてPRを作成する。マージはしない |
 
-配色は `apps/web/src/theme/` がランタイムに生成し、`--md-sys-color-*` としてCSS変数で供給する。シード色は `apps/web/src/theme/seeds.ts` の `DEFAULT_THEME_SEED`(`#1A73E8`)のみで完結させる。共通シェルはダーク固定(README参照)。警戒レベル色・通知区分色はこのMD3基盤の対象外で、別途セマンティックトークンとして定義する(basic-design.md §5.7参照、未着手)。
-
-### 5. `index.html` と `ThemeProvider.tsx` のlocalStorageキーは一致させる
-
-いずれも `wx-viewer:color-mode`。FOUC対策で `index.html` 側に先読みロジックがあるため、キー名を個別に変更すると同期が壊れる。
-
-### 6. basic-design.mdの確度タグを尊重する
-
-【確定】はユーザーとの対話で確認済みの事項、【設計案】【未確定】は未決事項。設計書・実装のいずれでも、【設計案】を無断で【確定】扱いにしない。
-
----
-
-## 開発フロー
-
-Issue単位で、サブエージェント3体を直列で回す。役割ごとの規律は [`.claude/agents/`](.claude/agents/) の定義ファイルに集約してある(統括担当は、対象Issue・ブランチ名・設計書パスなど、その回に固有の情報だけを渡す)。
-
-| 役割 | 担当 | model | 成果物 |
-|---|---|---|---|
-| ヒアリング | 統括担当(親エージェント) | — | ユーザーとの対話で確定させた判断事項(designer起動時に渡す) |
-| 設計 | `wxviewer-designer` | opus | `docs/design/issue-N-<slug>.md`(受け入れ条件を含む)。コードは書かない |
-| 製造 | `wxviewer-builder` | sonnet | 設計書だけを唯一の仕様として実装。コミットまで(push・PRはしない) |
-| 検収 | `wxviewer-inspector` | opus | 受け入れ条件を実行して検証し、通過したらpushしてPRを作成する。マージはしない |
-
-統括担当(ユーザーと直接対話するメインセッション)はフェーズ間の判断・レビュー・マージを担い、自分では実装しない。サブエージェントはバックグラウンドで動作しユーザーと直接対話できないため、**ヒアリングは統括担当の責務とする。**
-
-**このプロジェクトは他プロジェクトの3体構成と異なり、designer着手前に統括担当によるヒアリングフェーズを挟む。** `docs/issues-draft.md` のIssue項目はあっさりとした内容(実装タスク単位の見出しと参照章番号のみ)であるため、統括担当が`AskUserQuestion`等でユーザーに本質的な論点を確認し、確定した判断をIssue番号とあわせてdesignerへ渡す。designer自身は設計中に新たな要ヒアリング事項を見つけても自分で決めず、最終返答で統括担当に投げ返す(→統括担当が追加ヒアリングするか判断)。詳細は [`.claude/agents/wxviewer-designer.md`](.claude/agents/wxviewer-designer.md)。
-
-設計書は使い捨てではなく、後続Issueの参照資産としてコミットする(`docs/design/issue-1-project-initialization.md`が書式・粒度の手本)。
+- 統括担当(ユーザーと直接対話するメインセッション)はフェーズ間の判断・レビュー・マージを担い、自分では実装しない。**サブエージェントはバックグラウンドで動作しユーザーと直接対話できないため、ヒアリングは統括担当の責務とする。**
+- **このプロジェクトは他プロジェクトの3体構成と異なり、designer着手前に統括担当によるヒアリングフェーズを挟む。** `docs/issues-draft.md` のIssue項目はあっさりとした内容(実装タスク単位の見出しと参照章番号のみ)であるため、統括担当が`AskUserQuestion`等でユーザーに本質的な論点を確認し、確定した判断をIssue番号とあわせてdesignerへ渡す。designer自身は設計中に新たな要ヒアリング事項を見つけても自分で決めず、最終返答で統括担当に投げ返す(→統括担当が追加ヒアリングするか判断)。詳細は [`.claude/agents/wxviewer-designer.md`](.claude/agents/wxviewer-designer.md)
+- 設計書は使い捨てではなく、後続Issueの参照資産としてコミットする(`docs/design/issue-1-project-initialization.md`が書式・粒度の手本)
 
 ### 検証の規律(詳細は各エージェント定義を参照)
 
@@ -68,13 +50,62 @@ Issue単位で、サブエージェント3体を直列で回す。役割ごと�
 
 ### 気象データ固有の注意
 
-- **訓練データと本番相当データを混同しない。** 訓練通知機能(basic-design.md §3.4)の`isTraining`フラグが伝播すべき箇所(通知・履歴・表示)を、実装・検証のいずれでも本番データと同一視しない。
-- **availability(`available`/`stale`/`unavailable`、basic-design.md §6.3)の3状態を、単純なOK/NGに簡略化しない。** stale時は前回値を保持しつつ鮮度低下を表現する。
-- 気象庁XML電文のサンプル・提供仕様は、実データ・公式資料(取得方法レポート `docs/data-acquisition-report.md`)と照合できたものだけを設計上の「確定」事実として扱う。憶測で電文仕様を補わない。
+- **訓練データと本番相当データを混同しない。** 訓練通知機能(basic-design.md §3.4)の`isTraining`フラグが伝播すべき箇所(通知・履歴・表示)を、実装・検証のいずれでも本番データと同一視しない
+- **availability(`available`/`stale`/`unavailable`、basic-design.md §6.3)の3状態を、単純なOK/NGに簡略化しない。** stale時は前回値を保持しつつ鮮度低下を表現する
+- 気象庁XML電文のサンプル・提供仕様は、実データ・公式資料(取得方法レポート `docs/data-acquisition-report.md`)と照合できたものだけを設計上の「確定」事実として扱う。憶測で電文仕様を補わない
 
----
+## 5. 技術スタック・規約
 
-## 参照ドキュメント
+- React 19 + TypeScript + Vite(フロント) / Express 5 + TypeScript(バックエンド) / npm workspacesモノレポ
+- ESLint(`eslint.config.js`、`--max-warnings 0`) + Prettier。詳細な規約は各設定ファイルを正とする
+- Material Web + `@material/material-color-utilities` によるMD3準拠テーマ(8章参照)
+- UI文言は日本語
+
+## 6. 主要コマンド
+
+```bash
+npm run dev              # web(5174) + api(3001) を同時起動
+npm run build             # shared → api → web の順にビルド
+npm run typecheck         # 全workspaceの型検査
+npm run lint               # ESLintによる静的検査(--max-warnings 0)
+npm run format:check      # Prettier整形差分チェック
+npm run test -w apps/web    # 対象workspaceのテスト(package.jsonのtestスクリプトが定義されているworkspaceのみ)
+```
+
+## 7. ブランチ・コミット規約
+
+- ブランチ名: `feature/issue-<番号>-<短い説明>`(例: `feature/issue-2-common-shell`)
+- コミットメッセージ: 種別プレフィックス(`feat`/`fix`/`doc`/`chore`等)+ 日本語要約
+- PR本文に「Closes #<Issue番号>」を含める
+- PR作成時、baseが `main` であることを確認する
+- **製造担当(`wxviewer-builder`)の作業はコミット・プッシュまでとし、PRの作成・本文の記述は検収担当(`wxviewer-inspector`)が行う**
+- Claudeが書いた文章(コミットメッセージ・PR本文・コメント等)には、Claudeが書いた旨の名義を本文中に明記する(コミットは末尾に `Co-Authored-By: Claude <model> <noreply@anthropic.com>`、PR本文は末尾に `🤖 Generated with [Claude Code](https://claude.com/claude-code)`)。`gh`コマンドでの投稿は人間のアカウント名義になるため、本文中の明記で代える
+
+## 8. 破ると静かに壊れる制約
+
+**エラーも警告も出ずに壊れる**ものだけをここに集約している。変更する前に必ず読むこと。
+
+### 8.1 `apps/web` に副作用のためだけの bare import を書かない
+
+`apps/web/package.json` に `"sideEffects": ["*.css"]` を宣言している。CSS以外の `import './foo'` 形式(副作用目的のimport)は**本番ビルドで黙って除去される**。devサーバーでは動くため気づけない。カスタム要素の登録は「ラッパーのexportを使う」ことで成立させる。
+
+### 8.2 `@material/material-color-utilities` は `0.3.0` 固定(キャレットなし)
+
+`apps/web/package.json` で明示的に固定している。`npm update`等で勝手に上げない。0.4.x系は既知のパッケージング不具合(拡張子なしimportの解決失敗)があるため避けている(mj-stats-viewerでの検証を踏襲)。
+
+### 8.3 `<md-*>` の生タグを直書きしない
+
+Material Webのコンポーネントは必ず `apps/web/src/components/md` のバレル(`index.ts`)からexportされた型付きラッパーをimportする。未ラップのコンポーネントが必要になったら、ラッパーを追加してからバレルに載せる。
+
+### 8.4 色をハードコードしない
+
+配色は `apps/web/src/theme/` がランタイムに生成し、`--md-sys-color-*` としてCSS変数で供給する。シード色は `apps/web/src/theme/seeds.ts` の `DEFAULT_THEME_SEED`(`#1A73E8`)のみで完結させる。共通シェルはダーク固定(README参照)。警戒レベル色・通知区分色はこのMD3基盤の対象外で、別途セマンティックトークンとして定義する(basic-design.md §5.7参照、未着手)。
+
+### 8.5 `index.html` と `ThemeProvider.tsx` のlocalStorageキーは一致させる
+
+いずれも `wx-viewer:color-mode`。FOUC対策で `index.html` 側に先読みロジックがあるため、キー名を個別に変更すると同期が壊れる。
+
+## 9. 参照ドキュメント
 
 - [docs/basic-design.md](docs/basic-design.md) — 基本設計(協議記録)
 - [docs/issues-draft.md](docs/issues-draft.md) — Issue下書き(Epic単位)
