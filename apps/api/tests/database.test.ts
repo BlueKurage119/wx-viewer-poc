@@ -146,6 +146,19 @@ test('不正なmigrationファイルを拒否する', async () => {
   }
 });
 
+test('空白文字だけのmigrationを完全一致のエラーで拒否する', async () => {
+  const directory = await createTemporaryDirectory();
+  const migrationsDirectory = join(directory, 'migrations');
+  await mkdir(migrationsDirectory);
+  await writeMigration(migrationsDirectory, '0001_whitespace.sql', ' \t\r\n');
+
+  assert.throws(
+    () =>
+      initializeDatabase({ databasePath: join(directory, 'state.sqlite3'), migrationsDirectory }),
+    new Error('Migration must not be empty: 0001_whitespace.sql'),
+  );
+});
+
 test('番号重複、編集、改名、削除、過去番号への後挿しを拒否する', async () => {
   const cases: Array<{
     readonly operation: (migrationsDirectory: string) => Promise<void>;

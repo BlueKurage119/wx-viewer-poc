@@ -46,10 +46,10 @@ function discoverMigrations(migrationsDirectory: string): readonly Migration[] {
     versions.add(version);
 
     const content = readFileSync(join(migrationsDirectory, entry.name));
-    if (content.length === 0) {
+    const sql = content.toString('utf8');
+    if (content.length === 0 || sql.trim().length === 0) {
       throw new Error(`Migration must not be empty: ${entry.name}`);
     }
-    const sql = content.toString('utf8');
     if (transactionControl.test(sql)) {
       throw new Error(`Migration must not control transactions: ${entry.name}`);
     }
