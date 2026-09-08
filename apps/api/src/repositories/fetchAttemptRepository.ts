@@ -182,8 +182,8 @@ export function recordFetchAttempt(
   ) as { id: number };
 
   return {
-    id: Number(result.id),
     ...input,
+    id: Number(result.id),
   };
 }
 
