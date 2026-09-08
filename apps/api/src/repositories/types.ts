@@ -509,3 +509,43 @@ export interface TelegramReceptionAdoptionInput {
   readonly adoptionReason: string | null;
   readonly adoptionDecidedAt: UtcIso8601String | null;
 }
+
+// --- 通知出力履歴 ---
+export type NotificationOutputOrigin = 'weather' | 'system';
+export type NotificationDetectionContext = 'normal' | 'initial';
+
+export interface NotificationOutputHistoryInput {
+  readonly notificationId: string;
+  readonly category: string;
+  readonly sourceType: string;
+  readonly sourceVersion: string | null;
+  readonly targetAreaJson: string | null;
+  readonly occurredAt: UtcIso8601String;
+  readonly detectedAt: UtcIso8601String;
+  readonly changeType: string;
+  readonly ackRequired: boolean;
+  readonly summary: string;
+  readonly relatedRefsJson: string;
+  readonly origin: NotificationOutputOrigin;
+  readonly detectionContext: NotificationDetectionContext;
+  readonly isTraining: boolean;
+  readonly messageDefinitionId: string | null;
+  readonly messageDefinitionVersion: string | null;
+}
+
+export interface NotificationOutputHistory extends NotificationOutputHistoryInput {
+  readonly id: number;
+}
+
+export interface ListNotificationOutputHistoryOptions {
+  readonly category?: string;
+  readonly sourceType?: string;
+  readonly changeType?: string;
+  readonly origin?: NotificationOutputOrigin;
+  readonly detectionContext?: NotificationDetectionContext;
+  readonly isTraining?: boolean;
+  readonly detectedAtFrom?: UtcIso8601String;
+  readonly detectedAtTo?: UtcIso8601String;
+  readonly limit?: number; // 既定 100、上限 1000
+  readonly offset?: number; // 既定 0
+}

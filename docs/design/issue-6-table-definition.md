@@ -1,8 +1,8 @@
-# テーブル定義書（Issue #6・Issue #7 実装分）
+# テーブル定義書（Issue #6・Issue #7・Issue #8 実装分）
 
 作成日: 2026-09-09
 
-`apps/api/migrations/0001`〜`0010` の実 DDL を転記したリファレンス。後続 Issue（Epic C・Epic E・B4〜B6）がテーブル構造を素早く参照するためのもので、設計意図は [issue-6-info-type-schema.md](issue-6-info-type-schema.md) および [issue-7-reception-history.md](issue-7-reception-history.md) を正とする。migration を追加・変更したときはこのファイルも更新する。
+`apps/api/migrations/0001`〜`0011` の実 DDL を転記したリファレンス。後続 Issue（Epic C・Epic E・B5〜B6）がテーブル構造を素早く参照するためのもので、設計意図は [issue-6-info-type-schema.md](issue-6-info-type-schema.md)、[issue-7-reception-history.md](issue-7-reception-history.md) および [issue-8-notification-output-history.md](issue-8-notification-output-history.md) を正とする。migration を追加・変更したときはこのファイルも更新する。
 
 ## 1. テーブル一覧
 
@@ -32,6 +32,7 @@
 | 0009 | `fetch_attempt` | 通信履歴（取得試行ごとの成否ログ） |
 | 0010 | `telegram_reception` | 電文履歴（XML 電文 1 件ごとの受信記録） |
 | 0010 | `telegram_reception_area` | 電文履歴の対象区域明細 |
+| 0011 | `notification_output_history` | 通知出力履歴（サーバーが通知として出すと判定した 1 件の記録） |
 
 `__schema_migrations` は Issue #5 で作成される migration 管理表。
 
@@ -324,9 +325,51 @@ UNIQUE 制約なし（同一 `document_url` の再受信も追記保存）。
 
 UNIQUE `(reception_id, sequence)`
 
-## 13. 制約サマリ
+## 13. 通知出力履歴（0011）
 
-### 13.1 UNIQUE 制約（UPSERT 競合ターゲット / 一意性保証）
+### notification_output_history
+
+| 列 | 型 | 制約 | 内容 |
+| --- | --- | --- | --- |
+| `id` | INTEGER | PRIMARY KEY | DB 内部の連番 |
+| `notification_id` | TEXT | NOT NULL, UNIQUE, CHECK (`notification_id <> ''`) | 通知の一意識別子 |
+| `category` | TEXT | NOT NULL, CHECK (`category <> ''`) | 通知区分（`warning`/`question`/`emergency` 等、Issue #25 が所有） |
+| `source_type` | TEXT | NOT NULL, CHECK (`source_type <> ''`) | 原因となる気象情報種別または装置異常の取得元種別 |
+| `source_version` | TEXT | CHECK (`source_version IS NULL OR source_version <> ''`) | 原因情報の版（版を持たない装置異常等は NULL） |
+| `target_area_json` | TEXT | CHECK (`target_area_json IS NULL OR target_area_json <> ''`) | 対象地域の JSON 文字列（持たない通知は NULL） |
+| `occurred_at` | TEXT | NOT NULL | 原因状態変化の発生時刻 (UTC ISO 8601) |
+| `detected_at` | TEXT | NOT NULL | サーバーが検知・通知出力判定した時刻 (UTC ISO 8601) |
+| `change_type` | TEXT | NOT NULL, CHECK (`change_type <> ''`) | 生成理由（新規・強化・緩和・解除・訂正等） |
+| `ack_required` | INTEGER | NOT NULL, CHECK IN (`0`, `1`) | 通知時点で確認・回答操作を要するか |
+| `summary` | TEXT | NOT NULL, CHECK (`summary <> ''`) | 生成済み表示文言のスナップショット |
+| `related_refs_json` | TEXT | NOT NULL, CHECK (`related_refs_json <> ''`) | 関連参照の JSON 配列文字列（参照なしは `[]`） |
+| `origin` | TEXT | NOT NULL, CHECK IN (`weather`, `system`) | 原因系統 |
+| `detection_context` | TEXT | NOT NULL, CHECK IN (`normal`, `initial`) | 通常検知／初期取得・復旧の区別 |
+| `is_training` | INTEGER | NOT NULL, CHECK IN (`0`, `1`) | 訓練由来か |
+| `message_definition_id` | TEXT | CHECK (`message_definition_id IS NULL OR message_definition_id <> ''`) | 定義識別子（Issue #103） |
+| `message_definition_version` | TEXT | CHECK (`message_definition_version IS NULL OR message_definition_version <> ''`) | 定義版（Issue #103） |
+
+UNIQUE `(notification_id)`
+CHECK:
+```sql
+CHECK (
+  (message_definition_id IS NULL AND message_definition_version IS NULL)
+  OR
+  (message_definition_id IS NOT NULL AND message_definition_version IS NOT NULL)
+)
+```
+
+索引:
+- `idx_notification_output_history_detected` ON `notification_output_history (detected_at DESC, id DESC)`
+- `idx_notification_output_history_category` ON `notification_output_history (category, detected_at DESC, id DESC)`
+- `idx_notification_output_history_source` ON `notification_output_history (source_type, detected_at DESC, id DESC)`
+- `idx_notification_output_history_origin` ON `notification_output_history (origin, detected_at DESC, id DESC)`
+- `idx_notification_output_history_context` ON `notification_output_history (detection_context, detected_at DESC, id DESC)`
+- `idx_notification_output_history_training` ON `notification_output_history (is_training, detected_at DESC, id DESC)`
+
+## 14. 制約サマリ
+
+### 14.1 UNIQUE 制約（UPSERT 競合ターゲット / 一意性保証）
 
 | テーブル | 列組 |
 | --- | --- |
@@ -351,12 +394,13 @@ UNIQUE `(reception_id, sequence)`
 | `bosai_bulletin` | `(event_id, control_status)` |
 | `bosai_bulletin_area` | `(bulletin_id, area_code, code_type)` |
 | `telegram_reception_area` | `(reception_id, sequence)` |
+| `notification_output_history` | `(notification_id)` |
 
 `warning_timeseries_value`、`fetch_attempt`、`telegram_reception` に UNIQUE 制約はない。
 
-### 13.2 外部キーと CASCADE
+### 14.2 外部キーと CASCADE
 
-すべての外部キーが `ON DELETE CASCADE`。`PRAGMA foreign_keys = 1` が前提（Issue #5 の `openDatabase` が設定）。`fetch_attempt` と `telegram_reception` の間には外部キー制約を張らない（独立したログ）。
+すべての外部キーが `ON DELETE CASCADE`。`PRAGMA foreign_keys = 1` が前提（Issue #5 の `openDatabase` が設定）。`fetch_attempt` と `telegram_reception` の間には外部キー制約を張らない（独立したログ）。`notification_output_history` も独立したログであり、外部キーを持たない。
 
 ```text
 warning_current_snapshot   ← warning_current_item
@@ -373,7 +417,7 @@ bosai_bulletin             ← bosai_bulletin_area
 telegram_reception         ← telegram_reception_area
 ```
 
-### 13.3 CHECK 制約
+### 14.3 CHECK 制約
 
 | テーブル | 制約 |
 | --- | --- |
@@ -386,6 +430,7 @@ telegram_reception         ← telegram_reception_area
 | `fetch_attempt` | `source_kind <> ''` / `request_url <> ''` / `trigger_kind <> ''` / `attempt_no >= 1` / `duration_ms >= 0` / `outcome IN ('success','failure')` / `response_bytes IS NULL OR response_bytes >= 0` / `item_count IS NULL OR item_count >= 1` / `failed_item_count IS NULL OR failed_item_count >= 0` / `item_count IS NULL OR failed_item_count IS NULL OR failed_item_count <= item_count` / `error_kind IS NULL OR error_kind <> ''` |
 | `telegram_reception` | `feed_kind IS NULL OR feed_kind <> ''` / `feed_entry_id IS NULL OR feed_entry_id <> ''` / `document_url <> ''` / `telegram_type IS NULL OR telegram_type <> ''` / `control_status IS NULL OR control_status IN ('normal','training','test')` / `adoption_result IS NULL OR adoption_result <> ''` / `body_bytes IS NULL OR body_bytes >= 0` |
 | `telegram_reception_area` | `area_code <> ''` |
+| `notification_output_history` | `notification_id <> ''` / `category <> ''` / `source_type <> ''` / `source_version IS NULL OR source_version <> ''` / `target_area_json IS NULL OR target_area_json <> ''` / `change_type <> ''` / `ack_required IN (0, 1)` / `summary <> ''` / `related_refs_json <> ''` / `origin IN ('weather', 'system')` / `detection_context IN ('normal', 'initial')` / `is_training IN (0, 1)` / `message_definition_id IS NULL OR message_definition_id <> ''` / `message_definition_version IS NULL OR message_definition_version <> ''` / `(message_definition_id IS NULL AND message_definition_version IS NULL) OR (message_definition_id IS NOT NULL AND message_definition_version IS NOT NULL)` |
 
 トリガーは 0 件。自動削除・TTL・ローテーションは存在しない。
 
