@@ -1,9 +1,8 @@
 export const SHARED_PACKAGE_NAME = '@wx-viewer-poc/shared';
 
-/**
- * 情報取得状態。`stale` は前回正常値を保持しつつ鮮度が低下している状態を表す。
- */
-export type Availability = 'available' | 'stale' | 'unavailable';
+import type { Availability } from './availability.js';
+
+export * from './availability.js';
 
 /**
  * UTC の ISO 8601 形式でシリアライズされた時刻文字列。
