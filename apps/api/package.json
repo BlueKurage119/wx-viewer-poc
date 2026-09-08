@@ -10,13 +10,16 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
+    "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@wx-viewer-poc/shared": "0.1.0",
+    "better-sqlite3": "^13.0.3",
     "express": "^5.0.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
