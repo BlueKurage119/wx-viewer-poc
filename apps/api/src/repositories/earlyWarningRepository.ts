@@ -6,6 +6,7 @@ import {
   validateMetadataInput,
   validateNonEmptyString,
   validateTelegramInput,
+  validateUtcIso8601String,
   type SnapshotMetadataRow,
   type TelegramMetadataRow,
 } from './snapshot.js';
@@ -63,6 +64,15 @@ export function saveEarlyWarningSnapshot(
   validateMetadataInput(input.metadata);
   validateTelegramInput(input.telegram);
 
+  const isStale = input.metadata.availability === 'stale';
+
+  if (!isStale) {
+    for (const td of input.timeDefines) {
+      validateUtcIso8601String(td.timeFrom, 'timeDefine.timeFrom');
+      validateUtcIso8601String(td.timeTo, 'timeDefine.timeTo');
+    }
+  }
+
   const saveTx = connection.transaction(() => {
     const upsertStmt = connection.prepare(`
       INSERT INTO early_warning_snapshot (
@@ -112,56 +122,99 @@ export function saveEarlyWarningSnapshot(
 
     const snapshotId = Number(row.id);
 
-    connection.prepare('DELETE FROM early_warning_cell WHERE snapshot_id = ?').run(snapshotId);
-    connection
-      .prepare('DELETE FROM early_warning_time_define WHERE snapshot_id = ?')
-      .run(snapshotId);
+    let timeDefines: EarlyWarningTimeDefine[];
+    let cells: EarlyWarningCell[];
 
-    const insertTimeDefineStmt = connection.prepare(`
-      INSERT INTO early_warning_time_define (
-        snapshot_id, time_id, sequence, time_from, time_to, duration
-      ) VALUES (?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+    if (isStale) {
+      const tdRows = connection
+        .prepare(
+          `
+          SELECT * FROM early_warning_time_define
+          WHERE snapshot_id = ?
+          ORDER BY sequence ASC, id ASC
+        `,
+        )
+        .all(snapshotId) as EarlyWarningTimeDefineRow[];
 
-    const timeDefines: EarlyWarningTimeDefine[] = input.timeDefines.map((td) => {
-      const tdRow = insertTimeDefineStmt.get(
-        snapshotId,
-        td.timeId,
-        td.sequence,
-        td.timeFrom,
-        td.timeTo,
-        td.duration,
-      ) as { id: number };
+      timeDefines = tdRows.map((tdRow) => ({
+        id: tdRow.id,
+        timeId: tdRow.time_id,
+        sequence: tdRow.sequence,
+        timeFrom: tdRow.time_from,
+        timeTo: tdRow.time_to,
+        duration: tdRow.duration,
+      }));
 
-      return {
-        id: Number(tdRow.id),
-        ...td,
-      };
-    });
+      const cellRows = connection
+        .prepare(
+          `
+          SELECT * FROM early_warning_cell
+          WHERE snapshot_id = ?
+          ORDER BY id ASC
+        `,
+        )
+        .all(snapshotId) as EarlyWarningCellRow[];
 
-    const insertCellStmt = connection.prepare(`
-      INSERT INTO early_warning_cell (
-        snapshot_id, ref_id, phenomenon_code, phenomenon_name, rank_value, condition
-      ) VALUES (?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+      cells = cellRows.map((cellRow) => ({
+        id: cellRow.id,
+        refId: cellRow.ref_id,
+        phenomenonCode: cellRow.phenomenon_code,
+        phenomenonName: cellRow.phenomenon_name,
+        rankValue: cellRow.rank_value,
+        condition: cellRow.condition,
+      }));
+    } else {
+      connection.prepare('DELETE FROM early_warning_cell WHERE snapshot_id = ?').run(snapshotId);
+      connection
+        .prepare('DELETE FROM early_warning_time_define WHERE snapshot_id = ?')
+        .run(snapshotId);
 
-    const cells: EarlyWarningCell[] = input.cells.map((c) => {
-      const cRow = insertCellStmt.get(
-        snapshotId,
-        c.refId,
-        c.phenomenonCode,
-        c.phenomenonName,
-        c.rankValue,
-        c.condition,
-      ) as { id: number };
+      const insertTimeDefineStmt = connection.prepare(`
+        INSERT INTO early_warning_time_define (
+          snapshot_id, time_id, sequence, time_from, time_to, duration
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
 
-      return {
-        id: Number(cRow.id),
-        ...c,
-      };
-    });
+      timeDefines = input.timeDefines.map((td) => {
+        const tdRow = insertTimeDefineStmt.get(
+          snapshotId,
+          td.timeId,
+          td.sequence,
+          td.timeFrom,
+          td.timeTo,
+          td.duration,
+        ) as { id: number };
+
+        return {
+          id: Number(tdRow.id),
+          ...td,
+        };
+      });
+
+      const insertCellStmt = connection.prepare(`
+        INSERT INTO early_warning_cell (
+          snapshot_id, ref_id, phenomenon_code, phenomenon_name, rank_value, condition
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
+
+      cells = input.cells.map((c) => {
+        const cRow = insertCellStmt.get(
+          snapshotId,
+          c.refId,
+          c.phenomenonCode,
+          c.phenomenonName,
+          c.rankValue,
+          c.condition,
+        ) as { id: number };
+
+        return {
+          id: Number(cRow.id),
+          ...c,
+        };
+      });
+    }
 
     return {
       id: snapshotId,

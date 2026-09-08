@@ -4,6 +4,7 @@ import {
   validateControlStatus,
   validateMetadataInput,
   validateNonEmptyString,
+  validateUtcIso8601String,
   type SnapshotMetadataRow,
 } from './snapshot.js';
 import type {
@@ -45,8 +46,8 @@ export function saveBosaiBulletin(
   validateNonEmptyString(input.eventId, 'eventId');
   validateControlStatus(input.controlStatus);
   validateNonEmptyString(input.infoType, 'infoType');
-  validateNonEmptyString(input.reportDateTime, 'reportDateTime');
-  validateNonEmptyString(input.controlDateTime, 'controlDateTime');
+  validateUtcIso8601String(input.reportDateTime, 'reportDateTime');
+  validateUtcIso8601String(input.controlDateTime, 'controlDateTime');
   validateNonEmptyString(input.title, 'title');
   validateNonEmptyString(input.headlineText, 'headlineText');
   validateNonEmptyString(input.informationTag, 'informationTag');

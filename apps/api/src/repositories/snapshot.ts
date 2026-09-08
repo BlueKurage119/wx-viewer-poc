@@ -33,6 +33,21 @@ export function validateNonEmptyString(value: string, fieldName: string): void {
   }
 }
 
+const UTC_ISO_8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+
+export function validateUtcIso8601String(value: string, fieldName: string): void {
+  if (typeof value !== 'string' || !UTC_ISO_8601_PATTERN.test(value)) {
+    throw new Error(
+      `${fieldName} must be a UTC ISO 8601 string (e.g. 2026-09-09T12:00:00Z): ${value}`,
+    );
+  }
+}
+
+export function validateUtcIso8601StringOrNull(value: string | null, fieldName: string): void {
+  if (value === null) return;
+  validateUtcIso8601String(value, fieldName);
+}
+
 export function validateTileRelativePath(filePath: string): void {
   if (!filePath || typeof filePath !== 'string') {
     throw new Error('Invalid file path: path must be a non-empty string');
@@ -48,16 +63,20 @@ export function validateTileRelativePath(filePath: string): void {
 
 export function validateMetadataInput(metadata: SnapshotMetadataInput): void {
   validateNonEmptyString(metadata.source, 'metadata.source');
-  validateNonEmptyString(metadata.issuedAt, 'metadata.issuedAt');
-  validateNonEmptyString(metadata.fetchedAt, 'metadata.fetchedAt');
+  validateUtcIso8601String(metadata.issuedAt, 'metadata.issuedAt');
+  validateUtcIso8601StringOrNull(metadata.validAt, 'metadata.validAt');
+  validateUtcIso8601StringOrNull(metadata.validFrom, 'metadata.validFrom');
+  validateUtcIso8601StringOrNull(metadata.validTo, 'metadata.validTo');
+  validateUtcIso8601String(metadata.fetchedAt, 'metadata.fetchedAt');
+  validateUtcIso8601StringOrNull(metadata.lastSuccessAt, 'metadata.lastSuccessAt');
   validateAvailability(metadata.availability);
 }
 
 export function validateTelegramInput(telegram: TelegramMetadataInput): void {
   validateControlStatus(telegram.controlStatus);
   validateNonEmptyString(telegram.infoType, 'telegram.infoType');
-  validateNonEmptyString(telegram.reportDateTime, 'telegram.reportDateTime');
-  validateNonEmptyString(telegram.controlDateTime, 'telegram.controlDateTime');
+  validateUtcIso8601String(telegram.reportDateTime, 'telegram.reportDateTime');
+  validateUtcIso8601String(telegram.controlDateTime, 'telegram.controlDateTime');
 }
 
 export interface SnapshotMetadataRow {

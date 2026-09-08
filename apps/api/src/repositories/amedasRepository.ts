@@ -3,6 +3,7 @@ import {
   mapMetadataRow,
   validateMetadataInput,
   validateNonEmptyString,
+  validateUtcIso8601String,
   type SnapshotMetadataRow,
 } from './snapshot.js';
 import type { AmedasObservation, AmedasSnapshot, AmedasSnapshotInput } from './types.js';
@@ -30,6 +31,14 @@ export function saveAmedasSnapshot(
   validateNonEmptyString(input.stationCode, 'stationCode');
   validateNonEmptyString(input.stationName, 'stationName');
   validateMetadataInput(input.metadata);
+
+  const isStale = input.metadata.availability === 'stale';
+
+  if (!isStale) {
+    for (const obs of input.observations) {
+      validateUtcIso8601String(obs.observedAt, 'observation.observedAt');
+    }
+  }
 
   const saveTx = connection.transaction(() => {
     const upsertStmt = connection.prepare(`
@@ -67,30 +76,53 @@ export function saveAmedasSnapshot(
 
     const snapshotId = Number(row.id);
 
-    connection.prepare('DELETE FROM amedas_observation WHERE snapshot_id = ?').run(snapshotId);
+    let observations: AmedasObservation[];
 
-    const insertObsStmt = connection.prepare(`
-      INSERT INTO amedas_observation (
-        snapshot_id, observed_at, element, value_number, value_text, quality_flag
-      ) VALUES (?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+    if (isStale) {
+      const obsRows = connection
+        .prepare(
+          `
+          SELECT * FROM amedas_observation
+          WHERE snapshot_id = ?
+          ORDER BY observed_at ASC, element ASC, id ASC
+        `,
+        )
+        .all(snapshotId) as AmedasObservationRow[];
 
-    const observations: AmedasObservation[] = input.observations.map((obs) => {
-      const obsRow = insertObsStmt.get(
-        snapshotId,
-        obs.observedAt,
-        obs.element,
-        obs.valueNumber,
-        obs.valueText,
-        obs.qualityFlag,
-      ) as { id: number };
+      observations = obsRows.map((obsRow) => ({
+        id: obsRow.id,
+        observedAt: obsRow.observed_at,
+        element: obsRow.element,
+        valueNumber: obsRow.value_number,
+        valueText: obsRow.value_text,
+        qualityFlag: obsRow.quality_flag,
+      }));
+    } else {
+      connection.prepare('DELETE FROM amedas_observation WHERE snapshot_id = ?').run(snapshotId);
 
-      return {
-        id: Number(obsRow.id),
-        ...obs,
-      };
-    });
+      const insertObsStmt = connection.prepare(`
+        INSERT INTO amedas_observation (
+          snapshot_id, observed_at, element, value_number, value_text, quality_flag
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
+
+      observations = input.observations.map((obs) => {
+        const obsRow = insertObsStmt.get(
+          snapshotId,
+          obs.observedAt,
+          obs.element,
+          obs.valueNumber,
+          obs.valueText,
+          obs.qualityFlag,
+        ) as { id: number };
+
+        return {
+          id: Number(obsRow.id),
+          ...obs,
+        };
+      });
+    }
 
     return {
       id: snapshotId,

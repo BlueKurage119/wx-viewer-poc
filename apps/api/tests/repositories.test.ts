@@ -182,6 +182,25 @@ test('1. 現況警報 (WarningCurrent): CRUD, 置き換え, 訓練分離, 明細
     assert.ok(training);
     assert.equal(training.items[0].kindCode, '04');
 
+    // 1-3-2. stale 時の明細維持（空配列を渡しても既存明細が残る）
+    const staleSaved = saveWarningCurrentSnapshot(context.connection, {
+      areaCode: '1310800',
+      areaName: '江東区',
+      metadata: { ...sampleMetadata, availability: 'stale', fetchedAt: '2026-09-09T02:00:00Z' },
+      telegram: { ...sampleTelegram, reportDateTime: '2026-09-09T01:00:00Z' },
+      items: [],
+    });
+    assert.equal(staleSaved.metadata.availability, 'stale');
+    assert.equal(staleSaved.items.length, 1);
+    assert.equal(staleSaved.items[0].kindCode, '05');
+
+    const foundStale = findWarningCurrentSnapshot(context.connection, '1310800', 'normal');
+    assert.ok(foundStale);
+    assert.equal(foundStale.metadata.availability, 'stale');
+    assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T02:00:00Z');
+    assert.equal(foundStale.items.length, 1);
+    assert.equal(foundStale.items[0].kindCode, '05');
+
     // 1-4. 明細0件かつ availability='available'（警報なしの正常状態）
     saveWarningCurrentSnapshot(context.connection, {
       areaCode: '1310800',
@@ -277,15 +296,24 @@ test('2. 警報等時系列 (WarningTimeseries): block_id による timeId 衝�
     assert.equal(found.values[1].blockId, 'block_wind');
     assert.equal(found.values[1].valueText, '20');
 
-    // stale で保存しても明細が保持されること
-    saveWarningTimeseriesSnapshot(context.connection, {
-      ...found,
-      metadata: { ...found.metadata, availability: 'stale' },
+    // stale で保存しても明細が保持されること（空配列を渡しても既存明細が残る）
+    const staleSaved = saveWarningTimeseriesSnapshot(context.connection, {
+      areaCode: '1310800',
+      areaName: '江東区',
+      metadata: { ...found.metadata, availability: 'stale', fetchedAt: '2026-09-09T01:00:00Z' },
+      telegram: found.telegram,
+      timeDefines: [],
+      values: [],
     });
+    assert.equal(staleSaved.metadata.availability, 'stale');
+    assert.equal(staleSaved.timeDefines.length, 2);
+    assert.equal(staleSaved.values.length, 2);
 
     const foundStale = findWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
     assert.ok(foundStale);
     assert.equal(foundStale.metadata.availability, 'stale');
+    assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T01:00:00Z');
+    assert.equal(foundStale.timeDefines.length, 2);
     assert.equal(foundStale.values.length, 2);
 
     // 削除
@@ -368,6 +396,27 @@ test('3. 早期注意情報 (EarlyWarning): near / far の独立性, 「なし�
     assert.equal(far.cells[0].rankValue, null);
     assert.equal(far.cells[0].condition, '値なし');
 
+    // 3-3. stale 時の明細維持（空配列を渡しても既存明細が残る）
+    const staleSaved = saveEarlyWarningSnapshot(context.connection, {
+      areaCode: '130010',
+      areaName: '東京地方',
+      segment: 'near',
+      telegramType: 'VPFD61',
+      metadata: { ...sampleMetadata, availability: 'stale', fetchedAt: '2026-09-09T01:00:00Z' },
+      telegram: sampleTelegram,
+      timeDefines: [],
+      cells: [],
+    });
+    assert.equal(staleSaved.metadata.availability, 'stale');
+    assert.equal(staleSaved.cells.length, 1);
+
+    const foundNearStale = findEarlyWarningSnapshot(context.connection, '130010', 'near', 'normal');
+    assert.ok(foundNearStale);
+    assert.equal(foundNearStale.metadata.availability, 'stale');
+    assert.equal(foundNearStale.metadata.fetchedAt, '2026-09-09T01:00:00Z');
+    assert.equal(foundNearStale.cells.length, 1);
+    assert.equal(foundNearStale.cells[0].rankValue, 'なし');
+
     // near の削除が far に影響しない
     deleteEarlyWarningSnapshot(context.connection, '130010', 'near', 'normal');
     assert.equal(findEarlyWarningSnapshot(context.connection, '130010', 'near', 'normal'), null);
@@ -434,6 +483,26 @@ test('4. 地域時系列予報 (AreaTimeseries): block_id による天気・風�
     assert.equal(found.values.length, 2);
     assert.equal(found.values[0].valueText, '晴れ');
     assert.equal(found.values[1].valueNumber, 24.5);
+
+    // 4-2. stale 時の明細維持（空配列を渡しても既存明細が残る）
+    const staleSaved = saveAreaTimeseriesSnapshot(context.connection, {
+      areaCode: '130010',
+      areaName: '東京地方',
+      stationCode: '44132',
+      stationName: '東京',
+      metadata: { ...sampleMetadata, availability: 'stale', fetchedAt: '2026-09-09T01:00:00Z' },
+      telegram: sampleTelegram,
+      timeDefines: [],
+      values: [],
+    });
+    assert.equal(staleSaved.metadata.availability, 'stale');
+    assert.equal(staleSaved.values.length, 2);
+
+    const foundStale = findAreaTimeseriesSnapshot(context.connection, '130010', '44132', 'normal');
+    assert.ok(foundStale);
+    assert.equal(foundStale.metadata.availability, 'stale');
+    assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T01:00:00Z');
+    assert.equal(foundStale.values.length, 2);
 
     deleteAreaTimeseriesSnapshot(context.connection, '130010', '44132', 'normal');
     assert.equal(findAreaTimeseriesSnapshot(context.connection, '130010', '44132', 'normal'), null);
@@ -543,6 +612,24 @@ test('5. レーダー (Radar): N1/N2 独立, 相対パス検証, CASCADE', () =>
       });
     }, /Invalid file path/);
 
+    // stale 時の明細維持（空配列を渡しても既存明細・タイルが残る）
+    const staleSaved = saveRadarSnapshot(context.connection, {
+      product: 'N1',
+      metadata: { ...sampleMetadata, availability: 'stale', fetchedAt: '2026-09-09T00:10:00Z' },
+      frames: [],
+    });
+    assert.equal(staleSaved.metadata.availability, 'stale');
+    assert.equal(staleSaved.frames.length, 1);
+    assert.equal(staleSaved.frames[0].tiles.length, 1);
+
+    const foundStale = findRadarSnapshot(context.connection, 'N1');
+    assert.ok(foundStale);
+    assert.equal(foundStale.metadata.availability, 'stale');
+    assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T00:10:00Z');
+    assert.equal(foundStale.frames.length, 1);
+    assert.equal(foundStale.frames[0].tiles.length, 1);
+    assert.equal(foundStale.frames[0].tiles[0].byteSize, 1024);
+
     // 削除でタイル含め消えること
     deleteRadarSnapshot(context.connection, 'N1');
     assert.equal(findRadarSnapshot(context.connection, 'N1'), null);
@@ -589,6 +676,24 @@ test('6. キキクル (Risk): レイヤー独立, タイル保存', () => {
     assert.equal(heavyrain.frames.length, 1);
     assert.equal(heavyrain.frames[0].imageId, 'rain_mesh');
     assert.equal(heavyrain.frames[0].tiles[0].byteSize, 2048);
+
+    // stale 時の明細維持（空配列を渡しても既存明細・タイルが残る）
+    const staleSaved = saveRiskSnapshot(context.connection, {
+      layer: 'heavyrain',
+      metadata: { ...sampleMetadata, availability: 'stale', fetchedAt: '2026-09-09T00:10:00Z' },
+      frames: [],
+    });
+    assert.equal(staleSaved.metadata.availability, 'stale');
+    assert.equal(staleSaved.frames.length, 1);
+    assert.equal(staleSaved.frames[0].tiles.length, 1);
+
+    const foundStale = findRiskSnapshot(context.connection, 'heavyrain');
+    assert.ok(foundStale);
+    assert.equal(foundStale.metadata.availability, 'stale');
+    assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T00:10:00Z');
+    assert.equal(foundStale.frames.length, 1);
+    assert.equal(foundStale.frames[0].tiles.length, 1);
+    assert.equal(foundStale.frames[0].tiles[0].byteSize, 2048);
 
     deleteRiskSnapshot(context.connection, 'heavyrain');
     assert.equal(findRiskSnapshot(context.connection, 'heavyrain'), null);
@@ -637,6 +742,22 @@ test('7. アメダス (Amedas): 欠測(NULL)と0の区別, 複数時刻保持', 
     assert.ok(missingPrec);
     assert.equal(missingPrec.valueNumber, null, '欠測は null のままであり 0 に変換されないこと');
     assert.equal(missingPrec.qualityFlag, 8);
+
+    // stale 時の明細維持（空配列を渡しても既存明細が残る）
+    const staleSaved = saveAmedasSnapshot(context.connection, {
+      stationCode: '44136',
+      stationName: '江戸川臨海',
+      metadata: { ...sampleMetadata, availability: 'stale', fetchedAt: '2026-09-09T00:15:00Z' },
+      observations: [],
+    });
+    assert.equal(staleSaved.metadata.availability, 'stale');
+    assert.equal(staleSaved.observations.length, 3);
+
+    const foundStale = findAmedasSnapshot(context.connection, '44136');
+    assert.ok(foundStale);
+    assert.equal(foundStale.metadata.availability, 'stale');
+    assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T00:15:00Z');
+    assert.equal(foundStale.observations.length, 3);
 
     deleteAmedasSnapshot(context.connection, '44136');
     assert.equal(findAmedasSnapshot(context.connection, '44136'), null);
@@ -769,6 +890,227 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
     const deleted = deleteBosaiBulletin(context.connection, '202609090001', 'normal');
     assert.equal(deleted, true);
     assert.equal(findBosaiBulletin(context.connection, '202609090001', 'normal'), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test('9. 時刻文字列の UTC ISO 8601 形式検証', () => {
+  const { context, cleanup } = setupTestDb();
+  try {
+    const invalidDateStrings = [
+      '2026-09-09',
+      '2026/09/09 12:00:00',
+      '2026-09-09T12:00:00+09:00',
+      '2026-09-09T12:00:00',
+      '',
+      '   ',
+      'invalid',
+      '2026-09-09T12:00:00.1234Z',
+    ];
+
+    // 9-1. 共通メタの issuedAt / fetchedAt
+    for (const invalid of invalidDateStrings) {
+      assert.throws(() => {
+        saveWarningCurrentSnapshot(context.connection, {
+          areaCode: '1310800',
+          areaName: '江東区',
+          metadata: { ...sampleMetadata, issuedAt: invalid as unknown as string },
+          telegram: sampleTelegram,
+          items: [],
+        });
+      }, /must be a UTC ISO 8601 string/);
+
+      assert.throws(() => {
+        saveWarningCurrentSnapshot(context.connection, {
+          areaCode: '1310800',
+          areaName: '江東区',
+          metadata: { ...sampleMetadata, fetchedAt: invalid as unknown as string },
+          telegram: sampleTelegram,
+          items: [],
+        });
+      }, /must be a UTC ISO 8601 string/);
+    }
+
+    // 9-2. 共通メタの null 許容時刻列 (validAt, validFrom, validTo, lastSuccessAt)
+    for (const invalid of ['2026-09-09', 'invalid', '2026/09/09 12:00:00']) {
+      assert.throws(() => {
+        saveWarningCurrentSnapshot(context.connection, {
+          areaCode: '1310800',
+          areaName: '江東区',
+          metadata: { ...sampleMetadata, validAt: invalid },
+          telegram: sampleTelegram,
+          items: [],
+        });
+      }, /must be a UTC ISO 8601 string/);
+
+      assert.throws(() => {
+        saveWarningCurrentSnapshot(context.connection, {
+          areaCode: '1310800',
+          areaName: '江東区',
+          metadata: { ...sampleMetadata, lastSuccessAt: invalid },
+          telegram: sampleTelegram,
+          items: [],
+        });
+      }, /must be a UTC ISO 8601 string/);
+    }
+
+    // 9-3. 電文メタ情報の reportDateTime / controlDateTime
+    for (const invalid of ['2026-09-09', 'invalid', '2026/09/09 12:00:00']) {
+      assert.throws(() => {
+        saveWarningCurrentSnapshot(context.connection, {
+          areaCode: '1310800',
+          areaName: '江東区',
+          metadata: sampleMetadata,
+          telegram: { ...sampleTelegram, reportDateTime: invalid },
+          items: [],
+        });
+      }, /must be a UTC ISO 8601 string/);
+
+      assert.throws(() => {
+        saveWarningCurrentSnapshot(context.connection, {
+          areaCode: '1310800',
+          areaName: '江東区',
+          metadata: sampleMetadata,
+          telegram: { ...sampleTelegram, controlDateTime: invalid },
+          items: [],
+        });
+      }, /must be a UTC ISO 8601 string/);
+    }
+
+    // 9-4. 明細時刻列: 警報等時系列の timeFrom / timeTo
+    for (const invalid of ['2026-09-09', 'invalid']) {
+      assert.throws(() => {
+        saveWarningTimeseriesSnapshot(context.connection, {
+          areaCode: '1310800',
+          areaName: '江東区',
+          metadata: sampleMetadata,
+          telegram: sampleTelegram,
+          timeDefines: [
+            {
+              blockId: 'block_rain',
+              timeId: '1',
+              sequence: 1,
+              timeFrom: invalid,
+              timeTo: '2026-09-09T03:00:00Z',
+              duration: 'PT3H',
+            },
+          ],
+          values: [],
+        });
+      }, /must be a UTC ISO 8601 string/);
+
+      assert.throws(() => {
+        saveWarningTimeseriesSnapshot(context.connection, {
+          areaCode: '1310800',
+          areaName: '江東区',
+          metadata: sampleMetadata,
+          telegram: sampleTelegram,
+          timeDefines: [
+            {
+              blockId: 'block_rain',
+              timeId: '1',
+              sequence: 1,
+              timeFrom: '2026-09-09T00:00:00Z',
+              timeTo: invalid,
+              duration: 'PT3H',
+            },
+          ],
+          values: [],
+        });
+      }, /must be a UTC ISO 8601 string/);
+    }
+
+    // 9-5. 明細時刻列: 現況警報の kindIssuedAt (null許容)
+    assert.throws(() => {
+      saveWarningCurrentSnapshot(context.connection, {
+        areaCode: '1310800',
+        areaName: '江東区',
+        metadata: sampleMetadata,
+        telegram: sampleTelegram,
+        items: [
+          {
+            sequence: 1,
+            kindCode: '03',
+            kindName: '大雨警報',
+            kindStatus: '発表',
+            lastKindCode: null,
+            lastKindName: null,
+            significancyCode: '2',
+            significancyName: '警報',
+            warningLevel: '3',
+            attentionText: null,
+            kindIssuedAt: '2026-09-09',
+            sourceTelegram: 'VPWW55',
+          },
+        ],
+      });
+    }, /must be a UTC ISO 8601 string/);
+
+    // 9-6. 明細時刻列: アメダスの observedAt
+    assert.throws(() => {
+      saveAmedasSnapshot(context.connection, {
+        stationCode: '44136',
+        stationName: '江戸川臨海',
+        metadata: sampleMetadata,
+        observations: [
+          {
+            observedAt: '2026-09-09 12:00:00',
+            element: 'temp',
+            valueNumber: 25.0,
+            valueText: null,
+            qualityFlag: 0,
+          },
+        ],
+      });
+    }, /must be a UTC ISO 8601 string/);
+
+    // 9-7. 気象防災速報の reportDateTime / controlDateTime
+    assert.throws(() => {
+      saveBosaiBulletin(context.connection, {
+        eventId: '202609090001',
+        controlStatus: 'normal',
+        infoType: '発表',
+        reportDateTime: '2026-09-09',
+        controlDateTime: '2026-09-09T00:00:00Z',
+        title: '気象防災速報',
+        headlineText: '速報テキスト',
+        informationTag: '雨',
+        isCancelled: false,
+        metadata: sampleMetadata,
+        areas: [],
+      });
+    }, /must be a UTC ISO 8601 string/);
+
+    assert.throws(() => {
+      saveBosaiBulletin(context.connection, {
+        eventId: '202609090001',
+        controlStatus: 'normal',
+        infoType: '発表',
+        reportDateTime: '2026-09-09T00:00:00Z',
+        controlDateTime: '2026-09-09',
+        title: '気象防災速報',
+        headlineText: '速報テキスト',
+        informationTag: '雨',
+        isCancelled: false,
+        metadata: sampleMetadata,
+        areas: [],
+      });
+    }, /must be a UTC ISO 8601 string/);
+
+    // 9-8. 正常なUTC ISO 8601形式（秒まで、およびミリ秒付き、1桁ミリ秒）は例外にならない
+    const validWithMillis = '2026-09-09T12:00:00.123Z';
+    const validNoMillis = '2026-09-09T12:00:00Z';
+    const validWithOneDigitMillis = '2026-09-09T12:00:00.1Z';
+
+    const res1 = saveWarningCurrentSnapshot(context.connection, {
+      areaCode: '1310800',
+      areaName: '江東区',
+      metadata: { ...sampleMetadata, issuedAt: validWithMillis, fetchedAt: validNoMillis },
+      telegram: { ...sampleTelegram, reportDateTime: validWithOneDigitMillis },
+      items: [],
+    });
+    assert.equal(res1.metadata.issuedAt, validWithMillis);
   } finally {
     cleanup();
   }

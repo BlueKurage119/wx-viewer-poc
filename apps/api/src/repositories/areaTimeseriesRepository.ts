@@ -6,6 +6,7 @@ import {
   validateMetadataInput,
   validateNonEmptyString,
   validateTelegramInput,
+  validateUtcIso8601String,
   type SnapshotMetadataRow,
   type TelegramMetadataRow,
 } from './snapshot.js';
@@ -60,6 +61,15 @@ export function saveAreaTimeseriesSnapshot(
   validateMetadataInput(input.metadata);
   validateTelegramInput(input.telegram);
 
+  const isStale = input.metadata.availability === 'stale';
+
+  if (!isStale) {
+    for (const td of input.timeDefines) {
+      validateUtcIso8601String(td.timeFrom, 'timeDefine.timeFrom');
+      validateUtcIso8601String(td.timeTo, 'timeDefine.timeTo');
+    }
+  }
+
   const saveTx = connection.transaction(() => {
     const upsertStmt = connection.prepare(`
       INSERT INTO area_timeseries_snapshot (
@@ -109,60 +119,107 @@ export function saveAreaTimeseriesSnapshot(
 
     const snapshotId = Number(row.id);
 
-    connection.prepare('DELETE FROM area_timeseries_value WHERE snapshot_id = ?').run(snapshotId);
-    connection
-      .prepare('DELETE FROM area_timeseries_time_define WHERE snapshot_id = ?')
-      .run(snapshotId);
+    let timeDefines: AreaTimeseriesTimeDefine[];
+    let values: AreaTimeseriesValue[];
 
-    const insertTimeDefineStmt = connection.prepare(`
-      INSERT INTO area_timeseries_time_define (
-        snapshot_id, block_id, time_id, sequence, time_from, time_to, duration
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+    if (isStale) {
+      const tdRows = connection
+        .prepare(
+          `
+          SELECT * FROM area_timeseries_time_define
+          WHERE snapshot_id = ?
+          ORDER BY sequence ASC, id ASC
+        `,
+        )
+        .all(snapshotId) as AreaTimeseriesTimeDefineRow[];
 
-    const timeDefines: AreaTimeseriesTimeDefine[] = input.timeDefines.map((td) => {
-      const tdRow = insertTimeDefineStmt.get(
-        snapshotId,
-        td.blockId,
-        td.timeId,
-        td.sequence,
-        td.timeFrom,
-        td.timeTo,
-        td.duration,
-      ) as { id: number };
+      timeDefines = tdRows.map((tdRow) => ({
+        id: tdRow.id,
+        blockId: tdRow.block_id,
+        timeId: tdRow.time_id,
+        sequence: tdRow.sequence,
+        timeFrom: tdRow.time_from,
+        timeTo: tdRow.time_to,
+        duration: tdRow.duration,
+      }));
 
-      return {
-        id: Number(tdRow.id),
-        ...td,
-      };
-    });
+      const valueRows = connection
+        .prepare(
+          `
+          SELECT * FROM area_timeseries_value
+          WHERE snapshot_id = ?
+          ORDER BY sequence ASC, id ASC
+        `,
+        )
+        .all(snapshotId) as AreaTimeseriesValueRow[];
 
-    const insertValueStmt = connection.prepare(`
-      INSERT INTO area_timeseries_value (
-        snapshot_id, block_id, ref_id, element, value_code, value_text, value_number, unit, sequence
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+      values = valueRows.map((vRow) => ({
+        id: vRow.id,
+        blockId: vRow.block_id,
+        refId: vRow.ref_id,
+        element: vRow.element,
+        valueCode: vRow.value_code,
+        valueText: vRow.value_text,
+        valueNumber: vRow.value_number,
+        unit: vRow.unit,
+        sequence: vRow.sequence,
+      }));
+    } else {
+      connection.prepare('DELETE FROM area_timeseries_value WHERE snapshot_id = ?').run(snapshotId);
+      connection
+        .prepare('DELETE FROM area_timeseries_time_define WHERE snapshot_id = ?')
+        .run(snapshotId);
 
-    const values: AreaTimeseriesValue[] = input.values.map((v) => {
-      const vRow = insertValueStmt.get(
-        snapshotId,
-        v.blockId,
-        v.refId,
-        v.element,
-        v.valueCode,
-        v.valueText,
-        v.valueNumber,
-        v.unit,
-        v.sequence,
-      ) as { id: number };
+      const insertTimeDefineStmt = connection.prepare(`
+        INSERT INTO area_timeseries_time_define (
+          snapshot_id, block_id, time_id, sequence, time_from, time_to, duration
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
 
-      return {
-        id: Number(vRow.id),
-        ...v,
-      };
-    });
+      timeDefines = input.timeDefines.map((td) => {
+        const tdRow = insertTimeDefineStmt.get(
+          snapshotId,
+          td.blockId,
+          td.timeId,
+          td.sequence,
+          td.timeFrom,
+          td.timeTo,
+          td.duration,
+        ) as { id: number };
+
+        return {
+          id: Number(tdRow.id),
+          ...td,
+        };
+      });
+
+      const insertValueStmt = connection.prepare(`
+        INSERT INTO area_timeseries_value (
+          snapshot_id, block_id, ref_id, element, value_code, value_text, value_number, unit, sequence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
+
+      values = input.values.map((v) => {
+        const vRow = insertValueStmt.get(
+          snapshotId,
+          v.blockId,
+          v.refId,
+          v.element,
+          v.valueCode,
+          v.valueText,
+          v.valueNumber,
+          v.unit,
+          v.sequence,
+        ) as { id: number };
+
+        return {
+          id: Number(vRow.id),
+          ...v,
+        };
+      });
+    }
 
     return {
       id: snapshotId,

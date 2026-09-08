@@ -3,6 +3,7 @@ import {
   mapMetadataRow,
   validateMetadataInput,
   validateTileRelativePath,
+  validateUtcIso8601String,
   type SnapshotMetadataRow,
 } from './snapshot.js';
 import type {
@@ -53,11 +54,17 @@ export function saveRadarSnapshot(
   validateProduct(input.product);
   validateMetadataInput(input.metadata);
 
-  // タイルパス等のバリデーション
-  for (const frame of input.frames) {
-    if (frame.tiles) {
-      for (const tile of frame.tiles) {
-        validateTileRelativePath(tile.filePath);
+  const isStale = input.metadata.availability === 'stale';
+
+  if (!isStale) {
+    for (const frame of input.frames) {
+      validateUtcIso8601String(frame.baseTime, 'frame.baseTime');
+      validateUtcIso8601String(frame.validTime, 'frame.validTime');
+      if (frame.tiles) {
+        for (const tile of frame.tiles) {
+          validateUtcIso8601String(tile.storedAt, 'tile.storedAt');
+          validateTileRelativePath(tile.filePath);
+        }
       }
     }
   }
@@ -96,62 +103,106 @@ export function saveRadarSnapshot(
 
     const snapshotId = Number(row.id);
 
-    // frame 削除で tile も CASCADE される
-    connection.prepare('DELETE FROM radar_frame WHERE snapshot_id = ?').run(snapshotId);
+    let frames: RadarFrame[];
 
-    const insertFrameStmt = connection.prepare(`
-      INSERT INTO radar_frame (
-        snapshot_id, base_time, valid_time, element, member, sequence
-      ) VALUES (?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+    if (isStale) {
+      const frameRows = connection
+        .prepare(
+          `
+          SELECT * FROM radar_frame
+          WHERE snapshot_id = ?
+          ORDER BY sequence ASC, id ASC
+        `,
+        )
+        .all(snapshotId) as RadarFrameRow[];
 
-    const insertTileStmt = connection.prepare(`
-      INSERT INTO radar_tile (
-        frame_id, zoom, tile_x, tile_y, file_path, byte_size, content_hash, stored_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+      const tileStmt = connection.prepare(`
+        SELECT * FROM radar_tile
+        WHERE frame_id = ?
+        ORDER BY zoom ASC, tile_x ASC, tile_y ASC, id ASC
+      `);
 
-    const frames: RadarFrame[] = input.frames.map((frame) => {
-      const fRow = insertFrameStmt.get(
-        snapshotId,
-        frame.baseTime,
-        frame.validTime,
-        frame.element,
-        frame.member,
-        frame.sequence,
-      ) as { id: number };
-
-      const frameId = Number(fRow.id);
-      const tiles: RadarTile[] = (frame.tiles ?? []).map((t) => {
-        const tRow = insertTileStmt.get(
-          frameId,
-          t.zoom,
-          t.tileX,
-          t.tileY,
-          t.filePath,
-          t.byteSize,
-          t.contentHash,
-          t.storedAt,
-        ) as { id: number };
+      frames = frameRows.map((fRow) => {
+        const tileRows = tileStmt.all(fRow.id) as RadarTileRow[];
+        const tiles: RadarTile[] = tileRows.map((tRow) => ({
+          id: tRow.id,
+          zoom: tRow.zoom,
+          tileX: tRow.tile_x,
+          tileY: tRow.tile_y,
+          filePath: tRow.file_path,
+          byteSize: tRow.byte_size,
+          contentHash: tRow.content_hash,
+          storedAt: tRow.stored_at,
+        }));
 
         return {
-          id: Number(tRow.id),
-          ...t,
+          id: fRow.id,
+          baseTime: fRow.base_time,
+          validTime: fRow.valid_time,
+          element: fRow.element,
+          member: fRow.member,
+          sequence: fRow.sequence,
+          tiles,
         };
       });
+    } else {
+      // frame 削除で tile も CASCADE される
+      connection.prepare('DELETE FROM radar_frame WHERE snapshot_id = ?').run(snapshotId);
 
-      return {
-        id: frameId,
-        baseTime: frame.baseTime,
-        validTime: frame.validTime,
-        element: frame.element,
-        member: frame.member,
-        sequence: frame.sequence,
-        tiles,
-      };
-    });
+      const insertFrameStmt = connection.prepare(`
+        INSERT INTO radar_frame (
+          snapshot_id, base_time, valid_time, element, member, sequence
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
+
+      const insertTileStmt = connection.prepare(`
+        INSERT INTO radar_tile (
+          frame_id, zoom, tile_x, tile_y, file_path, byte_size, content_hash, stored_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
+
+      frames = input.frames.map((frame) => {
+        const fRow = insertFrameStmt.get(
+          snapshotId,
+          frame.baseTime,
+          frame.validTime,
+          frame.element,
+          frame.member,
+          frame.sequence,
+        ) as { id: number };
+
+        const frameId = Number(fRow.id);
+        const tiles: RadarTile[] = (frame.tiles ?? []).map((t) => {
+          const tRow = insertTileStmt.get(
+            frameId,
+            t.zoom,
+            t.tileX,
+            t.tileY,
+            t.filePath,
+            t.byteSize,
+            t.contentHash,
+            t.storedAt,
+          ) as { id: number };
+
+          return {
+            id: Number(tRow.id),
+            ...t,
+          };
+        });
+
+        return {
+          id: frameId,
+          baseTime: frame.baseTime,
+          validTime: frame.validTime,
+          element: frame.element,
+          member: frame.member,
+          sequence: frame.sequence,
+          tiles,
+        };
+      });
+    }
 
     return {
       id: snapshotId,

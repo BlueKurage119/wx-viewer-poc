@@ -6,6 +6,7 @@ import {
   validateMetadataInput,
   validateNonEmptyString,
   validateTelegramInput,
+  validateUtcIso8601StringOrNull,
   type SnapshotMetadataRow,
   type TelegramMetadataRow,
 } from './snapshot.js';
@@ -47,6 +48,14 @@ export function saveWarningCurrentSnapshot(
   validateNonEmptyString(input.areaName, 'areaName');
   validateMetadataInput(input.metadata);
   validateTelegramInput(input.telegram);
+
+  const isStale = input.metadata.availability === 'stale';
+
+  if (!isStale) {
+    for (const item of input.items) {
+      validateUtcIso8601StringOrNull(item.kindIssuedAt, 'item.kindIssuedAt');
+    }
+  }
 
   const saveTx = connection.transaction(() => {
     const upsertStmt = connection.prepare(`
@@ -93,39 +102,69 @@ export function saveWarningCurrentSnapshot(
 
     const snapshotId = Number(row.id);
 
-    connection.prepare('DELETE FROM warning_current_item WHERE snapshot_id = ?').run(snapshotId);
+    let items: WarningCurrentItem[];
 
-    const insertItemStmt = connection.prepare(`
-      INSERT INTO warning_current_item (
-        snapshot_id, sequence, kind_code, kind_name, kind_status,
-        last_kind_code, last_kind_name, significancy_code, significancy_name,
-        warning_level, attention_text, kind_issued_at, source_telegram
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+    if (isStale) {
+      const itemRows = connection
+        .prepare(
+          `
+          SELECT * FROM warning_current_item
+          WHERE snapshot_id = ?
+          ORDER BY sequence ASC, id ASC
+        `,
+        )
+        .all(snapshotId) as WarningCurrentItemRow[];
 
-    const items: WarningCurrentItem[] = input.items.map((item) => {
-      const itemRow = insertItemStmt.get(
-        snapshotId,
-        item.sequence,
-        item.kindCode,
-        item.kindName,
-        item.kindStatus,
-        item.lastKindCode,
-        item.lastKindName,
-        item.significancyCode,
-        item.significancyName,
-        item.warningLevel,
-        item.attentionText,
-        item.kindIssuedAt,
-        item.sourceTelegram,
-      ) as { id: number };
+      items = itemRows.map((itemRow) => ({
+        id: itemRow.id,
+        sequence: itemRow.sequence,
+        kindCode: itemRow.kind_code,
+        kindName: itemRow.kind_name,
+        kindStatus: itemRow.kind_status,
+        lastKindCode: itemRow.last_kind_code,
+        lastKindName: itemRow.last_kind_name,
+        significancyCode: itemRow.significancy_code,
+        significancyName: itemRow.significancy_name,
+        warningLevel: itemRow.warning_level,
+        attentionText: itemRow.attention_text,
+        kindIssuedAt: itemRow.kind_issued_at,
+        sourceTelegram: itemRow.source_telegram,
+      }));
+    } else {
+      connection.prepare('DELETE FROM warning_current_item WHERE snapshot_id = ?').run(snapshotId);
 
-      return {
-        id: Number(itemRow.id),
-        ...item,
-      };
-    });
+      const insertItemStmt = connection.prepare(`
+        INSERT INTO warning_current_item (
+          snapshot_id, sequence, kind_code, kind_name, kind_status,
+          last_kind_code, last_kind_name, significancy_code, significancy_name,
+          warning_level, attention_text, kind_issued_at, source_telegram
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
+
+      items = input.items.map((item) => {
+        const itemRow = insertItemStmt.get(
+          snapshotId,
+          item.sequence,
+          item.kindCode,
+          item.kindName,
+          item.kindStatus,
+          item.lastKindCode,
+          item.lastKindName,
+          item.significancyCode,
+          item.significancyName,
+          item.warningLevel,
+          item.attentionText,
+          item.kindIssuedAt,
+          item.sourceTelegram,
+        ) as { id: number };
+
+        return {
+          id: Number(itemRow.id),
+          ...item,
+        };
+      });
+    }
 
     return {
       id: snapshotId,

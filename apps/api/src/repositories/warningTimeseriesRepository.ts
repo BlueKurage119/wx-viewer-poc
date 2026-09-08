@@ -6,6 +6,7 @@ import {
   validateMetadataInput,
   validateNonEmptyString,
   validateTelegramInput,
+  validateUtcIso8601String,
   type SnapshotMetadataRow,
   type TelegramMetadataRow,
 } from './snapshot.js';
@@ -60,6 +61,15 @@ export function saveWarningTimeseriesSnapshot(
   validateMetadataInput(input.metadata);
   validateTelegramInput(input.telegram);
 
+  const isStale = input.metadata.availability === 'stale';
+
+  if (!isStale) {
+    for (const td of input.timeDefines) {
+      validateUtcIso8601String(td.timeFrom, 'timeDefine.timeFrom');
+      validateUtcIso8601String(td.timeTo, 'timeDefine.timeTo');
+    }
+  }
+
   const saveTx = connection.transaction(() => {
     const upsertStmt = connection.prepare(`
       INSERT INTO warning_timeseries_snapshot (
@@ -105,68 +115,119 @@ export function saveWarningTimeseriesSnapshot(
 
     const snapshotId = Number(row.id);
 
-    // 明細全削除（time_define 削除で value も CASCADE されるが、明示的に削除）
-    connection
-      .prepare('DELETE FROM warning_timeseries_value WHERE snapshot_id = ?')
-      .run(snapshotId);
-    connection
-      .prepare('DELETE FROM warning_timeseries_time_define WHERE snapshot_id = ?')
-      .run(snapshotId);
+    let timeDefines: WarningTimeseriesTimeDefine[];
+    let values: WarningTimeseriesValue[];
 
-    const insertTimeDefineStmt = connection.prepare(`
-      INSERT INTO warning_timeseries_time_define (
-        snapshot_id, block_id, time_id, sequence, time_from, time_to, duration
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+    if (isStale) {
+      const tdRows = connection
+        .prepare(
+          `
+          SELECT * FROM warning_timeseries_time_define
+          WHERE snapshot_id = ?
+          ORDER BY sequence ASC, id ASC
+        `,
+        )
+        .all(snapshotId) as WarningTimeseriesTimeDefineRow[];
 
-    const timeDefines: WarningTimeseriesTimeDefine[] = input.timeDefines.map((td) => {
-      const tdRow = insertTimeDefineStmt.get(
-        snapshotId,
-        td.blockId,
-        td.timeId,
-        td.sequence,
-        td.timeFrom,
-        td.timeTo,
-        td.duration,
-      ) as { id: number };
+      timeDefines = tdRows.map((tdRow) => ({
+        id: tdRow.id,
+        blockId: tdRow.block_id,
+        timeId: tdRow.time_id,
+        sequence: tdRow.sequence,
+        timeFrom: tdRow.time_from,
+        timeTo: tdRow.time_to,
+        duration: tdRow.duration,
+      }));
 
-      return {
-        id: Number(tdRow.id),
-        ...td,
-      };
-    });
+      const valueRows = connection
+        .prepare(
+          `
+          SELECT * FROM warning_timeseries_value
+          WHERE snapshot_id = ?
+          ORDER BY sequence ASC, id ASC
+        `,
+        )
+        .all(snapshotId) as WarningTimeseriesValueRow[];
 
-    const insertValueStmt = connection.prepare(`
-      INSERT INTO warning_timeseries_value (
-        snapshot_id, block_id, ref_id, kind_code, kind_name, kind_status,
-        value_category, property_type, value_type, value_text, unit, area_division, sequence
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING id
-    `);
+      values = valueRows.map((vRow) => ({
+        id: vRow.id,
+        blockId: vRow.block_id,
+        refId: vRow.ref_id,
+        kindCode: vRow.kind_code,
+        kindName: vRow.kind_name,
+        kindStatus: vRow.kind_status,
+        valueCategory: vRow.value_category,
+        propertyType: vRow.property_type,
+        valueType: vRow.value_type,
+        valueText: vRow.value_text,
+        unit: vRow.unit,
+        areaDivision: vRow.area_division,
+        sequence: vRow.sequence,
+      }));
+    } else {
+      // 明細全削除（time_define 削除で value も CASCADE されるが、明示的に削除）
+      connection
+        .prepare('DELETE FROM warning_timeseries_value WHERE snapshot_id = ?')
+        .run(snapshotId);
+      connection
+        .prepare('DELETE FROM warning_timeseries_time_define WHERE snapshot_id = ?')
+        .run(snapshotId);
 
-    const values: WarningTimeseriesValue[] = input.values.map((v) => {
-      const vRow = insertValueStmt.get(
-        snapshotId,
-        v.blockId,
-        v.refId,
-        v.kindCode,
-        v.kindName,
-        v.kindStatus,
-        v.valueCategory,
-        v.propertyType,
-        v.valueType,
-        v.valueText,
-        v.unit,
-        v.areaDivision,
-        v.sequence,
-      ) as { id: number };
+      const insertTimeDefineStmt = connection.prepare(`
+        INSERT INTO warning_timeseries_time_define (
+          snapshot_id, block_id, time_id, sequence, time_from, time_to, duration
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
 
-      return {
-        id: Number(vRow.id),
-        ...v,
-      };
-    });
+      timeDefines = input.timeDefines.map((td) => {
+        const tdRow = insertTimeDefineStmt.get(
+          snapshotId,
+          td.blockId,
+          td.timeId,
+          td.sequence,
+          td.timeFrom,
+          td.timeTo,
+          td.duration,
+        ) as { id: number };
+
+        return {
+          id: Number(tdRow.id),
+          ...td,
+        };
+      });
+
+      const insertValueStmt = connection.prepare(`
+        INSERT INTO warning_timeseries_value (
+          snapshot_id, block_id, ref_id, kind_code, kind_name, kind_status,
+          value_category, property_type, value_type, value_text, unit, area_division, sequence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `);
+
+      values = input.values.map((v) => {
+        const vRow = insertValueStmt.get(
+          snapshotId,
+          v.blockId,
+          v.refId,
+          v.kindCode,
+          v.kindName,
+          v.kindStatus,
+          v.valueCategory,
+          v.propertyType,
+          v.valueType,
+          v.valueText,
+          v.unit,
+          v.areaDivision,
+          v.sequence,
+        ) as { id: number };
+
+        return {
+          id: Number(vRow.id),
+          ...v,
+        };
+      });
+    }
 
     return {
       id: snapshotId,
