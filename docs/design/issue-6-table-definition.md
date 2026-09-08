@@ -1,8 +1,8 @@
-# テーブル定義書（Issue #6 実装分）
+# テーブル定義書（Issue #6・Issue #7 実装分）
 
 作成日: 2026-09-09
 
-`apps/api/migrations/0001`〜`0008` の実 DDL を転記したリファレンス。後続 Issue（Epic C・Epic E・B3〜B6）がテーブル構造を素早く参照するためのもので、設計意図は [issue-6-info-type-schema.md](issue-6-info-type-schema.md) を正とする。migration を追加・変更したときはこのファイルも更新する。
+`apps/api/migrations/0001`〜`0010` の実 DDL を転記したリファレンス。後続 Issue（Epic C・Epic E・B4〜B6）がテーブル構造を素早く参照するためのもので、設計意図は [issue-6-info-type-schema.md](issue-6-info-type-schema.md) および [issue-7-reception-history.md](issue-7-reception-history.md) を正とする。migration を追加・変更したときはこのファイルも更新する。
 
 ## 1. テーブル一覧
 
@@ -29,6 +29,9 @@
 | 0007 | `amedas_observation` | アメダスの観測時刻×要素 |
 | 0008 | `bosai_bulletin` | 気象防災速報（1 EventID＝1 行、単層） |
 | 0008 | `bosai_bulletin_area` | 速報の対象区域 |
+| 0009 | `fetch_attempt` | 通信履歴（取得試行ごとの成否ログ） |
+| 0010 | `telegram_reception` | 電文履歴（XML 電文 1 件ごとの受信記録） |
+| 0010 | `telegram_reception_area` | 電文履歴の対象区域明細 |
 
 `__schema_migrations` は Issue #5 で作成される migration 管理表。
 
@@ -252,9 +255,78 @@ UNIQUE `(bulletin_id, area_code, code_type)`
 
 江東区包含判定の結果列（`relation` 等）は持たない。判定は `apps/api/src/repositories/bosaiBulletinRepository.ts` の `KOTO_INCLUDED_AREA_CODES`（`1310800` / `130012` / `130010`）を使い、読み出し時に行う。
 
-## 11. 制約サマリ
+## 11. 通信履歴（0009）
 
-### 11.1 UNIQUE 制約（UPSERT 競合ターゲット）
+### fetch_attempt
+
+| 列 | 型 | 制約 | 内容 |
+| --- | --- | --- | --- |
+| `id` | INTEGER | PRIMARY KEY | |
+| `source_kind` | TEXT | NOT NULL, CHECK (`source_kind <> ''`) | 取得元種別 |
+| `target_ref` | TEXT | — | 取得対象識別子（タイルではフレーム識別子等） |
+| `request_url` | TEXT | NOT NULL, CHECK (`request_url <> ''`) | 要求 URL |
+| `trigger_kind` | TEXT | NOT NULL, CHECK (`trigger_kind <> ''`) | 契機（`scheduled`/`manual`/`startup`/`retry` 等） |
+| `attempt_no` | INTEGER | NOT NULL, CHECK (`attempt_no >= 1`) | 同一目的での試行回数 |
+| `started_at` | TEXT | NOT NULL | 試行開始時刻 (UTC ISO 8601) |
+| `finished_at` | TEXT | NOT NULL | 試行終了時刻 (UTC ISO 8601) |
+| `duration_ms` | INTEGER | NOT NULL, CHECK (`duration_ms >= 0`) | 所要時間ミリ秒（フレーム行では全タイル合計） |
+| `outcome` | TEXT | NOT NULL, CHECK IN (`success`, `failure`) | 取得試行の成否 |
+| `http_status` | INTEGER | — | HTTP ステータス |
+| `response_bytes` | INTEGER | CHECK (`response_bytes IS NULL OR response_bytes >= 0`) | 受信バイト数（フレーム行では全タイル合計） |
+| `item_count` | INTEGER | CHECK (`item_count IS NULL OR item_count >= 1`) | まとめた取得対象件数（タイル等） |
+| `failed_item_count` | INTEGER | CHECK (`failed_item_count IS NULL OR failed_item_count >= 0`), CHECK (`item_count IS NULL OR failed_item_count IS NULL OR failed_item_count <= item_count`) | うち失敗した件数 |
+| `content_hash` | TEXT | — | 本文 SHA-256 |
+| `error_kind` | TEXT | CHECK (`error_kind IS NULL OR error_kind <> ''`) | 失敗分類 |
+| `error_message` | TEXT | — | 失敗詳細 |
+
+UNIQUE 制約・外部キー制約なし（追記ログ）。
+
+## 12. 電文履歴（0010）
+
+### telegram_reception
+
+| 列 | 型 | 制約 | 内容 |
+| --- | --- | --- | --- |
+| `id` | INTEGER | PRIMARY KEY | |
+| `fetch_attempt_id` | INTEGER | —（**FK 制約なし**） | 由来する取得試行 ID |
+| `feed_kind` | TEXT | CHECK (`feed_kind IS NULL OR feed_kind <> ''`) | 由来フィード種別 |
+| `feed_entry_id` | TEXT | CHECK (`feed_entry_id IS NULL OR feed_entry_id <> ''`) | Atom エントリ `<id>` |
+| `document_url` | TEXT | NOT NULL, CHECK (`document_url <> ''`) | 電文 XML の URL |
+| `telegram_type` | TEXT | CHECK (`telegram_type IS NULL OR telegram_type <> ''`) | 電文種別（`VPWW55` 等） |
+| `title` | TEXT | — | 表題 |
+| `control_status` | TEXT | CHECK (`control_status IS NULL OR control_status IN ('normal', 'training', 'test')`) | `Control/Status`（未解析は NULL） |
+| `info_type` | TEXT | — | `Head/InfoType`（発表／訂正／取消等） |
+| `event_id` | TEXT | — | `Head/EventID` |
+| `serial` | TEXT | — | `Head/Serial` |
+| `control_datetime` | TEXT | — | `Control/DateTime` (UTC ISO 8601) |
+| `report_datetime` | TEXT | — | `Head/ReportDateTime` (UTC ISO 8601) |
+| `target_datetime` | TEXT | — | `Head/TargetDateTime` (UTC ISO 8601) |
+| `received_at` | TEXT | NOT NULL | 受信時刻 (UTC ISO 8601) |
+| `adoption_result` | TEXT | CHECK (`adoption_result IS NULL OR adoption_result <> ''`) | 採用結果（自由記述、値集合制約なし） |
+| `adoption_reason` | TEXT | — | 採用理由 |
+| `adoption_decided_at` | TEXT | — | 採用判定時刻 (UTC ISO 8601) |
+| `raw_body` | TEXT | — | 電文原文 XML（取得失敗時は NULL） |
+| `body_bytes` | INTEGER | CHECK (`body_bytes IS NULL OR body_bytes >= 0`) | 原文字節数 |
+| `content_hash` | TEXT | — | 原文 SHA-256 |
+
+UNIQUE 制約なし（同一 `document_url` の再受信も追記保存）。
+
+### telegram_reception_area
+
+| 列 | 型 | 制約 | 内容 |
+| --- | --- | --- | --- |
+| `id` | INTEGER | PRIMARY KEY | |
+| `reception_id` | INTEGER | NOT NULL → `telegram_reception(id)` CASCADE | 親電文 ID |
+| `area_code` | TEXT | NOT NULL, CHECK (`area_code <> ''`) | 対象区域コード |
+| `area_name` | TEXT | — | 対象区域名 |
+| `code_type` | TEXT | — | コード種別 |
+| `sequence` | INTEGER | NOT NULL | 並び順 |
+
+UNIQUE `(reception_id, sequence)`
+
+## 13. 制約サマリ
+
+### 13.1 UNIQUE 制約（UPSERT 競合ターゲット / 一意性保証）
 
 | テーブル | 列組 |
 | --- | --- |
@@ -278,12 +350,13 @@ UNIQUE `(bulletin_id, area_code, code_type)`
 | `amedas_observation` | `(snapshot_id, observed_at, element)` |
 | `bosai_bulletin` | `(event_id, control_status)` |
 | `bosai_bulletin_area` | `(bulletin_id, area_code, code_type)` |
+| `telegram_reception_area` | `(reception_id, sequence)` |
 
-`warning_timeseries_value` に UNIQUE 制約はない。
+`warning_timeseries_value`、`fetch_attempt`、`telegram_reception` に UNIQUE 制約はない。
 
-### 11.2 外部キーと CASCADE
+### 13.2 外部キーと CASCADE
 
-すべての外部キーが `ON DELETE CASCADE`。`PRAGMA foreign_keys = 1` が前提（Issue #5 の `openDatabase` が設定）。
+すべての外部キーが `ON DELETE CASCADE`。`PRAGMA foreign_keys = 1` が前提（Issue #5 の `openDatabase` が設定）。`fetch_attempt` と `telegram_reception` の間には外部キー制約を張らない（独立したログ）。
 
 ```text
 warning_current_snapshot   ← warning_current_item
@@ -297,9 +370,10 @@ radar_snapshot             ← radar_frame ← radar_tile
 risk_snapshot              ← risk_frame ← risk_tile
 amedas_snapshot            ← amedas_observation
 bosai_bulletin             ← bosai_bulletin_area
+telegram_reception         ← telegram_reception_area
 ```
 
-### 11.3 CHECK 制約
+### 13.3 CHECK 制約
 
 | テーブル | 制約 |
 | --- | --- |
@@ -309,9 +383,9 @@ bosai_bulletin             ← bosai_bulletin_area
 | `radar_snapshot` | `product IN ('N1','N2')` |
 | `risk_snapshot` | `layer IN ('heavyrain','inund','land','flood')` |
 | `bosai_bulletin` | `is_cancelled IN (0,1)` |
+| `fetch_attempt` | `source_kind <> ''` / `request_url <> ''` / `trigger_kind <> ''` / `attempt_no >= 1` / `duration_ms >= 0` / `outcome IN ('success','failure')` / `response_bytes IS NULL OR response_bytes >= 0` / `item_count IS NULL OR item_count >= 1` / `failed_item_count IS NULL OR failed_item_count >= 0` / `item_count IS NULL OR failed_item_count IS NULL OR failed_item_count <= item_count` / `error_kind IS NULL OR error_kind <> ''` |
+| `telegram_reception` | `feed_kind IS NULL OR feed_kind <> ''` / `feed_entry_id IS NULL OR feed_entry_id <> ''` / `document_url <> ''` / `telegram_type IS NULL OR telegram_type <> ''` / `control_status IS NULL OR control_status IN ('normal','training','test')` / `adoption_result IS NULL OR adoption_result <> ''` / `body_bytes IS NULL OR body_bytes >= 0` |
+| `telegram_reception_area` | `area_code <> ''` |
 
 トリガーは 0 件。自動削除・TTL・ローテーションは存在しない。
 
----
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)

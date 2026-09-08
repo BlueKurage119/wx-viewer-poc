@@ -8,3 +8,5 @@ export * from './radarRepository.js';
 export * from './riskRepository.js';
 export * from './amedasRepository.js';
 export * from './bosaiBulletinRepository.js';
+export * from './fetchAttemptRepository.js';
+export * from './telegramReceptionRepository.js';
