@@ -7,3 +7,10 @@ export {
   type ColorModeSetting,
   type ResolvedColorMode,
 } from './ThemeProvider';
+export {
+  createSemanticColors,
+  type AlertLevel,
+  type NoticeColorCategory,
+  type SemanticColorRole,
+  type SemanticColorToken,
+} from './semanticColors';

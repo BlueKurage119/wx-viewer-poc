@@ -4,6 +4,7 @@ import {
   themeFromSourceColor,
   type Theme,
 } from '@material/material-color-utilities';
+import { createSemanticColors } from './semanticColors';
 
 /**
  * `@material/material-color-utilities` 0.3.0 の `applyTheme()` は
@@ -105,6 +106,12 @@ export function applyMd3Theme(
   const surfaceHex = hexFromArgb(neutral.tone(surfaceTone));
   root.style.setProperty('--md-sys-color-surface', surfaceHex);
   root.style.setProperty('--md-sys-color-background', surfaceHex);
+
+  // 5. 警戒レベル・通知区分のセマンティックトークン書き出し(設計書 §4.1)
+  const semanticColors = createSemanticColors(dark);
+  for (const [token, color] of Object.entries(semanticColors)) {
+    root.style.setProperty(token, color);
+  }
 
   // ネイティブUI・スクロールバーをテーマへ追従させる
   root.style.colorScheme = dark ? 'dark' : 'light';
