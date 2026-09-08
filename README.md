@@ -34,6 +34,16 @@ npm run dev
 
 APIは`PORT`環境変数が指定された場合、その値を優先する。
 
+## APIのSQLite永続化
+
+APIはHTTP待受の前にSQLiteを初期化し、`apps/api/migrations/`の未適用SQL migrationを番号順に適用する。既定のDBファイルは`apps/api/data/wx-viewer.sqlite3`で、Git管理対象外である。
+
+`WX_VIEWER_DB_PATH`で保存先を指定できる。絶対パスはそのまま、相対パスはAPI workspace（`apps/api`）から解決する。
+
+```bash
+WX_VIEWER_DB_PATH=./local.sqlite3 npm run dev -w apps/api
+```
+
 ## テーマ(MD3)
 
 - `apps/web/src/theme`に実装。`@material/material-color-utilities`(`0.3.0`固定)で単一シード色(`DEFAULT_THEME_SEED = '#1A73E8'`)からlight/dark両方のMD3カラートークンを生成し、`--md-sys-color-*`としてCSSへ反映する。
