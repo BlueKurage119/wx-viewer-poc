@@ -562,14 +562,22 @@ export interface OperationHistoryInput {
   readonly result: OperationResult;
   readonly requestedAt: UtcIso8601String;
   readonly completedAt: UtcIso8601String;
-  readonly actorId: string | null;
-  readonly actorDisplayName: string | null;
+  /** AuthGate 連携前は必ず NULL とする。 */
+  readonly actorId: null;
+  /** AuthGate 連携前は必ず NULL とする。 */
+  readonly actorDisplayName: null;
   readonly errorCode: string | null;
   readonly errorMessage: string | null;
 }
 
-export interface OperationHistory extends OperationHistoryInput {
+export interface OperationHistory extends Omit<
+  OperationHistoryInput,
+  'actorId' | 'actorDisplayName'
+> {
   readonly id: number;
+  /** 将来の AuthGate 連携後の履歴も読み出せるよう、返却値は NULL 固定にしない。 */
+  readonly actorId: string | null;
+  readonly actorDisplayName: string | null;
 }
 
 export interface ListOperationHistoryOptions {

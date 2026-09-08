@@ -57,12 +57,8 @@ function validateOperationHistoryInput(input: OperationHistoryInput): void {
     );
   }
 
-  if (input.actorId !== null) {
-    validateNonEmptyString(input.actorId, 'actorId');
-  }
-
-  if (input.actorDisplayName !== null) {
-    validateNonEmptyString(input.actorDisplayName, 'actorDisplayName');
+  if (input.actorId !== null || input.actorDisplayName !== null) {
+    throw new Error('actorId and actorDisplayName must both be null before AuthGate integration');
   }
 
   if (input.errorCode !== null) {
@@ -178,8 +174,8 @@ export function recordOperationHistory(
     input.result,
     input.requestedAt,
     input.completedAt,
-    input.actorId,
-    input.actorDisplayName,
+    null,
+    null,
     input.errorCode,
     input.errorMessage,
   ) as { id: number };

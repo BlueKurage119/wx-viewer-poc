@@ -64,8 +64,8 @@ const sampleRefreshInput: OperationHistoryInput = {
   result: 'failure',
   requestedAt: '2026-09-09T01:02:00Z',
   completedAt: '2026-09-09T01:02:05Z',
-  actorId: 'actor-001',
-  actorDisplayName: 'システム管理者',
+  actorId: null,
+  actorDisplayName: null,
   errorCode: 'ERR_TIMEOUT',
   errorMessage: '気象庁サーバー接続タイムアウト',
 };
@@ -104,8 +104,8 @@ test('1. start 成功、診断なしの stop 失敗、診断付きの force_refr
     assert.equal(rec3.requestId, sampleRefreshInput.requestId);
     assert.equal(rec3.operationKind, 'force_refresh');
     assert.equal(rec3.result, 'failure');
-    assert.equal(rec3.actorId, 'actor-001');
-    assert.equal(rec3.actorDisplayName, 'システム管理者');
+    assert.equal(rec3.actorId, null);
+    assert.equal(rec3.actorDisplayName, null);
     assert.equal(rec3.errorCode, 'ERR_TIMEOUT');
     assert.equal(rec3.errorMessage, '気象庁サーバー接続タイムアウト');
 
@@ -165,8 +165,8 @@ test('3. operationKind / result / actorId / 要求受理・結果確定の各時
       result: 'success',
       requestedAt: '2026-09-09T10:00:00Z',
       completedAt: '2026-09-09T10:00:05Z',
-      actorId: 'user1',
-      actorDisplayName: 'ユーザー1',
+      actorId: null,
+      actorDisplayName: null,
       errorCode: null,
       errorMessage: null,
     };
@@ -177,8 +177,8 @@ test('3. operationKind / result / actorId / 要求受理・結果確定の各時
       result: 'failure',
       requestedAt: '2026-09-09T10:10:00Z',
       completedAt: '2026-09-09T10:10:05Z',
-      actorId: 'user2',
-      actorDisplayName: 'ユーザー2',
+      actorId: null,
+      actorDisplayName: null,
       errorCode: 'ERR_STOP',
       errorMessage: '停止失敗',
     };
@@ -201,8 +201,8 @@ test('3. operationKind / result / actorId / 要求受理・結果確定の各時
       result: 'failure',
       requestedAt: '2026-09-09T10:30:00Z',
       completedAt: '2026-09-09T10:30:05Z',
-      actorId: 'user1',
-      actorDisplayName: 'ユーザー1',
+      actorId: null,
+      actorDisplayName: null,
       errorCode: 'ERR_REFRESH',
       errorMessage: '更新失敗',
     };
@@ -233,10 +233,10 @@ test('3. operationKind / result / actorId / 要求受理・結果確定の各時
     assert.equal(succList.length, 2);
     assert.equal(countOperationHistory(context.connection, { result: 'success' }), 2);
 
-    // actorId フィルター
+    // AuthGate 連携前は主体が常に NULL のため、actorId フィルターは一致しない
     const user1List = listOperationHistory(context.connection, { actorId: 'user1' });
-    assert.equal(user1List.length, 2);
-    assert.equal(countOperationHistory(context.connection, { actorId: 'user1' }), 2);
+    assert.deepEqual(user1List, []);
+    assert.equal(countOperationHistory(context.connection, { actorId: 'user1' }), 0);
 
     // requestedAt 範囲フィルター（境界値を含む）
     const reqFromList = listOperationHistory(context.connection, {
@@ -295,15 +295,14 @@ test('3. operationKind / result / actorId / 要求受理・結果確定の各時
       result: 'failure',
       actorId: 'user1',
     });
-    assert.equal(compoundList.length, 1);
-    assert.equal(compoundList[0].requestId, 'req-filter-4');
+    assert.deepEqual(compoundList, []);
     assert.equal(
       countOperationHistory(context.connection, {
         operationKind: 'force_refresh',
         result: 'failure',
         actorId: 'user1',
       }),
-      1,
+      0,
     );
 
     // limit を指定しても count は全件数を返す
@@ -417,7 +416,7 @@ test('4. 同一 completedAt の 2 行が id 降順で返る。ページング、
   }
 });
 
-test('5. 空の requestId、不正な操作・結果・対象、非 ISO 8601 の要求受理・結果確定時刻、結果確定時刻より後の要求受理時刻、空文字の nullable 主体・エラーコードを渡すと、SQL 実行前に例外になる。success / failure の双方で診断列が NULL の入力は例外にならない', () => {
+test('5. 空の requestId、不正な操作・結果・対象、非 ISO 8601 の要求受理・結果確定時刻、結果確定時刻より後の要求受理時刻、NULL 以外の主体・空文字のエラーコードを渡すと、SQL 実行前に例外になる。success / failure の双方で診断列が NULL の入力は例外にならない', () => {
   const { databasePath, cleanup } = createTempDbPath();
   try {
     const context = initializeDatabase({
@@ -505,15 +504,15 @@ test('5. 空の requestId、不正な操作・結果・対象、非 ISO 8601 の
       { message: /requestedAt must be less than or equal to completedAt/ },
     );
 
-    // 空文字の actorId
-    assert.throws(() => recordOperationHistory(context.connection, { ...baseValid, actorId: '' }), {
-      message: /actorId must be a non-empty string/,
-    });
-
-    // 空文字の actorDisplayName
+    // AuthGate 連携前は主体を常に NULL とする
     assert.throws(
-      () => recordOperationHistory(context.connection, { ...baseValid, actorDisplayName: '' }),
-      { message: /actorDisplayName must be a non-empty string/ },
+      () =>
+        recordOperationHistory(context.connection, {
+          ...baseValid,
+          actorId: 'actor-001' as unknown as null,
+          actorDisplayName: 'システム管理者' as unknown as null,
+        }),
+      { message: /actorId and actorDisplayName must both be null before AuthGate integration/ },
     );
 
     // 空文字の errorCode
