@@ -367,9 +367,34 @@ CHECK (
 - `idx_notification_output_history_context` ON `notification_output_history (detection_context, detected_at DESC, id DESC)`
 - `idx_notification_output_history_training` ON `notification_output_history (is_training, detected_at DESC, id DESC)`
 
-## 14. 制約サマリ
+## 14. 操作記録（0012）
 
-### 14.1 UNIQUE 制約（UPSERT 競合ターゲット / 一意性保証）
+### operation_history
+
+| 列 | 型 | 制約 | 内容 |
+| --- | --- | --- | --- |
+| `id` | INTEGER | PRIMARY KEY | DB 内部の連番 |
+| `request_id` | TEXT | NOT NULL, UNIQUE, CHECK (`request_id <> ''`) | 制御要求の一意識別子 |
+| `operation_kind` | TEXT | NOT NULL, CHECK IN (`start`, `stop`, `force_refresh`) | 実行した制御操作 |
+| `target_kind` | TEXT | NOT NULL, CHECK (`target_kind = 'all'`) | 操作対象（全体一括固定） |
+| `result` | TEXT | NOT NULL, CHECK IN (`success`, `failure`) | 制御結果 |
+| `requested_at` | TEXT | NOT NULL | 要求受理時刻 (UTC ISO 8601) |
+| `completed_at` | TEXT | NOT NULL | 結果確定時刻 (UTC ISO 8601) |
+| `actor_id` | TEXT | CHECK (`actor_id IS NULL OR actor_id <> ''`) | 将来の AuthGate 連携用主体識別子（NULL 可） |
+| `actor_display_name` | TEXT | CHECK (`actor_display_name IS NULL OR actor_display_name <> ''`) | 将来の AuthGate 連携用表示名（NULL 可） |
+| `error_code` | TEXT | CHECK (`error_code IS NULL OR error_code <> ''`) | 診断コード（NULL 可） |
+| `error_message` | TEXT | — | 診断メッセージ（表示・調査用、NULL 可） |
+
+UNIQUE `(request_id)`
+
+索引:
+- `idx_operation_history_completed` ON `operation_history (completed_at DESC, id DESC)`
+- `idx_operation_history_kind` ON `operation_history (operation_kind, completed_at DESC, id DESC)`
+- `idx_operation_history_result` ON `operation_history (result, completed_at DESC, id DESC)`
+
+## 15. 制約サマリ
+
+### 15.1 UNIQUE 制約（UPSERT 競合ターゲット / 一意性保証）
 
 | テーブル | 列組 |
 | --- | --- |
@@ -395,12 +420,13 @@ CHECK (
 | `bosai_bulletin_area` | `(bulletin_id, area_code, code_type)` |
 | `telegram_reception_area` | `(reception_id, sequence)` |
 | `notification_output_history` | `(notification_id)` |
+| `operation_history` | `(request_id)` |
 
 `warning_timeseries_value`、`fetch_attempt`、`telegram_reception` に UNIQUE 制約はない。
 
-### 14.2 外部キーと CASCADE
+### 15.2 外部キーと CASCADE
 
-すべての外部キーが `ON DELETE CASCADE`。`PRAGMA foreign_keys = 1` が前提（Issue #5 の `openDatabase` が設定）。`fetch_attempt` と `telegram_reception` の間には外部キー制約を張らない（独立したログ）。`notification_output_history` も独立したログであり、外部キーを持たない。
+すべての外部キーが `ON DELETE CASCADE`。`PRAGMA foreign_keys = 1` が前提（Issue #5 の `openDatabase` が設定）。`fetch_attempt` と `telegram_reception` の間には外部キー制約を張らない（独立したログ）。`notification_output_history` も独立したログであり、外部キーを持たない。`operation_history` も独立した操作ログであり、外部キーを持たない。
 
 ```text
 warning_current_snapshot   ← warning_current_item
@@ -417,7 +443,7 @@ bosai_bulletin             ← bosai_bulletin_area
 telegram_reception         ← telegram_reception_area
 ```
 
-### 14.3 CHECK 制約
+### 15.3 CHECK 制約
 
 | テーブル | 制約 |
 | --- | --- |
@@ -431,6 +457,6 @@ telegram_reception         ← telegram_reception_area
 | `telegram_reception` | `feed_kind IS NULL OR feed_kind <> ''` / `feed_entry_id IS NULL OR feed_entry_id <> ''` / `document_url <> ''` / `telegram_type IS NULL OR telegram_type <> ''` / `control_status IS NULL OR control_status IN ('normal','training','test')` / `adoption_result IS NULL OR adoption_result <> ''` / `body_bytes IS NULL OR body_bytes >= 0` |
 | `telegram_reception_area` | `area_code <> ''` |
 | `notification_output_history` | `notification_id <> ''` / `category <> ''` / `source_type <> ''` / `source_version IS NULL OR source_version <> ''` / `target_area_json IS NULL OR target_area_json <> ''` / `change_type <> ''` / `ack_required IN (0, 1)` / `summary <> ''` / `related_refs_json <> ''` / `origin IN ('weather', 'system')` / `detection_context IN ('normal', 'initial')` / `is_training IN (0, 1)` / `message_definition_id IS NULL OR message_definition_id <> ''` / `message_definition_version IS NULL OR message_definition_version <> ''` / `(message_definition_id IS NULL AND message_definition_version IS NULL) OR (message_definition_id IS NOT NULL AND message_definition_version IS NOT NULL)` |
+| `operation_history` | `request_id <> ''` / `operation_kind IN ('start', 'stop', 'force_refresh')` / `target_kind = 'all'` / `result IN ('success', 'failure')` / `actor_id IS NULL OR actor_id <> ''` / `actor_display_name IS NULL OR actor_display_name <> ''` / `error_code IS NULL OR error_code <> ''` |
 
 トリガーは 0 件。自動削除・TTL・ローテーションは存在しない。
-
