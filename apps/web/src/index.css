@@ -94,8 +94,8 @@ button:disabled {
   gap: 6px;
   border-radius: 4px;
   padding: 4px 12px;
-  background: #b3261e;
-  color: #fff;
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
   font-size: 16px;
   font-weight: 700;
 }
@@ -258,12 +258,20 @@ select {
   color: var(--md-sys-color-on-surface-variant);
 }
 .has-notice.warning-row {
-  background: #3d3220;
-  color: #ffe0a6;
+  background: var(--wx-notice-warning-container);
+  color: var(--wx-notice-warning-on-container);
+  border-top-color: var(--wx-notice-warning-outline);
+}
+.has-notice.warning-row .notice-actions button {
+  border-color: var(--wx-notice-warning-outline);
 }
 .has-notice.question-row {
-  background: #45272a;
-  color: #ffdadb;
+  background: var(--wx-notice-question-container);
+  color: var(--wx-notice-question-on-container);
+  border-top-color: var(--wx-notice-question-outline);
+}
+.has-notice.question-row .notice-actions button {
+  border-color: var(--wx-notice-question-outline);
 }
 .notice-actions {
   display: flex;

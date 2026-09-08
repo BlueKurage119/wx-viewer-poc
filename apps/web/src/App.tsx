@@ -6,29 +6,28 @@ import { NotificationArea } from './shell/NotificationArea';
 import { visibleNotices } from './shell/notifications';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
 
-const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> =
-  {
-    weather: {
-      symbol: '☁',
-      heading: '気象情報の表示領域',
-      description: '地図・情報パネルは今後実装します。',
-    },
-    warnings: {
-      symbol: '≡',
-      heading: '警報一覧の表示領域',
-      description: '一覧・フィルターは今後実装します。',
-    },
-    monitor: {
-      symbol: '▤',
-      heading: '取得監視の表示領域',
-      description: '取得状況・履歴・取得操作は今後実装します。',
-    },
-    training: {
-      symbol: '◎',
-      heading: '訓練通知の表示領域',
-      description: 'サンプル電文の注入・抹消操作は今後実装します。',
-    },
-  };
+const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
+  weather: {
+    symbol: '☁',
+    heading: '気象情報の表示領域',
+    description: '地図・情報パネルは今後実装します。',
+  },
+  warnings: {
+    symbol: '≡',
+    heading: '警報一覧の表示領域',
+    description: '一覧・フィルターは今後実装します。',
+  },
+  monitor: {
+    symbol: '▤',
+    heading: '取得監視の表示領域',
+    description: '取得状況・履歴・取得操作は今後実装します。',
+  },
+  training: {
+    symbol: '◎',
+    heading: '訓練通知の表示領域',
+    description: 'サンプル電文の注入・抹消操作は今後実装します。',
+  },
+};
 
 export function App() {
   const terminal = resolveTerminal(window.location.pathname);
