@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@wx-viewer-poc/shared": "0.1.0",
     "express": "^5.0.1"
   },
   "devDependencies": {
