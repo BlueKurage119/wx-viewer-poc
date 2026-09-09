@@ -97,7 +97,7 @@ npm run test -w apps/web  # test スクリプトがある対象 workspace のテ
 - エージェントが作成するコミットメッセージ、PR 本文、コメントには、それを生成したアプリケーションおよびモデル名を本文中に明記する。CLI や API の投稿者名が人間のアカウントになる場合も同様とする。Codex の場合の署名例は以下のとおりとする。
   - コミットメッセージ: `Co-Authored-By: Codex (GPT 5.6 Terra) <noreply@openai.com>`
   - PR本文末尾・コメント: `🤖 Generated with Codex`
-  
+
   ※Antigravity の場合は、メールアドレスを`<gemini-code-assist@users.noreply.github.com>`とする。
 
 ## 破ると静かに壊れる制約
