@@ -58,15 +58,13 @@ test('履歴表に自動削除トリガーがないこと', () => {
         );
 
       assert.deepEqual(triggers, []);
-
     } finally {
       context.close();
     }
-
   } finally {
     cleanup();
   }
-})
+});
 
 // テスト用の過去データを準備
 const sampleFetchAttemptInput: FetchAttemptInput = {
@@ -165,7 +163,10 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
     try {
       fetchAttempt = recordFetchAttempt(first.connection, sampleFetchAttemptInput);
       telegram = recordTelegramReception(first.connection, sampleTelegramInput);
-      notification = recordNotificationOutputHistory(first.connection, sampleWeatherNotificationInput);
+      notification = recordNotificationOutputHistory(
+        first.connection,
+        sampleWeatherNotificationInput,
+      );
       operation = recordOperationHistory(first.connection, sampleStartInput);
     } finally {
       first.close();
@@ -187,7 +188,6 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
       } finally {
         await server.close();
       }
-
     } finally {
       t.mock.timers.reset();
     }
@@ -200,14 +200,10 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
         findNotificationOutputHistoryById(second.connection, notification.id),
         notification,
       );
-      assert.deepEqual(
-        findOperationHistoryById(second.connection, operation.id),
-        operation,
-      );
+      assert.deepEqual(findOperationHistoryById(second.connection, operation.id), operation);
     } finally {
       second.close();
     }
-
   } finally {
     cleanup();
   }
