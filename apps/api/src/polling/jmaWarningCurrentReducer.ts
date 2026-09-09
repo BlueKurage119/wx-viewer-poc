@@ -297,19 +297,30 @@ export function reduceWarningCurrent(
           `同一時刻 (${baseline}) において集約 (${aggregate.telegramType}) と個別 (${streamType}) の内容が競合しています`,
         );
       }
-      contributingTypes.add(aggregate.telegramType);
+      if (aggKeysForStream.size > 0) {
+        contributingTypes.add(aggregate.telegramType);
+      }
       for (const key of aggKeysForStream) {
         finalActiveMap.set(key, aggregateActiveMap.get(key)!);
       }
     } else {
       // 集約側の状態を採用
-      contributingTypes.add(aggregate.telegramType);
+      let addedFromAggregate = false;
       for (const def of Object.values(WARNING_CODE_TABLE)) {
         if (def.telegramType === streamType && aggregateActiveMap.has(def.phenomenonKey)) {
           finalActiveMap.set(def.phenomenonKey, aggregateActiveMap.get(def.phenomenonKey)!);
+          addedFromAggregate = true;
         }
       }
+      if (addedFromAggregate) {
+        contributingTypes.add(aggregate.telegramType);
+      }
     }
+  }
+
+  // どの個別ストリームからも貢献がなく、集約からも採用現象がない場合（集約による正常な発表なし）
+  if (contributingTypes.size === 0) {
+    contributingTypes.add(aggregate.telegramType);
   }
 
   // 最終明細 items を sequence 順に整形

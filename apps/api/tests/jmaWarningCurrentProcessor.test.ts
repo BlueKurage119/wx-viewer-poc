@@ -18,7 +18,6 @@ import {
   DEFAULT_WARNING_CURRENT_TARGET_AREA,
   rebuildWarningCurrentFromReceptions,
 } from '../src/polling/jmaWarningCurrentProcessor.js';
-import { processWarningTelegramReception } from '../src/polling/jmaWarningTelegramProcessor.js';
 import { parseWarningTelegram } from '../src/polling/jmaWarningTelegramParser.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
@@ -158,14 +157,19 @@ function saveAndProcessReception(
     ],
   });
 
-  const parseResult = processWarningTelegramReception(
-    connection,
-    reception,
-    isoReceived,
-    DEFAULT_WARNING_CURRENT_TARGET_AREA,
-  );
+  const parseResult = parseWarningTelegram(rawXml, reception, DEFAULT_WARNING_CURRENT_TARGET_AREA);
 
-  return { reception, parseResult };
+  let applyResult: WarningCurrentApplyResult | undefined;
+  if (parseResult.ok) {
+    applyResult = applyWarningCurrentReception(
+      connection,
+      reception,
+      parseResult.value,
+      DEFAULT_WARNING_CURRENT_TARGET_AREA,
+    );
+  }
+
+  return { reception, parseResult, applyResult };
 }
 
 test('1. 初期 DB で個別 VPWW55 だけを処理しても snapshot は 0 件で、ポインターは 1 件 (uninitialized)', () => {
@@ -312,6 +316,63 @@ test('5. 新しい個別高潮更新の後に古い要素時刻の VPWS50 を受
     const snapAfter = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
     assert.equal(snapAfter.items[0]!.kindCode, '48');
     assert.equal(snapAfter.items[0]!.sourceTelegram, 'VPWW57');
+    // 指摘 1: 個別 VPWW57 の新しい状態を保持する場合、遅着 VPWS50 は sourceVersion・メタ情報も変更してはならない
+    assert.equal(snapAfter.sourceVersion, snapBefore.sourceVersion);
+    assert.deepEqual(snapAfter.metadata, snapBefore.metadata);
+    assert.deepEqual(snapAfter.telegram, snapBefore.telegram);
+    assert.deepEqual(snapAfter.items, snapBefore.items);
+    assert.deepEqual(snapAfter, snapBefore);
+  } finally {
+    cleanup();
+  }
+});
+
+test('5-2. 同版競合（same_version_conflict）および差分競合ではストリームとスナップショットの双方を一切更新しない', () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    // 1. 初期 VPWS50 (01:00) で大雨警報
+    saveAndProcessReception(
+      connection,
+      'VPWS50',
+      '2026-09-09T01:00:00Z',
+      `<Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status><DateTime>2026-09-09T01:00:00Z</DateTime></Kind>`,
+    );
+
+    const snapBefore = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
+    const streamsBefore = listWarningCurrentStreams(connection, '130000', '1310800', 'normal');
+    assert.equal(streamsBefore.length, 1);
+
+    // 2. 同時刻 (01:00) で内容が異なる VPWW55（大雨注意報 33）を受信 -> reduceWarningCurrent で same_version_conflict
+    const { applyResult: conflictResult1 } = saveAndProcessReception(
+      connection,
+      'VPWW55',
+      '2026-09-09T01:00:00Z',
+      `<Kind><Name>大雨注意報</Name><Code>33</Code><Status>発表</Status><DateTime>2026-09-09T01:00:00Z</DateTime></Kind>`,
+    );
+    assert.equal(conflictResult1.applied, false);
+    assert.equal(conflictResult1.reason, 'same_version_conflict');
+
+    // 競合前後でポインター・スナップショットとも完全一致で不変（更新されない）こと
+    const streamsAfter1 = listWarningCurrentStreams(connection, '130000', '1310800', 'normal');
+    const snapAfter1 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
+    assert.deepEqual(streamsAfter1, streamsBefore);
+    assert.deepEqual(snapAfter1, snapBefore);
+
+    // 3. 差分競合: 新しい時刻だが、Status が「特別警報から警報」なのに前状態（警報03）と矛盾する電文
+    // extractActiveKindsByPhenomenon の段階比較や LastKind 整合で conflict
+    const { applyResult: conflictResult2 } = saveAndProcessReception(
+      connection,
+      'VPWW55',
+      '2026-09-09T02:00:00Z',
+      `<Kind><Name>大雨注意報</Name><Code>33</Code><Status>解除</Status><LastKind><Name>暴風警報</Name><Code>05</Code></LastKind></Kind>`,
+    );
+    assert.equal(conflictResult2.applied, false);
+    assert.equal(conflictResult2.reason, 'same_version_conflict');
+
+    const streamsAfter2 = listWarningCurrentStreams(connection, '130000', '1310800', 'normal');
+    const snapAfter2 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
+    assert.deepEqual(streamsAfter2, streamsBefore);
+    assert.deepEqual(snapAfter2, snapBefore);
   } finally {
     cleanup();
   }

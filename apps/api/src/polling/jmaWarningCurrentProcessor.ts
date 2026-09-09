@@ -125,8 +125,9 @@ export function applyWarningCurrentReception(
       }
     }
 
-    // 3.3 ストリームポインターの保存
-    const currentStream = upsertWarningCurrentStream(connection, {
+    // 3.3 今回のストリーム候補（メモリ上で準備し、検証完了まで DB へ書き込まない）
+    const candidateStream: WarningCurrentStream = {
+      id: existingStream?.id ?? 0,
       prefectureCode: targetArea.prefectureCode,
       areaCode: targetArea.municipalCode,
       controlStatus: parsed.controlStatus,
@@ -136,12 +137,12 @@ export function applyWarningCurrentReception(
       controlDateTime: parsed.controlDateTime,
       receivedAt: reception.receivedAt,
       contentHash: reception.contentHash ?? '',
-    });
+    };
 
     // 3.4 VPWS50 ポインターの確認
     const vpws50Stream =
       parsed.telegramType === 'VPWS50'
-        ? currentStream
+        ? candidateStream
         : findWarningCurrentStream(
             connection,
             targetArea.prefectureCode,
@@ -152,6 +153,18 @@ export function applyWarningCurrentReception(
 
     if (!vpws50Stream) {
       // VPWS50 がまだない -> snapshot は作成せず uninitialized
+      // （初期化前に受け取った個別ストリームはポインターへ保存する: §3.3）
+      upsertWarningCurrentStream(connection, {
+        prefectureCode: targetArea.prefectureCode,
+        areaCode: targetArea.municipalCode,
+        controlStatus: parsed.controlStatus,
+        telegramType: parsed.telegramType,
+        receptionId: reception.id,
+        reportDateTime: parsed.reportDateTime,
+        controlDateTime: parsed.controlDateTime,
+        receivedAt: reception.receivedAt,
+        contentHash: reception.contentHash ?? '',
+      });
       return {
         applied: false,
         reason: 'uninitialized',
@@ -159,46 +172,57 @@ export function applyWarningCurrentReception(
       };
     }
 
-    // 3.5 全ストリームポインターから電文を読み出してパース
-    const allStreams = listWarningCurrentStreams(
+    // 3.5 全ストリームポインターをメモリ上で構築し、電文を読み出してパース
+    const allExistingStreams = listWarningCurrentStreams(
       connection,
       targetArea.prefectureCode,
       targetArea.municipalCode,
       parsed.controlStatus,
     );
 
-    const vpws50Reception = findTelegramReceptionById(connection, vpws50Stream.receptionId);
-    if (!vpws50Reception || !vpws50Reception.rawBody) {
-      throw new Error(`VPWS50 電文の取得に失敗しました: receptionId=${vpws50Stream.receptionId}`);
+    const streamMap = new Map<WarningTelegramType, WarningCurrentStream>();
+    for (const s of allExistingStreams) {
+      streamMap.set(s.telegramType, s);
     }
-    const vpws50ParseResult = parseWarningTelegram(
-      vpws50Reception.rawBody,
-      vpws50Reception,
-      targetArea,
-    );
-    if (!vpws50ParseResult.ok) {
-      throw new Error(`VPWS50 電文の再解析に失敗しました: ${vpws50ParseResult.reason}`);
+    // 今回の電文でストリームポインターを上書き（メモリ上）
+    streamMap.set(parsed.telegramType, candidateStream);
+
+    let vpws50Parsed: ParsedWarningTelegram;
+    if (parsed.telegramType === 'VPWS50') {
+      vpws50Parsed = parsed;
+    } else {
+      const vpws50Reception = findTelegramReceptionById(connection, vpws50Stream.receptionId);
+      if (!vpws50Reception || !vpws50Reception.rawBody) {
+        throw new Error(`VPWS50 電文の取得に失敗しました: receptionId=${vpws50Stream.receptionId}`);
+      }
+      const vpws50ParseResult = parseWarningTelegram(
+        vpws50Reception.rawBody,
+        vpws50Reception,
+        targetArea,
+      );
+      if (!vpws50ParseResult.ok) {
+        throw new Error(`VPWS50 電文の再解析に失敗しました: ${vpws50ParseResult.reason}`);
+      }
+      vpws50Parsed = vpws50ParseResult.value;
     }
-    const vpws50Parsed = vpws50ParseResult.value;
 
     const individualMap = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>();
-    const streamMap = new Map<WarningTelegramType, WarningCurrentStream>();
 
-    for (const s of allStreams) {
-      streamMap.set(s.telegramType, s);
-      if (s.telegramType !== 'VPWS50') {
-        const indReception = findTelegramReceptionById(connection, s.receptionId);
-        if (indReception?.rawBody) {
-          const indParseResult = parseWarningTelegram(
-            indReception.rawBody,
-            indReception,
-            targetArea,
-          );
-          if (indParseResult.ok) {
-            individualMap.set(
-              s.telegramType as IndividualWarningTelegramType,
-              indParseResult.value,
+    for (const [type, s] of streamMap) {
+      if (type !== 'VPWS50') {
+        if (type === parsed.telegramType) {
+          individualMap.set(type as IndividualWarningTelegramType, parsed);
+        } else {
+          const indReception = findTelegramReceptionById(connection, s.receptionId);
+          if (indReception?.rawBody) {
+            const indParseResult = parseWarningTelegram(
+              indReception.rawBody,
+              indReception,
+              targetArea,
             );
+            if (indParseResult.ok) {
+              individualMap.set(type as IndividualWarningTelegramType, indParseResult.value);
+            }
           }
         }
       }
@@ -238,7 +262,20 @@ export function applyWarningCurrentReception(
       throw err;
     }
 
-    // 3.8 メタ情報の構成
+    // 3.8 すべての競合・検証チェックを通過した後にストリームポインターを永続化（原子性保証）
+    upsertWarningCurrentStream(connection, {
+      prefectureCode: targetArea.prefectureCode,
+      areaCode: targetArea.municipalCode,
+      controlStatus: parsed.controlStatus,
+      telegramType: parsed.telegramType,
+      receptionId: reception.id,
+      reportDateTime: parsed.reportDateTime,
+      controlDateTime: parsed.controlDateTime,
+      receivedAt: reception.receivedAt,
+      contentHash: reception.contentHash ?? '',
+    });
+
+    // 3.9 メタ情報の構成
     const contributingStreams: Array<{
       telegramType: WarningTelegramType;
       reportDateTime: string;
@@ -270,13 +307,16 @@ export function applyWarningCurrentReception(
 
     const sourceVersion = computeSourceVersion(contributingStreams);
 
+    const baseReportDateTime =
+      contributingStreams[0]?.reportDateTime ?? vpws50Stream.reportDateTime;
     const maxReportDateTime = contributingStreams.reduce(
       (max, s) => (s.reportDateTime > max ? s.reportDateTime : max),
-      vpws50Stream.reportDateTime,
+      baseReportDateTime,
     );
+    const baseReceivedAt = contributingStreams[0]?.receivedAt ?? vpws50Stream.receivedAt;
     const maxReceivedAt = contributingStreams.reduce(
       (max, s) => (s.receivedAt > max ? s.receivedAt : max),
-      vpws50Stream.receivedAt,
+      baseReceivedAt,
     );
 
     const candidates = contributingStreams.filter((s) => s.reportDateTime === maxReportDateTime);
@@ -521,13 +561,16 @@ export function rebuildWarningCurrentFromReceptions(
 
       const sourceVersion = computeSourceVersion(contributingStreams);
 
+      const baseReportDateTime =
+        contributingStreams[0]?.reportDateTime ?? vpws50StreamInput.reportDateTime;
       const maxReportDateTime = contributingStreams.reduce(
         (max, s) => (s.reportDateTime > max ? s.reportDateTime : max),
-        vpws50StreamInput.reportDateTime,
+        baseReportDateTime,
       );
+      const baseReceivedAt = contributingStreams[0]?.receivedAt ?? vpws50StreamInput.receivedAt;
       const maxReceivedAt = contributingStreams.reduce(
         (max, s) => (s.receivedAt > max ? s.receivedAt : max),
-        vpws50StreamInput.receivedAt,
+        baseReceivedAt,
       );
 
       const candidates = contributingStreams.filter((s) => s.reportDateTime === maxReportDateTime);
