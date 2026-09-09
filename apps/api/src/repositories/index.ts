@@ -1,6 +1,7 @@
 export * from './types.js';
 export * from './snapshot.js';
 export * from './warningCurrentRepository.js';
+export * from './warningCurrentStreamRepository.js';
 export * from './warningTimeseriesRepository.js';
 export * from './earlyWarningRepository.js';
 export * from './areaTimeseriesRepository.js';

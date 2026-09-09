@@ -596,6 +596,102 @@ export interface PendingWarningTelegramPage {
   readonly nextCursor: { readonly receivedAt: UtcIso8601String; readonly id: number } | null;
 }
 
+export interface WarningTelegramRebuildPage {
+  readonly receptions: readonly TelegramReception[];
+  readonly nextCursor: {
+    readonly reportDateTime: UtcIso8601String;
+    readonly controlDateTime: UtcIso8601String;
+    readonly id: number;
+  } | null;
+}
+
+// --- 気象警報・注意報の現況構成（C3） ---
+export interface WarningCurrentTargetArea extends WarningTargetArea {
+  readonly prefectureCode: string;
+}
+
+export type WarningPhenomenonKey =
+  | 'heavy_rain'
+  | 'landslide'
+  | 'storm_surge'
+  | 'snowstorm'
+  | 'storm'
+  | 'waves'
+  | 'heavy_snow'
+  | 'thunder'
+  | 'snowmelt'
+  | 'fog'
+  | 'dry_air'
+  | 'avalanche'
+  | 'low_temperature'
+  | 'frost'
+  | 'icing'
+  | 'snow_accumulation'
+  | 'other_advisory';
+
+export type WarningCurrentChangeType =
+  'new' | 'continued' | 'strengthened' | 'weakened' | 'released';
+
+export interface WarningCurrentChange {
+  readonly phenomenonKey: WarningPhenomenonKey;
+  readonly changeType: WarningCurrentChangeType;
+  readonly before: WarningCurrentItemInput | null;
+  readonly after: WarningCurrentItemInput | null;
+}
+
+export const INDIVIDUAL_WARNING_TELEGRAM_TYPES = [
+  'VPWW55',
+  'VPWW56',
+  'VPWW57',
+  'VPWW58',
+  'VPWW59',
+  'VPWW60',
+  'VPWW61',
+] as const;
+
+export type IndividualWarningTelegramType = (typeof INDIVIDUAL_WARNING_TELEGRAM_TYPES)[number];
+
+export interface WarningCurrentReductionResult {
+  readonly items: readonly WarningCurrentItemInput[];
+  readonly contributingTelegramTypes: readonly WarningTelegramType[];
+}
+
+export type WarningCurrentApplyResult =
+  | {
+      readonly applied: true;
+      readonly origin: 'initial' | 'normal';
+      readonly snapshot: WarningCurrentSnapshot;
+      readonly changes: readonly WarningCurrentChange[];
+    }
+  | {
+      readonly applied: false;
+      readonly reason:
+        | 'uninitialized'
+        | 'duplicate'
+        | 'stale'
+        | 'same_version_conflict'
+        | 'unsupported_code'
+        | 'unsupported_status'
+        | 'cancelled';
+      readonly detail: string;
+    };
+
+export interface WarningCurrentStreamInput {
+  readonly prefectureCode: string;
+  readonly areaCode: string;
+  readonly controlStatus: ControlStatus;
+  readonly telegramType: WarningTelegramType;
+  readonly receptionId: number;
+  readonly reportDateTime: UtcIso8601String;
+  readonly controlDateTime: UtcIso8601String;
+  readonly receivedAt: UtcIso8601String;
+  readonly contentHash: string;
+}
+
+export interface WarningCurrentStream extends WarningCurrentStreamInput {
+  readonly id: number;
+}
+
 // --- 通知出力履歴 ---
 export type NotificationOutputOrigin = 'weather' | 'system';
 export type NotificationDetectionContext = 'normal' | 'initial';

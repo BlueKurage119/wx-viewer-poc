@@ -14,6 +14,7 @@ import type {
   TelegramReceptionInput,
   TelegramReceptionSummary,
   PendingWarningTelegramPage,
+  WarningTelegramRebuildPage,
 } from './types.js';
 
 interface TelegramReceptionRow {
@@ -445,6 +446,76 @@ export function listPendingWarningTelegramReceptions(
     receptions,
     nextCursor:
       receptions.length === limit && last ? { receivedAt: last.receivedAt, id: last.id } : null,
+  };
+}
+
+export function listWarningTelegramReceptionsForRebuild(
+  connection: DatabaseConnection,
+  options?: {
+    readonly after?: {
+      readonly reportDateTime: string;
+      readonly controlDateTime: string;
+      readonly id: number;
+    };
+    readonly limit?: number;
+  },
+): WarningTelegramRebuildPage {
+  const limit = options?.limit ?? 100;
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 100) {
+    throw new Error(`limit must be an integer between 1 and 100: ${limit}`);
+  }
+  if (options?.after && (!Number.isInteger(options.after.id) || options.after.id <= 0)) {
+    throw new Error(`after.id must be a positive integer: ${options.after.id}`);
+  }
+  const typePlaceholders = WARNING_TELEGRAM_TYPES.map(() => '?').join(', ');
+  const cursorClause = options?.after
+    ? `AND (
+        report_datetime > ?
+        OR (report_datetime = ? AND control_datetime > ?)
+        OR (report_datetime = ? AND control_datetime = ? AND id > ?)
+      )`
+    : '';
+  const cursorParams = options?.after
+    ? [
+        options.after.reportDateTime,
+        options.after.reportDateTime,
+        options.after.controlDateTime,
+        options.after.reportDateTime,
+        options.after.controlDateTime,
+        options.after.id,
+      ]
+    : [];
+
+  const rows = connection
+    .prepare(
+      `SELECT id FROM telegram_reception
+       WHERE telegram_type IN (${typePlaceholders})
+         AND raw_body IS NOT NULL
+         AND report_datetime IS NOT NULL
+         AND control_datetime IS NOT NULL
+         ${cursorClause}
+       ORDER BY report_datetime ASC, control_datetime ASC, id ASC
+       LIMIT ?`,
+    )
+    .all(...WARNING_TELEGRAM_TYPES, ...cursorParams, limit) as { id: number }[];
+
+  const receptions = rows.map((row) => {
+    const reception = findTelegramReceptionById(connection, row.id);
+    if (!reception) throw new Error(`telegram_reception が見つかりません: ${row.id}`);
+    return reception;
+  });
+
+  const last = receptions.at(-1);
+  return {
+    receptions,
+    nextCursor:
+      receptions.length === limit && last && last.reportDateTime && last.controlDateTime
+        ? {
+            reportDateTime: last.reportDateTime,
+            controlDateTime: last.controlDateTime,
+            id: last.id,
+          }
+        : null,
   };
 }
 

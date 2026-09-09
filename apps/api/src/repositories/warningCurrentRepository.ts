@@ -58,6 +58,55 @@ export function saveWarningCurrentSnapshot(
   }
 
   const saveTx = connection.transaction(() => {
+    const existingRow = connection
+      .prepare(
+        `
+        SELECT * FROM warning_current_snapshot
+        WHERE area_code = ? AND control_status = ?
+      `,
+      )
+      .get(input.areaCode, input.telegram.controlStatus) as WarningCurrentSnapshotRow | undefined;
+
+    if (
+      existingRow &&
+      input.metadata.sourceVersion !== null &&
+      input.metadata.sourceVersion !== undefined &&
+      existingRow.source_version === input.metadata.sourceVersion
+    ) {
+      const existingItems = connection
+        .prepare(
+          `
+          SELECT * FROM warning_current_item
+          WHERE snapshot_id = ?
+          ORDER BY sequence ASC, id ASC
+        `,
+        )
+        .all(existingRow.id) as WarningCurrentItemRow[];
+
+      return {
+        id: existingRow.id,
+        areaCode: existingRow.area_code,
+        areaName: existingRow.area_name,
+        metadata: mapMetadataRow(existingRow),
+        telegram: mapTelegramRow(existingRow),
+        items: existingItems.map((itemRow) => ({
+          id: itemRow.id,
+          sequence: itemRow.sequence,
+          kindCode: itemRow.kind_code,
+          kindName: itemRow.kind_name,
+          kindStatus: itemRow.kind_status,
+          lastKindCode: itemRow.last_kind_code,
+          lastKindName: itemRow.last_kind_name,
+          significancyCode: itemRow.significancy_code,
+          significancyName: itemRow.significancy_name,
+          warningLevel: itemRow.warning_level,
+          attentionText: itemRow.attention_text,
+          kindIssuedAt: itemRow.kind_issued_at,
+          sourceTelegram: itemRow.source_telegram,
+        })),
+      };
+    }
+
     const upsertStmt = connection.prepare(`
       INSERT INTO warning_current_snapshot (
         area_code, area_name, control_status, info_type, event_id, report_datetime, control_datetime,
