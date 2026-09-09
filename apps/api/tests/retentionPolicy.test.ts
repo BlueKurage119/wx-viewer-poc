@@ -124,7 +124,7 @@ const sampleWeatherNotificationInput: NotificationOutputHistoryInput = {
   sourceVersion: '20260909000000_0_VPWW55_130000',
   targetAreaJson: JSON.stringify({ areaCode: '130010', areaName: '東京都' }),
   occurredAt: '2000-01-01T00:00:00Z',
-  detectedAt: '2026-01-01T00:00:02Z',
+  detectedAt: '2000-01-01T00:00:02Z',
   changeType: 'new',
   ackRequired: false,
   summary: '大雨警報発表',
@@ -154,23 +154,23 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
   try {
     const config = { databasePath, migrationsDirectory };
 
-    const first = initializeDatabase(config);
-    let fetchAttempt;
-    let telegram;
-    let notification;
-    let operation;
+    const expected = (() => {
+      const first = initializeDatabase(config);
 
-    try {
-      fetchAttempt = recordFetchAttempt(first.connection, sampleFetchAttemptInput);
-      telegram = recordTelegramReception(first.connection, sampleTelegramInput);
-      notification = recordNotificationOutputHistory(
-        first.connection,
-        sampleWeatherNotificationInput,
-      );
-      operation = recordOperationHistory(first.connection, sampleStartInput);
-    } finally {
-      first.close();
-    }
+      try {
+        return {
+          fetchAttempt: recordFetchAttempt(first.connection, sampleFetchAttemptInput),
+          telegram: recordTelegramReception(first.connection, sampleTelegramInput),
+          notification: recordNotificationOutputHistory(
+            first.connection,
+            sampleWeatherNotificationInput,
+          ),
+          operation: recordOperationHistory(first.connection, sampleStartInput),
+        };
+      } finally {
+        first.close();
+      }
+    })();
 
     t.mock.timers.enable({
       apis: ['Date'],
@@ -194,13 +194,22 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
 
     const second = initializeDatabase(config);
     try {
-      assert.deepEqual(findFetchAttemptById(second.connection, fetchAttempt.id), fetchAttempt);
-      assert.deepEqual(findTelegramReceptionById(second.connection, telegram.id), telegram);
       assert.deepEqual(
-        findNotificationOutputHistoryById(second.connection, notification.id),
-        notification,
+        findFetchAttemptById(second.connection, expected.fetchAttempt.id),
+        expected.fetchAttempt,
       );
-      assert.deepEqual(findOperationHistoryById(second.connection, operation.id), operation);
+      assert.deepEqual(
+        findTelegramReceptionById(second.connection, expected.telegram.id),
+        expected.telegram,
+      );
+      assert.deepEqual(
+        findNotificationOutputHistoryById(second.connection, expected.notification.id),
+        expected.notification,
+      );
+      assert.deepEqual(
+        findOperationHistoryById(second.connection, expected.operation.id),
+        expected.operation,
+      );
     } finally {
       second.close();
     }
