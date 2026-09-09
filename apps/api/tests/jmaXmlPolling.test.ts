@@ -13,7 +13,9 @@ import {
   listTelegramReceptions,
   findTelegramReceptionById,
   findWarningTimeseriesSnapshot,
+  findEarlyWarningSnapshot,
   listWarningCurrentStreams,
+  listNotificationOutputHistory,
 } from '../src/repositories/index.js';
 import {
   JMA_XML_FEED_DEFINITIONS,
@@ -1241,6 +1243,213 @@ test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき�
     assert.ok(timeseries);
     assert.equal(timeseries.values.length, 1);
     assert.equal(timeseries.values[0].valueText, '警戒レベル２未満');
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 16. VPWW55, VPWP50, VPFD61, VPFW60 の混在フィードをポーリングしたとき、
+//     種別ごとに正しくディスパッチされ、早期注意情報スナップショット（near/far）が更新され、
+//     他種別に干渉しない。重複URLも1回だけ処理される。
+// -------------------------------------------------------------------------------------------------
+test('16. 混在フィードで VPFD61/VPFW60 は早期注意 processor にだけ dispatch され、他情報種別に非干渉、重複URLは抑止される', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const vpwwUrl = `${server.baseUrl}/data/20260909_0_VPWW55_130000.xml`;
+    const vpwpUrl = `${server.baseUrl}/data/20260909_0_VPWP50_130000.xml`;
+    const vpfdUrl = `${server.baseUrl}/data/20260909_0_VPFD61_130000.xml`;
+    const vpfwUrl = `${server.baseUrl}/data/20260909_0_VPFW60_130000.xml`;
+
+    const vpwwXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
+<Control><Title>気象警報・注意報（市町村等）</Title><DateTime>2026-09-09T00:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都気象警報・注意報</Title><ReportDateTime>2026-09-09T09:00:00+09:00</ReportDateTime><TargetDateTime>2026-09-09T09:00:00+09:00</TargetDateTime><InfoType>発表</InfoType><Serial>1</Serial><InfoKind>気象警報・注意報</InfoKind><InfoKindVersion>1.0_0</InfoKindVersion></Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/">
+<Warning type="気象警報・注意報（市町村等）">
+<Item>
+<Kind><Name>大雨注意報</Name><Code>10</Code><Status>発表</Status></Kind>
+<Area><Name>江東区</Name><Code>1310800</Code></Area>
+</Item>
+</Warning>
+</Body>
+</Report>`;
+
+    const vpwpXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
+<Control><Title>気象警報・注意報時系列情報（Ｒ０６）</Title><DateTime>2026-09-09T00:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都警戒・注意事項時系列情報</Title><ReportDateTime>2026-09-09T09:00:00+09:00</ReportDateTime><TargetDateTime>2026-09-09T09:00:00+09:00</TargetDateTime><InfoType>発表</InfoType><InfoKind>気象警報・注意報時系列</InfoKind><InfoKindVersion>1.5_0</InfoKindVersion></Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<MeteorologicalInfos type="量的予想時系列（市町村等）">
+<TimeSeriesInfo>
+<TimeDefines><TimeDefine timeId="1"><DateTime>2026-09-09T09:00:00+09:00</DateTime><Duration>PT3H</Duration></TimeDefine></TimeDefines>
+<Item>
+<Kind><Status>発表</Status><Property><Type>大雨浸水危険度</Type><SignificancyPart><Base><Significancy refID="1" type="大雨浸水危険度"><Name>警戒レベル２未満</Name><Code>11</Code></Significancy></Base></SignificancyPart></Property></Kind>
+<Area><Name>江東区</Name><Code>1310800</Code></Area>
+</Item>
+</TimeSeriesInfo>
+</MeteorologicalInfos>
+</Body>
+</Report>`;
+
+    const vpfdXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx_add="http://xml.kishou.go.jp/jmaxml1/addition1/">
+<Control><Title>早期注意情報（明後日まで）</Title><DateTime>2026-09-09T00:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都早期注意情報</Title><ReportDateTime>2026-09-09T09:00:00+09:00</ReportDateTime><TargetDateTime>2026-09-09T09:00:00+09:00</TargetDateTime><InfoType>発表</InfoType><InfoKind>警報級の可能性（明日まで）</InfoKind><InfoKindVersion>1.5_0</InfoKindVersion></Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<MeteorologicalInfos type="区域予報">
+<TimeSeriesInfo>
+<TimeDefines><TimeDefine timeId="1"><DateTime>2026-09-09T09:00:00+09:00</DateTime><Duration>PT6H</Duration></TimeDefine></TimeDefines>
+<Item>
+<Kind><Property><Type>大雨の警報級の可能性</Type><PossibilityRankOfWarningPart><jmx_eb:PossibilityRankOfWarning refID="1" type="大雨の警報級の可能性">中</jmx_eb:PossibilityRankOfWarning></PossibilityRankOfWarningPart></Property></Kind>
+<Area><Name>東京地方</Name><Code>130010</Code></Area>
+</Item>
+</TimeSeriesInfo>
+</MeteorologicalInfos>
+</Body>
+</Report>`;
+
+    const vpfwXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx_add="http://xml.kishou.go.jp/jmaxml1/addition1/">
+<Control><Title>警報級の可能性（明後日以降）</Title><DateTime>2026-09-09T00:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都早期注意情報</Title><ReportDateTime>2026-09-09T09:00:00+09:00</ReportDateTime><TargetDateTime>2026-09-09T09:00:00+09:00</TargetDateTime><InfoType>発表</InfoType><InfoKind>警報級の可能性（明後日以降）</InfoKind><InfoKindVersion>1.2_0</InfoKindVersion></Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<MeteorologicalInfos type="区域予報">
+<TimeSeriesInfo>
+<TimeDefines><TimeDefine timeId="1"><DateTime>2026-09-11T00:00:00+09:00</DateTime><Duration>P1D</Duration></TimeDefine></TimeDefines>
+<Item>
+<Kind><Property><Type>雨の警報級の可能性</Type><PossibilityRankOfWarningPart><jmx_eb:PossibilityRankOfWarning refID="1" type="雨の警報級の可能性">高</jmx_eb:PossibilityRankOfWarning></PossibilityRankOfWarningPart></Property></Kind>
+<Area><Name>東京地方</Name><Code>130010</Code></Area>
+</Item>
+</TimeSeriesInfo>
+</MeteorologicalInfos>
+</Body>
+</Report>`;
+
+    // regularFeed: 4 電文
+    const regularFeedXml = createSampleAtomFeed([
+      { id: 'urn:entry-vpww', title: '警報発表', href: vpwwUrl },
+      { id: 'urn:entry-vpwp', title: '警報時系列', href: vpwpUrl },
+      { id: 'urn:entry-vpfd', title: '早期注意(近)', href: vpfdUrl },
+      { id: 'urn:entry-vpfw', title: '早期注意(遠)', href: vpfwUrl },
+    ]);
+    // extraFeed: vpfdUrl が重複して含まれている
+    const extraFeedXml = createSampleAtomFeed([
+      { id: 'urn:entry-vpfd-dup', title: '早期注意(近)重複', href: vpfdUrl },
+    ]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml') {
+        res.statusCode = 200;
+        res.end(regularFeedXml);
+        return;
+      }
+      if (req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.end(extraFeedXml);
+        return;
+      }
+      if (req.url === '/data/20260909_0_VPWW55_130000.xml') {
+        res.statusCode = 200;
+        res.end(vpwwXml);
+        return;
+      }
+      if (req.url === '/data/20260909_0_VPWP50_130000.xml') {
+        res.statusCode = 200;
+        res.end(vpwpXml);
+        return;
+      }
+      if (req.url === '/data/20260909_0_VPFD61_130000.xml') {
+        res.statusCode = 200;
+        res.end(vpfdXml);
+        return;
+      }
+      if (req.url === '/data/20260909_0_VPFW60_130000.xml') {
+        res.statusCode = 200;
+        res.end(vpfwXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => '2026-09-09T00:00:00.000Z',
+    });
+
+    const result = await service.pollOnce('scheduled');
+
+    // regularFeed: 4件ダウンロード, extraFeed: 重複1件スキップ
+    assert.equal(result.feedResults[0].downloadedCount, 4);
+    assert.equal(result.feedResults[1].skippedDuplicateCount, 1);
+    assert.equal(result.feedResults[1].downloadedCount, 0);
+
+    // telegram_reception に 4 件保存されていること
+    const receptions = listTelegramReceptions(db.connection);
+    assert.equal(receptions.length, 4);
+
+    const vpwwReception = receptions.find((r) => r.telegramType === 'VPWW55');
+    assert.ok(vpwwReception);
+    assert.equal(vpwwReception.adoptionResult, '警報・注意報として解析済み');
+
+    const vpwpReception = receptions.find((r) => r.telegramType === 'VPWP50');
+    assert.ok(vpwpReception);
+    assert.equal(vpwpReception.adoptionResult, '警報等時系列として解析済み');
+
+    const vpfdReception = receptions.find((r) => r.telegramType === 'VPFD61');
+    assert.ok(vpfdReception);
+    assert.equal(vpfdReception.adoptionResult, '早期注意情報として解析済み');
+
+    const vpfwReception = receptions.find((r) => r.telegramType === 'VPFW60');
+    assert.ok(vpfwReception);
+    assert.equal(vpfwReception.adoptionResult, '早期注意情報として解析済み');
+
+    // 早期注意スナップショット (near) が保存されていること
+    const nearSnap = findEarlyWarningSnapshot(db.connection, '130010', 'near', 'normal');
+    assert.ok(nearSnap);
+    assert.equal(nearSnap.telegramType, 'VPFD61');
+    assert.equal(nearSnap.cells[0].phenomenonCode, '大雨の警報級の可能性');
+    assert.equal(nearSnap.cells[0].rankValue, '中');
+
+    // 早期注意スナップショット (far) が保存されていること
+    const farSnap = findEarlyWarningSnapshot(db.connection, '130010', 'far', 'normal');
+    assert.ok(farSnap);
+    assert.equal(farSnap.telegramType, 'VPFW60');
+    assert.equal(farSnap.cells[0].phenomenonCode, '雨の警報級の可能性');
+    assert.equal(farSnap.cells[0].rankValue, '高');
+
+    // 現況警報・時系列・通知出力表への非干渉
+    const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
+    assert.equal(streams.length, 1);
+    assert.equal(streams[0].telegramType, 'VPWW55');
+
+    const timeseries = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+    assert.ok(timeseries);
+    assert.equal(timeseries.values[0].valueText, '警戒レベル２未満');
+
+    const notifications = listNotificationOutputHistory(db.connection);
+    assert.equal(notifications.length, 0);
+
+    // サーバーへのリクエスト回数: vpfdUrl は1回のみ（重複抑止）
+    assert.equal(server.requestCounts.get('/data/20260909_0_VPFD61_130000.xml'), 1);
   } finally {
     await server.close();
     cleanup();
