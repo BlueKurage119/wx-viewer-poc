@@ -77,6 +77,24 @@ function directText(parent: Element, namespaceUri: string, localName: string): s
 
 function parseDateTime(raw: string | null): UtcIso8601String | null {
   if (!raw) return null;
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(raw);
+  if (!match) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, zone] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return null;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > daysInMonth) return null;
+  if (zone! !== 'Z') {
+    const zoneHour = Number(zone!.slice(1, 3));
+    const zoneMinute = Number(zone!.slice(4, 6));
+    if (zoneHour > 14 || zoneMinute > 59 || (zoneHour === 14 && zoneMinute !== 0)) return null;
+  }
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString();
@@ -131,8 +149,25 @@ function parseKind(kind: Element, sequence: number): ParsedWarningKind | { error
   const name = directText(kind, JMA_METEOROLOGY_NAMESPACE, 'Name');
   const code = directText(kind, JMA_METEOROLOGY_NAMESPACE, 'Code');
   const status = directText(kind, JMA_METEOROLOGY_NAMESPACE, 'Status');
-  if (!name || !code || !status)
-    return { error: 'Body/Warning/Item/Kind の Name、Code、Status は必須です' };
+  if (!status) return { error: 'Body/Warning/Item/Kind/Status は必須です' };
+
+  if (status === '発表警報・注意報はなし') {
+    const elements: Element[] = [];
+    for (let index = 0; index < kind.childNodes.length; index += 1) {
+      const child = kind.childNodes.item(index);
+      if (child?.nodeType === 1 && (child as Element).namespaceURI === JMA_METEOROLOGY_NAMESPACE) {
+        elements.push(child as Element);
+      }
+    }
+    if (elements.length !== 1 || elements[0]?.localName !== 'Status') {
+      return {
+        error: 'Body/Warning/Item/Kind の発表警報・注意報はなしは Status だけである必要があります',
+      };
+    }
+    return { kindType: 'no_warning', sequence, status };
+  }
+
+  if (!name || !code) return { error: 'Body/Warning/Item/Kind の Name、Code、Status は必須です' };
 
   const rawDateTime = directText(kind, JMA_METEOROLOGY_NAMESPACE, 'DateTime');
   const dateTime = parseDateTime(rawDateTime);
@@ -150,17 +185,18 @@ function parseKind(kind: Element, sequence: number): ParsedWarningKind | { error
 
   const properties = directChildren(kind, JMA_METEOROLOGY_NAMESPACE, 'Property');
   const additions = directChildren(kind, JMA_METEOROLOGY_NAMESPACE, 'Addition');
-  if (properties.length > 1 || additions.length > 1) {
-    return { error: 'Body/Warning/Item/Kind の Property、Addition は最大1件です' };
+  if (additions.length > 1) {
+    return { error: 'Body/Warning/Item/Kind/Addition は最大1件です' };
   }
   return {
     sequence,
+    kindType: 'warning',
     name: name!,
     code: code!,
     status: status!,
     dateTime,
     lastKind,
-    property: properties[0] ? toFragment(properties[0]) : null,
+    properties: properties.map(toFragment),
     addition: additions[0] ? toFragment(additions[0]) : null,
   };
 }
@@ -197,18 +233,17 @@ export function parseWarningTelegram(
   const controlStatus = parseControlStatus(
     directText(controlResult.element, JMA_REPORT_NAMESPACE, 'Status'),
   );
-  const controlDateTime = parseDateTime(
-    directText(controlResult.element, JMA_REPORT_NAMESPACE, 'DateTime'),
+  if (!controlStatus) return failure('未対応構造', 'Control/Status が不正です');
+  const rawControlDateTime = directText(controlResult.element, JMA_REPORT_NAMESPACE, 'DateTime');
+  const controlDateTime = parseDateTime(rawControlDateTime);
+  if (!controlDateTime) return failure('未対応構造', 'Control/DateTime が不正です');
+  const rawReportDateTime = directText(
+    headResult.element,
+    JMA_INFORMATION_NAMESPACE,
+    'ReportDateTime',
   );
-  const reportDateTime = parseDateTime(
-    directText(headResult.element, JMA_INFORMATION_NAMESPACE, 'ReportDateTime'),
-  );
-  if (!controlStatus || !controlDateTime || !reportDateTime) {
-    return failure(
-      '未対応構造',
-      'Control/Status、Control/DateTime、Head/ReportDateTime は必須かつ有効な値です',
-    );
-  }
+  const reportDateTime = parseDateTime(rawReportDateTime);
+  if (!reportDateTime) return failure('未対応構造', 'Head/ReportDateTime が不正です');
   if (
     expected.controlStatus !== controlStatus ||
     expected.controlDateTime !== controlDateTime ||

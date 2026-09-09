@@ -38,7 +38,8 @@ function telegramXml(
     options.kinds ?? '<Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>';
   return `<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
   <Control>
-    <Status>${status}</Status><DateTime>2026-09-09T00:00:00Z</DateTime>
+    <Status>${status}</Status>
+    <DateTime>2026-09-09T00:00:00Z</DateTime>
   </Control>
   <Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><ReportDateTime>2026-09-09T00:00:00Z</ReportDateTime><TargetDateTime>2026-09-09T01:00:00Z</TargetDateTime><InfoType>発表</InfoType><EventID>event-1</EventID><Serial>1</Serial>${options.headlineAreaCode ? `<Headline><Information><Item><Area><Code>${options.headlineAreaCode}</Code></Area></Item></Information></Headline>` : ''}</Head>
   <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/"><Warning type="${type}"><Item>${kinds}<Area><Name>江東区</Name><Code>${municipalCode}</Code></Area></Item></Warning>${options.extraWarnings ?? ''}</Body>
@@ -75,12 +76,13 @@ test('VPWW55–61 と VPWS50 は市町村等 Warning だけを完全一致で解
       assert.deepEqual(result.value.kinds, [
         {
           sequence: 1,
+          kindType: 'warning',
           name: '大雨警報',
           code: '03',
           status: '発表',
           dateTime: null,
           lastKind: null,
-          property: null,
+          properties: [],
           addition: null,
         },
       ]);
@@ -89,9 +91,9 @@ test('VPWW55–61 と VPWS50 は市町村等 Warning だけを完全一致で解
   }
 });
 
-test('複数 Kind と XML 断片、訓練・試験を情報を失わず保持する', () => {
+test('複数 Property を XML 出現順で保持し、訓練・試験を区別する', () => {
   const kinds =
-    '<Kind><Name>雷注意報</Name><Code>14</Code><Status>継続</Status><DateTime>2026-09-09T01:00:00+09:00</DateTime><LastKind><Name>雷注意報</Name><Code>14</Code></LastKind><Property source="jma"><Type>雷危険度</Type></Property><Addition><Text>補足</Text></Addition></Kind><Kind><Name>濃霧注意報</Name><Code>16</Code><Status>発表</Status></Kind>';
+    '<Kind><Name>濃霧注意報</Name><Code>16</Code><Status>継続</Status><DateTime>2026-09-09T01:00:00+09:00</DateTime><LastKind><Name>濃霧注意報</Name><Code>16</Code></LastKind><Property source="jma"><Type>濃霧危険度</Type></Property><Property><Type>濃霧</Type></Property><Addition><Text>補足</Text></Addition></Kind><Kind><Name>雷注意報</Name><Code>14</Code><Status>発表</Status></Kind>';
   const training = parseWarningTelegram(
     telegramXml({ status: '訓練', kinds }),
     expected('VPWW61', 'training'),
@@ -102,26 +104,44 @@ test('複数 Kind と XML 断片、訓練・試験を情報を失わず保持す
     assert.equal(training.value.controlStatus, 'training');
     assert.deepEqual(training.value.kinds[0], {
       sequence: 1,
-      name: '雷注意報',
-      code: '14',
+      kindType: 'warning',
+      name: '濃霧注意報',
+      code: '16',
       status: '継続',
       dateTime: '2026-09-08T16:00:00.000Z',
-      lastKind: { name: '雷注意報', code: '14' },
-      property: {
-        namespaceUri: 'http://xml.kishou.go.jp/jmaxml1/body/meteorology1/',
-        localName: 'Property',
-        attributes: [{ namespaceUri: null, localName: 'source', value: 'jma' }],
-        text: null,
-        children: [
-          {
-            namespaceUri: 'http://xml.kishou.go.jp/jmaxml1/body/meteorology1/',
-            localName: 'Type',
-            attributes: [],
-            text: '雷危険度',
-            children: [],
-          },
-        ],
-      },
+      lastKind: { name: '濃霧注意報', code: '16' },
+      properties: [
+        {
+          namespaceUri: 'http://xml.kishou.go.jp/jmaxml1/body/meteorology1/',
+          localName: 'Property',
+          attributes: [{ namespaceUri: null, localName: 'source', value: 'jma' }],
+          text: null,
+          children: [
+            {
+              namespaceUri: 'http://xml.kishou.go.jp/jmaxml1/body/meteorology1/',
+              localName: 'Type',
+              attributes: [],
+              text: '濃霧危険度',
+              children: [],
+            },
+          ],
+        },
+        {
+          namespaceUri: 'http://xml.kishou.go.jp/jmaxml1/body/meteorology1/',
+          localName: 'Property',
+          attributes: [],
+          text: null,
+          children: [
+            {
+              namespaceUri: 'http://xml.kishou.go.jp/jmaxml1/body/meteorology1/',
+              localName: 'Type',
+              attributes: [],
+              text: '濃霧',
+              children: [],
+            },
+          ],
+        },
+      ],
       addition: {
         namespaceUri: 'http://xml.kishou.go.jp/jmaxml1/body/meteorology1/',
         localName: 'Addition',
@@ -138,7 +158,7 @@ test('複数 Kind と XML 断片、訓練・試験を情報を失わず保持す
         ],
       },
     });
-    assert.equal(training.value.kinds[1]?.name, '濃霧注意報');
+    assert.equal(training.value.kinds[1]?.kindType, 'warning');
   }
   const testResult = parseWarningTelegram(
     telegramXml({ status: '試験' }),
@@ -147,6 +167,73 @@ test('複数 Kind と XML 断片、訓練・試験を情報を失わず保持す
   );
   assert.equal(testResult.ok, true);
   if (testResult.ok) assert.equal(testResult.value.controlStatus, 'test');
+});
+
+test('Status-only の発表警報・注意報はなしを正常 Kind として、ダミー値なしで保持する', () => {
+  const noWarning = parseWarningTelegram(
+    telegramXml({ kinds: '<Kind><Status>発表警報・注意報はなし</Status></Kind>' }),
+    expected('VPWS50'),
+    DEFAULT_WARNING_TARGET_AREA,
+  );
+  assert.deepEqual(noWarning, {
+    ok: true,
+    value: {
+      telegramType: 'VPWS50',
+      controlStatus: 'normal',
+      reportDateTime,
+      controlDateTime: reportDateTime,
+      targetDateTime: '2026-09-09T01:00:00.000Z',
+      infoType: '発表',
+      eventId: 'event-1',
+      serial: '1',
+      area: { code: '1310800', name: '江東区' },
+      warningType: '気象警報・注意報（市町村等）',
+      kinds: [{ kindType: 'no_warning', sequence: 1, status: '発表警報・注意報はなし' }],
+    },
+  });
+  const invalid = parseWarningTelegram(
+    telegramXml({ kinds: '<Kind><Status>発表警報・注意報はなし</Status><Code>00</Code></Kind>' }),
+    expected('VPWS50'),
+    DEFAULT_WARNING_TARGET_AREA,
+  );
+  assert.deepEqual(invalid, {
+    ok: false,
+    disposition: '未対応構造',
+    reason: 'Body/Warning/Item/Kind の発表警報・注意報はなしは Status だけである必要があります',
+  });
+});
+
+test('日時は時刻とタイムゾーンを必須にして厳密に検証する', () => {
+  for (const invalidDateTime of [
+    '2026-09-09',
+    '2026-09-09T00:00:00',
+    '2026-02-30T00:00:00Z',
+    '2026-09-09T24:00:00Z',
+    '2026-09-09T00:00:00+14:01',
+  ]) {
+    const invalidKindDate = parseWarningTelegram(
+      telegramXml({
+        kinds: `<Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status><DateTime>${invalidDateTime}</DateTime></Kind>`,
+      }),
+      expected('VPWW55'),
+      DEFAULT_WARNING_TARGET_AREA,
+    );
+    assert.deepEqual(invalidKindDate, {
+      ok: false,
+      disposition: '未対応構造',
+      reason: 'Body/Warning/Item/Kind/DateTime が不正です',
+    });
+  }
+  const fraction = parseWarningTelegram(
+    telegramXml({
+      kinds:
+        '<Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status><DateTime>2026-09-09T00:00:00.123Z</DateTime></Kind>',
+    }),
+    expected('VPWW55'),
+    DEFAULT_WARNING_TARGET_AREA,
+  );
+  assert.equal(fraction.ok, true);
+  if (fraction.ok) assert.equal(fraction.value.kinds[0]?.kindType, 'warning');
 });
 
 test('別 type、Headline 相当の別 namespace、保存値不一致を採用しない', () => {

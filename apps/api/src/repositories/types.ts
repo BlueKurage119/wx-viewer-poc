@@ -543,19 +543,30 @@ export interface XmlFragment {
   readonly children: readonly XmlFragment[];
 }
 
-export interface ParsedWarningKind {
+export interface ParsedWarningKindBase {
   readonly sequence: number;
+  readonly status: string;
+}
+
+export interface ParsedNoWarningKind extends ParsedWarningKindBase {
+  readonly kindType: 'no_warning';
+  readonly status: '発表警報・注意報はなし';
+}
+
+export interface ParsedIssuedWarningKind extends ParsedWarningKindBase {
+  readonly kindType: 'warning';
   readonly name: string;
   readonly code: string;
-  readonly status: string;
   readonly dateTime: UtcIso8601String | null;
   readonly lastKind: {
     readonly name: string | null;
     readonly code: string | null;
   } | null;
-  readonly property: XmlFragment | null;
+  readonly properties: readonly XmlFragment[];
   readonly addition: XmlFragment | null;
 }
+
+export type ParsedWarningKind = ParsedNoWarningKind | ParsedIssuedWarningKind;
 
 export interface ParsedWarningTelegram {
   readonly telegramType: WarningTelegramType;
