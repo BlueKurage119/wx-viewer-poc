@@ -4,8 +4,14 @@ import {
   listPendingWarningTelegramReceptions,
   updateTelegramReceptionAdoption,
 } from '../repositories/telegramReceptionRepository.js';
+import {
+  applyWarningCurrentReception,
+  DEFAULT_WARNING_CURRENT_TARGET_AREA,
+} from './jmaWarningCurrentProcessor.js';
 import type {
   TelegramReception,
+  WarningCurrentApplyResult,
+  WarningCurrentTargetArea,
   WarningTelegramParseResult,
   WarningTargetArea,
 } from '../repositories/types.js';
@@ -16,11 +22,16 @@ export const DEFAULT_WARNING_TARGET_AREA: WarningTargetArea = {
   displayName: '江東区',
 };
 
+export interface WarningTelegramProcessResult {
+  readonly parseResult: WarningTelegramParseResult;
+  readonly currentResult: WarningCurrentApplyResult | null;
+}
+
 export function processWarningTelegramReception(
   connection: DatabaseConnection,
   reception: TelegramReception,
   decidedAt: UtcIso8601String,
-  targetArea: WarningTargetArea,
+  targetArea: WarningTargetArea | WarningCurrentTargetArea = DEFAULT_WARNING_TARGET_AREA,
 ): WarningTelegramParseResult {
   const result =
     reception.rawBody === null
@@ -40,6 +51,24 @@ export function processWarningTelegramReception(
     });
   });
   transaction();
+
+  if (result.ok) {
+    const currentTargetArea: WarningCurrentTargetArea =
+      'prefectureCode' in targetArea && typeof targetArea.prefectureCode === 'string'
+        ? targetArea
+        : {
+            ...targetArea,
+            prefectureCode: DEFAULT_WARNING_CURRENT_TARGET_AREA.prefectureCode,
+          };
+
+    try {
+      applyWarningCurrentReception(connection, reception, result.value, currentTargetArea);
+    } catch (error) {
+      // C3 の例外によって C2 の解析成功を取り消さない
+      console.error('Failed to apply warning current reception:', error);
+    }
+  }
+
   return result;
 }
 
