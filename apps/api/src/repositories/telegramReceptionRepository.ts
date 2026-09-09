@@ -427,3 +427,11 @@ export function deleteTelegramReception(connection: DatabaseConnection, id: numb
   const result = connection.prepare('DELETE FROM telegram_reception WHERE id = ?').run(id);
   return result.changes > 0;
 }
+
+export function hasTelegramReception(connection: DatabaseConnection, documentUrl: string): boolean {
+  validateNonEmptyString(documentUrl, 'documentUrl');
+  const row = connection
+    .prepare('SELECT 1 FROM telegram_reception WHERE document_url = ? LIMIT 1')
+    .get(documentUrl);
+  return row !== undefined;
+}
