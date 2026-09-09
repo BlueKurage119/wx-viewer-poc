@@ -1,0 +1,1122 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import crypto from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { initializeDatabase } from '../src/database/index.js';
+import {
+  listFetchAttempts,
+  listTelegramReceptions,
+  findTelegramReceptionById,
+} from '../src/repositories/index.js';
+import {
+  JMA_XML_FEED_DEFINITIONS,
+  getFeedDefinitionsForTrigger,
+} from '../src/polling/jmaXmlFeeds.js';
+import { FeedBackoffManager, calculateBackoffDelaySeconds } from '../src/polling/retryBackoff.js';
+import {
+  parseAtomFeed,
+  parseTelegramXml,
+  extractTelegramTypeFromUrl,
+} from '../src/polling/jmaXmlFeedParser.js';
+import { JmaXmlPollingService } from '../src/polling/jmaXmlPollingService.js';
+import { startServer } from '../src/server.js';
+
+const apiRoot = join(fileURLToPath(import.meta.url), '../..');
+const migrationsDirectory = join(apiRoot, 'migrations');
+
+function createTempDb(): { databasePath: string; cleanup: () => void } {
+  const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-polling-test-'));
+  const databasePath = join(directory, 'test.sqlite3');
+  return {
+    databasePath,
+    cleanup: () => rmSync(directory, { recursive: true, force: true }),
+  };
+}
+
+interface TestHttpServer {
+  readonly baseUrl: string;
+  readonly port: number;
+  readonly requestCounts: Map<string, number>;
+  setHandler(handler: (req: http.IncomingMessage, res: http.ServerResponse) => void): void;
+  close(): Promise<void>;
+}
+
+async function createTestHttpServer(): Promise<TestHttpServer> {
+  const requestCounts = new Map<string, number>();
+  let currentHandler: (req: http.IncomingMessage, res: http.ServerResponse) => void = (
+    _req,
+    res,
+  ) => {
+    res.statusCode = 404;
+    res.end('Not found');
+  };
+
+  const server = http.createServer((req, res) => {
+    const url = req.url ?? '/';
+    requestCounts.set(url, (requestCounts.get(url) ?? 0) + 1);
+    currentHandler(req, res);
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve());
+  });
+
+  const address = server.address() as { port: number };
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    port: address.port,
+    requestCounts,
+    setHandler(handler) {
+      currentHandler = handler;
+    },
+    close() {
+      return new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    },
+  };
+}
+
+function createSampleAtomFeed(entries: Array<{ id: string; title: string; href: string }>): string {
+  const entryTags = entries
+    .map(
+      (e) => `
+    <entry>
+      <title>${e.title}</title>
+      <id>${e.id}</id>
+      <updated>2026-09-09T00:00:00Z</updated>
+      <link rel="alternate" type="application/xml" href="${e.href}" />
+    </entry>
+  `,
+    )
+    .join('\n');
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>気象庁XMLフィード</title>
+  <updated>2026-09-09T00:00:00Z</updated>
+  <id>feed:test</id>
+  ${entryTags}
+</feed>`;
+}
+
+function createSampleTelegramXml(options?: {
+  controlStatus?: string;
+  title?: string;
+  reportDateTime?: string;
+  areas?: Array<{ code: string; name: string; codeType?: string }>;
+  omitControl?: boolean;
+  omitHead?: boolean;
+  invalidNamespace?: boolean;
+}): string {
+  if (options?.invalidNamespace) {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://invalid.example.com/xml">
+  <Control><Status>通常</Status><DateTime>2026-09-09T00:00:00Z</DateTime></Control>
+  <Head><Title>テスト</Title><ReportDateTime>2026-09-09T00:00:00Z</ReportDateTime></Head>
+</Report>`;
+  }
+
+  const status = options?.controlStatus ?? '通常';
+  const title = options?.title ?? '気象警報・注意報（テスト）';
+  const reportDateTime = options?.reportDateTime ?? '2026-09-09T09:00:00+09:00';
+  const areas = options?.areas ?? [
+    { code: '1310800', name: '江東区', codeType: '気象情報／細分区域等' },
+  ];
+
+  const controlBlock = options?.omitControl
+    ? ''
+    : `<Control>
+  <Title>${title}</Title>
+  <DateTime>2026-09-09T00:00:00Z</DateTime>
+  <Status>${status}</Status>
+  <EditorialOffice>気象庁</EditorialOffice>
+  <PublishingOffice>気象庁</PublishingOffice>
+</Control>`;
+
+  const areaBlocks = areas
+    .map(
+      (a) => `
+    <Areas codeType="${a.codeType ?? ''}">
+      <Area>
+        <Name>${a.name}</Name>
+        <Code>${a.code}</Code>
+      </Area>
+    </Areas>
+  `,
+    )
+    .join('\n');
+
+  const headBlock = options?.omitHead
+    ? ''
+    : `<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+  <Title>${title}</Title>
+  <ReportDateTime>${reportDateTime}</ReportDateTime>
+  <TargetDateTime>${reportDateTime}</TargetDateTime>
+  <EventID>20260909000000</EventID>
+  <InfoType>発表</InfoType>
+  <Serial>1</Serial>
+  <InfoKind>気象警報・注意報</InfoKind>
+  <Headline>
+    <Information type="気象警報・注意報（市町村等）">
+      <Item>
+        <Kind><Name>大雨警報</Name><Code>03</Code></Kind>
+        ${areaBlocks}
+      </Item>
+    </Information>
+  </Headline>
+</Head>`;
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+  ${controlBlock}
+  ${headBlock}
+  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/">
+  </Body>
+</Report>`;
+}
+
+// -------------------------------------------------------------------------------------------------
+// 1. 4 フィード定義の完全一致と通常・初期化サイクルの対象フィード
+// -------------------------------------------------------------------------------------------------
+test('1. 4 フィード定義の URL・sourceKind・役割が完全一致し、通常サイクルが高頻度 2 フィードだけ、初期化サイクルが 4 フィードを取得する', () => {
+  assert.equal(JMA_XML_FEED_DEFINITIONS.length, 4);
+
+  const regularDef = JMA_XML_FEED_DEFINITIONS.find((f) => f.kind === 'regular');
+  assert.deepEqual(regularDef, {
+    kind: 'regular',
+    url: 'https://www.data.jma.go.jp/developer/xml/feed/regular.xml',
+    sourceKind: 'xml_feed_regular',
+    role: 'high_frequency',
+  });
+
+  const extraDef = JMA_XML_FEED_DEFINITIONS.find((f) => f.kind === 'extra');
+  assert.deepEqual(extraDef, {
+    kind: 'extra',
+    url: 'https://www.data.jma.go.jp/developer/xml/feed/extra.xml',
+    sourceKind: 'xml_feed_extra',
+    role: 'high_frequency',
+  });
+
+  const regularLDef = JMA_XML_FEED_DEFINITIONS.find((f) => f.kind === 'regular_l');
+  assert.deepEqual(regularLDef, {
+    kind: 'regular_l',
+    url: 'https://www.data.jma.go.jp/developer/xml/feed/regular_l.xml',
+    sourceKind: 'xml_feed_regular_long',
+    role: 'long_term',
+  });
+
+  const extraLDef = JMA_XML_FEED_DEFINITIONS.find((f) => f.kind === 'extra_l');
+  assert.deepEqual(extraLDef, {
+    kind: 'extra_l',
+    url: 'https://www.data.jma.go.jp/developer/xml/feed/extra_l.xml',
+    sourceKind: 'xml_feed_extra_long',
+    role: 'long_term',
+  });
+
+  // scheduled / manual は高頻度 2 フィードのみ
+  const scheduledDefs = getFeedDefinitionsForTrigger('scheduled');
+  assert.deepEqual(
+    scheduledDefs.map((f) => f.kind),
+    ['regular', 'extra'],
+  );
+  const manualDefs = getFeedDefinitionsForTrigger('manual');
+  assert.deepEqual(
+    manualDefs.map((f) => f.kind),
+    ['regular', 'extra'],
+  );
+
+  // initial / recovery は 4 フィードすべて
+  const initialDefs = getFeedDefinitionsForTrigger('initial');
+  assert.deepEqual(
+    initialDefs.map((f) => f.kind),
+    ['regular', 'extra', 'regular_l', 'extra_l'],
+  );
+  const recoveryDefs = getFeedDefinitionsForTrigger('recovery');
+  assert.deepEqual(
+    recoveryDefs.map((f) => f.kind),
+    ['regular', 'extra', 'regular_l', 'extra_l'],
+  );
+});
+
+// -------------------------------------------------------------------------------------------------
+// 1b. XMLパーサーが Atom と電文 XML の名前空間・属性・繰返し要素を正しく区別すること
+// -------------------------------------------------------------------------------------------------
+test('1b. XMLパーサーが Atom と電文 XML の名前空間・属性・繰返し要素を正しく区別する', () => {
+  // Atom名前空間の識別
+  const noNsAtomXml =
+    '<feed><entry><link href="https://www.data.jma.go.jp/developer/xml/data/doc.xml"/></entry></feed>';
+  assert.throws(
+    () => parseAtomFeed(noNsAtomXml),
+    /Atomフィードのルート要素が <feed xmlns="http:\/\/www\.w3\.org\/2005\/Atom"> ではありません/,
+  );
+
+  // 繰返し要素と属性の抽出
+  const validAtomXml = `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>urn:1</id>
+    <title>タイトル1</title>
+    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/1.xml" />
+  </entry>
+  <entry>
+    <id>urn:2</id>
+    <title>タイトル2</title>
+    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/2.xml" />
+  </entry>
+</feed>`;
+  const entries = parseAtomFeed(validAtomXml);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0]?.documentUrl, 'https://www.data.jma.go.jp/developer/xml/data/1.xml');
+  assert.equal(entries[1]?.documentUrl, 'https://www.data.jma.go.jp/developer/xml/data/2.xml');
+
+  // 電文XMLの名前空間と属性・地域繰返し要素の識別
+  const sampleDocUrl =
+    'https://www.data.jma.go.jp/developer/xml/data/20260909000000_0_VPWW55_130000.xml';
+  assert.equal(extractTelegramTypeFromUrl(sampleDocUrl), 'VPWW55');
+
+  const parsed = parseTelegramXml(createSampleTelegramXml(), sampleDocUrl);
+  assert.equal(parsed.isValidEnvelope, true);
+  assert.equal(parsed.telegramType, 'VPWW55');
+  assert.equal(parsed.controlStatus, 'normal');
+  assert.equal(parsed.areas.length, 1);
+  assert.equal(parsed.areas[0]?.codeType, '気象情報／細分区域等');
+});
+
+// -------------------------------------------------------------------------------------------------
+// 2. Atom エントリの link.href でだけ個別電文を取得する
+// -------------------------------------------------------------------------------------------------
+test('2. Atom エントリの link.href でだけ個別電文を取得する。題名・日時・官署コードから URL を組み立てる実装では成功しないフィクスチャを用いる', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const arbitraryDocPath = '/arbitrary-opaque-token-not-constructible-from-metadata.xml';
+    const docUrl = `${server.baseUrl}${arbitraryDocPath}`;
+
+    const telegramXml = createSampleTelegramXml({
+      title: '東京都気象警報・注意報（自作不可能フィクスチャ）',
+    });
+
+    const feedXml = createSampleAtomFeed([
+      {
+        id: 'urn:uuid:custom-entry-1',
+        title: '気象警報・注意報',
+        href: docUrl,
+      },
+    ]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml' || req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/xml');
+        res.end(feedXml);
+        return;
+      }
+      if (req.url === arbitraryDocPath) {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/xml');
+        res.end(telegramXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    // テストサーバーの URL にリダイレクト・差し替えるカスタム fetch を注入
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => '2026-09-09T01:00:00Z',
+    });
+
+    const result = await service.pollOnce('scheduled');
+    assert.equal(result.feedResults.length, 2);
+
+    // arbitraryDocPath への GET が 1 回発生したことを検証
+    assert.equal(server.requestCounts.get(arbitraryDocPath), 1);
+
+    // telegram_reception に保存された document_url が完全一致すること
+    const receptions = listTelegramReceptions(db.connection);
+    assert.equal(receptions.length, 1);
+    assert.equal(receptions[0].documentUrl, docUrl);
+    assert.equal(receptions[0].title, '東京都気象警報・注意報（自作不可能フィクスチャ）');
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 3. 同じ document_url が複数フィードまたは同一フィードに掲載されても、個別 GET と追記が各 1 回だけ
+// -------------------------------------------------------------------------------------------------
+test('3. 同じ document_url が複数フィードまたは同一フィードに掲載されても、個別 GET と telegram_reception 追記が各 1 回だけである', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const sharedDocPath = '/data/shared-20260909_0_VPWW55_130000.xml';
+    const sharedDocUrl = `${server.baseUrl}${sharedDocPath}`;
+    const telegramXml = createSampleTelegramXml();
+
+    // regular に 2 件（重複）、extra にも同じ 1 件が含まれるフィード
+    const regularFeedXml = createSampleAtomFeed([
+      { id: 'urn:entry-1', title: '警報1', href: sharedDocUrl },
+      { id: 'urn:entry-2', title: '警報2(同一URL)', href: sharedDocUrl },
+    ]);
+    const extraFeedXml = createSampleAtomFeed([
+      { id: 'urn:entry-3', title: '警報3(別フィード同一URL)', href: sharedDocUrl },
+    ]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml') {
+        res.statusCode = 200;
+        res.end(regularFeedXml);
+        return;
+      }
+      if (req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.end(extraFeedXml);
+        return;
+      }
+      if (req.url === sharedDocPath) {
+        res.statusCode = 200;
+        res.end(telegramXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => '2026-09-09T01:00:00Z',
+    });
+
+    const cycleResult = await service.pollOnce('scheduled');
+
+    // regular フィード: 発見2, スキップ1, ダウンロード1
+    const regularResult = cycleResult.feedResults.find((r) => r.feedKind === 'regular');
+    assert.deepEqual(regularResult, {
+      feedKind: 'regular',
+      discoveredCount: 2,
+      skippedDuplicateCount: 1,
+      downloadedCount: 1,
+      failedDocumentCount: 0,
+    });
+
+    // extra フィード: 発見1, スキップ1 (既処理), ダウンロード0
+    const extraResult = cycleResult.feedResults.find((r) => r.feedKind === 'extra');
+    assert.deepEqual(extraResult, {
+      feedKind: 'extra',
+      discoveredCount: 1,
+      skippedDuplicateCount: 1,
+      downloadedCount: 0,
+      failedDocumentCount: 0,
+    });
+
+    // 個別電文 URL への GET リクエストは完全一致で 1 回だけ
+    assert.equal(server.requestCounts.get(sharedDocPath), 1);
+
+    // telegram_reception テーブルへの追記も 1 回だけ
+    const receptions = listTelegramReceptions(db.connection);
+    assert.equal(receptions.length, 1);
+    assert.equal(receptions[0].documentUrl, sharedDocUrl);
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 4. 前サイクルで受信済みの URL は、次サイクルで個別 GET を行わず、フィード取得試行だけを追記する
+// -------------------------------------------------------------------------------------------------
+test('4. 前サイクルで受信済みの URL は、次サイクルで個別 GET を行わず、フィード取得試行だけを追記する', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const docPath = '/data/test_doc_20260909_0_VPWW55_130000.xml';
+    const docUrl = `${server.baseUrl}${docPath}`;
+    const telegramXml = createSampleTelegramXml();
+
+    const feedXml = createSampleAtomFeed([{ id: 'urn:entry-1', title: '警報', href: docUrl }]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml' || req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.end(feedXml);
+        return;
+      }
+      if (req.url === docPath) {
+        res.statusCode = 200;
+        res.end(telegramXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    let currentTime = '2026-09-09T01:00:00Z';
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => currentTime,
+    });
+
+    // サイクル 1 回目
+    const cycle1 = await service.pollOnce('scheduled');
+    assert.equal(server.requestCounts.get(docPath), 1);
+    const regularResult1 = cycle1.feedResults.find((r) => r.feedKind === 'regular');
+    assert.equal(regularResult1?.downloadedCount, 1);
+    assert.equal(regularResult1?.skippedDuplicateCount, 0);
+
+    const receptions1 = listTelegramReceptions(db.connection);
+    assert.equal(receptions1.length, 1);
+
+    const fetchAttempts1 = listFetchAttempts(db.connection);
+    // regular(feed), doc, extra(feed) => 計 3 件
+    assert.equal(fetchAttempts1.length, 3);
+
+    // サイクル 2 回目（60秒後）
+    currentTime = '2026-09-09T01:01:00Z';
+    const cycle2 = await service.pollOnce('scheduled');
+    // 個別電文への GET は増えない（1 回のまま）
+    assert.equal(server.requestCounts.get(docPath), 1);
+
+    const regularResult2 = cycle2.feedResults.find((r) => r.feedKind === 'regular');
+    assert.equal(regularResult2?.downloadedCount, 0);
+    assert.equal(regularResult2?.skippedDuplicateCount, 1);
+
+    // telegram_reception も増えない
+    const receptions2 = listTelegramReceptions(db.connection);
+    assert.equal(receptions2.length, 1);
+
+    // フィードの fetch_attempt だけが追記される（regular, extra の2件追加で計 5 件）
+    const fetchAttempts2 = listFetchAttempts(db.connection);
+    assert.equal(fetchAttempts2.length, 5);
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 5. 正常な名前空間、Control、Head、地域要素を持つ本文が完全一致で往復する
+// -------------------------------------------------------------------------------------------------
+test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が、原文、SHA-256、Atom ID、由来フィード、共通ヘッダ、地域明細を含んで完全一致で往復する', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const docPath = '/data/20260909000000_0_VPWW55_130000.xml';
+    const docUrl = `${server.baseUrl}${docPath}`;
+
+    const areasInput = [
+      { code: '1310800', name: '江東区', codeType: '気象情報／細分区域等' },
+      { code: '130010', name: '東京地方', codeType: '気象情報／府県予報区等' },
+    ];
+    const telegramXml = createSampleTelegramXml({
+      controlStatus: '通常',
+      title: '東京都大雨警報・注意報',
+      reportDateTime: '2026-09-09T10:00:00+09:00',
+      areas: areasInput,
+    });
+    const expectedHash = crypto.createHash('sha256').update(telegramXml).digest('hex');
+
+    const feedXml = createSampleAtomFeed([
+      { id: 'urn:uuid:entry-rec-5', title: '大雨警報', href: docUrl },
+    ]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml' || req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.end(feedXml);
+        return;
+      }
+      if (req.url === docPath) {
+        res.statusCode = 200;
+        res.end(telegramXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => '2026-09-09T01:00:00Z',
+    });
+
+    await service.pollOnce('scheduled');
+
+    const receptions = listTelegramReceptions(db.connection);
+    assert.equal(receptions.length, 1);
+    const reception = findTelegramReceptionById(db.connection, receptions[0].id);
+    assert.ok(reception);
+
+    // 完全一致検証
+    assert.equal(reception.feedKind, 'regular');
+    assert.equal(reception.feedEntryId, 'urn:uuid:entry-rec-5');
+    assert.equal(reception.documentUrl, docUrl);
+    assert.equal(reception.telegramType, 'VPWW55');
+    assert.equal(reception.title, '東京都大雨警報・注意報');
+    assert.equal(reception.controlStatus, 'normal');
+    assert.equal(reception.infoType, '発表');
+    assert.equal(reception.eventId, '20260909000000');
+    assert.equal(reception.serial, '1');
+    assert.equal(reception.controlDateTime, '2026-09-09T00:00:00.000Z');
+    assert.equal(reception.reportDateTime, '2026-09-09T01:00:00.000Z');
+    assert.equal(reception.targetDateTime, '2026-09-09T01:00:00.000Z');
+    assert.equal(reception.adoptionResult, null);
+    assert.equal(reception.adoptionReason, null);
+    assert.equal(reception.contentHash, expectedHash);
+    assert.equal(reception.rawBody, telegramXml);
+
+    // 地域明細の検証 (sequence順)
+    assert.equal(reception.areas.length, 2);
+    assert.deepEqual(reception.areas[0], {
+      id: reception.areas[0].id,
+      areaCode: '1310800',
+      areaName: '江東区',
+      codeType: '気象情報／細分区域等',
+      sequence: 1,
+    });
+    assert.deepEqual(reception.areas[1], {
+      id: reception.areas[1].id,
+      areaCode: '130010',
+      areaName: '東京地方',
+      codeType: '気象情報／府県予報区等',
+      sequence: 2,
+    });
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 6. 本文の名前空間・共通構造・地域要素が不正なら、原文と 未対応形式 の理由が残る
+// -------------------------------------------------------------------------------------------------
+test('6. title だけが対象らしく見えても、本文の名前空間・共通構造・地域要素が不正なら、空の正常情報へ変換せず、原文と 未対応形式 の理由が残る', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    // 不正な3つの電文
+    // doc1: 名前空間不正
+    // doc2: Control 要素なし
+    // doc3: 地域要素なし
+    const docPath1 = '/data/20260909_0_VPWW55_invalid_ns.xml';
+    const docPath2 = '/data/20260909_0_VPWW56_no_control.xml';
+    const docPath3 = '/data/20260909_0_VPWW57_no_area.xml';
+
+    const xml1 = createSampleTelegramXml({ invalidNamespace: true });
+    const xml2 = createSampleTelegramXml({ omitControl: true });
+    const xml3 = createSampleTelegramXml({ areas: [] });
+
+    const feedXml = createSampleAtomFeed([
+      { id: 'urn:entry-bad-1', title: '不正名前空間', href: `${server.baseUrl}${docPath1}` },
+      { id: 'urn:entry-bad-2', title: 'Control欠損', href: `${server.baseUrl}${docPath2}` },
+      { id: 'urn:entry-bad-3', title: '地域欠損', href: `${server.baseUrl}${docPath3}` },
+    ]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml' || req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.end(feedXml);
+        return;
+      }
+      if (req.url === docPath1) {
+        res.statusCode = 200;
+        res.end(xml1);
+        return;
+      }
+      if (req.url === docPath2) {
+        res.statusCode = 200;
+        res.end(xml2);
+        return;
+      }
+      if (req.url === docPath3) {
+        res.statusCode = 200;
+        res.end(xml3);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => '2026-09-09T01:00:00Z',
+    });
+
+    await service.pollOnce('scheduled');
+
+    const receptions = listTelegramReceptions(db.connection);
+    assert.equal(receptions.length, 3);
+
+    // 3件とも '未対応形式' で記録されていること
+    for (const rSummary of receptions) {
+      assert.equal(rSummary.adoptionResult, '未対応形式');
+      assert.ok(rSummary.adoptionReason && rSummary.adoptionReason.length > 0);
+      const detail = findTelegramReceptionById(db.connection, rSummary.id);
+      assert.ok(detail?.rawBody); // 原文が保持されていること
+    }
+
+    // それぞれの失敗理由の確認
+    const r1 = receptions.find((r) => r.documentUrl.includes('invalid_ns'));
+    assert.match(r1?.adoptionReason ?? '', /ルート要素|名前空間/);
+
+    const r2 = receptions.find((r) => r.documentUrl.includes('no_control'));
+    assert.match(r2?.adoptionReason ?? '', /Control/);
+
+    const r3 = receptions.find((r) => r.documentUrl.includes('no_area'));
+    assert.match(r3?.adoptionReason ?? '', /地域/);
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 7. HTTP 非成功、ネットワーク例外、10 秒 timeout が fetch_attempt に記録され、timeout の httpStatus が null
+// -------------------------------------------------------------------------------------------------
+test('7. フィード・個別電文の HTTP 非成功、ネットワーク例外、10 秒 timeout が fetch_attempt に失敗として記録され、timeout の httpStatus が null である', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const docPathTimeout = '/data/20260909_0_VPWW55_timeout.xml';
+    const docPath500 = '/data/20260909_0_VPWW55_500.xml';
+
+    const feedXml = createSampleAtomFeed([
+      { id: 'urn:timeout', title: 'タイムアウト電文', href: `${server.baseUrl}${docPathTimeout}` },
+      { id: 'urn:server-error', title: '500電文', href: `${server.baseUrl}${docPath500}` },
+    ]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml') {
+        res.statusCode = 200;
+        res.end(feedXml);
+        return;
+      }
+      if (req.url === '/feed/extra.xml') {
+        // フィード自体の HTTP 503 エラー
+        res.statusCode = 503;
+        res.end('Service Unavailable');
+        return;
+      }
+      if (req.url === docPath500) {
+        res.statusCode = 500;
+        res.end('Internal Server Error');
+        return;
+      }
+      if (req.url === docPathTimeout) {
+        // レスポンスを返さずハング（カスタムfetchでTimeoutErrorを発生させる）
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes(docPathTimeout)) {
+        const timeoutErr = new Error('The operation was aborted due to timeout');
+        timeoutErr.name = 'TimeoutError';
+        return Promise.reject(timeoutErr);
+      }
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => '2026-09-09T01:00:00Z',
+    });
+
+    await service.pollOnce('scheduled');
+
+    const attempts = listFetchAttempts(db.connection);
+
+    // 1. extra.xml の HTTP 503
+    const extraAttempt = attempts.find((a) => a.sourceKind === 'xml_feed_extra');
+    assert.ok(extraAttempt);
+    assert.equal(extraAttempt.outcome, 'failure');
+    assert.equal(extraAttempt.httpStatus, 503);
+    assert.equal(extraAttempt.errorKind, 'http_status');
+
+    // 2. docPathTimeout のタイムアウト (httpStatus は null)
+    const timeoutAttempt = attempts.find((a) => a.requestUrl.includes(docPathTimeout));
+    assert.ok(timeoutAttempt);
+    assert.equal(timeoutAttempt.outcome, 'failure');
+    assert.equal(timeoutAttempt.httpStatus, null);
+    assert.equal(timeoutAttempt.errorKind, 'timeout');
+
+    // 3. docPath500 の HTTP 500
+    const serverErrAttempt = attempts.find((a) => a.requestUrl.includes(docPath500));
+    assert.ok(serverErrAttempt);
+    assert.equal(serverErrAttempt.outcome, 'failure');
+    assert.equal(serverErrAttempt.httpStatus, 500);
+    assert.equal(serverErrAttempt.errorKind, 'http_status');
+
+    // 失敗した電文の telegram_reception 空行は作られないこと
+    const receptions = listTelegramReceptions(db.connection);
+    assert.equal(receptions.length, 0);
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 8. 指数バックオフ (60, 120, 240, 300, 300秒) とフィード独立性
+// -------------------------------------------------------------------------------------------------
+test('8. 同一フィードの連続失敗で待機値が 60、120、240、300、300 秒となり、成功後は 60 秒へ戻る。一方の待機が他方の取得を止めない', () => {
+  // バックオフ計算関数の検証
+  assert.equal(calculateBackoffDelaySeconds(0), 0);
+  assert.equal(calculateBackoffDelaySeconds(1), 60);
+  assert.equal(calculateBackoffDelaySeconds(2), 120);
+  assert.equal(calculateBackoffDelaySeconds(3), 240);
+  assert.equal(calculateBackoffDelaySeconds(4), 300);
+  assert.equal(calculateBackoffDelaySeconds(5), 300);
+  assert.equal(calculateBackoffDelaySeconds(6), 300);
+
+  const manager = new FeedBackoffManager();
+  const baseTime = '2026-09-09T00:00:00.000Z';
+
+  // 1回目失敗 (regular)
+  manager.recordFailure('regular', baseTime, 'error1');
+  const status1 = manager.getStatus('regular', baseTime);
+  assert.equal(status1.consecutiveFailures, 1);
+  assert.equal(status1.isWaiting, true);
+  assert.equal(status1.nextAllowedFetchAt, '2026-09-09T00:01:00.000Z'); // 60秒後
+
+  // 2回目失敗
+  manager.recordFailure('regular', '2026-09-09T00:01:00.000Z', 'error2');
+  const status2 = manager.getStatus('regular', '2026-09-09T00:01:00.000Z');
+  assert.equal(status2.consecutiveFailures, 2);
+  assert.equal(status2.nextAllowedFetchAt, '2026-09-09T00:03:00.000Z'); // 120秒後
+
+  // 3回目失敗
+  manager.recordFailure('regular', '2026-09-09T00:03:00.000Z', 'error3');
+  const status3 = manager.getStatus('regular', '2026-09-09T00:03:00.000Z');
+  assert.equal(status3.consecutiveFailures, 3);
+  assert.equal(status3.nextAllowedFetchAt, '2026-09-09T00:07:00.000Z'); // 240秒後
+
+  // 4回目失敗
+  manager.recordFailure('regular', '2026-09-09T00:07:00.000Z', 'error4');
+  const status4 = manager.getStatus('regular', '2026-09-09T00:07:00.000Z');
+  assert.equal(status4.consecutiveFailures, 4);
+  assert.equal(status4.nextAllowedFetchAt, '2026-09-09T00:12:00.000Z'); // 300秒後
+
+  // 5回目失敗
+  manager.recordFailure('regular', '2026-09-09T00:12:00.000Z', 'error5');
+  const status5 = manager.getStatus('regular', '2026-09-09T00:12:00.000Z');
+  assert.equal(status5.consecutiveFailures, 5);
+  assert.equal(status5.nextAllowedFetchAt, '2026-09-09T00:17:00.000Z'); // 300秒後
+
+  // 一方の待機が他方の取得を止めない: extra は待機中ではない
+  const extraStatus = manager.getStatus('extra', '2026-09-09T00:12:00.000Z');
+  assert.equal(extraStatus.isWaiting, false);
+  assert.equal(extraStatus.consecutiveFailures, 0);
+
+  // 成功でリセット
+  manager.recordSuccess('regular', '2026-09-09T00:17:00.000Z');
+  const statusSuccess = manager.getStatus('regular', '2026-09-09T00:17:00.000Z');
+  assert.equal(statusSuccess.consecutiveFailures, 0);
+  assert.equal(statusSuccess.isWaiting, false);
+  assert.equal(statusSuccess.nextAllowedFetchAt, null);
+
+  // 再度失敗したら 60 秒へ戻る
+  manager.recordFailure('regular', '2026-09-09T00:18:00.000Z', 'error_new');
+  const statusReset = manager.getStatus('regular', '2026-09-09T00:18:00.000Z');
+  assert.equal(statusReset.consecutiveFailures, 1);
+  assert.equal(statusReset.nextAllowedFetchAt, '2026-09-09T00:19:00.000Z'); // 再び60秒後
+});
+
+// -------------------------------------------------------------------------------------------------
+// 9. 同時の pollOnce は同一 Promise を共有し、上流 GET が 1 回だけ
+// -------------------------------------------------------------------------------------------------
+test('9. 同時の pollOnce は同一 Promise を共有し、上流のフィード GET がフィードごとに 1 回だけである', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const feedXml = createSampleAtomFeed([]);
+
+    server.setHandler((req, res) => {
+      // 少し応答を遅延させることで並行呼出しの集約をテスト
+      setTimeout(() => {
+        if (req.url === '/feed/regular.xml' || req.url === '/feed/extra.xml') {
+          res.statusCode = 200;
+          res.end(feedXml);
+          return;
+        }
+        res.statusCode = 404;
+        res.end('Not found');
+      }, 30);
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => '2026-09-09T01:00:00Z',
+    });
+
+    // 3 つの pollOnce を同時に呼び出す
+    const p1 = service.pollOnce('scheduled');
+    const p2 = service.pollOnce('scheduled');
+    const p3 = service.pollOnce('scheduled');
+
+    // 同一の Promise インスタンスであること
+    assert.strictEqual(p1, p2);
+    assert.strictEqual(p2, p3);
+
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+    assert.strictEqual(r1, r2);
+    assert.strictEqual(r2, r3);
+
+    // 上流のフィード GET が regular, extra それぞれ 1 回だけ行われたこと
+    assert.equal(server.requestCounts.get('/feed/regular.xml'), 1);
+    assert.equal(server.requestCounts.get('/feed/extra.xml'), 1);
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 10. start() の複数呼出しがタイマーを増やさず、stop() 後は追加サイクルを開始しない
+// -------------------------------------------------------------------------------------------------
+test('10. start() の複数呼出しがタイマーを増やさず、stop() 後は追加サイクルを開始しない。実行中サイクルと DB を安全に終了する', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const feedXml = createSampleAtomFeed([]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml' || req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.end(feedXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      intervalMs: 50, // テスト用に短縮
+      clock: () => '2026-09-09T01:00:00Z',
+    });
+
+    // 複数回 start() を呼ぶ
+    service.start();
+    service.start();
+    service.start();
+
+    const statusBefore = service.getStatus();
+    assert.equal(statusBefore.isRunning, true);
+
+    // 初回即時実行完了を待つ
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    // stop() を呼ぶ
+    await service.stop();
+
+    const statusAfter = service.getStatus();
+    assert.equal(statusAfter.isRunning, false);
+
+    const regularCountsAtStop = server.requestCounts.get('/feed/regular.xml') ?? 0;
+
+    // stop() 後に追加サイクルが開始されないことを確認
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const regularCountsAfterWait = server.requestCounts.get('/feed/regular.xml') ?? 0;
+
+    assert.equal(regularCountsAfterWait, regularCountsAtStop);
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 11. 既定の startServer() でポーリングが開始され、高頻度 2 フィードの定期取得が行われる
+// -------------------------------------------------------------------------------------------------
+test('11. 既定の startServer() でポーリングが開始され、高頻度 2 フィードの定期取得が行われる', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const config = { databasePath, migrationsDirectory };
+    const feedXml = createSampleAtomFeed([]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml' || req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.end(feedXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    // enablePolling を明示指定せず（既定値で起動）テストダブル fetch を注入
+    const apiServer = await startServer({
+      config,
+      port: 0,
+      pollingServiceOptions: {
+        fetchFn: customFetch,
+        allowedUrlPrefixes: [server.baseUrl],
+        allowHttpForTesting: true,
+        clock: () => '2026-09-09T01:00:00Z',
+      },
+    });
+
+    try {
+      assert.ok(apiServer.pollingService, 'pollingService が存在する');
+      assert.equal(
+        apiServer.pollingService.getStatus().isRunning,
+        true,
+        '既定でポーリングが開始されている',
+      );
+
+      // 初回実行完了を少し待機
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      // 高頻度 2 フィード (regular, extra) が要求されたこと
+      assert.equal(server.requestCounts.get('/feed/regular.xml'), 1);
+      assert.equal(server.requestCounts.get('/feed/extra.xml'), 1);
+    } finally {
+      await apiServer.close();
+    }
+
+    assert.equal(apiServer.pollingService?.getStatus().isRunning, false, 'close 後に停止している');
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});

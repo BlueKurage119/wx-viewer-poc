@@ -267,7 +267,7 @@ test('DB初期化を完了してからhealth endpointを公開し、終了後に
     migrationsDirectory: join(directory, 'migrations'),
   };
   await mkdir(config.migrationsDirectory);
-  const server = await startServer({ config, port: 0 });
+  const server = await startServer({ config, port: 0, enablePolling: false });
   try {
     const response = await fetch(`http://127.0.0.1:${server.port}/api/health`);
     assert.equal(response.status, 200);

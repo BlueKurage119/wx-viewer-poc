@@ -178,7 +178,7 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
     });
 
     try {
-      const server = await startServer({ config, port: 0 });
+      const server = await startServer({ config, port: 0, enablePolling: false });
 
       try {
         const response = await fetch(`http://127.0.0.1:${server.port}/api/health`);
