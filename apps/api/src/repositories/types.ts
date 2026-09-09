@@ -224,6 +224,36 @@ export interface EarlyWarningSnapshot {
   readonly cells: readonly EarlyWarningCell[];
 }
 
+export const VPFD61_TELEGRAM_TYPE = 'VPFD61' as const;
+export const VPFW60_TELEGRAM_TYPE = 'VPFW60' as const;
+
+export interface EarlyWarningTargetArea {
+  readonly forecastAreaCode: string;
+  readonly displayName: string;
+}
+
+export interface ParsedEarlyWarning {
+  readonly segment: 'near' | 'far';
+  readonly telegramType: 'VPFD61' | 'VPFW60';
+  readonly area: { readonly code: string; readonly name: string };
+  readonly controlStatus: ControlStatus;
+  readonly infoType: string;
+  readonly eventId: string | null;
+  readonly controlDateTime: UtcIso8601String;
+  readonly reportDateTime: UtcIso8601String;
+  readonly infoKindVersion: string | null;
+  readonly timeDefines: readonly EarlyWarningTimeDefineInput[];
+  readonly cells: readonly EarlyWarningCellInput[];
+}
+
+export type EarlyWarningParseResult =
+  | { readonly ok: true; readonly value: ParsedEarlyWarning }
+  | {
+      readonly ok: false;
+      readonly disposition: '対象外' | '対象地域外' | '未対応構造';
+      readonly reason: string;
+    };
+
 // 4. 地域時系列予報
 export interface AreaTimeseriesTimeDefineInput {
   readonly blockId: string;

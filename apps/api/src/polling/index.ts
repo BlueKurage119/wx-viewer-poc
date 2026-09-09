@@ -16,3 +16,10 @@ export {
   parseVpwp50,
 } from './jmaVpwp50Parser.js';
 export * from './jmaVpwp50Processor.js';
+export {
+  DEFAULT_EARLY_WARNING_TARGET_AREA,
+  EXPECTED_VPFD61_INFO_KIND,
+  EXPECTED_VPFW60_INFO_KIND,
+  parseEarlyWarning,
+} from './jmaEarlyWarningParser.js';
+export * from './jmaEarlyWarningProcessor.js';
