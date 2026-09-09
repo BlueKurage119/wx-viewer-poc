@@ -155,16 +155,43 @@ function parseKind(kind: Element, sequence: number): ParsedWarningKind | { error
     const elements: Element[] = [];
     for (let index = 0; index < kind.childNodes.length; index += 1) {
       const child = kind.childNodes.item(index);
-      if (child?.nodeType === 1 && (child as Element).namespaceURI === JMA_METEOROLOGY_NAMESPACE) {
-        elements.push(child as Element);
-      }
+      if (child?.nodeType === 1) elements.push(child as Element);
     }
-    if (elements.length !== 1 || elements[0]?.localName !== 'Status') {
+    const statusElement = elements[0];
+    const dateTimeElement = elements[1];
+    const hasNoDateTime = elements.length === 1 && statusElement?.localName === 'Status';
+    const hasDateTime =
+      elements.length === 2 &&
+      statusElement?.namespaceURI === JMA_METEOROLOGY_NAMESPACE &&
+      statusElement.localName === 'Status' &&
+      dateTimeElement?.namespaceURI === JMA_METEOROLOGY_NAMESPACE &&
+      dateTimeElement.localName === 'DateTime';
+    if (
+      kind.attributes.length !== 0 ||
+      statusElement?.attributes.length !== 0 ||
+      (!hasNoDateTime && !hasDateTime)
+    ) {
       return {
-        error: 'Body/Warning/Item/Kind の発表警報・注意報はなしは Status だけである必要があります',
+        error: 'Body/Warning/Item/Kind の発表警報・注意報はなしの構造が不正です',
       };
     }
-    return { kindType: 'no_warning', sequence, status };
+    if (hasNoDateTime) return { kindType: 'no_warning', sequence, status, dateTime: null };
+
+    const dateTimeAttribute = dateTimeElement!.attributes.item(0);
+    if (
+      dateTimeElement!.attributes.length !== 1 ||
+      dateTimeAttribute?.namespaceURI !== null ||
+      dateTimeAttribute.localName !== 'type' ||
+      dateTimeAttribute.value !== '発表時刻'
+    ) {
+      return {
+        error: 'Body/Warning/Item/Kind/DateTime の属性が不正です',
+      };
+    }
+    const rawDateTime = dateTimeElement!.textContent?.trim() ?? null;
+    const dateTime = parseDateTime(rawDateTime);
+    if (!dateTime) return { error: 'Body/Warning/Item/Kind/DateTime が不正です' };
+    return { kindType: 'no_warning', sequence, status, dateTime };
   }
 
   if (!name || !code) return { error: 'Body/Warning/Item/Kind の Name、Code、Status は必須です' };

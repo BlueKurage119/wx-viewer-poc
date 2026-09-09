@@ -169,7 +169,7 @@ test('複数 Property を XML 出現順で保持し、訓練・試験を区別�
   if (testResult.ok) assert.equal(testResult.value.controlStatus, 'test');
 });
 
-test('Status-only の発表警報・注意報はなしを正常 Kind として、ダミー値なしで保持する', () => {
+test('no_warning は Status-only と公式の DateTime 付き形式を正常 Kind として保持する', () => {
   const noWarning = parseWarningTelegram(
     telegramXml({ kinds: '<Kind><Status>発表警報・注意報はなし</Status></Kind>' }),
     expected('VPWS50'),
@@ -188,19 +188,57 @@ test('Status-only の発表警報・注意報はなしを正常 Kind として�
       serial: '1',
       area: { code: '1310800', name: '江東区' },
       warningType: '気象警報・注意報（市町村等）',
-      kinds: [{ kindType: 'no_warning', sequence: 1, status: '発表警報・注意報はなし' }],
+      kinds: [
+        {
+          kindType: 'no_warning',
+          sequence: 1,
+          status: '発表警報・注意報はなし',
+          dateTime: null,
+        },
+      ],
     },
   });
-  const invalid = parseWarningTelegram(
-    telegramXml({ kinds: '<Kind><Status>発表警報・注意報はなし</Status><Code>00</Code></Kind>' }),
+  const withDateTime = parseWarningTelegram(
+    telegramXml({
+      municipalCode: '0151700',
+      kinds:
+        '<Kind><Status>発表警報・注意報はなし</Status>\n<DateTime type="発表時刻">2019-10-12T04:11:00+09:00</DateTime></Kind>',
+    }),
     expected('VPWS50'),
-    DEFAULT_WARNING_TARGET_AREA,
+    { municipalCode: '0151700', displayName: '礼文町' },
   );
-  assert.deepEqual(invalid, {
-    ok: false,
-    disposition: '未対応構造',
-    reason: 'Body/Warning/Item/Kind の発表警報・注意報はなしは Status だけである必要があります',
-  });
+  assert.equal(withDateTime.ok, true);
+  if (withDateTime.ok) {
+    assert.deepEqual(withDateTime.value.kinds, [
+      {
+        kindType: 'no_warning',
+        sequence: 1,
+        status: '発表警報・注意報はなし',
+        dateTime: '2019-10-11T19:11:00.000Z',
+      },
+    ]);
+  }
+});
+
+test('no_warning の属性、未知子、重複、順序違反、不正日時を拒否する', () => {
+  for (const kinds of [
+    '<Kind flag="1"><Status>発表警報・注意報はなし</Status></Kind>',
+    '<Kind><Status flag="1">発表警報・注意報はなし</Status></Kind>',
+    '<Kind><Status>発表警報・注意報はなし</Status><DateTime type="発表時刻" extra="1">2019-10-12T04:11:00+09:00</DateTime></Kind>',
+    '<Kind><Status>発表警報・注意報はなし</Status><Unknown>値</Unknown></Kind>',
+    '<Kind><Status>発表警報・注意報はなし</Status><DateTime type="発表時刻">2019-10-12T04:11:00+09:00</DateTime><DateTime type="発表時刻">2019-10-12T04:11:00+09:00</DateTime></Kind>',
+    '<Kind><DateTime type="発表時刻">2019-10-12T04:11:00+09:00</DateTime><Status>発表警報・注意報はなし</Status></Kind>',
+    '<Kind><Status>発表警報・注意報はなし</Status><DateTime type="別の時刻">2019-10-12T04:11:00+09:00</DateTime></Kind>',
+    '<Kind><Status>発表警報・注意報はなし</Status><DateTime type="発表時刻">2019-02-30T04:11:00+09:00</DateTime></Kind>',
+  ]) {
+    const result = parseWarningTelegram(
+      telegramXml({ kinds }),
+      expected('VPWS50'),
+      DEFAULT_WARNING_TARGET_AREA,
+    );
+    assert.equal(result.ok, false, kinds);
+    if (!result.ok) assert.equal(result.disposition, '未対応構造');
+  }
 });
 
 test('日時は時刻とタイムゾーンを必須にして厳密に検証する', () => {

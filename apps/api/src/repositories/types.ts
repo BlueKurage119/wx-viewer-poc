@@ -546,6 +546,7 @@ export interface XmlFragment {
 export interface ParsedWarningKindBase {
   readonly sequence: number;
   readonly status: string;
+  readonly dateTime: UtcIso8601String | null;
 }
 
 export interface ParsedNoWarningKind extends ParsedWarningKindBase {
