@@ -320,6 +320,105 @@ test('2. 警報等時系列 (WarningTimeseries): block_id による timeId 衝�
     const deleted = deleteWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
     assert.equal(deleted, true);
     assert.equal(findWarningTimeseriesSnapshot(context.connection, '1310800', 'normal'), null);
+
+    // 2-2. VPWP50 形式（kindCode/kindName が null、新列、condition="値なし"の空文字）の保存・取得
+    const vpwp50Saved = saveWarningTimeseriesSnapshot(context.connection, {
+      areaCode: '1310800',
+      areaName: '江東区',
+      metadata: sampleMetadata,
+      telegram: sampleTelegram,
+      timeDefines: [
+        {
+          blockId: 'timeseries-1',
+          timeId: '1',
+          sequence: 1,
+          timeFrom: '2026-09-09T00:00:00Z',
+          timeTo: '2026-09-09T03:00:00Z',
+          duration: 'PT3H',
+        },
+      ],
+      values: [
+        {
+          blockId: 'timeseries-1',
+          refId: '1',
+          kindCode: null,
+          kindName: null,
+          kindStatus: '発表',
+          kindDateTime: '2026-09-09T00:00:00Z',
+          valueCategory: 'risk',
+          propertyType: '大雨浸水危険度',
+          valueType: '大雨浸水危険度',
+          valueCode: '11',
+          valueText: '警戒レベル２未満',
+          unit: null,
+          description: null,
+          condition: null,
+          areaDivision: null,
+          sequence: 1,
+        },
+        {
+          blockId: 'timeseries-1',
+          refId: '1',
+          kindCode: null,
+          kindName: null,
+          kindStatus: '発表',
+          kindDateTime: '2026-09-09T00:00:00Z',
+          valueCategory: 'quantity',
+          propertyType: '乾燥',
+          valueType: '実効湿度',
+          valueCode: null,
+          valueText: '',
+          unit: '%',
+          description: null,
+          condition: '値なし',
+          areaDivision: null,
+          sequence: 2,
+        },
+      ],
+    });
+
+    assert.equal(vpwp50Saved.values.length, 2);
+    assert.equal(vpwp50Saved.values[0].kindCode, null);
+    assert.equal(vpwp50Saved.values[0].kindName, null);
+    assert.equal(vpwp50Saved.values[0].kindDateTime, '2026-09-09T00:00:00Z');
+    assert.equal(vpwp50Saved.values[0].valueCode, '11');
+    assert.equal(vpwp50Saved.values[0].valueText, '警戒レベル２未満');
+    assert.equal(vpwp50Saved.values[1].valueText, '', '値なしの空要素は空文字として保存される');
+    assert.equal(vpwp50Saved.values[1].condition, '値なし');
+
+    const vpwp50Found = findWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
+    assert.ok(vpwp50Found);
+    assert.equal(vpwp50Found.values.length, 2);
+    assert.equal(vpwp50Found.values[0].kindCode, null);
+    assert.equal(vpwp50Found.values[0].kindName, null);
+    assert.equal(vpwp50Found.values[0].kindDateTime, '2026-09-09T00:00:00Z');
+    assert.equal(vpwp50Found.values[0].valueCode, '11');
+    assert.equal(vpwp50Found.values[0].valueText, '警戒レベル２未満');
+    assert.equal(vpwp50Found.values[1].valueText, '');
+    assert.equal(vpwp50Found.values[1].condition, '値なし');
+    assert.equal(vpwp50Found.values[1].unit, '%');
+
+    // stale 時も新列が完全に復元されること
+    const vpwp50Stale = saveWarningTimeseriesSnapshot(context.connection, {
+      areaCode: '1310800',
+      areaName: '江東区',
+      metadata: {
+        ...vpwp50Found.metadata,
+        availability: 'stale',
+        fetchedAt: '2026-09-09T02:00:00Z',
+      },
+      telegram: vpwp50Found.telegram,
+      timeDefines: [],
+      values: [],
+    });
+    assert.equal(vpwp50Stale.metadata.availability, 'stale');
+    assert.equal(vpwp50Stale.values.length, 2);
+    assert.equal(vpwp50Stale.values[0].kindDateTime, '2026-09-09T00:00:00Z');
+    assert.equal(vpwp50Stale.values[0].valueCode, '11');
+    assert.equal(vpwp50Stale.values[1].condition, '値なし');
+    assert.equal(vpwp50Stale.values[1].valueText, '');
+
+    deleteWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
   } finally {
     cleanup();
   }
