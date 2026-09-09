@@ -7,3 +7,12 @@ export * from './jmaWarningTelegramParser.js';
 export * from './jmaWarningTelegramProcessor.js';
 export * from './jmaWarningCurrentReducer.js';
 export * from './jmaWarningCurrentProcessor.js';
+export {
+  JMA_ELEMENT_BASIS_NAMESPACE,
+  EXPECTED_METEOROLOGICAL_INFOS_TYPE,
+  EXPECTED_INFO_KIND,
+  DEFAULT_VPWP50_TARGET_AREA,
+  addIso8601Duration,
+  parseVpwp50,
+} from './jmaVpwp50Parser.js';
+export * from './jmaVpwp50Processor.js';
