@@ -26,6 +26,7 @@ import {
   type WarningTelegramType,
 } from '../repositories/types.js';
 import { parseWarningTelegram } from './jmaWarningTelegramParser.js';
+import { resolveWarningCurrentTargetArea } from '../venueForecastTargets.js';
 import {
   computeSourceVersion,
   diffWarningCurrent,
@@ -35,11 +36,8 @@ import {
   WarningCurrentUnsupportedError,
 } from './jmaWarningCurrentReducer.js';
 
-export const DEFAULT_WARNING_CURRENT_TARGET_AREA: WarningCurrentTargetArea = {
-  municipalCode: '1310800',
-  displayName: '江東区',
-  prefectureCode: '130000',
-};
+export const DEFAULT_WARNING_CURRENT_TARGET_AREA: WarningCurrentTargetArea =
+  resolveWarningCurrentTargetArea('east');
 
 /**
  * 新規受信した電文を C3 現況へ適用する。

@@ -23,6 +23,25 @@ test('登録端末のみを解決し、H/Kで同じ会場を共有する', () =>
   assert.equal(terminals[0]!.venue, terminals[1]!.venue);
   assert.equal(terminals[2]!.venue, terminals[3]!.venue);
   assert.notEqual(terminals[0]!.venue, terminals[2]!.venue);
+  assert.equal(terminals[0]!.venue.weatherTargets, terminals[1]!.venue.weatherTargets);
+  assert.deepEqual(terminals[0]!.venue.weatherTargets.mapReference, {
+    latitude: 35.63159368010876,
+    longitude: 139.79281040119963,
+  });
+  assert.deepEqual(terminals[2]!.venue.weatherTargets.mapReference, {
+    latitude: 35.58138,
+    longitude: 139.748119,
+  });
+  assert.deepEqual(terminals[0]!.venue.weatherTargets.warning, {
+    municipalCode: '1310800',
+    displayName: '江東区',
+    prefectureCode: '130000',
+  });
+  assert.deepEqual(terminals[2]!.venue.weatherTargets.amedas, {
+    stationCode: '44166',
+    displayName: '羽田',
+    elements: '11110000',
+  });
 });
 test('H端末の監視・訓練通知直指定や未知ビューは防災気象情報へ戻す', () => {
   assert.equal(resolveView('#monitor', 'H'), 'weather');

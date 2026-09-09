@@ -16,6 +16,7 @@ import {
   processWarningTelegramReception,
   reprocessPendingWarningTelegramReceptions,
 } from '../src/polling/jmaWarningTelegramProcessor.js';
+import { resolveWarningTargetArea } from '../src/venueForecastTargets.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -26,6 +27,7 @@ function telegramXml(
     readonly status?: '通常' | '訓練' | '試験';
     readonly type?: string;
     readonly municipalCode?: string;
+    readonly municipalName?: string;
     readonly kinds?: string;
     readonly extraWarnings?: string;
     readonly headlineAreaCode?: string;
@@ -34,6 +36,7 @@ function telegramXml(
   const status = options.status ?? '通常';
   const type = options.type ?? '気象警報・注意報（市町村等）';
   const municipalCode = options.municipalCode ?? '1310800';
+  const municipalName = options.municipalName ?? '江東区';
   const kinds =
     options.kinds ?? '<Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>';
   return `<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
@@ -42,7 +45,7 @@ function telegramXml(
     <DateTime>2026-09-09T00:00:00Z</DateTime>
   </Control>
   <Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><ReportDateTime>2026-09-09T00:00:00Z</ReportDateTime><TargetDateTime>2026-09-09T01:00:00Z</TargetDateTime><InfoType>発表</InfoType><EventID>event-1</EventID><Serial>1</Serial>${options.headlineAreaCode ? `<Headline><Information><Item><Area><Code>${options.headlineAreaCode}</Code></Area></Item></Information></Headline>` : ''}</Head>
-  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/"><Warning type="${type}"><Item>${kinds}<Area><Name>江東区</Name><Code>${municipalCode}</Code></Area></Item></Warning>${options.extraWarnings ?? ''}</Body>
+  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/"><Warning type="${type}"><Item>${kinds}<Area><Name>${municipalName}</Name><Code>${municipalCode}</Code></Area></Item></Warning>${options.extraWarnings ?? ''}</Body>
 </Report>`;
 }
 
@@ -89,6 +92,26 @@ test('VPWW55–61 と VPWS50 は市町村等 Warning だけを完全一致で解
       assert.equal(result.value.warningType, '気象警報・注意報（市町村等）');
     }
   }
+});
+
+test('TRC adapter を注入すると大田区だけを対象市町村等として解析する', () => {
+  const trcTarget = resolveWarningTargetArea('trc');
+  const ota = parseWarningTelegram(
+    telegramXml({ municipalCode: '1311100', municipalName: '大田区' }),
+    expected('VPWW55'),
+    trcTarget,
+  );
+  assert.equal(ota.ok, true);
+  if (ota.ok) {
+    assert.deepEqual(ota.value.area, { code: '1311100', name: '大田区' });
+  }
+
+  const koto = parseWarningTelegram(telegramXml(), expected('VPWW55'), trcTarget);
+  assert.deepEqual(koto, {
+    ok: false,
+    disposition: '対象地域外',
+    reason: '対象市町村等コードがありません: 1311100',
+  });
 });
 
 test('複数 Property を XML 出現順で保持し、訓練・試験を区別する', () => {

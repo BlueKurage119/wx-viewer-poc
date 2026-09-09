@@ -15,8 +15,6 @@ import type {
   ListBosaiBulletinsOptions,
 } from './types.js';
 
-export const KOTO_INCLUDED_AREA_CODES = ['1310800', '130012', '130010'] as const;
-
 interface BosaiBulletinRow extends SnapshotMetadataRow {
   readonly id: number;
   readonly event_id: string;
@@ -210,8 +208,11 @@ export function listBosaiBulletins(
 
   let rows: BosaiBulletinRow[];
 
-  if (options.includesKoto) {
-    const placeholders = KOTO_INCLUDED_AREA_CODES.map(() => '?').join(', ');
+  if (options.includedAreaCodes !== undefined) {
+    if (options.includedAreaCodes.length === 0) {
+      throw new Error('includedAreaCodes は空配列にできません');
+    }
+    const placeholders = options.includedAreaCodes.map(() => '?').join(', ');
     const query = `
       SELECT b.* FROM bosai_bulletin b
       WHERE b.control_status = ?
@@ -224,7 +225,7 @@ export function listBosaiBulletins(
     `;
     rows = connection
       .prepare(query)
-      .all(options.controlStatus, ...KOTO_INCLUDED_AREA_CODES) as BosaiBulletinRow[];
+      .all(options.controlStatus, ...options.includedAreaCodes) as BosaiBulletinRow[];
   } else {
     rows = connection
       .prepare(

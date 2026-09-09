@@ -128,11 +128,11 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           <dl>
             <div>
               <dt>対象市区町村</dt>
-              <dd>{terminal.venue.municipality}</dd>
+              <dd>{terminal.venue.weatherTargets.warning.displayName}</dd>
             </div>
             <div>
               <dt>アメダス</dt>
-              <dd>{terminal.venue.amedas}</dd>
+              <dd>{terminal.venue.weatherTargets.amedas.displayName}</dd>
             </div>
           </dl>
         )}

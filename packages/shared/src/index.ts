@@ -3,6 +3,7 @@ export const SHARED_PACKAGE_NAME = '@wx-viewer-poc/shared';
 import type { Availability } from './availability.js';
 
 export * from './availability.js';
+export * from './venueForecastTargets.js';
 
 /**
  * UTC の ISO 8601 形式でシリアライズされた時刻文字列。
