@@ -8,6 +8,7 @@ import type {
   WarningTimeseriesTargetArea,
 } from '../repositories/types.js';
 import { DEFAULT_VPWP50_TARGET_AREA, parseVpwp50 } from './jmaVpwp50Parser.js';
+export { DEFAULT_VPWP50_TARGET_AREA };
 
 export function processVpwp50Reception(
   connection: DatabaseConnection,
