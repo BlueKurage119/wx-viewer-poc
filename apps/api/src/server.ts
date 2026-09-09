@@ -4,6 +4,10 @@ import type { Server } from 'node:http';
 import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
 import { JmaXmlPollingService, type JmaXmlPollingServiceOptions } from './polling/index.js';
+import {
+  DEFAULT_WARNING_TARGET_AREA,
+  reprocessPendingWarningTelegramReceptions,
+} from './polling/jmaWarningTelegramProcessor.js';
 
 export interface StartedServer {
   readonly port: number;
@@ -35,6 +39,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let pollingService: JmaXmlPollingService | undefined;
   if (enablePolling) {
+    await reprocessPendingWarningTelegramReceptions(
+      database.connection,
+      options.pollingServiceOptions?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA,
+      options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
+    );
     pollingService =
       options.pollingService ??
       new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
@@ -88,6 +97,11 @@ async function main(): Promise<void> {
   const server = app.listen(port);
   const pollingService = new JmaXmlPollingService(database.connection);
   if (process.env.DISABLE_POLLING !== 'true') {
+    await reprocessPendingWarningTelegramReceptions(
+      database.connection,
+      DEFAULT_WARNING_TARGET_AREA,
+      () => new Date().toISOString(),
+    );
     pollingService.start();
   }
 

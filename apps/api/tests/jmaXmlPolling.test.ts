@@ -628,8 +628,9 @@ test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が
     assert.equal(reception.controlDateTime, '2026-09-09T00:00:00.000Z');
     assert.equal(reception.reportDateTime, '2026-09-09T01:00:00.000Z');
     assert.equal(reception.targetDateTime, '2026-09-09T01:00:00.000Z');
-    assert.equal(reception.adoptionResult, null);
-    assert.equal(reception.adoptionReason, null);
+    assert.equal(reception.adoptionResult, '未対応構造');
+    assert.ok(reception.adoptionReason && reception.adoptionReason.length > 0);
+    assert.equal(reception.adoptionDecidedAt, '2026-09-09T01:00:00Z');
     assert.equal(reception.contentHash, expectedHash);
     assert.equal(reception.rawBody, telegramXml);
 
@@ -656,9 +657,9 @@ test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が
 });
 
 // -------------------------------------------------------------------------------------------------
-// 6. 本文の名前空間・共通構造・地域要素が不正なら、原文と 未対応形式 の理由が残る
+// 6. 本文の名前空間・共通構造・地域要素が不正なら、原文と種別固有の不採用理由が残る
 // -------------------------------------------------------------------------------------------------
-test('6. title だけが対象らしく見えても、本文の名前空間・共通構造・地域要素が不正なら、空の正常情報へ変換せず、原文と 未対応形式 の理由が残る', async () => {
+test('6. title だけが対象らしく見えても、本文の名前空間・共通構造・地域要素が不正なら、空の正常情報へ変換せず、原文と種別固有の不採用理由が残る', async () => {
   const { databasePath, cleanup } = createTempDb();
   const server = await createTestHttpServer();
 
@@ -730,9 +731,9 @@ test('6. title だけが対象らしく見えても、本文の名前空間・�
     const receptions = listTelegramReceptions(db.connection);
     assert.equal(receptions.length, 3);
 
-    // 3件とも '未対応形式' で記録されていること
+    // 3件とも C2 の種別固有検証で未対応構造として記録されていること
     for (const rSummary of receptions) {
-      assert.equal(rSummary.adoptionResult, '未対応形式');
+      assert.equal(rSummary.adoptionResult, '未対応構造');
       assert.ok(rSummary.adoptionReason && rSummary.adoptionReason.length > 0);
       const detail = findTelegramReceptionById(db.connection, rSummary.id);
       assert.ok(detail?.rawBody); // 原文が保持されていること
@@ -746,7 +747,7 @@ test('6. title だけが対象らしく見えても、本文の名前空間・�
     assert.match(r2?.adoptionReason ?? '', /Control/);
 
     const r3 = receptions.find((r) => r.documentUrl.includes('no_area'));
-    assert.match(r3?.adoptionReason ?? '', /地域/);
+    assert.match(r3?.adoptionReason ?? '', /Warning|地域/);
   } finally {
     await server.close();
     cleanup();
