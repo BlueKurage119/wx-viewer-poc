@@ -11,3 +11,4 @@ export * from './bosaiBulletinRepository.js';
 export * from './fetchAttemptRepository.js';
 export * from './telegramReceptionRepository.js';
 export * from './notificationOutputHistoryRepository.js';
+export * from './operationHistoryRepository.js';

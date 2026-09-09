@@ -549,3 +549,45 @@ export interface ListNotificationOutputHistoryOptions {
   readonly limit?: number; // 既定 100、上限 1000
   readonly offset?: number; // 既定 0
 }
+
+// --- 操作記録 ---
+export type OperationKind = 'start' | 'stop' | 'force_refresh';
+export type OperationTargetKind = 'all';
+export type OperationResult = 'success' | 'failure';
+
+export interface OperationHistoryInput {
+  readonly requestId: string;
+  readonly operationKind: OperationKind;
+  readonly targetKind: OperationTargetKind;
+  readonly result: OperationResult;
+  readonly requestedAt: UtcIso8601String;
+  readonly completedAt: UtcIso8601String;
+  /** AuthGate 連携前は必ず NULL とする。 */
+  readonly actorId: null;
+  /** AuthGate 連携前は必ず NULL とする。 */
+  readonly actorDisplayName: null;
+  readonly errorCode: string | null;
+  readonly errorMessage: string | null;
+}
+
+export interface OperationHistory extends Omit<
+  OperationHistoryInput,
+  'actorId' | 'actorDisplayName'
+> {
+  readonly id: number;
+  /** 将来の AuthGate 連携後の履歴も読み出せるよう、返却値は NULL 固定にしない。 */
+  readonly actorId: string | null;
+  readonly actorDisplayName: string | null;
+}
+
+export interface ListOperationHistoryOptions {
+  readonly operationKind?: OperationKind;
+  readonly result?: OperationResult;
+  readonly actorId?: string;
+  readonly requestedAtFrom?: UtcIso8601String;
+  readonly requestedAtTo?: UtcIso8601String;
+  readonly completedAtFrom?: UtcIso8601String;
+  readonly completedAtTo?: UtcIso8601String;
+  readonly limit?: number; // 既定 100、上限 1000
+  readonly offset?: number; // 既定 0
+}
