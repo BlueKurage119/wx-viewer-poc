@@ -15,6 +15,7 @@ export interface StartServerOptions {
   readonly config?: DatabaseConfig;
   readonly port?: number;
   readonly enablePolling?: boolean;
+  readonly pollingService?: JmaXmlPollingService;
   readonly pollingServiceOptions?: JmaXmlPollingServiceOptions;
 }
 
@@ -31,9 +32,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const app = createApp();
   const actualServer = app.listen(options.port ?? DEFAULT_PORT);
 
+  const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let pollingService: JmaXmlPollingService | undefined;
-  if (options.enablePolling) {
-    pollingService = new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
+  if (enablePolling) {
+    pollingService =
+      options.pollingService ??
+      new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
     pollingService.start();
   }
 
@@ -83,7 +87,7 @@ async function main(): Promise<void> {
   const app = createApp();
   const server = app.listen(port);
   const pollingService = new JmaXmlPollingService(database.connection);
-  if (process.env.ENABLE_POLLING === 'true') {
+  if (process.env.DISABLE_POLLING !== 'true') {
     pollingService.start();
   }
 

@@ -51,15 +51,21 @@ async function performHttpGet(
   const fetchFn = options?.fetchFn ?? fetch;
   const timeoutMs = options?.timeoutMs ?? 10_000;
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+  }, timeoutMs);
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = AbortSignal.any([timeoutSignal, controller.signal]);
+
   try {
-    const signal = AbortSignal.timeout(timeoutMs);
     const res = await fetchFn(url, {
       method: 'GET',
       headers: {
         Accept: 'application/xml, text/xml, */*',
         'User-Agent': 'wx-viewer-poc/0.1.0',
       },
-      signal,
+      signal: combinedSignal,
     });
 
     if (!res.ok) {
@@ -99,6 +105,8 @@ async function performHttpGet(
       errorKind: isTimeout ? 'timeout' : 'network',
       errorMessage: sanitizeErrorMessage(err?.message ?? String(error)),
     };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

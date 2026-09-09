@@ -24,6 +24,7 @@ import {
   extractTelegramTypeFromUrl,
 } from '../src/polling/jmaXmlFeedParser.js';
 import { JmaXmlPollingService } from '../src/polling/jmaXmlPollingService.js';
+import { startServer } from '../src/server.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -1045,6 +1046,75 @@ test('10. start() の複数呼出しがタイマーを増やさず、stop() 後�
     const regularCountsAfterWait = server.requestCounts.get('/feed/regular.xml') ?? 0;
 
     assert.equal(regularCountsAfterWait, regularCountsAtStop);
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 11. 既定の startServer() でポーリングが開始され、高頻度 2 フィードの定期取得が行われる
+// -------------------------------------------------------------------------------------------------
+test('11. 既定の startServer() でポーリングが開始され、高頻度 2 フィードの定期取得が行われる', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const config = { databasePath, migrationsDirectory };
+    const feedXml = createSampleAtomFeed([]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml' || req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.end(feedXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    // enablePolling を明示指定せず（既定値で起動）テストダブル fetch を注入
+    const apiServer = await startServer({
+      config,
+      port: 0,
+      pollingServiceOptions: {
+        fetchFn: customFetch,
+        allowedUrlPrefixes: [server.baseUrl],
+        allowHttpForTesting: true,
+        clock: () => '2026-09-09T01:00:00Z',
+      },
+    });
+
+    try {
+      assert.ok(apiServer.pollingService, 'pollingService が存在する');
+      assert.equal(
+        apiServer.pollingService.getStatus().isRunning,
+        true,
+        '既定でポーリングが開始されている',
+      );
+
+      // 初回実行完了を少し待機
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      // 高頻度 2 フィード (regular, extra) が要求されたこと
+      assert.equal(server.requestCounts.get('/feed/regular.xml'), 1);
+      assert.equal(server.requestCounts.get('/feed/extra.xml'), 1);
+    } finally {
+      await apiServer.close();
+    }
+
+    assert.equal(apiServer.pollingService?.getStatus().isRunning, false, 'close 後に停止している');
   } finally {
     await server.close();
     cleanup();
