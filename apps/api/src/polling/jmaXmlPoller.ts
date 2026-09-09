@@ -13,13 +13,13 @@ import {
   DEFAULT_WARNING_TARGET_AREA,
   processWarningTelegramReception,
 } from './jmaWarningTelegramProcessor.js';
-import type { WarningTargetArea } from '../repositories/types.js';
+import type { WarningCurrentTargetArea, WarningTargetArea } from '../repositories/types.js';
 
 export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
   readonly timeoutMs?: number;
-  readonly warningTargetArea?: WarningTargetArea;
+  readonly warningTargetArea?: WarningTargetArea | WarningCurrentTargetArea;
 }
 
 interface HttpGetResult {

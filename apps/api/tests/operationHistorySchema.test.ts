@@ -31,8 +31,8 @@ test('1. 本番 migration をすべて適用すると operation_history が存�
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 12);
-    assert.equal(context.migrationSummary.appliedVersions.length, 12);
+    assert.equal(expectedSqlFiles.length, 13);
+    assert.equal(context.migrationSummary.appliedVersions.length, 13);
 
     const tables = (
       context.connection

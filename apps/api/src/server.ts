@@ -5,9 +5,14 @@ import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
 import { JmaXmlPollingService, type JmaXmlPollingServiceOptions } from './polling/index.js';
 import {
+  DEFAULT_WARNING_CURRENT_TARGET_AREA,
+  rebuildWarningCurrentFromReceptions,
+} from './polling/jmaWarningCurrentProcessor.js';
+import {
   DEFAULT_WARNING_TARGET_AREA,
   reprocessPendingWarningTelegramReceptions,
 } from './polling/jmaWarningTelegramProcessor.js';
+import type { WarningCurrentTargetArea } from './repositories/types.js';
 
 export interface StartedServer {
   readonly port: number;
@@ -39,11 +44,20 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let pollingService: JmaXmlPollingService | undefined;
   if (enablePolling) {
+    const rawTargetArea =
+      options.pollingServiceOptions?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA;
+    const currentTargetArea: WarningCurrentTargetArea =
+      'prefectureCode' in rawTargetArea && typeof rawTargetArea.prefectureCode === 'string'
+        ? (rawTargetArea as WarningCurrentTargetArea)
+        : { ...rawTargetArea, prefectureCode: DEFAULT_WARNING_CURRENT_TARGET_AREA.prefectureCode };
+
     await reprocessPendingWarningTelegramReceptions(
       database.connection,
-      options.pollingServiceOptions?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA,
+      currentTargetArea,
       options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
     );
+    rebuildWarningCurrentFromReceptions(database.connection, currentTargetArea);
+
     pollingService =
       options.pollingService ??
       new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
@@ -99,9 +113,10 @@ async function main(): Promise<void> {
   if (process.env.DISABLE_POLLING !== 'true') {
     await reprocessPendingWarningTelegramReceptions(
       database.connection,
-      DEFAULT_WARNING_TARGET_AREA,
+      DEFAULT_WARNING_CURRENT_TARGET_AREA,
       () => new Date().toISOString(),
     );
+    rebuildWarningCurrentFromReceptions(database.connection, DEFAULT_WARNING_CURRENT_TARGET_AREA);
     pollingService.start();
   }
 

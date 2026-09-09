@@ -5,3 +5,5 @@ export * from './jmaXmlPoller.js';
 export * from './jmaXmlPollingService.js';
 export * from './jmaWarningTelegramParser.js';
 export * from './jmaWarningTelegramProcessor.js';
+export * from './jmaWarningCurrentReducer.js';
+export * from './jmaWarningCurrentProcessor.js';
