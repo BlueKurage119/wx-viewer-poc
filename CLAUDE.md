@@ -106,7 +106,8 @@ npm run test -w apps/web    # 対象workspaceのテスト(package.jsonのtestス
 ## 7. ブランチ・コミット規約
 
 - ブランチ名: `feature/issue-<番号>-<短い説明>`(例: `feature/issue-2-common-shell`)
-- コミットメッセージ: 種別プレフィックス(`feat`/`fix`/`doc`/`chore`等)+ 日本語要約
+- コミットメッセージ: 種別プレフィックス(`feat`/`fix`/`docs`/`chore`等)+ 日本語要約
+- コミットの粒度は、設計完了時に1回、製造時に2〜3回を目安とする
 - PR本文に「Closes #<Issue番号>」を含める
 - PR作成時、baseが `main` であることを確認する
 - **製造担当(`wxviewer-builder`)の作業はコミット・プッシュまでとし、PRの作成・本文の記述は検収担当(`wxviewer-inspector`)が行う**
