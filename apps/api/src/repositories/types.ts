@@ -510,6 +510,80 @@ export interface TelegramReceptionAdoptionInput {
   readonly adoptionDecidedAt: UtcIso8601String | null;
 }
 
+// --- 警報・注意報電文の構造化（C2） ---
+export const WARNING_TELEGRAM_TYPES = [
+  'VPWW55',
+  'VPWW56',
+  'VPWW57',
+  'VPWW58',
+  'VPWW59',
+  'VPWW60',
+  'VPWW61',
+  'VPWS50',
+] as const;
+
+export type WarningTelegramType = (typeof WARNING_TELEGRAM_TYPES)[number];
+
+export interface WarningTargetArea {
+  readonly municipalCode: string;
+  readonly displayName: string;
+}
+
+export interface XmlAttribute {
+  readonly namespaceUri: string | null;
+  readonly localName: string;
+  readonly value: string;
+}
+
+export interface XmlFragment {
+  readonly namespaceUri: string;
+  readonly localName: string;
+  readonly attributes: readonly XmlAttribute[];
+  readonly text: string | null;
+  readonly children: readonly XmlFragment[];
+}
+
+export interface ParsedWarningKind {
+  readonly sequence: number;
+  readonly name: string;
+  readonly code: string;
+  readonly status: string;
+  readonly dateTime: UtcIso8601String | null;
+  readonly lastKind: {
+    readonly name: string | null;
+    readonly code: string | null;
+  } | null;
+  readonly property: XmlFragment | null;
+  readonly addition: XmlFragment | null;
+}
+
+export interface ParsedWarningTelegram {
+  readonly telegramType: WarningTelegramType;
+  readonly controlStatus: ControlStatus;
+  readonly reportDateTime: UtcIso8601String;
+  readonly controlDateTime: UtcIso8601String;
+  readonly targetDateTime: UtcIso8601String | null;
+  readonly infoType: string | null;
+  readonly eventId: string | null;
+  readonly serial: string | null;
+  readonly area: { readonly code: string; readonly name: string | null };
+  readonly warningType: string;
+  readonly kinds: readonly ParsedWarningKind[];
+}
+
+export type WarningTelegramParseResult =
+  | { readonly ok: true; readonly value: ParsedWarningTelegram }
+  | {
+      readonly ok: false;
+      readonly disposition: '対象外' | '対象地域外' | '未対応構造';
+      readonly reason: string;
+    };
+
+export interface PendingWarningTelegramPage {
+  readonly receptions: readonly TelegramReception[];
+  readonly nextCursor: { readonly receivedAt: UtcIso8601String; readonly id: number } | null;
+}
+
 // --- 通知出力履歴 ---
 export type NotificationOutputOrigin = 'weather' | 'system';
 export type NotificationDetectionContext = 'normal' | 'initial';

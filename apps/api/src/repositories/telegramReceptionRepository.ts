@@ -13,6 +13,7 @@ import type {
   TelegramReceptionArea,
   TelegramReceptionInput,
   TelegramReceptionSummary,
+  PendingWarningTelegramPage,
 } from './types.js';
 
 interface TelegramReceptionRow {
@@ -390,6 +391,61 @@ export function countTelegramReceptions(
   const sql = `SELECT COUNT(*) as count FROM telegram_reception t ${whereClause}`;
   const result = connection.prepare(sql).get(...params) as { count: number };
   return Number(result.count);
+}
+
+const WARNING_TELEGRAM_TYPES = [
+  'VPWW55',
+  'VPWW56',
+  'VPWW57',
+  'VPWW58',
+  'VPWW59',
+  'VPWW60',
+  'VPWW61',
+  'VPWS50',
+] as const;
+
+export function listPendingWarningTelegramReceptions(
+  connection: DatabaseConnection,
+  options?: {
+    readonly after?: { readonly receivedAt: string; readonly id: number };
+    readonly limit?: number;
+  },
+): PendingWarningTelegramPage {
+  const limit = options?.limit ?? 100;
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 100) {
+    throw new Error(`limit must be an integer between 1 and 100: ${limit}`);
+  }
+  if (options?.after && (!Number.isInteger(options.after.id) || options.after.id <= 0)) {
+    throw new Error(`after.id must be a positive integer: ${options.after.id}`);
+  }
+  const typePlaceholders = WARNING_TELEGRAM_TYPES.map(() => '?').join(', ');
+  const cursorClause = options?.after
+    ? 'AND (received_at > ? OR (received_at = ? AND id > ?))'
+    : '';
+  const cursorParams = options?.after
+    ? [options.after.receivedAt, options.after.receivedAt, options.after.id]
+    : [];
+  const rows = connection
+    .prepare(
+      `SELECT id FROM telegram_reception
+       WHERE telegram_type IN (${typePlaceholders})
+         AND adoption_decided_at IS NULL
+         ${cursorClause}
+       ORDER BY received_at ASC, id ASC
+       LIMIT ?`,
+    )
+    .all(...WARNING_TELEGRAM_TYPES, ...cursorParams, limit) as { id: number }[];
+  const receptions = rows.map((row) => {
+    const reception = findTelegramReceptionById(connection, row.id);
+    if (!reception) throw new Error(`telegram_reception が見つかりません: ${row.id}`);
+    return reception;
+  });
+  const last = receptions.at(-1);
+  return {
+    receptions,
+    nextCursor:
+      receptions.length === limit && last ? { receivedAt: last.receivedAt, id: last.id } : null,
+  };
 }
 
 export function updateTelegramReceptionAdoption(

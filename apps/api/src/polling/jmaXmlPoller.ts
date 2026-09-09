@@ -9,11 +9,17 @@ import {
 import type { FetchAttemptInput, TelegramReceptionInput } from '../repositories/types.js';
 import type { FeedPollResult, JmaXmlFeedDefinition, JmaXmlPollTrigger } from './jmaXmlFeeds.js';
 import { parseAtomFeed, parseTelegramXml, type ParseAtomFeedOptions } from './jmaXmlFeedParser.js';
+import {
+  DEFAULT_WARNING_TARGET_AREA,
+  processWarningTelegramReception,
+} from './jmaWarningTelegramProcessor.js';
+import type { WarningTargetArea } from '../repositories/types.js';
 
 export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
   readonly timeoutMs?: number;
+  readonly warningTargetArea?: WarningTargetArea;
 }
 
 interface HttpGetResult {
@@ -348,7 +354,13 @@ export async function pollSingleFeed(
       areas: parsed.areas,
     };
 
-    recordTelegramReception(connection, receptionInput);
+    const reception = recordTelegramReception(connection, receptionInput);
+    processWarningTelegramReception(
+      connection,
+      reception,
+      docFinishedAt,
+      options?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA,
+    );
   }
 
   return {

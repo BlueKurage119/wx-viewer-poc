@@ -1,0 +1,288 @@
+# Issue #12 設計書: XML電文の種別判定・パース（VPWW55–61 / VPWS50）
+
+作成日: 2026-09-09
+
+## 1. 目的と範囲
+
+気象庁 PULL 型 XML 電文として C1 が受信・原文保存した、警報・注意報の現況電文を、名前空間を検証しながら種別判定・構造化する。対象は `VPWW55`、`VPWW56`、`VPWW57`、`VPWW58`、`VPWW59`、`VPWW60`、`VPWW61` と全国集約の `VPWS50` である。今回の既定対象区域は江東区（市町村等コード `1310800`）であり、東京都や東京地方の `Headline` を江東区の現況として代用しない。
+
+この Issue で得るのは「1 電文から読み取れた江東区向け Kind の正規化結果」である。`Control/Status` の通常・訓練・試験を保持し、`Body/Warning` の対象種別を選んだうえで、`Item/Area/Code=1310800` に属するすべての `Kind` について、`Name`、`Code`、`Status`、`LastKind`、`Property`、`Addition`、`Kind/DateTime` を失わずに取得する。
+
+次は対象外とする。
+
+- 個別・集約電文を積み上げて現況を作ること、新規・継続・強化・緩和・解除の状態遷移、集約電文による完全スナップショット判定（C3）
+- 警報等コードから通知区分を決めること（D2）と、通知生成（D3 以降）
+- 警報等時系列（VPWP50）や早期注意情報など他電文の構造化（C4 以降）
+- REST API、画面、availability の更新、既存 migration・現況スナップショットの書込み
+- 会場別の地域・地点・地図・広域予報・速報を一括して解決する設定機構（後続設計）
+
+## 2. 参照資料と判断根拠
+
+- Issue #12「C2. XML電文の種別判定・パース（VPWW55-61: 警報・注意報）」
+- `docs/issues-draft.md` C2（ドラフトでは VPWW54 系とあるが、Issue 本文・取得方法レポートで確認済みの対象である VPWW55–61 / VPWS50 を正とする）
+- `docs/basic-design.md` §5.7、§7.4
+- `docs/data-acquisition-report.md` §3.1、§3.2、§9
+- `docs/design/issue-11-xml-feed-polling.md`（C1 の受信・共通エンベロープ検証・採用結果更新の境界）
+- `docs/design/issue-6-info-type-schema.md` §4.1（将来の現況スナップショット項目の意味）
+- Issue #2 コメント「気象取得・地図・情報パネル」への申し送り（会場別設定への拡張）
+- 実装済みの `apps/api/src/polling/jmaXmlFeedParser.ts`、`jmaXmlPoller.ts`、`apps/api/src/repositories/telegramReceptionRepository.ts`、`apps/api/src/repositories/types.ts`、`warningCurrentRepository.ts`
+
+取得方法レポートで、現象別電文と集約電文の対象現象、`Body/Warning` の型選択、市町村等 `Item`、`Kind` の保持対象が確認済みである。また、`Kind/Code` と `Significancy/Code` は別辞書であり、コードの数値大小や名称の部分一致から段階・通知区分を推測してはならない。D2 が §7.4 の確定済み対応表を使って通知区分を担うため、C2 はコードを文字列のまま保持し、分類しない。
+
+C1 は `@xmldom/xmldom` により、ルート、`Control`、`Head` の名前空間を検証して原文を `telegram_reception` に保存する。C2 はこの共通検証を緩めず、`Body` とその子孫をローカル名だけで探索しない。異なる名前空間の同名要素を業務データとして誤採用しないことを優先する。
+
+既存の `warning_current_snapshot` / `warning_current_item` は C3 の現況結果の保存先である。特に `warning_current_item.attention_text` は `Property` / `Addition` 由来の表示補足を置く予定の単一 TEXT 列であり、構造を失わずに取り出す本 Issue の出力先ではない。
+
+Issue #2 の協議では、同一会場の H/K 端末が気象対象を共有し、既存の江東区・江戸川臨海固定を会場別設定へ拡張することが申し送られた。TRC 会場の警報対象は大田区、最寄りアメダスは羽田空港である。ただし地域・地点コード、羽田で取得できる要素、広域予報・速報の対象判定は後続設計で確認する事項である。C2 は警報の市町村等コードだけを注入可能にし、未確認の他の取得対象を推測して設定化しない。
+
+## 3. 設計判断
+
+### 3.1 対象地域の注入境界
+
+パーサーは、固定の `1310800` ではなく、呼出元から `WarningTargetArea` を受け取る。今回の実運用接続で渡す既定値は `{ municipalCode: '1310800', displayName: '江東区' }` とする。`municipalCode` は市町村等コードとして完全一致で比較し、表示名は XML の名称との照合・表示補助にのみ使う。コードが一致しても名称が異なる場合に採用を止めるかは、公式コード表と代表電文の照合結果を待つため、現段階では原文名を保持して統括確認事項とする。
+
+この注入は、C2 が会場別設定全体を持つことを意味しない。端末 URL と会場の対応、H/K モードとの分離、地域コードの選択元、アメダス地点、地図基準位置、東京地方等の広域予報、速報の対象地域は本 Issue では解決しない。後続の会場設定設計が会場ごとの `WarningTargetArea` を解決し、C2 にはその結果だけを渡す。これにより、TRC 用の大田区コードが確定した後も XML 解釈器の改修を不要にする。
+
+### 3.2 採用対象とエラーの扱い
+
+受信履歴の `telegramType` が上記 8 種のいずれでもない電文は、C2 の対象外として採用しない。URL から得た種別は C1 の候補値であるため、C2 は XML のルート、`Control`、`Head`、`Body`、選択した `Warning` の名前空間・必須構造も検証して初めて採用する。種別候補だけ、Atom の title だけ、`Head/Title` の文字列部分一致だけでは採用しない。
+
+`Control/Status` は `通常` / `訓練` / `試験` を既存の `ControlStatus`（`normal` / `training` / `test`）に変換して結果へそのまま伝播する。通常を既定値にせず、C1 の保存値とパース結果が食い違う場合は採用しない。訓練・試験を通常へ混入させず、C3・D 系が `isTraining` 等を一貫して判断できる入力にする。
+
+構造不正、必須名前空間の不一致、対象 `Warning` 不在、対象 `Item` 不在、必須の `Kind/Name`・`Kind/Code`・`Kind/Status` 不在、または日付形式不正は「正常な発表なし」や空の Kind 配列に変換しない。受信原文は C1 が残したまま、`updateTelegramReceptionAdoption` で採用不可の理由を記録する。注入した対象地域に該当する `Item` が存在しないことだけは、構造が有効な対象電文である事実と区別して「対象地域外」とする。この場合も C3 の現況を空に更新しない。
+
+### 3.3 名前空間と要素探索
+
+パーサーは次を明示定数として使い、親子関係ごとに「直下の要素」「期待する namespace URI」「localName」を同時に照合するヘルパーに閉じ込める。
+
+- Report / Control: `http://xml.kishou.go.jp/jmaxml1/`
+- Head: `http://xml.kishou.go.jp/jmaxml1/informationBasis1/`
+- Body の警報要素: `http://xml.kishou.go.jp/jmaxml1/body/meteorology1/`
+
+既存の C1 共通パーサーにある、全子孫を localName だけで探索する `Area` 抽出は C2 の業務判定に再利用しない。C2 は選択済み `Body/Warning` 配下の `Item`、その直下の `Area/Code` を参照する。これにより `Headline` や他用途の `Area`、異なる namespace の偽要素を江東区の警報として採用しない。
+
+`Warning/@type` の型対応は、各 VPWW 電文・VPWS50 の代表 XML から完全一致の値を確認して定数表にする。型対応表にない値、同一電文内で型に一致する `Warning` が 0 件または複数件の場合は、暗黙に先頭を採らず採用不可にする。型の正確な文字列は現時点の指定資料から設計者が推測できないため、§9 の統括確認後にのみ表へ記入する。
+
+### 3.4 Kind の保持形式
+
+`Kind` は江東区の `Item` ごとに出現順を維持し、同一 `Kind/Code` を C2 で統合・解除・並べ替えしない。`VPWW61` の複数 Kind を 1 件へ縮退させない。後続の C3 が電文種別、対象要素時刻、状態、コードを使って正しく現況を構成する。
+
+`LastKind`、`Property`、`Addition` は任意である。存在しないものは `null` とし、空文字・空要素を意味のある値へ置換しない。`Property` と `Addition` は表示用の 1 文へ連結せず、属性を含む XML 断片を原文どおり保持する `XmlFragment` として出力する。C3 が現況の `attentionText` を導出するとき、または後続の詳細表示が必要になったときに、情報を失わず再解釈できるためである。
+
+コードは先頭ゼロを含む文字列とする。`00` の解除と上位集約の解除対象種別コードの解釈は C3 の責務であり、C2 は `Kind` と `LastKind` の原文値を返すだけとする。
+
+### 3.5 C1 との接続と履歴の採用結果
+
+`recordTelegramReception` の成功後、C1 の個別電文処理から C2 のハンドラを 1 回呼ぶ。ハンドラは保存済みの `TelegramReception`（原文を含む）を入力にして解析し、`updateTelegramReceptionAdoption` で結果と理由・判定時刻を記録する。HTTP 取得、URL 重複抑止、受信履歴の追記、fetch attempt の記録は C1 のままとし、C2 の失敗を電文 HTTP 失敗へ読み替えない。
+
+採用済みの構造化結果はこの段階で現況表へ保存しない。C3 が同じ純粋関数を利用して、受信順に依存せず原文から再解析し、電文種別・要素時刻を比較して現況を更新する。C2 はユニットテスト可能な純粋パーサーと、履歴の採用結果を更新する薄いハンドラを提供する。
+
+### 3.6 既受信原文の一度だけの再解析
+
+C2 を初めて有効にしたアプリケーション起動時は、DB migration 完了後かつ C1 の `JmaXmlPollingService.start()` より前に、既受信の対象原文を再解析する。HTTP GET、Atom フィード取得、`fetch_attempt` の追加を行わず、DB 内の原文だけを読む。通常ポーリング開始前に完了させるため、既受信行と新規受信行が同時に processor へ入ることはない。
+
+再処理対象は `telegram_type IN ('VPWW55', ..., 'VPWW61', 'VPWS50')` かつ `adoption_decided_at IS NULL` の行すべてである。`raw_body` が NULL の行も除外せず、processor が `未対応構造` として判定時刻を記録する。C1 が既に `adoption_result='未対応形式'` を入れていても `adoption_decided_at` が NULL なら、C2 の種別固有検証で一度だけ再評価する。逆に、`adoption_decided_at` が非 NULL の行は、成功・対象外・構造不正を問わず既に C2 または運用者が判定済みとして再処理しない。
+
+対象行は `received_at ASC, id ASC` の安定順で、100 件ずつ keyset pagination により取得する。次ページの基準は直前に取得した行の `(received_at, id)` とし、処理中に `adoption_decided_at` を更新しても順序・対象集合が揺れないようにする。各行の `updateTelegramReceptionAdoption` は 1 トランザクションで完了させる。途中でプロセスが停止した場合、判定時刻を書けた行は次回対象外となり、未更新行だけが次回起動で続行される。この at-least-once の再開は、processor が現況・通知・HTTP 履歴を変更しないため冪等である。
+
+再処理は C2 導入時の未判定行を解消する互換処理であり、判定済み行を強制的に再解析する管理 API や、起動ごとの全件走査にはしない。将来、パーサー仕様を更新して意図的な再判定が必要になった場合は、対象バージョン・監査記録・C3 への影響を別 Issue で設計する。
+
+## 4. モジュール・型・内部 API
+
+### 4.1 変更対象
+
+```text
+apps/api/src/
+├── polling/
+│   ├── jmaWarningTelegramParser.ts      # 新規: 純粋な種別判定・名前空間付き構文解析
+│   ├── jmaWarningTelegramProcessor.ts   # 新規: 受信履歴の採用結果を更新
+│   └── jmaXmlPoller.ts                  # 保存成功後に processor を接続
+└── repositories/
+    ├── telegramReceptionRepository.ts   # 未判定対象電文の keyset 取得
+    └── types.ts                          # C2 の公開入力・出力型を export
+apps/api/src/server.ts                   # 再解析完了後に C1 ポーリングを開始
+apps/api/tests/
+└── jmaWarningTelegramParser.test.ts     # 新規
+```
+
+既存 migration、`warningCurrentRepository`、REST route、`apps/web`、`packages/shared` は変更しない。既存 `jmaXmlFeedParser.ts` は C1 の共通エンベロープ検証専用として保ち、Body 固有の探索を混在させない。
+
+### 4.2 型
+
+実装で次のような API を提供する。`telegramType` と Control / Head の値は C1 が保存したものとの整合検証にも使う。
+
+```ts
+export const WARNING_TELEGRAM_TYPES = [
+  'VPWW55', 'VPWW56', 'VPWW57', 'VPWW58',
+  'VPWW59', 'VPWW60', 'VPWW61', 'VPWS50',
+] as const;
+
+export type WarningTelegramType = (typeof WARNING_TELEGRAM_TYPES)[number];
+
+export interface WarningTargetArea {
+  /** 市町村等コード。前方一致・部分一致を許さない。 */
+  readonly municipalCode: string;
+  /** 会場設定が解決した表示名。XML の原文名は別途保持する。 */
+  readonly displayName: string;
+}
+
+export interface XmlAttribute {
+  readonly namespaceUri: string | null;
+  readonly localName: string;
+  readonly value: string;
+}
+
+export interface XmlFragment {
+  readonly namespaceUri: string;
+  readonly localName: string;
+  readonly attributes: readonly XmlAttribute[];
+  readonly text: string | null;
+  readonly children: readonly XmlFragment[];
+}
+
+export interface ParsedWarningKind {
+  readonly sequence: number;
+  readonly name: string;
+  readonly code: string;
+  readonly status: string;
+  readonly dateTime: UtcIso8601String | null;
+  readonly lastKind: {
+    readonly name: string | null;
+    readonly code: string | null;
+  } | null;
+  readonly property: XmlFragment | null;
+  readonly addition: XmlFragment | null;
+}
+
+export interface ParsedWarningTelegram {
+  readonly telegramType: WarningTelegramType;
+  readonly controlStatus: ControlStatus;
+  readonly reportDateTime: UtcIso8601String;
+  readonly controlDateTime: UtcIso8601String;
+  readonly targetDateTime: UtcIso8601String | null;
+  readonly infoType: string | null;
+  readonly eventId: string | null;
+  readonly serial: string | null;
+  readonly area: { readonly code: string; readonly name: string | null };
+  readonly warningType: string;
+  readonly kinds: readonly ParsedWarningKind[];
+}
+
+export type WarningTelegramParseResult =
+  | { readonly ok: true; readonly value: ParsedWarningTelegram }
+  | {
+      readonly ok: false;
+      readonly disposition: '対象外' | '対象地域外' | '未対応構造';
+      readonly reason: string;
+    };
+
+export function parseWarningTelegram(
+  rawXml: string,
+  expected: Pick<
+    TelegramReception,
+    'telegramType' | 'controlStatus' | 'reportDateTime' | 'controlDateTime'
+  >,
+  targetArea: WarningTargetArea,
+): WarningTelegramParseResult;
+
+export function processWarningTelegramReception(
+  connection: DatabaseConnection,
+  reception: TelegramReception,
+  decidedAt: UtcIso8601String,
+  targetArea: WarningTargetArea,
+): WarningTelegramParseResult;
+
+export interface PendingWarningTelegramPage {
+  readonly receptions: readonly TelegramReception[];
+  readonly nextCursor: { readonly receivedAt: UtcIso8601String; readonly id: number } | null;
+}
+
+export function listPendingWarningTelegramReceptions(
+  connection: DatabaseConnection,
+  options?: {
+    readonly after?: { readonly receivedAt: UtcIso8601String; readonly id: number };
+    readonly limit?: number;
+  },
+): PendingWarningTelegramPage;
+
+export function reprocessPendingWarningTelegramReceptions(
+  connection: DatabaseConnection,
+  targetArea: WarningTargetArea,
+  clock: () => UtcIso8601String,
+): Promise<{ readonly processedCount: number }>;
+```
+
+`processWarningTelegramReception` は `rawBody === null` を `未対応構造` として記録し、返却結果と同じ判定を履歴へ残す。正常解析は `adoptionResult: '警報・注意報として解析済み'`、対象外は `対象外`、対象地域外は `対象地域外`、構造不正は `未対応構造` とする。`adoptionReason` には、要素パスと期待値を含む短い日本語理由を残し、原文や秘密情報を複製しない。
+
+## 5. 処理フロー
+
+```text
+C1 が個別 XML を取得して telegram_reception に原文を保存
+  └─ C2 processor（保存成功後に 1 回）
+       ├─ telegramType が VPWW55–61 / VPWS50 か確認
+       ├─ Report / Control / Head / Body の namespace と必須値を検証
+       ├─ Control/Status と C1 保存値の整合を検証
+       ├─ 電文種別に対応する Body/Warning[@type] を完全一致で 1 件選択
+       ├─ その直下の Item を順に確認
+       │    └─ 直下 Area/Code = 呼出元の市町村等コード の Item のみ選択
+       ├─ 選択 Item の Kind を順序どおり構造化
+       │    └─ Name / Code / Status / DateTime / LastKind / Property / Addition
+       └─ adoption result / reason / decidedAt を受信履歴へ更新
+
+アプリケーション起動（DB migration 完了、C1 start 前）
+  └─ telegram_type が対象かつ adoption_decided_at IS NULL の既受信行を
+     received_at ASC, id ASC で 100 件ずつ取得
+       └─ 各行を同じ C2 processor へ渡し、判定時刻を更新
+          └─ 中断時は未更新行だけを次回起動で再開
+
+C3
+  └─ 上記の純粋パーサーを再利用し、個別・集約電文を時刻・現象ごとに積み上げて
+     warning_current_snapshot / warning_current_item を更新
+```
+
+## 6. テスト計画
+
+`apps/api/tests/jmaWarningTelegramParser.test.ts` では、ネットワークを使わず、名前空間を明示した最小 XML fixture と、取得方法レポートで確認済みの代表電文を利用する。代表電文の原文はリポジトリへ複製せず、テストで必要な構造・値のみを最小化した fixture にする。
+
+1. VPWW55–61 と VPWS50 の各電文種別が対応する `Warning/@type` を完全一致で選び、注入した対象市町村等コードの Item の `Kind` を出現順・文字列コードのまま抽出する。既定の江東区コード `1310800` と、将来の別会場コードを模した fixture の両方で完全一致を確認する。
+2. VPWW61 の同一 Item に複数 `Kind` がある fixture で、全 Kind の `Name`、`Code`、`Status`、`LastKind`、`Property`、`Addition`、`DateTime` が完全一致で残る。
+3. `Control/Status` が通常・訓練・試験の各 XML でそれぞれ `normal`・`training`・`test` となり、C1 保存値と不一致の fixture は採用されない。
+4. 東京都または東京地方の `Headline/Area/Code` に対象コードらしい別要素を置いても、選択済み `Body/Warning/Item` の直下 `Area` に注入コードがなければ `対象地域外` になる。上位地域の Kind を返さない。
+5. 同名の `Body`、`Warning`、`Item`、`Area` を別 namespace に置いた fixture は採用されない。`Body/Warning` の type 不一致、0 件、複数件も先頭採用せず失敗する。
+6. 必須 `Kind` 項目の欠損、不正日時、未知 `telegramType`、原文なしが、空一覧や通常ステータスに縮退せず、採用結果・理由として完全一致で保存される。
+7. 正常な対象電文で注入対象地域の Item が 0 件の場合は、構造不正ではなく `対象地域外` として保存され、既存の現況スナップショットを変更しない。
+8. `recordTelegramReception` 後に processor が 1 回呼ばれ、HTTP 取得成功の `fetch_attempt.outcome` を変更せず、受信履歴だけの採用結果が更新される。
+9. C2 が `warning_current_snapshot` / `warning_current_item` へ書き込まず、C3 の現況構成を先取りしないことを DB 件数の完全一致で確認する。
+10. 起動時の再処理は C1 ポーリング開始前に実行され、対象 8 種かつ `adoptionDecidedAt === null` の既受信行だけを `receivedAt ASC, id ASC` で処理する。既に判定時刻がある行は processor を呼ばない。
+11. 101 件以上の fixture で keyset pagination の境界を越えて全件を 1 回ずつ処理し、各行に判定時刻が残る。再起動相当の 2 回目では対象 0 件となる。
+12. 再処理の途中で processor を失敗させた fixture では、更新済みの先行行を再処理せず、未更新行だけを次回実行で処理する。`fetch_attempt`、現況スナップショット、通知履歴の件数は実行前後で完全一致とする。
+
+新テストは、`Area/Code` の直下関係を意図的に外すか、`Warning/@type` の完全一致照合を外して、上位地域または別 type を誤採用する fixture のアサーションが失敗することを red として確認する。その前に、意味を変えない fixture の整形だけを変更してテストが成功し続ける対照実験を行う。一時変更は完成コードへ残さない。
+
+## 7. 受け入れ条件
+
+1. VPWW55–61 および VPWS50 の各代表電文を、名前空間を考慮して解析し、注入した市町村等コードの Item の `Kind` 情報を抽出できる。既定の江東区 `1310800` を含む。
+2. `Kind` の `Name`、`Code`、`Status`、`LastKind`、`Property`、`Addition`、`DateTime` が、空文字・単一の表示文・数値分類へ縮退せずに保持される。
+3. `Control/Status` の通常・訓練・試験が `normal`・`training`・`test` として区別され、通常へ既定化されない。
+4. `Body/Warning/@type` は電文種別ごとの確定した完全一致表で 1 件だけ選ばれる。東京都・東京地方の `Headline` や、選択範囲外・別 namespace の `Area` は江東区の代用にならない。
+5. 注入対象地域の Item が存在しない有効な対象電文、対象外種別、構造不正は互いに区別され、いずれも正常な発表なしや現況の空配列に変換されない。
+6. C1 の原文・受信履歴・HTTP 試行記録は保持され、C2 の判定結果と理由が受信履歴に残る。C2 の解析失敗で HTTP 取得結果を失敗へ変更しない。
+7. C2 は `warning_current_snapshot` / `warning_current_item`、availability、通知、REST API、画面を更新しない。
+8. DB migration 完了後かつ C1 の通常ポーリング開始前に、未判定の既受信対象原文が安定順で一度だけ再解析される。成功・対象地域外・対象外・構造不正のいずれも `adoption_decided_at` を残し、次回起動で再処理されない。中断した場合は未更新行だけが再開される。
+9. `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run test -w apps/api` が成功する。
+
+## 8. 後続 Issue への引き継ぎ
+
+- **C3**: `parseWarningTelegram` を唯一の種別固有 XML 解釈器として再利用し、個別 VPWW55–61 と VPWS50 を要素時刻・電文適用範囲に基づき積み上げる。C2 の Kind 出現順や `LastKind`、`Property`、`Addition` を削除・統合の根拠へ使うが、C2 の段階で現況を上書きしない。市町村の解除 `00` と上位集約の解除対象種別の規則を混同しない。
+- **D2 / D3 以降**: `Kind/Code` を §7.4 のコード表で照合して通知区分・変化通知を判定する。C2 の `Significancy` やコードの数値大小、名称一致で代替しない。未知・予約コードを低い通知区分へ自動割当しない。
+- **訓練通知（3.4）**: C2 が保存した `ControlStatus` を通常データと混同せず、訓練由来を `isTraining` として通知・履歴・表示まで伝播させる具体的な変換は、訓練注入機能の設計で確定する。
+- **C12**: 初期化・復旧時に既存原文を再評価する必要がある場合、C2 の純粋関数を使用する。C2 導入時の未判定既受信行は §3.6 の起動時一度だけ再解析で解消済みであり、C12 はそれを起動ごとの全件再解析へ拡張しない。
+- **UI / E 系**: `Property` / `Addition` を画面用の補助テキストへ変形する場合も、C2 の `XmlFragment` を原本として扱う。`warning_current_item.attention_text` の単一文字列だけを原文の保管先にしない。
+- **会場設定・気象取得の後続設計**: 会場から `WarningTargetArea` を解決し、同会場の H/K 端末には同じ値を渡す。TRC は大田区、最寄りアメダスは羽田空港というユーザー指定を引き継ぐ。ただし大田区の市町村等コード、羽田の地点コード・取得可能要素、地図基準位置、広域予報・速報の対象判定は公式資料・実データで確認してから設定する。C2 は警報の市町村等コードのみを受け取り、これらを代替しない。
+
+## 9. 統括担当へ差し戻す要確認事項
+
+1. **`Body/Warning/@type` の電文種別ごとの完全一致表**: VPWW55–61 / VPWS50 の各代表電文について、どの `@type` を選ぶかの実値が、指定資料の本文からはここで確定できない。製造前に、取得方法レポートが参照する公式資料・提供サンプルで 8 種すべての値を照合し、対応表として承認してください。推測した日本語文字列や先頭 `Warning` の採用はできません。
+2. **解消済み: 既受信原文の再評価範囲**: 統括判断により、`telegram_reception` の未判定対象原文を一度だけ再解析する。起動点、対象抽出、安定順、途中中断時の再開、判定済み行の除外は §3.6 に確定した。
+3. **高潮（VPWW57）の完全な集約空状態・解除の実代表**: Issue 本文と取得方法レポート §9 のとおり、江東区の高潮実電文が未確認である。C2 は構造を保持するだけで解除判定をしないが、C3 の完全スナップショット・解除判定を開始する前に、代表電文で `Warning/@type` と `Kind` の実構造を確認する必要があります。
+4. **会場設定の受渡し元**: C2 は `WarningTargetArea` を注入する形に限定した。江東区（`1310800`）を既定に用いること、TRC は大田区を対象にすることは判明しているが、大田区の市町村等コードは未確認である。どの後続 Issue / 設定機構が会場からこのコードを解決して C2・C3 に渡すかを決めてください。アメダス羽田、地図、広域予報、速報は別対象なので、この型へ混在させない前提です。
