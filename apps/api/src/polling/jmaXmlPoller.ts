@@ -13,13 +13,22 @@ import {
   DEFAULT_WARNING_TARGET_AREA,
   processWarningTelegramReception,
 } from './jmaWarningTelegramProcessor.js';
-import type { WarningCurrentTargetArea, WarningTargetArea } from '../repositories/types.js';
+import { DEFAULT_VPWP50_TARGET_AREA } from './jmaVpwp50Parser.js';
+import { processVpwp50Reception } from './jmaVpwp50Processor.js';
+import {
+  VPWP50_TELEGRAM_TYPE,
+  WARNING_TELEGRAM_TYPES,
+  type WarningCurrentTargetArea,
+  type WarningTargetArea,
+  type WarningTimeseriesTargetArea,
+} from '../repositories/types.js';
 
 export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
   readonly timeoutMs?: number;
   readonly warningTargetArea?: WarningTargetArea | WarningCurrentTargetArea;
+  readonly warningTimeseriesTargetArea?: WarningTimeseriesTargetArea;
 }
 
 interface HttpGetResult {
@@ -355,12 +364,24 @@ export async function pollSingleFeed(
     };
 
     const reception = recordTelegramReception(connection, receptionInput);
-    processWarningTelegramReception(
-      connection,
-      reception,
-      docFinishedAt,
-      options?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA,
-    );
+    if (
+      reception.telegramType &&
+      (WARNING_TELEGRAM_TYPES as readonly string[]).includes(reception.telegramType)
+    ) {
+      processWarningTelegramReception(
+        connection,
+        reception,
+        docFinishedAt,
+        options?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA,
+      );
+    } else if (reception.telegramType === VPWP50_TELEGRAM_TYPE) {
+      processVpwp50Reception(
+        connection,
+        reception,
+        docFinishedAt,
+        options?.warningTimeseriesTargetArea ?? DEFAULT_VPWP50_TARGET_AREA,
+      );
+    }
   }
 
   return {

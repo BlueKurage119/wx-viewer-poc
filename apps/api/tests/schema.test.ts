@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,8 +31,8 @@ test('1. 本番 migration をすべて適用すると全テーブルが存在し
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 13);
-    assert.equal(context.migrationSummary.appliedVersions.length, 13);
+    assert.equal(expectedSqlFiles.length, 14);
+    assert.equal(context.migrationSummary.appliedVersions.length, 14);
 
     const tables = (
       context.connection
@@ -353,7 +353,7 @@ test('8. migration を2回適用しても再実行されない', () => {
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 13);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 14);
     context1.close();
 
     const connection = openDatabase(databasePath);
@@ -372,7 +372,7 @@ test('8. migration を2回適用しても再実行されない', () => {
 test('9. migration ファイル内に BEGIN / COMMIT / ROLLBACK が含まれない', () => {
   const sqlFiles = readdirSync(migrationsDirectory).filter((file) => file.endsWith('.sql'));
 
-  assert.equal(sqlFiles.length, 13, '13 migration files should exist');
+  assert.equal(sqlFiles.length, 14, '14 migration files should exist');
 
   const forbiddenPattern = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/im;
   for (const file of sqlFiles) {
@@ -400,6 +400,136 @@ test('10. bosai_bulletin_area に relation 列が存在しない', () => {
     assert.equal(hasRelation, false, 'bosai_bulletin_area must not have a relation column');
 
     context.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test('11. warning_timeseries_value の列定義が設計書 §4 と一致し、kind_code/kind_name が nullable である', () => {
+  const { databasePath, cleanup } = createTempDbPath();
+  try {
+    const context = initializeDatabase({
+      databasePath,
+      migrationsDirectory,
+    });
+
+    const columns = context.connection
+      .prepare('PRAGMA table_info(warning_timeseries_value)')
+      .all() as Array<{
+      cid: number;
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: unknown;
+      pk: number;
+    }>;
+
+    const colMap = new Map(columns.map((c) => [c.name, c]));
+
+    // 全18列
+    assert.equal(columns.length, 18);
+
+    // nullable に緩和された列
+    assert.equal(colMap.get('kind_code')?.notnull, 0, 'kind_code は nullable であること');
+    assert.equal(colMap.get('kind_name')?.notnull, 0, 'kind_name は nullable であること');
+
+    // 新規追加された列
+    assert.ok(colMap.has('kind_datetime'), 'kind_datetime 列が存在すること');
+    assert.equal(colMap.get('kind_datetime')?.type, 'TEXT');
+    assert.equal(colMap.get('kind_datetime')?.notnull, 0);
+
+    assert.ok(colMap.has('value_code'), 'value_code 列が存在すること');
+    assert.equal(colMap.get('value_code')?.type, 'TEXT');
+    assert.equal(colMap.get('value_code')?.notnull, 0);
+
+    assert.ok(colMap.has('description'), 'description 列が存在すること');
+    assert.equal(colMap.get('description')?.type, 'TEXT');
+    assert.equal(colMap.get('description')?.notnull, 0);
+
+    assert.ok(colMap.has('condition'), 'condition 列が存在すること');
+    assert.equal(colMap.get('condition')?.type, 'TEXT');
+    assert.equal(colMap.get('condition')?.notnull, 0);
+
+    context.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test('12. migration 0014 適用前に保存された warning_timeseries_value データが保持され、新列が null になる', () => {
+  const { databasePath, cleanup } = createTempDbPath();
+  try {
+    // 0013 までのマイグレーション用ディレクトリを作成
+    const tempMigrationsDir = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-partial-migrations-'));
+    const sqlFiles = readdirSync(migrationsDirectory)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+
+    // 0001〜0013 までをコピー
+    for (const f of sqlFiles.slice(0, 13)) {
+      writeFileSync(join(tempMigrationsDir, f), readFileSync(join(migrationsDirectory, f)));
+    }
+
+    const connection = openDatabase(databasePath);
+    const summary1 = runMigrations(connection, tempMigrationsDir);
+    assert.equal(summary1.appliedVersions.length, 13);
+
+    // 0013 までの状態でデータを投入
+    connection.exec(`
+      INSERT INTO warning_timeseries_snapshot (
+        id, area_code, area_name, control_status, info_type, report_datetime, control_datetime,
+        source, issued_at, fetched_at, availability
+      ) VALUES (
+        1, '1310800', '江東区', 'normal', '発表', '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z',
+        'http://example.com/test.xml', '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z', 'available'
+      );
+      INSERT INTO warning_timeseries_time_define (
+        id, snapshot_id, block_id, time_id, sequence, time_from, time_to, duration
+      ) VALUES (
+        1, 1, 'block-1', '1', 1, '2026-09-09T00:00:00Z', '2026-09-09T03:00:00Z', 'PT3H'
+      );
+      INSERT INTO warning_timeseries_value (
+        id, snapshot_id, block_id, ref_id, kind_code, kind_name, kind_status,
+        value_category, property_type, value_type, value_text, unit, area_division, sequence
+      ) VALUES (
+        1, 1, 'block-1', '1', '03', '大雨警報', '発表',
+        'risk', '雨', '警報級', '警報', NULL, NULL, 1
+      );
+    `);
+
+    // 0014 を追加して migration を実行
+    writeFileSync(
+      join(tempMigrationsDir, sqlFiles[13]!),
+      readFileSync(join(migrationsDirectory, sqlFiles[13]!)),
+    );
+    const summary2 = runMigrations(connection, tempMigrationsDir);
+    assert.equal(summary2.appliedVersions.length, 1);
+    assert.equal(summary2.appliedVersions[0], 14);
+
+    // データが保持されていることを確認
+    const row = connection
+      .prepare('SELECT * FROM warning_timeseries_value WHERE id = 1')
+      .get() as Record<string, unknown>;
+
+    assert.equal(row.id, 1);
+    assert.equal(row.snapshot_id, 1);
+    assert.equal(row.block_id, 'block-1');
+    assert.equal(row.ref_id, '1');
+    assert.equal(row.kind_code, '03');
+    assert.equal(row.kind_name, '大雨警報');
+    assert.equal(row.kind_status, '発表');
+    assert.equal(row.kind_datetime, null, '新列 kind_datetime は null');
+    assert.equal(row.value_code, null, '新列 value_code は null');
+    assert.equal(row.description, null, '新列 description は null');
+    assert.equal(row.condition, null, '新列 condition は null');
+    assert.equal(row.value_text, '警報');
+
+    // 外部キー制約が有効であることを確認（FOREIGN KEY エラーにならない）
+    const fkCheck = connection.prepare('PRAGMA foreign_key_check').all();
+    assert.equal(fkCheck.length, 0, '外部キー整合性が保たれていること');
+
+    connection.close();
+    rmSync(tempMigrationsDir, { recursive: true, force: true });
   } finally {
     cleanup();
   }

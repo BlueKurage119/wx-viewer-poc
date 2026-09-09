@@ -12,6 +12,8 @@ import {
   listFetchAttempts,
   listTelegramReceptions,
   findTelegramReceptionById,
+  findWarningTimeseriesSnapshot,
+  listWarningCurrentStreams,
 } from '../src/repositories/index.js';
 import {
   JMA_XML_FEED_DEFINITIONS,
@@ -1116,6 +1118,129 @@ test('11. 既定の startServer() でポーリングが開始され、高頻度 
     }
 
     assert.equal(apiServer.pollingService?.getStatus().isRunning, false, 'close 後に停止している');
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// 15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき、種別ごとに正しくディスパッチされる
+// -------------------------------------------------------------------------------------------------
+test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき、種別ごとに正しくディスパッチされ、各スナップショットが更新される', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const vpwwUrl = `${server.baseUrl}/data/20260909_0_VPWW55_130000.xml`;
+    const vpwpUrl = `${server.baseUrl}/data/20260909_0_VPWP50_130000.xml`;
+
+    const vpwwXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
+<Control><Title>気象警報・注意報（市町村等）</Title><DateTime>2026-09-09T00:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都気象警報・注意報</Title><ReportDateTime>2026-09-09T09:00:00+09:00</ReportDateTime><TargetDateTime>2026-09-09T09:00:00+09:00</TargetDateTime><InfoType>発表</InfoType><Serial>1</Serial><InfoKind>気象警報・注意報</InfoKind><InfoKindVersion>1.0_0</InfoKindVersion></Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/">
+<Warning type="気象警報・注意報（市町村等）">
+<Item>
+<Kind><Name>大雨注意報</Name><Code>10</Code><Status>発表</Status></Kind>
+<Area><Name>江東区</Name><Code>1310800</Code></Area>
+</Item>
+</Warning>
+</Body>
+</Report>`;
+
+    const vpwpXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
+<Control><Title>気象警報・注意報時系列情報（Ｒ０６）</Title><DateTime>2026-09-09T00:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都警戒・注意事項時系列情報</Title><ReportDateTime>2026-09-09T09:00:00+09:00</ReportDateTime><TargetDateTime>2026-09-09T09:00:00+09:00</TargetDateTime><InfoType>発表</InfoType><InfoKind>気象警報・注意報時系列</InfoKind><InfoKindVersion>1.5_0</InfoKindVersion></Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<MeteorologicalInfos type="量的予想時系列（市町村等）">
+<TimeSeriesInfo>
+<TimeDefines><TimeDefine timeId="1"><DateTime>2026-09-09T09:00:00+09:00</DateTime><Duration>PT3H</Duration></TimeDefine></TimeDefines>
+<Item>
+<Kind><Status>発表</Status><Property><Type>大雨浸水危険度</Type><SignificancyPart><Base><Significancy refID="1" type="大雨浸水危険度"><Name>警戒レベル２未満</Name><Code>11</Code></Significancy></Base></SignificancyPart></Property></Kind>
+<Area><Name>江東区</Name><Code>1310800</Code></Area>
+</Item>
+</TimeSeriesInfo>
+</MeteorologicalInfos>
+</Body>
+</Report>`;
+
+    const regularFeedXml = createSampleAtomFeed([
+      { id: 'urn:entry-vpww', title: '警報発表', href: vpwwUrl },
+      { id: 'urn:entry-vpwp', title: '警報時系列', href: vpwpUrl },
+    ]);
+    const emptyFeedXml = createSampleAtomFeed([]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml') {
+        res.statusCode = 200;
+        res.end(regularFeedXml);
+        return;
+      }
+      if (req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.end(emptyFeedXml);
+        return;
+      }
+      if (req.url === '/data/20260909_0_VPWW55_130000.xml') {
+        res.statusCode = 200;
+        res.end(vpwwXml);
+        return;
+      }
+      if (req.url === '/data/20260909_0_VPWP50_130000.xml') {
+        res.statusCode = 200;
+        res.end(vpwpXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => '2026-09-09T00:00:00.000Z',
+    });
+
+    const result = await service.pollOnce('scheduled');
+    assert.equal(result.feedResults[0].downloadedCount, 2);
+
+    // telegram_reception に 2 件保存されていること
+    const receptions = listTelegramReceptions(db.connection);
+    assert.equal(receptions.length, 2);
+
+    const vpwwReception = receptions.find((r) => r.telegramType === 'VPWW55');
+    assert.ok(vpwwReception);
+    assert.equal(vpwwReception.adoptionResult, '警報・注意報として解析済み');
+
+    const vpwpReception = receptions.find((r) => r.telegramType === 'VPWP50');
+    assert.ok(vpwpReception);
+    assert.equal(vpwpReception.adoptionResult, '警報等時系列として解析済み');
+
+    // 警報ストリームが保存されていること（個別報のため未初期化ストリームとして保存）
+    const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
+    assert.equal(streams.length, 1);
+    assert.equal(streams[0].telegramType, 'VPWW55');
+
+    // 時系列スナップショットが保存されていること
+    const timeseries = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+    assert.ok(timeseries);
+    assert.equal(timeseries.values.length, 1);
+    assert.equal(timeseries.values[0].valueText, '警戒レベル２未満');
   } finally {
     await server.close();
     cleanup();

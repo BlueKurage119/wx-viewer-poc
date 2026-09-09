@@ -76,20 +76,28 @@ export interface WarningTimeseriesTimeDefine extends WarningTimeseriesTimeDefine
 export interface WarningTimeseriesValueInput {
   readonly blockId: string;
   readonly refId: string;
-  readonly kindCode: string;
-  readonly kindName: string;
+  readonly kindCode: string | null;
+  readonly kindName: string | null;
   readonly kindStatus: string;
+  readonly kindDateTime?: UtcIso8601String | null;
   readonly valueCategory: string;
   readonly propertyType: string;
   readonly valueType: string;
+  readonly valueCode?: string | null;
   readonly valueText: string;
   readonly unit: string | null;
+  readonly description?: string | null;
+  readonly condition?: string | null;
   readonly areaDivision: string | null;
   readonly sequence: number;
 }
 
 export interface WarningTimeseriesValue extends WarningTimeseriesValueInput {
   readonly id: number;
+  readonly kindDateTime: UtcIso8601String | null;
+  readonly valueCode: string | null;
+  readonly description: string | null;
+  readonly condition: string | null;
 }
 
 export interface WarningTimeseriesSnapshotInput {
@@ -110,6 +118,61 @@ export interface WarningTimeseriesSnapshot {
   readonly timeDefines: readonly WarningTimeseriesTimeDefine[];
   readonly values: readonly WarningTimeseriesValue[];
 }
+
+export const VPWP50_TELEGRAM_TYPE = 'VPWP50' as const;
+
+export interface WarningTimeseriesTargetArea {
+  readonly municipalCode: string;
+  readonly displayName: string;
+}
+
+export interface ParsedVpwp50TimeDefine {
+  readonly blockId: string;
+  readonly timeId: string;
+  readonly sequence: number;
+  readonly timeFrom: UtcIso8601String;
+  readonly timeTo: UtcIso8601String;
+  readonly duration: string | null;
+}
+
+export interface ParsedVpwp50Value {
+  readonly blockId: string;
+  readonly refId: string;
+  readonly kindStatus: string;
+  readonly kindDateTime: UtcIso8601String | null;
+  readonly kindCode: string | null;
+  readonly kindName: string | null;
+  readonly valueCategory: 'risk' | 'quantity';
+  readonly propertyType: string;
+  readonly valueType: string;
+  readonly valueCode: string | null;
+  readonly valueText: string;
+  readonly unit: string | null;
+  readonly description: string | null;
+  readonly condition: string | null;
+  readonly areaDivision: string | null;
+  readonly sequence: number;
+}
+
+export interface ParsedVpwp50 {
+  readonly area: { readonly code: string; readonly name: string };
+  readonly controlStatus: ControlStatus;
+  readonly infoType: string;
+  readonly eventId: string | null;
+  readonly controlDateTime: UtcIso8601String;
+  readonly reportDateTime: UtcIso8601String;
+  readonly infoKindVersion: string | null;
+  readonly timeDefines: readonly ParsedVpwp50TimeDefine[];
+  readonly values: readonly ParsedVpwp50Value[];
+}
+
+export type Vpwp50ParseResult =
+  | { readonly ok: true; readonly value: ParsedVpwp50 }
+  | {
+      readonly ok: false;
+      readonly disposition: '対象外' | '対象地域外' | '未対応構造';
+      readonly reason: string;
+    };
 
 // 3. 早期注意情報
 export type EarlyWarningSegment = 'near' | 'far';
