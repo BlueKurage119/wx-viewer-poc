@@ -23,3 +23,4 @@ export {
   parseEarlyWarning,
 } from './jmaEarlyWarningParser.js';
 export * from './jmaEarlyWarningProcessor.js';
+export * from '../venueForecastTargets.js';

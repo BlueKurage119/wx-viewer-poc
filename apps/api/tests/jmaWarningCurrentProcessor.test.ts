@@ -19,6 +19,7 @@ import {
   rebuildWarningCurrentFromReceptions,
 } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { parseWarningTelegram } from '../src/polling/jmaWarningTelegramParser.js';
+import { resolveWarningCurrentTargetArea } from '../src/venueForecastTargets.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -104,6 +105,7 @@ function saveAndProcessReception(
     readonly areaName?: string;
     readonly receivedAt?: string;
     readonly url?: string;
+    readonly targetArea?: typeof DEFAULT_WARNING_CURRENT_TARGET_AREA;
   },
 ): { reception: TelegramReception; parseResult: ReturnType<typeof parseWarningTelegram> } {
   const controlStatus = options?.controlStatus ?? 'normal';
@@ -157,7 +159,8 @@ function saveAndProcessReception(
     ],
   });
 
-  const parseResult = parseWarningTelegram(rawXml, reception, DEFAULT_WARNING_CURRENT_TARGET_AREA);
+  const targetArea = options?.targetArea ?? DEFAULT_WARNING_CURRENT_TARGET_AREA;
+  const parseResult = parseWarningTelegram(rawXml, reception, targetArea);
 
   let applyResult: WarningCurrentApplyResult | undefined;
   if (parseResult.ok) {
@@ -165,7 +168,7 @@ function saveAndProcessReception(
       connection,
       reception,
       parseResult.value,
-      DEFAULT_WARNING_CURRENT_TARGET_AREA,
+      targetArea,
     );
   }
 
@@ -186,6 +189,45 @@ test('1. 初期 DB で個別 VPWW55 だけを処理しても snapshot は 0 件�
     const streams = listWarningCurrentStreams(connection, '130000', '1310800', 'normal');
     assert.equal(streams.length, 1);
     assert.equal(streams[0]!.telegramType, 'VPWW55');
+  } finally {
+    cleanup();
+  }
+});
+
+test('TRC adapter は大田区・東京都のストリームキーで現況を構成する', () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    const targetArea = resolveWarningCurrentTargetArea('trc');
+    const { parseResult } = saveAndProcessReception(
+      connection,
+      'VPWS50',
+      '2026-09-09T01:00:00Z',
+      '<Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>',
+      { areaCode: '1311100', areaName: '大田区', targetArea },
+    );
+    assert.equal(parseResult.ok, true);
+    assert.ok(findWarningCurrentSnapshot(connection, '1311100', 'normal'));
+    assert.equal(findWarningCurrentSnapshot(connection, '1310800', 'normal'), null);
+    const streams = listWarningCurrentStreams(connection, '130000', '1311100', 'normal');
+    assert.equal(streams.length, 1);
+    assert.deepEqual(
+      {
+        prefectureCode: streams[0]!.prefectureCode,
+        areaCode: streams[0]!.areaCode,
+        controlStatus: streams[0]!.controlStatus,
+        telegramType: streams[0]!.telegramType,
+        reportDateTime: streams[0]!.reportDateTime,
+        controlDateTime: streams[0]!.controlDateTime,
+      },
+      {
+        prefectureCode: '130000',
+        areaCode: '1311100',
+        controlStatus: 'normal',
+        telegramType: 'VPWS50',
+        reportDateTime: '2026-09-09T01:00:00.000Z',
+        controlDateTime: '2026-09-09T01:00:00.000Z',
+      },
+    );
   } finally {
     cleanup();
   }

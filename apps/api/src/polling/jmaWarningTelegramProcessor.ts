@@ -16,11 +16,9 @@ import type {
   WarningTargetArea,
 } from '../repositories/types.js';
 import { parseWarningTelegram } from './jmaWarningTelegramParser.js';
+import { resolveWarningTargetArea } from '../venueForecastTargets.js';
 
-export const DEFAULT_WARNING_TARGET_AREA: WarningTargetArea = {
-  municipalCode: '1310800',
-  displayName: '江東区',
-};
+export const DEFAULT_WARNING_TARGET_AREA: WarningTargetArea = resolveWarningTargetArea('east');
 
 export interface WarningTelegramProcessResult {
   readonly parseResult: WarningTelegramParseResult;

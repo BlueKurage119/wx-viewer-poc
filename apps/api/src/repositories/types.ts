@@ -1,4 +1,4 @@
-import type { Availability, UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { Availability, BosaiBulletinAreaCode, UtcIso8601String } from '@wx-viewer-poc/shared';
 
 export type ControlStatus = 'normal' | 'training' | 'test';
 
@@ -475,7 +475,7 @@ export interface BosaiBulletin {
 
 export interface ListBosaiBulletinsOptions {
   readonly controlStatus: ControlStatus;
-  readonly includesKoto?: boolean;
+  readonly includedAreaCodes?: readonly BosaiBulletinAreaCode[];
 }
 
 // --- 通信履歴 ---

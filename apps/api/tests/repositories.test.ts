@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveVenueForecastTargets } from '@wx-viewer-poc/shared';
 
 import { initializeDatabase, type DatabaseContext } from '../src/database/index.js';
 import {
@@ -865,7 +866,7 @@ test('7. アメダス (Amedas): 欠測(NULL)と0の区別, 複数時刻保持', 
   }
 });
 
-test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSERT, 取消フラグ, 江東区包含判定(リポジトリ層)', () => {
+test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSERT, 取消フラグ, 会場区域集合による絞り込み(リポジトリ層)', () => {
   const { context, cleanup } = setupTestDb();
   try {
     // 8-1. 江東区直接 (1310800) の速報 A
@@ -884,6 +885,50 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
         {
           areaCode: '1310800',
           areaName: '江東区',
+          codeType: 'area',
+          sequence: 1,
+        },
+      ],
+    });
+
+    // 8-4. 大田区直接 (1311100) の速報 D
+    saveBosaiBulletin(context.connection, {
+      eventId: '202609090004',
+      controlStatus: 'normal',
+      infoType: '発表',
+      reportDateTime: '2026-09-09T00:03:00Z',
+      controlDateTime: '2026-09-09T00:03:00Z',
+      title: '気象防災速報（大田区）',
+      headlineText: '大田区で猛烈な雨',
+      informationTag: '雨',
+      isCancelled: false,
+      metadata: sampleMetadata,
+      areas: [
+        {
+          areaCode: '1311100',
+          areaName: '大田区',
+          codeType: 'area',
+          sequence: 1,
+        },
+      ],
+    });
+
+    // 8-5. 23区西部 (130011) の速報 E
+    saveBosaiBulletin(context.connection, {
+      eventId: '202609090005',
+      controlStatus: 'normal',
+      infoType: '発表',
+      reportDateTime: '2026-09-09T00:04:00Z',
+      controlDateTime: '2026-09-09T00:04:00Z',
+      title: '気象防災速報（23区西部）',
+      headlineText: '23区西部で大雨',
+      informationTag: '雨',
+      isCancelled: false,
+      metadata: sampleMetadata,
+      areas: [
+        {
+          areaCode: '130011',
+          areaName: '23区西部',
           codeType: 'area',
           sequence: 1,
         },
@@ -936,16 +981,31 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
 
     // 複数保存後も全て保持される（自動消去されない）
     const all = listBosaiBulletins(context.connection, { controlStatus: 'normal' });
-    assert.equal(all.length, 3, '3件の速報が全て残っていること');
+    assert.equal(all.length, 5, '5件の速報が全て残っていること');
 
-    // 江東区絞り込み (includesKoto: true) では A と B のみ返り、C は除外される
+    // east の区域集合では A と B のみ返り、C は除外される
     const kotoList = listBosaiBulletins(context.connection, {
       controlStatus: 'normal',
-      includesKoto: true,
+      includedAreaCodes: resolveVenueForecastTargets('east').bosaiBulletin.includedAreaCodes,
     });
     assert.equal(kotoList.length, 2, '江東区を含む速報は2件（直接+広域）');
     const eventIds = kotoList.map((b) => b.eventId).sort();
     assert.deepEqual(eventIds, ['202609090001', '202609090002']);
+
+    const trcList = listBosaiBulletins(context.connection, {
+      controlStatus: 'normal',
+      includedAreaCodes: resolveVenueForecastTargets('trc').bosaiBulletin.includedAreaCodes,
+    });
+    assert.deepEqual(trcList.map((bulletin) => bulletin.eventId).sort(), [
+      '202609090002',
+      '202609090004',
+      '202609090005',
+    ]);
+    assert.throws(
+      () =>
+        listBosaiBulletins(context.connection, { controlStatus: 'normal', includedAreaCodes: [] }),
+      /includedAreaCodes は空配列にできません/,
+    );
 
     // 訂正 (同一 EventID で UPSERT)
     saveBosaiBulletin(context.connection, {

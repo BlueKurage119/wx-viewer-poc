@@ -1,12 +1,16 @@
+import {
+  resolveVenueForecastTargets,
+  type VenueForecastTargets,
+  type VenueId,
+} from '@wx-viewer-poc/shared';
+
 export type TerminalMode = 'H' | 'K';
 export type ViewId = 'weather' | 'warnings' | 'monitor' | 'training';
 export interface Venue {
-  id: string;
+  id: VenueId;
   name: string;
-  municipality: string;
-  amedas: string;
   experimental: boolean;
-  mapReference: { latitude: number; longitude: number } | null;
+  weatherTargets: VenueForecastTargets;
 }
 export interface Terminal {
   id: string;
@@ -18,18 +22,14 @@ const venues = {
   east: {
     id: 'east',
     name: '東京ビッグサイト',
-    municipality: '江東区',
-    amedas: '江戸川臨海',
     experimental: false,
-    mapReference: null, // 座標の数値は地図実装時に確定する。
+    weatherTargets: resolveVenueForecastTargets('east'),
   },
   trc: {
     id: 'trc',
     name: '東京流通センター',
-    municipality: '大田区',
-    amedas: '羽田空港',
     experimental: true,
-    mapReference: { latitude: 35.58, longitude: 139.75 },
+    weatherTargets: resolveVenueForecastTargets('trc'),
   },
 } satisfies Record<string, Venue>;
 export const terminals: readonly Terminal[] = [
