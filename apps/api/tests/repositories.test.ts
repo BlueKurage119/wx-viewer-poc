@@ -879,6 +879,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
       title: '気象防災速報（江東区）',
       headlineText: '江東区で猛烈な雨',
       informationTag: '雨',
+      hasSighting: null,
       isCancelled: false,
       metadata: sampleMetadata,
       areas: [
@@ -901,6 +902,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
       title: '気象防災速報（大田区）',
       headlineText: '大田区で猛烈な雨',
       informationTag: '雨',
+      hasSighting: null,
       isCancelled: false,
       metadata: sampleMetadata,
       areas: [
@@ -923,6 +925,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
       title: '気象防災速報（23区西部）',
       headlineText: '23区西部で大雨',
       informationTag: '雨',
+      hasSighting: null,
       isCancelled: false,
       metadata: sampleMetadata,
       areas: [
@@ -945,6 +948,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
       title: '気象防災速報（東京地方）',
       headlineText: '東京地方に竜巻注意情報',
       informationTag: '竜巻',
+      hasSighting: null,
       isCancelled: false,
       metadata: sampleMetadata,
       areas: [
@@ -967,6 +971,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
       title: '気象防災速報（伊豆諸島）',
       headlineText: '大島で大雨',
       informationTag: '雨',
+      hasSighting: null,
       isCancelled: false,
       metadata: sampleMetadata,
       areas: [
@@ -1017,6 +1022,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
       title: '気象防災速報（江東区・訂正）',
       headlineText: '江東区で猛烈な雨（訂正）',
       informationTag: '雨',
+      hasSighting: null,
       isCancelled: false,
       metadata: sampleMetadata,
       areas: [
@@ -1060,6 +1066,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
       title: '気象防災速報（取消・本文なし）',
       headlineText: null,
       informationTag: null,
+      hasSighting: null,
       isCancelled: true,
       metadata: sampleMetadata,
       areas: [
@@ -1089,6 +1096,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
           title: '気象防災速報',
           headlineText: '',
           informationTag: '線状降水帯発生',
+          hasSighting: null,
           isCancelled: false,
           metadata: sampleMetadata,
           areas: [],
@@ -1107,6 +1115,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
           title: '気象防災速報',
           headlineText: '本文',
           informationTag: '',
+          hasSighting: null,
           isCancelled: false,
           metadata: sampleMetadata,
           areas: [],
@@ -1299,6 +1308,7 @@ test('9. 時刻文字列の UTC ISO 8601 形式検証', () => {
         title: '気象防災速報',
         headlineText: '速報テキスト',
         informationTag: '雨',
+        hasSighting: null,
         isCancelled: false,
         metadata: sampleMetadata,
         areas: [],
@@ -1315,6 +1325,7 @@ test('9. 時刻文字列の UTC ISO 8601 形式検証', () => {
         title: '気象防災速報',
         headlineText: '速報テキスト',
         informationTag: '雨',
+        hasSighting: null,
         isCancelled: false,
         metadata: sampleMetadata,
         areas: [],

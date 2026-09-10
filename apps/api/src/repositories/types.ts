@@ -494,6 +494,7 @@ export interface BosaiBulletinInput {
   readonly title: string;
   readonly headlineText: string | null;
   readonly informationTag: string | null;
+  readonly hasSighting: boolean | null;
   readonly isCancelled: boolean;
   readonly metadata: SnapshotMetadataInput;
   readonly areas: readonly BosaiBulletinAreaInput[];
@@ -509,6 +510,7 @@ export interface BosaiBulletin {
   readonly title: string;
   readonly headlineText: string | null;
   readonly informationTag: string | null;
+  readonly hasSighting: boolean | null;
   readonly isCancelled: boolean;
   readonly metadata: SnapshotMetadataInput;
   readonly areas: readonly BosaiBulletinArea[];
@@ -538,6 +540,58 @@ export interface ParsedVpbs50 {
 
 export type Vpbs50ParseResult =
   | { readonly ok: true; readonly value: ParsedVpbs50 }
+  | {
+      readonly ok: false;
+      readonly disposition: '対象外' | '対象地域外' | '未対応構造';
+      readonly reason: string;
+    };
+
+// --- 竜巻関連電文（VPHW50/51） ---
+export const VPHW50_TELEGRAM_TYPE = 'VPHW50' as const;
+export const VPHW51_TELEGRAM_TYPE = 'VPHW51' as const;
+export type VphwTelegramType = typeof VPHW50_TELEGRAM_TYPE | typeof VPHW51_TELEGRAM_TYPE;
+
+/** Control/Title の期待値。電文種別と1対1（§2.3.1）。 */
+export const VPHW_EXPECTED_CONTROL_TITLES: Readonly<Record<VphwTelegramType, string>> = {
+  VPHW50: '竜巻注意情報',
+  VPHW51: '竜巻注意情報（目撃情報付き）',
+};
+
+export const VPHW_EXPECTED_INFO_KIND = '竜巻注意情報' as const;
+
+/** Headline/Information@type の既知集合。未知の type は未対応構造とする（§3.2 判定#10）。 */
+export const VPHW_REQUIRED_INFORMATION_TYPES = [
+  '竜巻注意情報（発表細分）',
+  '竜巻注意情報（一次細分区域等）',
+  '竜巻注意情報（市町村等をまとめた地域等）',
+  '竜巻注意情報（市町村等）',
+] as const;
+export const VPHW_SIGHTING_INFORMATION_TYPE = '竜巻注意情報（目撃情報あり）' as const;
+
+export interface ParsedVphw {
+  readonly telegramType: VphwTelegramType;
+  /** 合成キー `${telegramType}:${発表細分区域コード}`（§3.3）。 */
+  readonly eventId: string;
+  readonly controlStatus: ControlStatus;
+  readonly infoType: string;
+  readonly reportDateTime: UtcIso8601String;
+  readonly controlDateTime: UtcIso8601String;
+  /** Head/ValidDateTime。取消で欠ける場合のみ null（§3.8）。 */
+  readonly validDateTime: UtcIso8601String | null;
+  readonly title: string;
+  /** 取消で Headline/Text が無い場合のみ null（§3.8）。 */
+  readonly headlineText: string | null;
+  /** 発表細分 Item/Kind/Name の原文。取消で発表細分が無い場合のみ null（§3.8）。 */
+  readonly informationTag: string | null;
+  /** VPHW51 のみ true/false、VPHW50 は常に null（§3.4）。 */
+  readonly hasSighting: boolean | null;
+  readonly isCancelled: boolean;
+  readonly infoKindVersion: string | null;
+  readonly areas: readonly BosaiBulletinAreaInput[];
+}
+
+export type VphwParseResult =
+  | { readonly ok: true; readonly value: ParsedVphw }
   | {
       readonly ok: false;
       readonly disposition: '対象外' | '対象地域外' | '未対応構造';

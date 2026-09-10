@@ -6,6 +6,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { initializeDatabase, openDatabase, runMigrations } from '../src/database/index.js';
+import {
+  findBosaiBulletin,
+  saveBosaiBulletin,
+} from '../src/repositories/bosaiBulletinRepository.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -31,8 +35,8 @@ test('1. 本番 migration をすべて適用すると全テーブルが存在し
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 15);
-    assert.equal(context.migrationSummary.appliedVersions.length, 15);
+    assert.equal(expectedSqlFiles.length, 16);
+    assert.equal(context.migrationSummary.appliedVersions.length, 16);
 
     const tables = (
       context.connection
@@ -353,7 +357,7 @@ test('8. migration を2回適用しても再実行されない', () => {
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 15);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 16);
     context1.close();
 
     const connection = openDatabase(databasePath);
@@ -372,7 +376,7 @@ test('8. migration を2回適用しても再実行されない', () => {
 test('9. migration ファイル内に BEGIN / COMMIT / ROLLBACK が含まれない', () => {
   const sqlFiles = readdirSync(migrationsDirectory).filter((file) => file.endsWith('.sql'));
 
-  assert.equal(sqlFiles.length, 15, '15 migration files should exist');
+  assert.equal(sqlFiles.length, 16, '16 migration files should exist');
 
   const forbiddenPattern = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/im;
   for (const file of sqlFiles) {
@@ -627,6 +631,176 @@ test('13. migration 0015 適用で bosai_bulletin の headline_text / informatio
       .get() as Record<string, unknown>;
     assert.equal(nullRow.headline_text, null);
     assert.equal(nullRow.information_tag, null);
+
+    connection.close();
+    rmSync(tempMigrationsDir, { recursive: true, force: true });
+  } finally {
+    cleanup();
+  }
+});
+
+test('14. migration 0016 適用で has_sighting 列が追加され、既存行は NULL になり、CHECK 制約および読み戻しが正しく動作する', () => {
+  const { databasePath, cleanup } = createTempDbPath();
+  try {
+    // 0015 までのマイグレーション用ディレクトリを作成
+    const tempMigrationsDir = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-partial-migrations-0015-'));
+    const sqlFiles = readdirSync(migrationsDirectory)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+
+    // 0001〜0015 までをコピー
+    for (const f of sqlFiles.slice(0, 15)) {
+      writeFileSync(join(tempMigrationsDir, f), readFileSync(join(migrationsDirectory, f)));
+    }
+
+    const connection = openDatabase(databasePath);
+    const summary1 = runMigrations(connection, tempMigrationsDir);
+    assert.equal(summary1.appliedVersions.length, 15);
+
+    // 0015 までの状態で親1行・子1行を投入
+    connection.exec(`
+      INSERT INTO bosai_bulletin (
+        id, event_id, control_status, info_type, report_datetime, control_datetime,
+        title, headline_text, information_tag, is_cancelled,
+        source, issued_at, fetched_at, availability
+      ) VALUES (
+        1, 'EVENT_001', 'normal', '発表', '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z',
+        '気象防災速報テスト', '本文テキスト', '線状降水帯発生', 0,
+        'http://example.com/test.xml', '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z', 'available'
+      );
+      INSERT INTO bosai_bulletin_area (
+        id, bulletin_id, area_code, area_name, code_type, sequence
+      ) VALUES (
+        1, 1, '1310800', '江東区', '気象・地震・火山情報／市町村等', 0
+      );
+    `);
+
+    // 0016 を追加して migration を実行
+    writeFileSync(
+      join(tempMigrationsDir, sqlFiles[15]!),
+      readFileSync(join(migrationsDirectory, sqlFiles[15]!)),
+    );
+    const summary2 = runMigrations(connection, tempMigrationsDir);
+    assert.equal(summary2.appliedVersions.length, 1);
+    assert.equal(summary2.appliedVersions[0], 16);
+
+    // 親1行・子1行のデータが保持され、既存行の has_sighting が NULL であること
+    const parentRow = connection
+      .prepare('SELECT * FROM bosai_bulletin WHERE id = 1')
+      .get() as Record<string, unknown>;
+    assert.equal(parentRow.id, 1);
+    assert.equal(parentRow.event_id, 'EVENT_001');
+    assert.equal(parentRow.has_sighting, null);
+
+    const childRow = connection
+      .prepare('SELECT * FROM bosai_bulletin_area WHERE id = 1')
+      .get() as Record<string, unknown>;
+    assert.equal(childRow.id, 1);
+    assert.equal(childRow.bulletin_id, 1);
+
+    // PRAGMA foreign_key_check が無出力であること
+    const fkCheck = connection.prepare('PRAGMA foreign_key_check').all();
+    assert.equal(fkCheck.length, 0, '外部キー整合性が保たれていること');
+
+    // has_sighting に 1 / 0 / NULL を保存でき、findBosaiBulletin で true / false / null として読み戻せること
+    saveBosaiBulletin(connection, {
+      eventId: 'EVENT_SIGHTING_1',
+      controlStatus: 'normal',
+      infoType: '発表',
+      reportDateTime: '2026-09-09T00:00:00Z',
+      controlDateTime: '2026-09-09T00:00:00Z',
+      title: '竜巻速報1',
+      headlineText: '竜巻目撃あり',
+      informationTag: '竜巻注意情報',
+      hasSighting: true,
+      isCancelled: false,
+      metadata: {
+        source: 'http://example.com/test_vphw.xml',
+        issuedAt: '2026-09-09T00:00:00Z',
+        validAt: '2026-09-09T01:00:00Z',
+        validFrom: null,
+        validTo: null,
+        fetchedAt: '2026-09-09T00:00:00Z',
+        lastSuccessAt: '2026-09-09T00:00:00Z',
+        availability: 'available',
+        sourceVersion: '1.1_0',
+      },
+      areas: [],
+    });
+    const found1 = findBosaiBulletin(connection, 'EVENT_SIGHTING_1', 'normal');
+    assert.ok(found1);
+    assert.equal(found1.hasSighting, true);
+
+    saveBosaiBulletin(connection, {
+      eventId: 'EVENT_SIGHTING_0',
+      controlStatus: 'normal',
+      infoType: '発表',
+      reportDateTime: '2026-09-09T00:00:00Z',
+      controlDateTime: '2026-09-09T00:00:00Z',
+      title: '竜巻速報0',
+      headlineText: '竜巻目撃なし',
+      informationTag: '竜巻注意情報',
+      hasSighting: false,
+      isCancelled: false,
+      metadata: {
+        source: 'http://example.com/test_vphw.xml',
+        issuedAt: '2026-09-09T00:00:00Z',
+        validAt: '2026-09-09T01:00:00Z',
+        validFrom: null,
+        validTo: null,
+        fetchedAt: '2026-09-09T00:00:00Z',
+        lastSuccessAt: '2026-09-09T00:00:00Z',
+        availability: 'available',
+        sourceVersion: '1.1_0',
+      },
+      areas: [],
+    });
+    const found0 = findBosaiBulletin(connection, 'EVENT_SIGHTING_0', 'normal');
+    assert.ok(found0);
+    assert.equal(found0.hasSighting, false);
+
+    saveBosaiBulletin(connection, {
+      eventId: 'EVENT_SIGHTING_NULL',
+      controlStatus: 'normal',
+      infoType: '発表',
+      reportDateTime: '2026-09-09T00:00:00Z',
+      controlDateTime: '2026-09-09T00:00:00Z',
+      title: '竜巻速報NULL',
+      headlineText: '判定不能',
+      informationTag: '竜巻注意情報',
+      hasSighting: null,
+      isCancelled: false,
+      metadata: {
+        source: 'http://example.com/test_vphw.xml',
+        issuedAt: '2026-09-09T00:00:00Z',
+        validAt: '2026-09-09T01:00:00Z',
+        validFrom: null,
+        validTo: null,
+        fetchedAt: '2026-09-09T00:00:00Z',
+        lastSuccessAt: '2026-09-09T00:00:00Z',
+        availability: 'available',
+        sourceVersion: '1.0_0',
+      },
+      areas: [],
+    });
+    const foundNull = findBosaiBulletin(connection, 'EVENT_SIGHTING_NULL', 'normal');
+    assert.ok(foundNull);
+    assert.equal(foundNull.hasSighting, null);
+
+    // has_sighting = 5 を直接 SQL で INSERT すると CHECK constraint failed で拒否されること
+    assert.throws(() => {
+      connection.exec(`
+        INSERT INTO bosai_bulletin (
+          id, event_id, control_status, info_type, report_datetime, control_datetime,
+          title, headline_text, information_tag, has_sighting, is_cancelled,
+          source, issued_at, fetched_at, availability
+        ) VALUES (
+          99, 'EVENT_CHECK_FAIL', 'normal', '発表', '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z',
+          'CHECKテスト', '本文', '竜巻注意情報', 5, 0,
+          'http://example.com/test.xml', '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z', 'available'
+        );
+      `);
+    }, /CHECK constraint failed: has_sighting IN \(0, 1\)/);
 
     connection.close();
     rmSync(tempMigrationsDir, { recursive: true, force: true });
