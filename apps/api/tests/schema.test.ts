@@ -31,8 +31,8 @@ test('1. 本番 migration をすべて適用すると全テーブルが存在し
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 14);
-    assert.equal(context.migrationSummary.appliedVersions.length, 14);
+    assert.equal(expectedSqlFiles.length, 15);
+    assert.equal(context.migrationSummary.appliedVersions.length, 15);
 
     const tables = (
       context.connection
@@ -353,7 +353,7 @@ test('8. migration を2回適用しても再実行されない', () => {
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 14);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 15);
     context1.close();
 
     const connection = openDatabase(databasePath);
@@ -372,7 +372,7 @@ test('8. migration を2回適用しても再実行されない', () => {
 test('9. migration ファイル内に BEGIN / COMMIT / ROLLBACK が含まれない', () => {
   const sqlFiles = readdirSync(migrationsDirectory).filter((file) => file.endsWith('.sql'));
 
-  assert.equal(sqlFiles.length, 14, '14 migration files should exist');
+  assert.equal(sqlFiles.length, 15, '15 migration files should exist');
 
   const forbiddenPattern = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/im;
   for (const file of sqlFiles) {
@@ -527,6 +527,106 @@ test('12. migration 0014 適用前に保存された warning_timeseries_value �
     // 外部キー制約が有効であることを確認（FOREIGN KEY エラーにならない）
     const fkCheck = connection.prepare('PRAGMA foreign_key_check').all();
     assert.equal(fkCheck.length, 0, '外部キー整合性が保たれていること');
+
+    connection.close();
+    rmSync(tempMigrationsDir, { recursive: true, force: true });
+  } finally {
+    cleanup();
+  }
+});
+
+test('13. migration 0015 適用で bosai_bulletin の headline_text / information_tag が nullable になり、既存データとFK関係が保持される', () => {
+  const { databasePath, cleanup } = createTempDbPath();
+  try {
+    // 0014 までのマイグレーション用ディレクトリを作成
+    const tempMigrationsDir = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-partial-migrations-0014-'));
+    const sqlFiles = readdirSync(migrationsDirectory)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+
+    // 0001〜0014 までをコピー
+    for (const f of sqlFiles.slice(0, 14)) {
+      writeFileSync(join(tempMigrationsDir, f), readFileSync(join(migrationsDirectory, f)));
+    }
+
+    const connection = openDatabase(databasePath);
+    const summary1 = runMigrations(connection, tempMigrationsDir);
+    assert.equal(summary1.appliedVersions.length, 14);
+
+    // 0014 までの状態で親1行・子1行を投入
+    connection.exec(`
+      INSERT INTO bosai_bulletin (
+        id, event_id, control_status, info_type, report_datetime, control_datetime,
+        title, headline_text, information_tag, is_cancelled,
+        source, issued_at, fetched_at, availability
+      ) VALUES (
+        1, 'EVENT_001', 'normal', '発表', '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z',
+        '気象防災速報テスト', '本文テキスト', '線状降水帯発生', 0,
+        'http://example.com/test.xml', '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z', 'available'
+      );
+      INSERT INTO bosai_bulletin_area (
+        id, bulletin_id, area_code, area_name, code_type, sequence
+      ) VALUES (
+        1, 1, '1310800', '江東区', '気象・地震・火山情報／市町村等', 0
+      );
+    `);
+
+    // 0015 を追加して migration を実行
+    writeFileSync(
+      join(tempMigrationsDir, sqlFiles[14]!),
+      readFileSync(join(migrationsDirectory, sqlFiles[14]!)),
+    );
+    const summary2 = runMigrations(connection, tempMigrationsDir);
+    assert.equal(summary2.appliedVersions.length, 1);
+    assert.equal(summary2.appliedVersions[0], 15);
+
+    // 親1行・子1行のデータが保持されていることを確認
+    const parentRow = connection
+      .prepare('SELECT * FROM bosai_bulletin WHERE id = 1')
+      .get() as Record<string, unknown>;
+    assert.equal(parentRow.id, 1);
+    assert.equal(parentRow.event_id, 'EVENT_001');
+    assert.equal(parentRow.headline_text, '本文テキスト');
+    assert.equal(parentRow.information_tag, '線状降水帯発生');
+
+    const childRow = connection
+      .prepare('SELECT * FROM bosai_bulletin_area WHERE id = 1')
+      .get() as Record<string, unknown>;
+    assert.equal(childRow.id, 1);
+    assert.equal(childRow.bulletin_id, 1);
+    assert.equal(childRow.area_code, '1310800');
+
+    // FK 参照先が bosai_bulletin になっていることを確認
+    const areaSqlRow = connection
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='bosai_bulletin_area'")
+      .get() as { sql: string };
+    assert.ok(
+      areaSqlRow.sql.includes('REFERENCES "bosai_bulletin"') ||
+        areaSqlRow.sql.includes('REFERENCES bosai_bulletin('),
+      `FK 参照先が bosai_bulletin であること (sql: ${areaSqlRow.sql})`,
+    );
+
+    // 外部キー整合性が保たれていること
+    const fkCheck = connection.prepare('PRAGMA foreign_key_check').all();
+    assert.equal(fkCheck.length, 0, '外部キー整合性が保たれていること');
+
+    // headline_text / information_tag が NULL の行を INSERT できること
+    connection.exec(`
+      INSERT INTO bosai_bulletin (
+        id, event_id, control_status, info_type, report_datetime, control_datetime,
+        title, headline_text, information_tag, is_cancelled,
+        source, issued_at, fetched_at, availability
+      ) VALUES (
+        2, 'EVENT_002', 'normal', '取消', '2026-09-09T01:00:00Z', '2026-09-09T01:00:00Z',
+        '気象防災速報取消テスト', NULL, NULL, 1,
+        'http://example.com/test2.xml', '2026-09-09T01:00:00Z', '2026-09-09T01:00:00Z', 'available'
+      );
+    `);
+    const nullRow = connection
+      .prepare('SELECT headline_text, information_tag FROM bosai_bulletin WHERE id = 2')
+      .get() as Record<string, unknown>;
+    assert.equal(nullRow.headline_text, null);
+    assert.equal(nullRow.information_tag, null);
 
     connection.close();
     rmSync(tempMigrationsDir, { recursive: true, force: true });

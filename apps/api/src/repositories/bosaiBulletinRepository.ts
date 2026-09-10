@@ -23,8 +23,8 @@ interface BosaiBulletinRow extends SnapshotMetadataRow {
   readonly report_datetime: string;
   readonly control_datetime: string;
   readonly title: string;
-  readonly headline_text: string;
-  readonly information_tag: string;
+  readonly headline_text: string | null;
+  readonly information_tag: string | null;
   readonly is_cancelled: number;
 }
 
@@ -47,8 +47,12 @@ export function saveBosaiBulletin(
   validateUtcIso8601String(input.reportDateTime, 'reportDateTime');
   validateUtcIso8601String(input.controlDateTime, 'controlDateTime');
   validateNonEmptyString(input.title, 'title');
-  validateNonEmptyString(input.headlineText, 'headlineText');
-  validateNonEmptyString(input.informationTag, 'informationTag');
+  if (input.headlineText !== null) {
+    validateNonEmptyString(input.headlineText, 'headlineText');
+  }
+  if (input.informationTag !== null) {
+    validateNonEmptyString(input.informationTag, 'informationTag');
+  }
   validateMetadataInput(input.metadata);
 
   const saveTx = connection.transaction(() => {
