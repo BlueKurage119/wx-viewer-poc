@@ -23,4 +23,6 @@ export {
   parseEarlyWarning,
 } from './jmaEarlyWarningParser.js';
 export * from './jmaEarlyWarningProcessor.js';
+export { DEFAULT_AREA_TIMESERIES_FORECAST_TARGET, parseVpfd51 } from './jmaVpfd51Parser.js';
+export * from './jmaVpfd51Processor.js';
 export * from '../venueForecastTargets.js';

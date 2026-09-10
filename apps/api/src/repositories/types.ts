@@ -306,6 +306,36 @@ export interface AreaTimeseriesSnapshot {
   readonly values: readonly AreaTimeseriesValue[];
 }
 
+export const VPFD51_TELEGRAM_TYPE = 'VPFD51' as const;
+
+export interface AreaTimeseriesForecastTarget {
+  readonly forecastAreaCode: string;
+  readonly forecastAreaName: string;
+  readonly temperatureStationCode: string;
+  readonly temperatureStationName: string;
+}
+
+export interface ParsedVpfd51 {
+  readonly area: { readonly code: string; readonly name: string };
+  readonly station: { readonly code: string; readonly name: string };
+  readonly controlStatus: ControlStatus;
+  readonly infoType: string;
+  readonly eventId: string | null;
+  readonly controlDateTime: UtcIso8601String;
+  readonly reportDateTime: UtcIso8601String;
+  readonly infoKindVersion: string | null;
+  readonly timeDefines: readonly AreaTimeseriesTimeDefineInput[];
+  readonly values: readonly AreaTimeseriesValueInput[];
+}
+
+export type Vpfd51ParseResult =
+  | { readonly ok: true; readonly value: ParsedVpfd51 }
+  | {
+      readonly ok: false;
+      readonly disposition: '対象外' | '対象地域外' | '未対応構造';
+      readonly reason: string;
+    };
+
 // 5. レーダー
 export type RadarProduct = 'N1' | 'N2';
 
