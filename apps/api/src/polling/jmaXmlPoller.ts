@@ -17,11 +17,15 @@ import { DEFAULT_VPWP50_TARGET_AREA } from './jmaVpwp50Parser.js';
 import { processVpwp50Reception } from './jmaVpwp50Processor.js';
 import { DEFAULT_EARLY_WARNING_TARGET_AREA } from './jmaEarlyWarningParser.js';
 import { processEarlyWarningReception } from './jmaEarlyWarningProcessor.js';
+import { DEFAULT_AREA_TIMESERIES_FORECAST_TARGET } from './jmaVpfd51Parser.js';
+import { processVpfd51Reception } from './jmaVpfd51Processor.js';
 import {
+  VPFD51_TELEGRAM_TYPE,
   VPFD61_TELEGRAM_TYPE,
   VPFW60_TELEGRAM_TYPE,
   VPWP50_TELEGRAM_TYPE,
   WARNING_TELEGRAM_TYPES,
+  type AreaTimeseriesForecastTarget,
   type EarlyWarningTargetArea,
   type WarningCurrentTargetArea,
   type WarningTargetArea,
@@ -35,6 +39,7 @@ export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly warningTargetArea?: WarningTargetArea | WarningCurrentTargetArea;
   readonly warningTimeseriesTargetArea?: WarningTimeseriesTargetArea;
   readonly earlyWarningTargetArea?: EarlyWarningTargetArea;
+  readonly areaTimeseriesForecastTarget?: AreaTimeseriesForecastTarget;
 }
 
 interface HttpGetResult {
@@ -396,6 +401,13 @@ export async function pollSingleFeed(
         reception,
         docFinishedAt,
         options?.earlyWarningTargetArea ?? DEFAULT_EARLY_WARNING_TARGET_AREA,
+      );
+    } else if (reception.telegramType === VPFD51_TELEGRAM_TYPE) {
+      processVpfd51Reception(
+        connection,
+        reception,
+        docFinishedAt,
+        options?.areaTimeseriesForecastTarget ?? DEFAULT_AREA_TIMESERIES_FORECAST_TARGET,
       );
     }
   }
