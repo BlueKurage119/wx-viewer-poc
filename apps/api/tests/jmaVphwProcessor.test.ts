@@ -24,8 +24,7 @@ import { resolveVenueForecastTargets } from '@wx-viewer-poc/shared';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
-const samplesDir =
-  '/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples';
+const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 function setupTestDb() {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-vphw-processor-test-'));
@@ -256,7 +255,7 @@ function createSampleReception(
 test('受け入れ条件 (processor・保存・メタデータ): 19_01_01_091210_VPHW50.xml の保存とメタデータ (valid_to が NULL、valid_at が ValidDateTime)', () => {
   const { context, cleanup } = setupTestDb();
   try {
-    const samplePath = join(samplesDir, '19_01_01_091210_VPHW50.xml');
+    const samplePath = join(jmaFixturesDir, '19_01_01_091210_VPHW50.xml');
     assert.ok(existsSync(samplePath));
     const xml = readFileSync(samplePath, 'utf-8');
 
@@ -405,8 +404,8 @@ test('受け入れ条件 (processor・更新): 同一発表細分区域・同一
 test('受け入れ条件 (processor・2行並存): 19_10_01_150916_VPHW50 と 19_10_02_150916_VPHW51 が2行並存し互いを上書きしない (確定事項#7)', () => {
   const { context, cleanup } = setupTestDb();
   try {
-    const path50 = join(samplesDir, '19_10_01_150916_VPHW50.xml');
-    const path51 = join(samplesDir, '19_10_02_150916_VPHW51.xml');
+    const path50 = join(jmaFixturesDir, '19_10_01_150916_VPHW50.xml');
+    const path51 = join(jmaFixturesDir, '19_10_02_150916_VPHW51.xml');
     assert.ok(existsSync(path50) && existsSync(path51));
 
     const xml50 = readFileSync(path50, 'utf-8');
@@ -687,7 +686,7 @@ test('受け入れ条件 (processor・原文なし): rawBody=null の場合は�
 test('受け入れ条件 (processor・対象判定): 19_01_01_091210_VPHW50.xml は east/trc 両方の絞り込みで返る', () => {
   const { context, cleanup } = setupTestDb();
   try {
-    const samplePath = join(samplesDir, '19_01_01_091210_VPHW50.xml');
+    const samplePath = join(jmaFixturesDir, '19_01_01_091210_VPHW50.xml');
     assert.ok(existsSync(samplePath));
     const xml = readFileSync(samplePath, 'utf-8');
 

@@ -7,9 +7,7 @@ import { parseVpbs50 } from '../src/polling/jmaVpbs50Parser.js';
 import type { BosaiBulletinTarget, TelegramReception } from '../src/repositories/types.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
-const samplesDir =
-  '/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples';
-const fixturesDir = join(apiRoot, 'tests/fixtures');
+const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 const defaultExpectedVpbs50: Pick<
   TelegramReception,
@@ -193,8 +191,8 @@ function buildVpbs50Xml(options: BuildVpbs50XmlOptions = {}): string {
 }
 
 test('受け入れ条件1: 公式サンプル 82_01_01_260324_VPBS50.xml (線状降水帯発生) のパース検証', () => {
-  const samplePath = join(samplesDir, '82_01_01_260324_VPBS50.xml');
-  if (!existsSync(samplePath)) return;
+  const samplePath = join(jmaFixturesDir, '82_01_01_260324_VPBS50.xml');
+  assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
   const xml = readFileSync(samplePath, 'utf-8');
   const expected: Pick<
@@ -255,8 +253,8 @@ test('受け入れ条件1: 公式サンプル 82_01_01_260324_VPBS50.xml (線状
 });
 
 test('受け入れ条件2: 公式サンプル 82_01_02_250630_VPBS50.xml (記録的短時間大雨) のパース検証 (Headline と Body の両方抽出、Station 除外)', () => {
-  const samplePath = join(samplesDir, '82_01_02_250630_VPBS50.xml');
-  if (!existsSync(samplePath)) return;
+  const samplePath = join(jmaFixturesDir, '82_01_02_250630_VPBS50.xml');
+  assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
   const xml = readFileSync(samplePath, 'utf-8');
   const expected: Pick<
@@ -298,7 +296,7 @@ test('受け入れ条件2: 公式サンプル 82_01_02_250630_VPBS50.xml (記録
 });
 
 test('受け入れ条件3: 負例実データ 20260905220832_0_VPBS50_130000.xml (伊豆諸島南部 130030) は既定 target で対象地域外となる', () => {
-  const fixturePath = join(fixturesDir, '20260905220832_0_VPBS50_130000.xml');
+  const fixturePath = join(jmaFixturesDir, '20260905220832_0_VPBS50_130000.xml');
   assert.ok(existsSync(fixturePath), '実データ負例 fixture が存在すること');
 
   const xml = readFileSync(fixturePath, 'utf-8');
@@ -328,8 +326,8 @@ test('受け入れ条件3: 負例実データ 20260905220832_0_VPBS50_130000.xml
 });
 
 test('受け入れ条件5: 短時間大雪 (82_01_03_241031_VPBS50.xml) は対象外となる', () => {
-  const samplePath = join(samplesDir, '82_01_03_241031_VPBS50.xml');
-  if (!existsSync(samplePath)) return;
+  const samplePath = join(jmaFixturesDir, '82_01_03_241031_VPBS50.xml');
+  assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
   const xml = readFileSync(samplePath, 'utf-8');
   const expected: Pick<
@@ -391,8 +389,8 @@ test('受け入れ条件6: 公式サンプル 82_03_01/02/03_260324_VPBS50.xml (
   };
 
   for (const s of samples) {
-    const samplePath = join(samplesDir, s.file);
-    if (!existsSync(samplePath)) continue;
+    const samplePath = join(jmaFixturesDir, s.file);
+    assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
     const xml = readFileSync(samplePath, 'utf-8');
     const expected: Pick<
