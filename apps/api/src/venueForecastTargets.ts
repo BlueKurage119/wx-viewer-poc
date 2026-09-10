@@ -1,5 +1,6 @@
 import { resolveVenueForecastTargets, type VenueId } from '@wx-viewer-poc/shared';
 import type {
+  AreaTimeseriesForecastTarget,
   EarlyWarningTargetArea,
   WarningCurrentTargetArea,
   WarningTargetArea,
@@ -32,4 +33,17 @@ export function resolveWarningTimeseriesTargetArea(venueId: VenueId): WarningTim
 export function resolveEarlyWarningTargetArea(venueId: VenueId): EarlyWarningTargetArea {
   const target = resolveVenueForecastTargets(venueId).broadForecast;
   return { forecastAreaCode: target.areaCode, displayName: target.displayName };
+}
+
+/** C6 用の地域時系列予報対象（広域予報区域＋気温予報地点）を会場定義から解決する。 */
+export function resolveAreaTimeseriesForecastTarget(
+  venueId: VenueId,
+): AreaTimeseriesForecastTarget {
+  const targets = resolveVenueForecastTargets(venueId);
+  return {
+    forecastAreaCode: targets.broadForecast.areaCode,
+    forecastAreaName: targets.broadForecast.displayName,
+    temperatureStationCode: targets.temperatureForecast.stationCode,
+    temperatureStationName: targets.temperatureForecast.displayName,
+  };
 }
