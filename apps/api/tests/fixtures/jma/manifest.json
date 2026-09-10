@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "license": {
+    "name": "公共データ利用規約（第1.0版）に準拠",
+    "termsUrl": "https://www.jma.go.jp/jma/kishou/info/coment.html",
+    "attribution": "出典：気象庁ホームページ（<sourceUrl>）"
+  },
+  "fixtures": [
+    {
+      "path": "19_01_01_091210_VPHW50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "19_01_01_091210_VPHW50.xml",
+      "sourceSha256": "a9fabc8d1bd56dd5d340b5865ec1c4bbd22ca98f9ad9a52bcc1c16d5007b18ca",
+      "fixtureSha256": "a9fabc8d1bd56dd5d340b5865ec1c4bbd22ca98f9ad9a52bcc1c16d5007b18ca",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPHW50の正例・processor統合"
+    },
+    {
+      "path": "19_04_01_140425_VPHW51.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "19_04_01_140425_VPHW51.xml",
+      "sourceSha256": "788716174dc659530f941b886f15bb1b7f9f6f7c67e85e802a438c7a66be27ea",
+      "fixtureSha256": "788716174dc659530f941b886f15bb1b7f9f6f7c67e85e802a438c7a66be27ea",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPHW51（目撃情報あり・東京都）のパース検証"
+    },
+    {
+      "path": "19_05_01_140425_VPHW51.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "19_05_01_140425_VPHW51.xml",
+      "sourceSha256": "82f4b51ba889177b346c43d80f97afe66e78f8460162b6e0e107f61124c0e3f4",
+      "fixtureSha256": "82f4b51ba889177b346c43d80f97afe66e78f8460162b6e0e107f61124c0e3f4",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPHW51（目撃情報なし・東京都）のパース検証"
+    },
+    {
+      "path": "19_08_01_150916_VPHW50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "19_08_01_150916_VPHW50.xml",
+      "sourceSha256": "5040415fc4478108220089992a12dd1eace8840ddc14d3baf244ef8a3499d9f7",
+      "fixtureSha256": "5040415fc4478108220089992a12dd1eace8840ddc14d3baf244ef8a3499d9f7",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPHW50（愛知県・発表）のパース検証"
+    },
+    {
+      "path": "19_08_03_250630_VPHW50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "19_08_03_250630_VPHW50.xml",
+      "sourceSha256": "cfed836bdda2e8eb2baf09f8d8974ebda31447dd74cc1ecd3acc53b0c45202e9",
+      "fixtureSha256": "cfed836bdda2e8eb2baf09f8d8974ebda31447dd74cc1ecd3acc53b0c45202e9",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPHW50（新体系予告・愛知県）のパース検証"
+    },
+    {
+      "path": "19_10_01_150916_VPHW50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "19_10_01_150916_VPHW50.xml",
+      "sourceSha256": "5bb9afb2f6052bad35b11e5766a5e05f6ff02b2b27553d5bdd732d62a89c2407",
+      "fixtureSha256": "5bb9afb2f6052bad35b11e5766a5e05f6ff02b2b27553d5bdd732d62a89c2407",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPHW50（竜巻注意情報・同一EventID更新親）のパース・processor検証"
+    },
+    {
+      "path": "19_10_02_150916_VPHW51.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "19_10_02_150916_VPHW51.xml",
+      "sourceSha256": "d976d9f860e1a92e4a097d11497ceda3550928337fd7b359f22d6338c050b58e",
+      "fixtureSha256": "d976d9f860e1a92e4a097d11497ceda3550928337fd7b359f22d6338c050b58e",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPHW51（竜巻目撃情報・同一EventID更新子）のパース・processor検証"
+    },
+    {
+      "path": "19_10_03_250630_VPHW50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "19_10_03_250630_VPHW50.xml",
+      "sourceSha256": "aa549141f9ccb8bcc30dd51daeb1e51c2f7dd41cecaa05c70cc98a6f32523e46",
+      "fixtureSha256": "aa549141f9ccb8bcc30dd51daeb1e51c2f7dd41cecaa05c70cc98a6f32523e46",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPHW50（新体系予告・江東区明記）のパース検証"
+    },
+    {
+      "path": "20260905220832_0_VPBS50_130000.xml",
+      "kind": "derived",
+      "sourceUrl": "https://www.data.jma.go.jp/developer/xml/data/20260905220832_0_VPBS50_130000.xml",
+      "sourceFileName": "20260905220832_0_VPBS50_130000.xml",
+      "sourceSha256": "0b8824608555c24c37a90c9d15e8be62ce116072c83a02a181cff74b1f522b45",
+      "fixtureSha256": "05710ff68c81edca54f4b000830130ff4ed32dec1746a7a0ddd1bde71507ceec",
+      "transform": "先頭に来歴・用途を示すXMLコメントを追加。電文要素・属性・本文は変更しない。",
+      "editor": "リポジトリ管理者",
+      "retrievedAt": "2026-09-10T21:51:29+09:00",
+      "purpose": "伊豆諸島南部を対象とするVPBS50の会場判定負例"
+    },
+    {
+      "path": "24_11_03_190925_VPFD51.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "24_11_03_190925_VPFD51.xml",
+      "sourceSha256": "69d229716bd21c8311b57da8a3fbee83a5dcf707adeb4943913d02fd4f6cfc2d",
+      "fixtureSha256": "69d229716bd21c8311b57da8a3fbee83a5dcf707adeb4943913d02fd4f6cfc2d",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPFD51の正例・processor統合"
+    },
+    {
+      "path": "69_01_01_241031_VPFW60.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "69_01_01_241031_VPFW60.xml",
+      "sourceSha256": "02d24355d9ce09276e9aa8f1d91f78396516cb7ce862f645243424ff5f661ab8",
+      "fixtureSha256": "02d24355d9ce09276e9aa8f1d91f78396516cb7ce862f645243424ff5f661ab8",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPFW60の正例・対象地域判定"
+    },
+    {
+      "path": "81_01_01_260129_VPWP50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "81_01_01_260129_VPWP50.xml",
+      "sourceSha256": "bd6239228b4ad8a61a4eb58cf521a3c2be386507b79c9c6916b716cc9ecdb5ba",
+      "fixtureSha256": "bd6239228b4ad8a61a4eb58cf521a3c2be386507b79c9c6916b716cc9ecdb5ba",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPWP50の正例・対象地域判定"
+    },
+    {
+      "path": "82_01_01_260324_VPBS50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "82_01_01_260324_VPBS50.xml",
+      "sourceSha256": "c753f19c83da98ac154bf952b85976df12864e3f6d636da1308899380c459748",
+      "fixtureSha256": "c753f19c83da98ac154bf952b85976df12864e3f6d636da1308899380c459748",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPBS50（線状降水帯発生情報）のパース検証"
+    },
+    {
+      "path": "82_01_02_250630_VPBS50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "82_01_02_250630_VPBS50.xml",
+      "sourceSha256": "b1a1b183d1a55af0a8419d40928bf1d06800e794f25943de1e81d1e0b33772b3",
+      "fixtureSha256": "b1a1b183d1a55af0a8419d40928bf1d06800e794f25943de1e81d1e0b33772b3",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPBS50（記録的短時間大雨情報）のパース検証"
+    },
+    {
+      "path": "82_01_03_241031_VPBS50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "82_01_03_241031_VPBS50.xml",
+      "sourceSha256": "a50825ee858ab9fb36e5d152808ac54caa3b742040c71c0f388c9a2d9fe0c5f3",
+      "fixtureSha256": "a50825ee858ab9fb36e5d152808ac54caa3b742040c71c0f388c9a2d9fe0c5f3",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPBS50（短時間大雪）のパース検証"
+    },
+    {
+      "path": "82_03_01_260324_VPBS50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "82_03_01_260324_VPBS50.xml",
+      "sourceSha256": "4298694620bf3a3ebed8cd64fe166b9d6fea0772a0671a1c8fac40d72f079c2e",
+      "fixtureSha256": "4298694620bf3a3ebed8cd64fe166b9d6fea0772a0671a1c8fac40d72f079c2e",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPBS50（線状降水帯直前予測・同一親番1件目）のパース・processor検証"
+    },
+    {
+      "path": "82_03_02_260324_VPBS50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "82_03_02_260324_VPBS50.xml",
+      "sourceSha256": "1f7f0068c73adc554336942f391c3301e9c930d02b51a8ec5b87a3a373001b2d",
+      "fixtureSha256": "1f7f0068c73adc554336942f391c3301e9c930d02b51a8ec5b87a3a373001b2d",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPBS50（線状降水帯直前予測・同一親番2件目）のパース・processor検証"
+    },
+    {
+      "path": "82_03_03_260324_VPBS50.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "82_03_03_260324_VPBS50.xml",
+      "sourceSha256": "79d7af2605c456fb734985e5b0bf29a4e3411eef6ec46b4bddcb2a5dc32a14bd",
+      "fixtureSha256": "79d7af2605c456fb734985e5b0bf29a4e3411eef6ec46b4bddcb2a5dc32a14bd",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPBS50（線状降水帯直前予測・同一親番3件目）のパース・processor検証"
+    },
+    {
+      "path": "90_01_01_241031_VPFD61.xml",
+      "kind": "original",
+      "sourceUrl": "https://xml.kishou.go.jp/jmaxml_20260723_Samples.zip",
+      "sourceFileName": "90_01_01_241031_VPFD61.xml",
+      "sourceSha256": "fa943a25c27112532dcd1a0f17e2ae39d166d79e5df7e717560541e6c7a99d09",
+      "fixtureSha256": "fa943a25c27112532dcd1a0f17e2ae39d166d79e5df7e717560541e6c7a99d09",
+      "retrievedAt": "2026-09-07T11:48:00+09:00",
+      "purpose": "VPFD61の正例・対象地域判定"
+    }
+  ]
+}
