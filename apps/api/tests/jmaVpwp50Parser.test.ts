@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   parseVpwp50,
   addIso8601Duration,
   DEFAULT_VPWP50_TARGET_AREA,
 } from '../src/polling/jmaVpwp50Parser.js';
 import type { TelegramReception } from '../src/repositories/types.js';
+
+const apiRoot = join(fileURLToPath(import.meta.url), '../..');
+const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 const defaultExpected: Pick<
   TelegramReception,
@@ -598,11 +603,8 @@ test('parseVpwp50: 対象外 - InfoKind が異なる場合', () => {
 });
 
 test('parseVpwp50: 実提供サンプルファイルのパース検証', () => {
-  const samplePath =
-    '/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples/81_01_01_260129_VPWP50.xml';
-  if (!existsSync(samplePath)) {
-    return;
-  }
+  const samplePath = join(jmaFixturesDir, '81_01_01_260129_VPWP50.xml');
+  assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
   const xml = readFileSync(samplePath, 'utf-8');
   const expectedForSample = {

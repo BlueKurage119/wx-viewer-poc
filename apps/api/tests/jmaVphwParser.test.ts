@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseVphw } from '../src/polling/jmaVphwParser.js';
 import type {
   BosaiBulletinTarget,
@@ -9,8 +10,8 @@ import type {
   VphwTelegramType,
 } from '../src/repositories/types.js';
 
-const samplesDir =
-  '/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples';
+const apiRoot = join(fileURLToPath(import.meta.url), '../..');
+const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 const defaultExpectedVphw50: Pick<
   TelegramReception,
@@ -261,7 +262,7 @@ function buildVphwXml(options: BuildVphwXmlOptions = {}): string {
 }
 
 test('受け入れ条件 (parser・正例・実サンプル): 19_01_01_091210_VPHW50.xml のパース検証 (Body走査禁止の検証含む)', () => {
-  const samplePath = join(samplesDir, '19_01_01_091210_VPHW50.xml');
+  const samplePath = join(jmaFixturesDir, '19_01_01_091210_VPHW50.xml');
   assert.ok(existsSync(samplePath), '公式サンプル 19_01_01 が存在すること');
 
   const xml = readFileSync(samplePath, 'utf-8');
@@ -330,7 +331,7 @@ test('受け入れ条件 (parser・正例・実サンプル): 19_01_01_091210_VP
 });
 
 test('受け入れ条件 (parser・正例・実サンプル): 19_04_01_140425_VPHW51.xml (目撃情報ありの VPHW51)', () => {
-  const samplePath = join(samplesDir, '19_04_01_140425_VPHW51.xml');
+  const samplePath = join(jmaFixturesDir, '19_04_01_140425_VPHW51.xml');
   assert.ok(existsSync(samplePath), '公式サンプル 19_04_01 が存在すること');
 
   const xml = readFileSync(samplePath, 'utf-8');
@@ -356,7 +357,7 @@ test('受け入れ条件 (parser・正例・実サンプル): 19_04_01_140425_VP
 });
 
 test('受け入れ条件 (parser・正例・実サンプル): 19_05_01_140425_VPHW51.xml (目撃情報なしの VPHW51)', () => {
-  const samplePath = join(samplesDir, '19_05_01_140425_VPHW51.xml');
+  const samplePath = join(jmaFixturesDir, '19_05_01_140425_VPHW51.xml');
   assert.ok(existsSync(samplePath), '公式サンプル 19_05_01 が存在すること');
 
   const xml = readFileSync(samplePath, 'utf-8');
@@ -382,7 +383,7 @@ test('受け入れ条件 (parser・正例・実サンプル): 19_05_01_140425_VP
 });
 
 test('受け入れ条件 (parser・正例・実サンプル): 19_10_03_250630_VPHW50.xml (新形式Head/Title・目撃本文のVPHW50はhasSighting===null)', () => {
-  const samplePath = join(samplesDir, '19_10_03_250630_VPHW50.xml');
+  const samplePath = join(jmaFixturesDir, '19_10_03_250630_VPHW50.xml');
   assert.ok(existsSync(samplePath), '公式サンプル 19_10_03 が存在すること');
 
   const xml = readFileSync(samplePath, 'utf-8');
@@ -410,7 +411,7 @@ test('受け入れ条件 (parser・正例・実サンプル): 19_10_03_250630_VP
 });
 
 test('受け入れ条件 (parser・正例・実サンプル): 19_08_03_250630_VPHW50.xml (新形式 埼玉県気象防災速報（竜巻注意）)', () => {
-  const samplePath = join(samplesDir, '19_08_03_250630_VPHW50.xml');
+  const samplePath = join(jmaFixturesDir, '19_08_03_250630_VPHW50.xml');
   assert.ok(existsSync(samplePath), '公式サンプル 19_08_03 が存在すること');
 
   const xml = readFileSync(samplePath, 'utf-8');
@@ -438,8 +439,8 @@ test('受け入れ条件 (parser・正例・実サンプル): 19_08_03_250630_VP
 });
 
 test('受け入れ条件 (parser・正例・実サンプル): 19_10_01_150916_VPHW50 と 19_10_02_150916_VPHW51 の対比較', () => {
-  const path50 = join(samplesDir, '19_10_01_150916_VPHW50.xml');
-  const path51 = join(samplesDir, '19_10_02_150916_VPHW51.xml');
+  const path50 = join(jmaFixturesDir, '19_10_01_150916_VPHW50.xml');
+  const path51 = join(jmaFixturesDir, '19_10_02_150916_VPHW51.xml');
   assert.ok(existsSync(path50) && existsSync(path51));
 
   const xml50 = readFileSync(path50, 'utf-8');
@@ -483,7 +484,7 @@ test('受け入れ条件 (parser・正例・実サンプル): 19_10_01_150916_VP
 });
 
 test('受け入れ条件 (parser・負例): 19_08_01_150916_VPHW50.xml (埼玉県) は既定targetで対象地域外となる', () => {
-  const samplePath = join(samplesDir, '19_08_01_150916_VPHW50.xml');
+  const samplePath = join(jmaFixturesDir, '19_08_01_150916_VPHW50.xml');
   assert.ok(existsSync(samplePath));
 
   const xml = readFileSync(samplePath, 'utf-8');

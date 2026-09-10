@@ -23,9 +23,7 @@ import { resolveVenueForecastTargets } from '@wx-viewer-poc/shared';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
-const samplesDir =
-  '/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples';
-const fixturesDir = join(apiRoot, 'tests/fixtures');
+const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 function setupTestDb() {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-vpbs50-processor-test-'));
@@ -271,8 +269,8 @@ test('受け入れ条件6: 公式サンプル 82_03_01/02/03_260324_VPBS50.xml (
 
     for (let i = 0; i < samples.length; i++) {
       const s = samples[i]!;
-      const samplePath = join(samplesDir, s.file);
-      if (!existsSync(samplePath)) return;
+      const samplePath = join(jmaFixturesDir, s.file);
+      assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
       const xml = readFileSync(samplePath, 'utf-8');
       const reception = createSampleReception(context, {
@@ -404,7 +402,8 @@ test('受け入れ条件7, 8: 更新判定 (Control/DateTime の比較、同一/
 test('受け入れ条件3: 負例実データ (20260905220832_0_VPBS50_130000.xml) は保存されず、会場一覧に混入しない', () => {
   const { context, cleanup } = setupTestDb();
   try {
-    const fixturePath = join(fixturesDir, '20260905220832_0_VPBS50_130000.xml');
+    const fixturePath = join(jmaFixturesDir, '20260905220832_0_VPBS50_130000.xml');
+    assert.ok(existsSync(fixturePath), `fixture not found: ${fixturePath}`);
     const xml = readFileSync(fixturePath, 'utf-8');
 
     const reception = createSampleReception(context, {

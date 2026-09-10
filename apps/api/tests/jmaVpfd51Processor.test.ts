@@ -16,6 +16,7 @@ import type { TelegramReceptionInput } from '../src/repositories/types.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
+const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 function setupTestDb() {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-vpfd51-processor-test-'));
@@ -229,9 +230,8 @@ test('processVpfd51Reception: 正常パース時に snapshot 保存と adoption 
 });
 
 test('processVpfd51Reception: 公式サンプルファイルでの統合テスト', () => {
-  const samplePath =
-    '/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples/24_11_03_190925_VPFD51.xml';
-  if (!existsSync(samplePath)) return;
+  const samplePath = join(jmaFixturesDir, '24_11_03_190925_VPFD51.xml');
+  assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
   const db = setupTestDb();
   try {

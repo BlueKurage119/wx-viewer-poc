@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseVpfd51 } from '../src/polling/jmaVpfd51Parser.js';
 import type { TelegramReception } from '../src/repositories/types.js';
+
+const apiRoot = join(fileURLToPath(import.meta.url), '../..');
+const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 const defaultExpectedVpfd51: Pick<
   TelegramReception,
@@ -279,11 +284,8 @@ function buildVpfd51Xml(options: BuildVpfd51XmlOptions = {}): string {
 }
 
 test('parseVpfd51: 公式サンプルファイルの正常パース検証', () => {
-  const samplePath =
-    '/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples/24_11_03_190925_VPFD51.xml';
-  if (!existsSync(samplePath)) {
-    return;
-  }
+  const samplePath = join(jmaFixturesDir, '24_11_03_190925_VPFD51.xml');
+  assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
   const xml = readFileSync(samplePath, 'utf-8');
   const expectedForSample: Pick<

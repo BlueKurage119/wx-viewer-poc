@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   parseEarlyWarning,
   DEFAULT_EARLY_WARNING_TARGET_AREA,
@@ -9,6 +11,9 @@ import {
   EXPECTED_VPFW60_INFO_KIND,
 } from '../src/polling/jmaEarlyWarningParser.js';
 import type { TelegramReception } from '../src/repositories/types.js';
+
+const apiRoot = join(fileURLToPath(import.meta.url), '../..');
+const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 const defaultExpectedVpfd61: Pick<
   TelegramReception,
@@ -611,11 +616,8 @@ test('parseEarlyWarning: 未対応構造 - PossibilityRankOfWarning が空かつ
 // -------------------------------------------------------------------------------------------------
 
 test('parseEarlyWarning: 実提供サンプルファイル VPFD61 のパース検証', () => {
-  const samplePath =
-    '/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples/90_01_01_241031_VPFD61.xml';
-  if (!existsSync(samplePath)) {
-    return;
-  }
+  const samplePath = join(jmaFixturesDir, '90_01_01_241031_VPFD61.xml');
+  assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
   const xml = readFileSync(samplePath, 'utf-8');
   const expectedForSample: Pick<
@@ -648,11 +650,8 @@ test('parseEarlyWarning: 実提供サンプルファイル VPFD61 のパース�
 });
 
 test('parseEarlyWarning: 実提供サンプルファイル VPFW60 のパース検証', () => {
-  const samplePath =
-    '/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples/69_01_01_241031_VPFW60.xml';
-  if (!existsSync(samplePath)) {
-    return;
-  }
+  const samplePath = join(jmaFixturesDir, '69_01_01_241031_VPFW60.xml');
+  assert.ok(existsSync(samplePath), `fixture not found: ${samplePath}`);
 
   const xml = readFileSync(samplePath, 'utf-8');
   const expectedForSample: Pick<
