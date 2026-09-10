@@ -5,20 +5,20 @@ import { updateTelegramReceptionAdoption } from '../repositories/telegramRecepti
 import type {
   BosaiBulletinTarget,
   TelegramReception,
-  Vpbs50ParseResult,
+  VphwParseResult,
 } from '../repositories/types.js';
-import { DEFAULT_BOSAI_BULLETIN_TARGET, parseVpbs50 } from './jmaVpbs50Parser.js';
+import { DEFAULT_BOSAI_BULLETIN_TARGET, parseVphw } from './jmaVphwParser.js';
 
 export { DEFAULT_BOSAI_BULLETIN_TARGET };
 
-export function processVpbs50Reception(
+export function processVphwReception(
   connection: DatabaseConnection,
   reception: TelegramReception,
   processedAt: UtcIso8601String,
   target: BosaiBulletinTarget = DEFAULT_BOSAI_BULLETIN_TARGET,
-): Vpbs50ParseResult {
+): VphwParseResult {
   if (!reception.rawBody) {
-    const errorResult: Vpbs50ParseResult = {
+    const errorResult: VphwParseResult = {
       ok: false,
       disposition: '未対応構造',
       reason: '原文（raw_body）がありません',
@@ -34,7 +34,7 @@ export function processVpbs50Reception(
     return errorResult;
   }
 
-  const parseResult = parseVpbs50(reception.rawBody, reception, target);
+  const parseResult = parseVphw(reception.rawBody, reception, target);
 
   const tx = connection.transaction(() => {
     if (parseResult.ok) {
@@ -64,12 +64,12 @@ export function processVpbs50Reception(
         title: parsed.title,
         headlineText: parsed.headlineText,
         informationTag: parsed.informationTag,
-        hasSighting: null,
+        hasSighting: parsed.hasSighting,
         isCancelled: parsed.isCancelled,
         metadata: {
           source: reception.documentUrl,
           issuedAt: parsed.reportDateTime,
-          validAt: parsed.targetDateTime,
+          validAt: parsed.validDateTime,
           validFrom: null,
           validTo: null,
           fetchedAt: reception.receivedAt,
