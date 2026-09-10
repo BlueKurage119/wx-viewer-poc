@@ -25,6 +25,7 @@ interface BosaiBulletinRow extends SnapshotMetadataRow {
   readonly title: string;
   readonly headline_text: string | null;
   readonly information_tag: string | null;
+  readonly has_sighting: number | null;
   readonly is_cancelled: number;
 }
 
@@ -59,10 +60,10 @@ export function saveBosaiBulletin(
     const upsertStmt = connection.prepare(`
       INSERT INTO bosai_bulletin (
         event_id, control_status, info_type, report_datetime, control_datetime,
-        title, headline_text, information_tag, is_cancelled,
+        title, headline_text, information_tag, has_sighting, is_cancelled,
         source, issued_at, valid_at, valid_from, valid_to,
         fetched_at, last_success_at, availability, source_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (event_id, control_status) DO UPDATE SET
         info_type = excluded.info_type,
         report_datetime = excluded.report_datetime,
@@ -70,6 +71,7 @@ export function saveBosaiBulletin(
         title = excluded.title,
         headline_text = excluded.headline_text,
         information_tag = excluded.information_tag,
+        has_sighting = excluded.has_sighting,
         is_cancelled = excluded.is_cancelled,
         source = excluded.source,
         issued_at = excluded.issued_at,
@@ -92,6 +94,7 @@ export function saveBosaiBulletin(
       input.title,
       input.headlineText,
       input.informationTag,
+      input.hasSighting === null ? null : input.hasSighting ? 1 : 0,
       input.isCancelled ? 1 : 0,
       input.metadata.source,
       input.metadata.issuedAt,
@@ -140,6 +143,7 @@ export function saveBosaiBulletin(
       title: input.title,
       headlineText: input.headlineText,
       informationTag: input.informationTag,
+      hasSighting: input.hasSighting,
       isCancelled: input.isCancelled,
       metadata: input.metadata,
       areas,
@@ -198,6 +202,7 @@ export function findBosaiBulletin(
     title: row.title,
     headlineText: row.headline_text,
     informationTag: row.information_tag,
+    hasSighting: row.has_sighting === null ? null : row.has_sighting === 1,
     isCancelled: row.is_cancelled === 1,
     metadata: mapMetadataRow(row),
     areas,
@@ -268,6 +273,7 @@ export function listBosaiBulletins(
       title: row.title,
       headlineText: row.headline_text,
       informationTag: row.information_tag,
+      hasSighting: row.has_sighting === null ? null : row.has_sighting === 1,
       isCancelled: row.is_cancelled === 1,
       metadata: mapMetadataRow(row),
       areas,

@@ -32,4 +32,6 @@ export {
   parseVpbs50,
 } from './jmaVpbs50Parser.js';
 export * from './jmaVpbs50Processor.js';
+export { isVphwTelegramType, parseVphw } from './jmaVphwParser.js';
+export * from './jmaVphwProcessor.js';
 export * from '../venueForecastTargets.js';

@@ -21,7 +21,10 @@ import { DEFAULT_AREA_TIMESERIES_FORECAST_TARGET } from './jmaVpfd51Parser.js';
 import { processVpfd51Reception } from './jmaVpfd51Processor.js';
 import { DEFAULT_BOSAI_BULLETIN_TARGET } from './jmaVpbs50Parser.js';
 import { processVpbs50Reception } from './jmaVpbs50Processor.js';
+import { processVphwReception } from './jmaVphwProcessor.js';
 import {
+  VPHW50_TELEGRAM_TYPE,
+  VPHW51_TELEGRAM_TYPE,
   VPBS50_TELEGRAM_TYPE,
   VPFD51_TELEGRAM_TYPE,
   VPFD61_TELEGRAM_TYPE,
@@ -416,6 +419,16 @@ export async function pollSingleFeed(
       );
     } else if (reception.telegramType === VPBS50_TELEGRAM_TYPE) {
       processVpbs50Reception(
+        connection,
+        reception,
+        docFinishedAt,
+        options?.bosaiBulletinTarget ?? DEFAULT_BOSAI_BULLETIN_TARGET,
+      );
+    } else if (
+      reception.telegramType === VPHW50_TELEGRAM_TYPE ||
+      reception.telegramType === VPHW51_TELEGRAM_TYPE
+    ) {
+      processVphwReception(
         connection,
         reception,
         docFinishedAt,
