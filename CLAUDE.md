@@ -66,7 +66,7 @@
 - **このプロジェクトは他プロジェクトの3体構成と異なり、designer着手前に統括担当によるヒアリングフェーズを挟む。**
   `docs/issues-draft.md` のIssue項目はあっさりとした内容(実装タスク単位の見出しと参照章番号のみ)であるため、統括担当が`AskUserQuestion`等でユーザーに本質的な論点を確認し、確定した判断をIssue番号とあわせてdesignerへ渡す。
   designer自身は設計中に新たな要ヒアリング事項を見つけても自分で決めず、最終返答で統括担当に投げ返す(→統括担当が追加ヒアリングするか判断)。詳細は [`.claude/agents/wxviewer-designer.md`](.claude/agents/wxviewer-designer.md)
-- 設計書は使い捨てではなく、後続Issueの参照資産としてコミットする(`docs/design/issue-1-project-initialization.md`が書式・粒度の手本)
+- 設計書は使い捨てではなく、後続Issueの参照資産として、設計承認後に統括担当（設計担当がClaude以外の場合は、設計担当のモデル名・AGENTS.mdに指定のメールアドレスを署名につけて）がコミットする(`docs/design/issue-1-project-initialization.md`が書式・粒度の手本)
 
 ### 検証の規律(詳細は各エージェント定義を参照)
 
