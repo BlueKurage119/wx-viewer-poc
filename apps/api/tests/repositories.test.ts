@@ -1049,6 +1049,70 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
     const deleted = deleteBosaiBulletin(context.connection, '202609090001', 'normal');
     assert.equal(deleted, true);
     assert.equal(findBosaiBulletin(context.connection, '202609090001', 'normal'), null);
+
+    // NULL 許容の検証（headlineText / informationTag が null）
+    saveBosaiBulletin(context.connection, {
+      eventId: '20260909_NULL_TEST',
+      controlStatus: 'normal',
+      infoType: '取消',
+      reportDateTime: '2026-09-09T02:00:00Z',
+      controlDateTime: '2026-09-09T02:00:00Z',
+      title: '気象防災速報（取消・本文なし）',
+      headlineText: null,
+      informationTag: null,
+      isCancelled: true,
+      metadata: sampleMetadata,
+      areas: [
+        {
+          areaCode: '1310800',
+          areaName: '江東区',
+          codeType: 'area',
+          sequence: 0,
+        },
+      ],
+    });
+
+    const nullBulletin = findBosaiBulletin(context.connection, '20260909_NULL_TEST', 'normal');
+    assert.ok(nullBulletin);
+    assert.equal(nullBulletin.headlineText, null);
+    assert.equal(nullBulletin.informationTag, null);
+
+    // 空文字列は従来どおり拒否される
+    assert.throws(
+      () =>
+        saveBosaiBulletin(context.connection, {
+          eventId: '20260909_EMPTY_TEST_1',
+          controlStatus: 'normal',
+          infoType: '発表',
+          reportDateTime: '2026-09-09T02:00:00Z',
+          controlDateTime: '2026-09-09T02:00:00Z',
+          title: '気象防災速報',
+          headlineText: '',
+          informationTag: '線状降水帯発生',
+          isCancelled: false,
+          metadata: sampleMetadata,
+          areas: [],
+        }),
+      /headlineText must be a non-empty string/,
+    );
+
+    assert.throws(
+      () =>
+        saveBosaiBulletin(context.connection, {
+          eventId: '20260909_EMPTY_TEST_2',
+          controlStatus: 'normal',
+          infoType: '発表',
+          reportDateTime: '2026-09-09T02:00:00Z',
+          controlDateTime: '2026-09-09T02:00:00Z',
+          title: '気象防災速報',
+          headlineText: '本文',
+          informationTag: '',
+          isCancelled: false,
+          metadata: sampleMetadata,
+          areas: [],
+        }),
+      /informationTag must be a non-empty string/,
+    );
   } finally {
     cleanup();
   }

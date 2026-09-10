@@ -19,13 +19,17 @@ import { DEFAULT_EARLY_WARNING_TARGET_AREA } from './jmaEarlyWarningParser.js';
 import { processEarlyWarningReception } from './jmaEarlyWarningProcessor.js';
 import { DEFAULT_AREA_TIMESERIES_FORECAST_TARGET } from './jmaVpfd51Parser.js';
 import { processVpfd51Reception } from './jmaVpfd51Processor.js';
+import { DEFAULT_BOSAI_BULLETIN_TARGET } from './jmaVpbs50Parser.js';
+import { processVpbs50Reception } from './jmaVpbs50Processor.js';
 import {
+  VPBS50_TELEGRAM_TYPE,
   VPFD51_TELEGRAM_TYPE,
   VPFD61_TELEGRAM_TYPE,
   VPFW60_TELEGRAM_TYPE,
   VPWP50_TELEGRAM_TYPE,
   WARNING_TELEGRAM_TYPES,
   type AreaTimeseriesForecastTarget,
+  type BosaiBulletinTarget,
   type EarlyWarningTargetArea,
   type WarningCurrentTargetArea,
   type WarningTargetArea,
@@ -40,6 +44,7 @@ export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly warningTimeseriesTargetArea?: WarningTimeseriesTargetArea;
   readonly earlyWarningTargetArea?: EarlyWarningTargetArea;
   readonly areaTimeseriesForecastTarget?: AreaTimeseriesForecastTarget;
+  readonly bosaiBulletinTarget?: BosaiBulletinTarget;
 }
 
 interface HttpGetResult {
@@ -408,6 +413,13 @@ export async function pollSingleFeed(
         reception,
         docFinishedAt,
         options?.areaTimeseriesForecastTarget ?? DEFAULT_AREA_TIMESERIES_FORECAST_TARGET,
+      );
+    } else if (reception.telegramType === VPBS50_TELEGRAM_TYPE) {
+      processVpbs50Reception(
+        connection,
+        reception,
+        docFinishedAt,
+        options?.bosaiBulletinTarget ?? DEFAULT_BOSAI_BULLETIN_TARGET,
       );
     }
   }

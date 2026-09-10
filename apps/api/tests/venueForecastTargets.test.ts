@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   resolveAreaTimeseriesForecastTarget,
+  resolveBosaiBulletinTarget,
   resolveEarlyWarningTargetArea,
   resolveWarningCurrentTargetArea,
   resolveWarningTargetArea,
@@ -46,5 +47,11 @@ test('C2/C3/C4/C5/C6向けadapterが会場ごとの用途別対象を返す', ()
     forecastAreaName: '東京地方',
     temperatureStationCode: '44132',
     temperatureStationName: '東京（北の丸公園）',
+  });
+});
+
+test('C7向けadapterが両会場の速報判定対象（和集合・重複除去）を返す', () => {
+  assert.deepEqual(resolveBosaiBulletinTarget(), {
+    includedAreaCodes: ['1310800', '130012', '130010', '1311100', '130011'],
   });
 });

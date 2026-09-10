@@ -463,6 +463,17 @@ export interface AmedasSnapshot {
 }
 
 // 8. 気象防災速報
+export const VPBS50_TELEGRAM_TYPE = 'VPBS50' as const;
+
+/** 情報タグ Condition の原文。表示名への変換は行わない。 */
+export const BOSAI_BULLETIN_TARGET_TAGS = ['線状降水帯発生', '線状降水帯直前', '記録雨'] as const;
+export type BosaiBulletinTargetTag = (typeof BOSAI_BULLETIN_TARGET_TAGS)[number];
+
+/** 会場定義から導出した判定用の区域コード集合。 */
+export interface BosaiBulletinTarget {
+  readonly includedAreaCodes: readonly string[];
+}
+
 export interface BosaiBulletinAreaInput {
   readonly areaCode: string;
   readonly areaName: string;
@@ -481,8 +492,8 @@ export interface BosaiBulletinInput {
   readonly reportDateTime: UtcIso8601String;
   readonly controlDateTime: UtcIso8601String;
   readonly title: string;
-  readonly headlineText: string;
-  readonly informationTag: string;
+  readonly headlineText: string | null;
+  readonly informationTag: string | null;
   readonly isCancelled: boolean;
   readonly metadata: SnapshotMetadataInput;
   readonly areas: readonly BosaiBulletinAreaInput[];
@@ -496,8 +507,8 @@ export interface BosaiBulletin {
   readonly reportDateTime: UtcIso8601String;
   readonly controlDateTime: UtcIso8601String;
   readonly title: string;
-  readonly headlineText: string;
-  readonly informationTag: string;
+  readonly headlineText: string | null;
+  readonly informationTag: string | null;
   readonly isCancelled: boolean;
   readonly metadata: SnapshotMetadataInput;
   readonly areas: readonly BosaiBulletinArea[];
@@ -507,6 +518,31 @@ export interface ListBosaiBulletinsOptions {
   readonly controlStatus: ControlStatus;
   readonly includedAreaCodes?: readonly BosaiBulletinAreaCode[];
 }
+
+export interface ParsedVpbs50 {
+  readonly eventId: string;
+  readonly controlStatus: ControlStatus;
+  readonly infoType: string;
+  readonly reportDateTime: UtcIso8601String;
+  readonly targetDateTime: UtcIso8601String | null;
+  readonly controlDateTime: UtcIso8601String;
+  readonly title: string;
+  /** 取消電文で Headline/Text が無い場合のみ null（§3.6）。発表・訂正では必ず非空。 */
+  readonly headlineText: string | null;
+  /** 取消電文で情報タグ Item が無い場合のみ null（§3.6）。発表・訂正では必ず対象3値のいずれか。 */
+  readonly informationTag: BosaiBulletinTargetTag | null;
+  readonly isCancelled: boolean;
+  readonly infoKindVersion: string | null;
+  readonly areas: readonly BosaiBulletinAreaInput[];
+}
+
+export type Vpbs50ParseResult =
+  | { readonly ok: true; readonly value: ParsedVpbs50 }
+  | {
+      readonly ok: false;
+      readonly disposition: '対象外' | '対象地域外' | '未対応構造';
+      readonly reason: string;
+    };
 
 // --- 通信履歴 ---
 export type FetchOutcome = 'success' | 'failure';

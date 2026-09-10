@@ -25,4 +25,11 @@ export {
 export * from './jmaEarlyWarningProcessor.js';
 export { DEFAULT_AREA_TIMESERIES_FORECAST_TARGET, parseVpfd51 } from './jmaVpfd51Parser.js';
 export * from './jmaVpfd51Processor.js';
+export {
+  DEFAULT_BOSAI_BULLETIN_TARGET,
+  EXPECTED_CONTROL_TITLE,
+  EXPECTED_INFO_TAG_NAME,
+  parseVpbs50,
+} from './jmaVpbs50Parser.js';
+export * from './jmaVpbs50Processor.js';
 export * from '../venueForecastTargets.js';

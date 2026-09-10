@@ -1,6 +1,7 @@
 import { resolveVenueForecastTargets, type VenueId } from '@wx-viewer-poc/shared';
 import type {
   AreaTimeseriesForecastTarget,
+  BosaiBulletinTarget,
   EarlyWarningTargetArea,
   WarningCurrentTargetArea,
   WarningTargetArea,
@@ -47,3 +48,13 @@ export function resolveAreaTimeseriesForecastTarget(
     temperatureStationName: targets.temperatureForecast.displayName,
   };
 }
+
+/** C7 用の気象防災速報判定対象（両会場の includedAreaCodes の和集合。順序は east → trc の出現順、重複除去済み）を解決する。 */
+export function resolveBosaiBulletinTarget(): BosaiBulletinTarget {
+  const eastCodes = resolveVenueForecastTargets('east').bosaiBulletin.includedAreaCodes;
+  const trcCodes = resolveVenueForecastTargets('trc').bosaiBulletin.includedAreaCodes;
+  const combined = new Set<string>([...eastCodes, ...trcCodes]);
+  return { includedAreaCodes: Array.from(combined) };
+}
+
+export const DEFAULT_BOSAI_BULLETIN_TARGET: BosaiBulletinTarget = resolveBosaiBulletinTarget();
