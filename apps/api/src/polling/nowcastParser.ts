@@ -83,11 +83,11 @@ export function parseNowcastTargetTimes(
       };
     }
 
-    if (!Array.isArray(elements)) {
+    if (!Array.isArray(elements) || !elements.every((element) => typeof element === 'string')) {
       return {
         ok: false,
         errorKind: 'invalid_structure',
-        errorMessage: `Item at index ${i} has non-array elements`,
+        errorMessage: `Item at index ${i} has invalid elements`,
       };
     }
 

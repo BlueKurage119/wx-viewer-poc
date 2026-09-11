@@ -265,3 +265,20 @@ test('4. 14桁UTC相互変換、URLおよび相対パス生成関数の検証', 
     'radar/N1/20260907030000/20260907030500/10/909/404/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855.png',
   );
 });
+
+test('修正: elementsの非文字列混在はhrpnsの有無によらず一覧全体を拒否', () => {
+  for (const elements of [['hrpns', 123], [null], ['thunder', {}]]) {
+    const result = parseNowcastTargetTimes(
+      JSON.stringify([
+        { basetime: '20260907030000', validtime: '20260907030000', elements: ['hrpns'] },
+        { basetime: '20260907030000', validtime: '20260907030500', elements },
+      ]),
+      'N1',
+    );
+    assert.deepStrictEqual(result, {
+      ok: false,
+      errorKind: 'invalid_structure',
+      errorMessage: 'Item at index 1 has invalid elements',
+    });
+  }
+});

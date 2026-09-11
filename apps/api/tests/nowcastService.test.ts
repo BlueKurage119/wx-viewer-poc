@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,7 +14,7 @@ import type { NowcastFrameKey, TileCoordinate } from '../src/repositories/types.
 const VALID_1X1_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 const VALID_1X1_PNG = Buffer.from(VALID_1X1_PNG_BASE64, 'base64');
-const EXPECTED_HASH = crypto.createHash('sha256').update(VALID_1X1_PNG).digest('hex');
+const EXPECTED_HASH = '6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0';
 
 const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures/jma/nowcast');
 const n1SyntheticJson = fs.readFileSync(
@@ -621,5 +620,366 @@ test('7. 同じフレームの2 GET 中1失敗は履歴1行、itemCount=2／fail
     assert.strictEqual(attemptsEmpty.length, 1); // 履歴行が増えていない
   } finally {
     cleanup();
+  }
+});
+
+const FIX_FRAME: NowcastFrameKey = {
+  product: 'N1',
+  baseTime: '2026-09-07T03:00:00.000Z',
+  validTime: '2026-09-07T03:00:00.000Z',
+  element: 'hrpns',
+  member: 'none',
+};
+const FIX_COORDS = [404, 405, 406].map((tileY) => ({ zoom: 10, tileX: 909, tileY }));
+const FIX_URLS = [
+  'https://www.jma.go.jp/bosai/jmatile/data/nowc/20260907030000/none/20260907030000/surf/hrpns/10/909/404.png',
+  'https://www.jma.go.jp/bosai/jmatile/data/nowc/20260907030000/none/20260907030000/surf/hrpns/10/909/405.png',
+  'https://www.jma.go.jp/bosai/jmatile/data/nowc/20260907030000/none/20260907030000/surf/hrpns/10/909/406.png',
+];
+function makeRepairEnv() {
+  const env = setupTestEnv();
+  const urls: string[] = [];
+  const state = {
+    now: '2026-09-07T03:00:00.000Z' as UtcIso8601String,
+    n1: n1SyntheticJson,
+    fail: false,
+  };
+  const options = {
+    cacheRoot: env.tmpDir,
+    allowedZooms: [10],
+    staleAfterMs: { N1: 300_000, N2: 300_000 },
+    clock: () => state.now,
+    fetchFn: (async (input) => {
+      const url = String(input);
+      if (url.endsWith('.json'))
+        return new Response(
+          state.fail ? 'error' : url.includes('N1') ? state.n1 : n2SyntheticJson,
+          { status: state.fail ? 500 : 200 },
+        );
+      urls.push(url);
+      return new Response(VALID_1X1_PNG);
+    }) as typeof fetch,
+  };
+  return { ...env, urls, state, options, service: new NowcastService(env.connection, options) };
+}
+function storedRows(connection: ReturnType<typeof openDatabase>) {
+  return connection
+    .prepare(
+      'SELECT frame_id, zoom, tile_x, tile_y, file_path, byte_size, content_hash, stored_at FROM radar_tile ORDER BY tile_y',
+    )
+    .all();
+}
+function pngFiles(root: string): string[] {
+  return fs
+    .readdirSync(root, { recursive: true })
+    .filter((entry) => String(entry).endsWith('.png') || String(entry).includes('.tmp.'))
+    .map(String)
+    .sort();
+}
+for (const failure of ['write', 'rename', 'database'] as const) {
+  test(`修正: 2座標目の${failure}障害は後続GETを止め、先行DBと画像を保持し実施済み履歴だけ記録`, async (t) => {
+    const env = makeRepairEnv();
+    try {
+      await env.service.refreshTimes();
+      if (failure === 'database') {
+        env.connection.exec(
+          "CREATE TRIGGER fail_tile BEFORE INSERT ON radar_tile WHEN NEW.tile_y = 405 BEGIN SELECT RAISE(FAIL, 'database failure'); END",
+        );
+      } else {
+        const original = fs.promises[failure === 'write' ? 'writeFile' : 'rename'];
+        const method = failure === 'write' ? 'writeFile' : 'rename';
+        t.mock.method(fs.promises, method, async (...args: Parameters<typeof original>) => {
+          if (String(args[0]).includes('/405/')) throw new Error(`${failure} failure`);
+          // writeFile と rename の共通ラッパーで実処理を維持する。
+          return Reflect.apply(original, fs.promises, args);
+        });
+      }
+      await assert.rejects(env.service.fetchFrameTiles(FIX_FRAME, FIX_COORDS), {
+        message: `${failure} failure`,
+      });
+      assert.deepStrictEqual(env.urls, FIX_URLS.slice(0, 2));
+      const frameId = findRadarSnapshot(env.connection, 'N1')!.frames[0].id;
+      const expectedPath = `radar/N1/20260907030000/20260907030000/10/909/404/${EXPECTED_HASH}.png`;
+      assert.deepStrictEqual(
+        storedRows(env.connection).map((row) => ({ ...row })),
+        [
+          {
+            frame_id: frameId,
+            zoom: 10,
+            tile_x: 909,
+            tile_y: 404,
+            file_path: expectedPath,
+            byte_size: 70,
+            content_hash: EXPECTED_HASH,
+            stored_at: '2026-09-07T03:00:00.000Z',
+          },
+        ],
+      );
+      assert.deepStrictEqual(pngFiles(env.tmpDir), [expectedPath]);
+      assert.deepStrictEqual(fs.readFileSync(path.join(env.tmpDir, expectedPath)), VALID_1X1_PNG);
+      assert.deepStrictEqual(
+        listFetchAttempts(env.connection, { sourceKind: 'radar_tile' }).map((a) => ({
+          itemCount: a.itemCount,
+          failedItemCount: a.failedItemCount,
+          outcome: a.outcome,
+          responseBytes: a.responseBytes,
+          httpStatus: a.httpStatus,
+          requestUrl: a.requestUrl,
+        })),
+        [
+          {
+            itemCount: 2,
+            failedItemCount: 0,
+            outcome: 'success',
+            responseBytes: 140,
+            httpStatus: 200,
+            requestUrl: FIX_URLS[0],
+          },
+        ],
+      );
+    } finally {
+      t.mock.restoreAll();
+      env.cleanup();
+    }
+  });
+}
+for (const saveFails of [false, true]) {
+  test(`修正: 履歴保存失敗を通知し保存エラー併記=${saveFails}`, async () => {
+    const env = makeRepairEnv();
+    try {
+      await env.service.refreshTimes();
+      env.connection.exec(
+        "CREATE TRIGGER fail_history BEFORE INSERT ON fetch_attempt BEGIN SELECT RAISE(FAIL, 'history failure'); END",
+      );
+      if (saveFails)
+        env.connection.exec(
+          "CREATE TRIGGER fail_tile BEFORE INSERT ON radar_tile BEGIN SELECT RAISE(FAIL, 'save failure'); END",
+        );
+      await assert.rejects(
+        env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]),
+        (error: unknown) => {
+          if (saveFails) {
+            assert.ok(error instanceof AggregateError);
+            assert.deepStrictEqual(
+              error.errors.map((e: Error) => e.message),
+              ['save failure', 'history failure'],
+            );
+          } else {
+            assert.ok(error instanceof Error);
+            assert.strictEqual(error.message, 'history failure');
+          }
+          return true;
+        },
+      );
+      assert.deepStrictEqual(env.urls, [FIX_URLS[0]]);
+      assert.strictEqual(storedRows(env.connection).length, saveFails ? 0 : 1);
+      assert.strictEqual(pngFiles(env.tmpDir).length, saveFails ? 0 : 1);
+    } finally {
+      env.cleanup();
+    }
+  });
+}
+
+test('修正: availableの欠落・改変は再GETしstaleの欠落・改変はGETしない', async () => {
+  const env = makeRepairEnv();
+  try {
+    await env.service.refreshTimes();
+    const original = await env.service.fetchFrameTiles(FIX_FRAME, FIX_COORDS);
+    const tile0 = original[0].tile!;
+    const tile1 = original[1].tile!;
+    const damage = () => {
+      fs.unlinkSync(path.join(env.tmpDir, tile0.filePath));
+      const changed = Buffer.from(VALID_1X1_PNG);
+      changed[changed.length - 1] ^= 0xff;
+      fs.writeFileSync(path.join(env.tmpDir, tile1.filePath), changed);
+    };
+    damage();
+    env.urls.length = 0;
+    const restored = await env.service.fetchFrameTiles(FIX_FRAME, FIX_COORDS);
+    assert.deepStrictEqual(
+      restored.map((r) => r.kind),
+      ['downloaded', 'downloaded', 'cached'],
+    );
+    assert.deepStrictEqual(env.urls, FIX_URLS.slice(0, 2));
+    assert.deepStrictEqual(fs.readFileSync(path.join(env.tmpDir, tile0.filePath)), VALID_1X1_PNG);
+    assert.deepStrictEqual(fs.readFileSync(path.join(env.tmpDir, tile1.filePath)), VALID_1X1_PNG);
+    damage();
+    env.urls.length = 0;
+    env.state.now = '2026-09-07T03:05:00.000Z';
+    const stale = await env.service.fetchFrameTiles(FIX_FRAME, FIX_COORDS);
+    assert.deepStrictEqual(stale, [
+      {
+        coordinate: FIX_COORDS[0],
+        availability: 'stale',
+        kind: 'unavailable',
+        tile: null,
+        errorKind: 'catalog_stale',
+      },
+      {
+        coordinate: FIX_COORDS[1],
+        availability: 'stale',
+        kind: 'unavailable',
+        tile: null,
+        errorKind: 'catalog_stale',
+      },
+      { coordinate: FIX_COORDS[2], availability: 'stale', kind: 'cached', tile: original[2].tile },
+    ]);
+    assert.deepStrictEqual(env.urls, []);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('修正: サービス再生成だけで孤児・一時ファイルを清掃しstale参照画像と外部sentinelを保持', async () => {
+  const env = makeRepairEnv();
+  const sentinel = path.join(path.dirname(env.tmpDir), `${path.basename(env.tmpDir)}-sentinel`);
+  try {
+    fs.writeFileSync(sentinel, 'outside');
+    await env.service.refreshTimes();
+    const result = await env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]);
+    env.state.fail = true;
+    await env.service.refreshTimes();
+    const before = env.service.readCatalog();
+    fs.writeFileSync(path.join(env.tmpDir, 'radar/orphan.png'), VALID_1X1_PNG);
+    fs.writeFileSync(path.join(env.tmpDir, 'radar/orphan.png.tmp.test'), VALID_1X1_PNG);
+    env.urls.length = 0;
+    const recreated = new NowcastService(env.connection, env.options);
+    assert.deepStrictEqual(recreated.readCatalog(), before);
+    assert.deepStrictEqual(pngFiles(env.tmpDir), [result[0].tile!.filePath]);
+    assert.deepStrictEqual(await recreated.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]), [
+      { ...result[0], kind: 'cached', availability: 'stale' },
+    ]);
+    assert.deepStrictEqual(env.urls, []);
+    assert.strictEqual(fs.readFileSync(sentinel, 'utf8'), 'outside');
+  } finally {
+    fs.rmSync(sentinel, { force: true });
+    env.cleanup();
+  }
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+test('修正: 制御PromiseでGET中に一覧更新と同座標要求を重ね継続IDと別座標を保持、削除後は復活しない', async () => {
+  const env = makeRepairEnv();
+  try {
+    const started = deferred<void>();
+    const release = deferred<void>();
+    let pause = false;
+    const originalFetch = env.options.fetchFn;
+    const service = new NowcastService(env.connection, {
+      ...env.options,
+      fetchFn: async (input, init) => {
+        if (pause && String(input) === FIX_URLS[1]) {
+          started.resolve();
+          await release.promise;
+        }
+        return originalFetch(input, init);
+      },
+    });
+    await service.refreshTimes();
+    await service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]);
+    const before = findRadarSnapshot(env.connection, 'N1')!.frames[0];
+    pause = true;
+    const first = service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[1]]);
+    await started.promise;
+    const update = service.refreshTimes();
+    const second = service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[1]]);
+    release.resolve();
+    const [a, , b] = await Promise.all([first, update, second]);
+    assert.deepStrictEqual([a[0].kind, b[0].kind], ['downloaded', 'cached']);
+    assert.deepStrictEqual(env.urls, FIX_URLS.slice(0, 2));
+    const after = findRadarSnapshot(env.connection, 'N1')!.frames[0];
+    assert.strictEqual(after.id, before.id);
+    assert.deepStrictEqual(after.tiles, [before.tiles[0], a[0].tile]);
+    // 更新が先にキューへ入った場合、消えたフレームへの後続要求はGETせず拒否。
+    const updateStarted = deferred<void>();
+    const updateRelease = deferred<void>();
+    const deleting = new NowcastService(env.connection, {
+      ...env.options,
+      fetchFn: async (input, init) => {
+        if (String(input).includes('N1.json')) {
+          updateStarted.resolve();
+          await updateRelease.promise;
+          return new Response('[]');
+        }
+        return originalFetch(input, init);
+      },
+    });
+    const removing = deleting.refreshTimes();
+    await updateStarted.promise;
+    const queued = deleting.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[2]]);
+    updateRelease.resolve();
+    await removing;
+    assert.deepStrictEqual(await queued, [
+      {
+        coordinate: FIX_COORDS[2],
+        availability: 'available',
+        kind: 'unavailable',
+        tile: null,
+        errorKind: 'frame_not_available',
+      },
+    ]);
+    assert.deepStrictEqual(storedRows(env.connection), []);
+    assert.deepStrictEqual(pngFiles(env.tmpDir), []);
+    assert.deepStrictEqual(env.urls, FIX_URLS.slice(0, 2));
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('修正: 安全なXYZ計算範囲外の許可ズームは構築時に拒否', () => {
+  const env = makeRepairEnv();
+  try {
+    for (const zoom of [-1, 1.5, 53, 1024, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.throws(
+        () => new NowcastService(env.connection, { ...env.options, allowedZooms: [zoom] }),
+      );
+    }
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('修正: DB保存失敗でも既存本体を削除せず、後始末失敗でも元の保存エラーを保持', async (t) => {
+  const env = makeRepairEnv();
+  try {
+    await env.service.refreshTimes();
+    const first = await env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]);
+    // DBメタだけ破損し本体は正常という再取得ケース。
+    env.connection.exec('UPDATE radar_tile SET byte_size = 1');
+    env.connection.exec(
+      "CREATE TRIGGER fail_tile BEFORE INSERT ON radar_tile BEGIN SELECT RAISE(FAIL, 'save failure'); END",
+    );
+    const before = storedRows(env.connection);
+    await assert.rejects(env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]), {
+      message: 'save failure',
+    });
+    assert.deepStrictEqual(storedRows(env.connection), before);
+    assert.deepStrictEqual(
+      fs.readFileSync(path.join(env.tmpDir, first[0].tile!.filePath)),
+      VALID_1X1_PNG,
+    );
+    t.mock.method(env.service.tileStore, 'deleteTileIfUnreferenced', async () => {
+      throw new Error('cleanup failure');
+    });
+    await assert.rejects(
+      env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[1]]),
+      (error: unknown) => {
+        assert.ok(error instanceof AggregateError);
+        assert.deepStrictEqual(
+          error.errors.map((e: Error) => e.message),
+          ['save failure', 'cleanup failure'],
+        );
+        return true;
+      },
+    );
+  } finally {
+    t.mock.restoreAll();
+    env.cleanup();
   }
 });

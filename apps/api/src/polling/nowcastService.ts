@@ -55,7 +55,7 @@ export class NowcastService {
       throw new Error('allowedZooms must be a non-empty array');
     }
     for (const z of options.allowedZooms) {
-      if (!Number.isInteger(z) || z < 0) {
+      if (!Number.isSafeInteger(z) || z < 0 || !Number.isSafeInteger(2 ** z)) {
         throw new Error(`allowedZooms must contain only non-negative integers: ${z}`);
       }
     }
@@ -73,6 +73,8 @@ export class NowcastService {
     }
 
     this.tileStore = new NowcastTileStore(options.cacheRoot);
+    // 同期起動処理により、読出し・変更操作より先に清掃を完了させる。
+    this.tileStore.cleanOrphanAndTempFiles(connection);
   }
 
   private getClock(): () => UtcIso8601String {
@@ -399,9 +401,9 @@ export class NowcastService {
         const isZoomAllowed = this.options.allowedZooms.includes(coord.zoom);
         const maxCoord = 2 ** coord.zoom;
         const isCoordValid =
-          Number.isInteger(coord.zoom) &&
-          Number.isInteger(coord.tileX) &&
-          Number.isInteger(coord.tileY) &&
+          Number.isSafeInteger(coord.zoom) &&
+          Number.isSafeInteger(coord.tileX) &&
+          Number.isSafeInteger(coord.tileY) &&
           isZoomAllowed &&
           coord.tileX >= 0 &&
           coord.tileX < maxCoord &&
@@ -470,7 +472,7 @@ export class NowcastService {
         errorMessage: string | null;
       }[] = [];
 
-      const newlySavedFiles: string[] = [];
+      const operationErrors: unknown[] = [];
       const startedAt = clock();
 
       try {
@@ -525,9 +527,78 @@ export class NowcastService {
               errorMessage: res.errorMessage,
             });
           }
+          const attempt = getAttempts[getAttempts.length - 1]!;
+          const key = `${attempt.coord.zoom}/${attempt.coord.tileX}/${attempt.coord.tileY}`;
+          if (attempt.errorKind !== null || !attempt.buffer) {
+            resultsMap.set(key, {
+              coordinate: attempt.coord,
+              availability: productAvailability,
+              kind: 'unavailable',
+              tile: null,
+              errorKind: attempt.errorKind ?? 'fetch_failed',
+            });
+          } else {
+            const hash = crypto.createHash('sha256').update(attempt.buffer).digest('hex');
+            const relPath = buildNowcastTileRelativePath(
+              frame.product,
+              frame.baseTime,
+              frame.validTime,
+              attempt.coord.zoom,
+              attempt.coord.tileX,
+              attempt.coord.tileY,
+              hash,
+            );
+
+            const saveResult = await this.tileStore.saveTile(relPath, attempt.buffer);
+            try {
+              const inserted = upsertRadarTile(this.connection, frame, {
+                zoom: attempt.coord.zoom,
+                tileX: attempt.coord.tileX,
+                tileY: attempt.coord.tileY,
+                filePath: relPath,
+                byteSize: saveResult.byteSize,
+                contentHash: saveResult.contentHash,
+                storedAt: nowIso,
+              });
+
+              if (!inserted) {
+                if (saveResult.created)
+                  await this.tileStore.deleteTileIfUnreferenced(this.connection, relPath);
+                // フレームが消えた場合
+                resultsMap.set(key, {
+                  coordinate: attempt.coord,
+                  availability: productAvailability,
+                  kind: 'unavailable',
+                  tile: null,
+                  errorKind: 'frame_not_available',
+                });
+              } else {
+                resultsMap.set(key, {
+                  coordinate: attempt.coord,
+                  availability: productAvailability,
+                  kind: 'downloaded',
+                  tile: inserted,
+                });
+              }
+            } catch (error) {
+              if (saveResult.created) {
+                try {
+                  await this.tileStore.deleteTileIfUnreferenced(this.connection, relPath);
+                } catch (cleanupError) {
+                  throw new AggregateError(
+                    [error, cleanupError],
+                    'タイル保存と後始末に失敗しました',
+                  );
+                }
+              }
+              throw error;
+            }
+          }
         }
+      } catch (error) {
+        operationErrors.push(error);
       } finally {
-        // finally で実施済み GET を集約記録（保存処理前に記録）
+        // 保存障害でも実施済み GET のみ記録する。後続 GET は行わない。
         if (getAttempts.length > 0 && getAttempts[0]) {
           const finishedAt = clock();
           const totalDurationMs = getAttempts.reduce((sum, a) => sum + a.durationMs, 0);
@@ -565,76 +636,16 @@ export class NowcastService {
               errorKind: firstFailure?.errorKind ?? null,
               errorMessage: firstFailure?.errorMessage ?? null,
             });
-          } catch {
-            // 履歴自体の保存失敗はログ等で残すが、以後の保存例外と併記できるよう考慮
+          } catch (historyError) {
+            operationErrors.push(historyError);
           }
         }
       }
 
-      // 成功タイルの保存と結果反映
-      try {
-        for (const attempt of getAttempts) {
-          const key = `${attempt.coord.zoom}/${attempt.coord.tileX}/${attempt.coord.tileY}`;
-          if (attempt.errorKind !== null || !attempt.buffer) {
-            resultsMap.set(key, {
-              coordinate: attempt.coord,
-              availability: productAvailability,
-              kind: 'unavailable',
-              tile: null,
-              errorKind: attempt.errorKind ?? 'fetch_failed',
-            });
-          } else {
-            const hash = crypto.createHash('sha256').update(attempt.buffer).digest('hex');
-            const relPath = buildNowcastTileRelativePath(
-              frame.product,
-              frame.baseTime,
-              frame.validTime,
-              attempt.coord.zoom,
-              attempt.coord.tileX,
-              attempt.coord.tileY,
-              hash,
-            );
-
-            const saveResult = await this.tileStore.saveTile(relPath, attempt.buffer);
-            newlySavedFiles.push(relPath);
-
-            const inserted = upsertRadarTile(this.connection, frame, {
-              zoom: attempt.coord.zoom,
-              tileX: attempt.coord.tileX,
-              tileY: attempt.coord.tileY,
-              filePath: relPath,
-              byteSize: saveResult.byteSize,
-              contentHash: saveResult.contentHash,
-              storedAt: nowIso,
-            });
-
-            if (!inserted) {
-              // フレームが消えた場合
-              resultsMap.set(key, {
-                coordinate: attempt.coord,
-                availability: productAvailability,
-                kind: 'unavailable',
-                tile: null,
-                errorKind: 'frame_not_available',
-              });
-            } else {
-              resultsMap.set(key, {
-                coordinate: attempt.coord,
-                availability: productAvailability,
-                kind: 'downloaded',
-                tile: inserted,
-              });
-            }
-          }
-        }
-      } catch (saveErr) {
-        // 保存障害時のロールバック: 今回新規作成した本体を削除
-        for (const f of newlySavedFiles) {
-          await this.tileStore.deleteTile(f);
-        }
-        throw saveErr;
+      if (operationErrors.length > 1) {
+        throw new AggregateError(operationErrors, 'タイル保存と通信履歴の保存に失敗しました');
       }
-
+      if (operationErrors.length === 1) throw operationErrors[0];
       return coordinates.map((c) => resultsMap.get(`${c.zoom}/${c.tileX}/${c.tileY}`)!);
     });
   }

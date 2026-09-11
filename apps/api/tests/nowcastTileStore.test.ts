@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,8 +20,8 @@ import type { NowcastFrameKey, RadarSnapshotInput } from '../src/repositories/ty
 const VALID_1X1_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 const VALID_1X1_PNG = Buffer.from(VALID_1X1_PNG_BASE64, 'base64');
-const EXPECTED_BYTE_SIZE = VALID_1X1_PNG.byteLength; // 68 bytes
-const EXPECTED_HASH = crypto.createHash('sha256').update(VALID_1X1_PNG).digest('hex');
+const EXPECTED_BYTE_SIZE = 70; // Python hashlib と Base64 デコードで独立に確認
+const EXPECTED_HASH = '6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0';
 
 test('1. 既知 PNG バイト列を取得し保存ファイルと完全一致、DB byteSize／hash も期待定数と一致。空・HTML・途中切断した PNG は保存されず invalid_png', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nowcast-store-test-1-'));

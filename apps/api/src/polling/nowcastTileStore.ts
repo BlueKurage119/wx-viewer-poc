@@ -216,7 +216,7 @@ export class NowcastTileStore {
   async saveTile(
     relativePath: string,
     buffer: Buffer,
-  ): Promise<{ byteSize: number; contentHash: string; fullPath: string }> {
+  ): Promise<{ byteSize: number; contentHash: string; fullPath: string; created: boolean }> {
     const pngValidation = validatePngBuffer(buffer);
     if (!pngValidation.ok) {
       throw new Error(`Invalid PNG: ${pngValidation.reason}`);
@@ -229,11 +229,12 @@ export class NowcastTileStore {
     const dir = path.dirname(fullPath);
     await fs.promises.mkdir(dir, { recursive: true });
 
+    const created = !fs.existsSync(fullPath);
     const tmpPath = `${fullPath}.tmp.${crypto.randomUUID()}`;
     try {
       await fs.promises.writeFile(tmpPath, buffer);
       await fs.promises.rename(tmpPath, fullPath);
-      return { byteSize, contentHash, fullPath };
+      return { byteSize, contentHash, fullPath, created };
     } catch (err) {
       await fs.promises.unlink(tmpPath).catch(() => {});
       throw err;
@@ -279,6 +280,32 @@ export class NowcastTileStore {
     }
   }
 
+  async deleteTileIfUnreferenced(
+    connection: DatabaseConnection,
+    relativePath: string,
+  ): Promise<void> {
+    const referenced = connection
+      .prepare('SELECT 1 FROM radar_tile WHERE file_path = ? LIMIT 1')
+      .get(relativePath);
+    if (!referenced) await this.deleteTile(relativePath);
+  }
+
+  private scanAndCleanSync(dir: string, validPaths: Set<string>): void {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        this.scanAndCleanSync(entryPath, validPaths);
+        if (fs.readdirSync(entryPath).length === 0) fs.rmdirSync(entryPath);
+      } else if (
+        entry.isFile() &&
+        (entry.name.includes('.tmp.') ||
+          (entry.name.endsWith('.png') && !validPaths.has(entryPath)))
+      ) {
+        fs.unlinkSync(entryPath);
+      }
+    }
+  }
+
   async cleanProductUnreferencedTiles(
     connection: DatabaseConnection,
     product: RadarProduct,
@@ -311,7 +338,7 @@ export class NowcastTileStore {
     await this.scanAndClean(productDir, validPaths);
   }
 
-  async cleanOrphanAndTempFiles(connection: DatabaseConnection): Promise<void> {
+  cleanOrphanAndTempFiles(connection: DatabaseConnection): void {
     const rows = connection.prepare('SELECT file_path FROM radar_tile').all() as {
       file_path: string;
     }[];
@@ -330,7 +357,7 @@ export class NowcastTileStore {
       return;
     }
 
-    await this.scanAndClean(radarDir, validPaths);
+    this.scanAndCleanSync(radarDir, validPaths);
   }
 
   private async scanAndClean(dir: string, validPaths: Set<string>): Promise<void> {
