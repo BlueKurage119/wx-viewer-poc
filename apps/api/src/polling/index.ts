@@ -34,4 +34,8 @@ export {
 export * from './jmaVpbs50Processor.js';
 export { isVphwTelegramType, parseVphw } from './jmaVphwParser.js';
 export * from './jmaVphwProcessor.js';
+export * from './httpGet.js';
+export * from './amedasSource.js';
+export * from './amedasParser.js';
+export * from './amedasFetchService.js';
 export * from '../venueForecastTargets.js';

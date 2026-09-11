@@ -10,6 +10,7 @@ import {
   findBosaiBulletin,
   saveBosaiBulletin,
 } from '../src/repositories/bosaiBulletinRepository.js';
+import { findAmedasSnapshot, saveAmedasSnapshot } from '../src/repositories/amedasRepository.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -35,8 +36,8 @@ test('1. 本番 migration をすべて適用すると全テーブルが存在し
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 16);
-    assert.equal(context.migrationSummary.appliedVersions.length, 16);
+    assert.equal(expectedSqlFiles.length, 17);
+    assert.equal(context.migrationSummary.appliedVersions.length, 17);
 
     const tables = (
       context.connection
@@ -357,7 +358,7 @@ test('8. migration を2回適用しても再実行されない', () => {
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 16);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 17);
     context1.close();
 
     const connection = openDatabase(databasePath);
@@ -376,7 +377,7 @@ test('8. migration を2回適用しても再実行されない', () => {
 test('9. migration ファイル内に BEGIN / COMMIT / ROLLBACK が含まれない', () => {
   const sqlFiles = readdirSync(migrationsDirectory).filter((file) => file.endsWith('.sql'));
 
-  assert.equal(sqlFiles.length, 16, '16 migration files should exist');
+  assert.equal(sqlFiles.length, 17, '17 migration files should exist');
 
   const forbiddenPattern = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/im;
   for (const file of sqlFiles) {
@@ -801,6 +802,134 @@ test('14. migration 0016 適用で has_sighting 列が追加され、既存行�
         );
       `);
     }, /CHECK constraint failed: has_sighting IN \(0, 1\)/);
+
+    connection.close();
+    rmSync(tempMigrationsDir, { recursive: true, force: true });
+  } finally {
+    cleanup();
+  }
+});
+
+test('15. migration 0017 適用で amedas_observation に is_estimated 列が追加され、既存行は 0 になり、CHECK 制約および読み戻しが正しく動作する', () => {
+  const { databasePath, cleanup } = createTempDbPath();
+  try {
+    // 0016 までのマイグレーション用ディレクトリを作成
+    const tempMigrationsDir = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-partial-migrations-0016-'));
+    const sqlFiles = readdirSync(migrationsDirectory)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+
+    // 0001〜0016 までをコピー
+    for (const f of sqlFiles.slice(0, 16)) {
+      writeFileSync(join(tempMigrationsDir, f), readFileSync(join(migrationsDirectory, f)));
+    }
+
+    const connection = openDatabase(databasePath);
+    const summary1 = runMigrations(connection, tempMigrationsDir);
+    assert.equal(summary1.appliedVersions.length, 16);
+
+    // 0016 までの状態で親1行・子1行を投入
+    connection.exec(`
+      INSERT INTO amedas_snapshot (
+        id, station_code, station_name, source, issued_at, fetched_at, availability
+      ) VALUES (
+        1, '44136', '江戸川臨海', 'http://example.com/test.json',
+        '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z', 'available'
+      );
+      INSERT INTO amedas_observation (
+        id, snapshot_id, observed_at, element, value_number, quality_flag
+      ) VALUES (
+        1, 1, '2026-09-09T00:00:00Z', 'temp', 25.4, 0
+      );
+    `);
+
+    // 0017 を追加して migration を実行
+    writeFileSync(
+      join(tempMigrationsDir, sqlFiles[16]!),
+      readFileSync(join(migrationsDirectory, sqlFiles[16]!)),
+    );
+    const summary2 = runMigrations(connection, tempMigrationsDir);
+    assert.equal(summary2.appliedVersions.length, 1);
+    assert.equal(summary2.appliedVersions[0], 17);
+
+    // 既存行の is_estimated が 0 であること
+    const obsRow = connection
+      .prepare('SELECT * FROM amedas_observation WHERE id = 1')
+      .get() as Record<string, unknown>;
+    assert.equal(obsRow.id, 1);
+    assert.equal(obsRow.element, 'temp');
+    assert.equal(obsRow.is_estimated, 0);
+
+    // PRAGMA table_info(amedas_observation) の検証
+    const tableInfo = connection.prepare('PRAGMA table_info(amedas_observation)').all() as Array<{
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: unknown;
+    }>;
+    const isEstimatedCol = tableInfo.find((col) => col.name === 'is_estimated');
+    assert.ok(isEstimatedCol);
+    assert.equal(isEstimatedCol.notnull, 1);
+    assert.equal(String(isEstimatedCol.dflt_value), '0');
+
+    // PRAGMA foreign_key_check が無出力であること
+    const fkCheck = connection.prepare('PRAGMA foreign_key_check').all();
+    assert.equal(fkCheck.length, 0, '外部キー整合性が保たれていること');
+
+    // isEstimated に true / false を保存でき、findAmedasSnapshot で読み戻せること
+    saveAmedasSnapshot(connection, {
+      stationCode: '44136',
+      stationName: '江戸川臨海',
+      metadata: {
+        source: 'http://example.com/test.json',
+        issuedAt: '2026-09-09T01:00:00Z',
+        validAt: '2026-09-09T01:00:00Z',
+        validFrom: null,
+        validTo: null,
+        fetchedAt: '2026-09-09T01:00:00Z',
+        lastSuccessAt: '2026-09-09T01:00:00Z',
+        availability: 'available',
+        sourceVersion: null,
+      },
+      observations: [
+        {
+          observedAt: '2026-09-09T01:00:00Z',
+          element: 'sun10m',
+          valueNumber: 10,
+          valueText: null,
+          qualityFlag: 0,
+          isEstimated: true,
+        },
+        {
+          observedAt: '2026-09-09T01:00:00Z',
+          element: 'temp',
+          valueNumber: 26.0,
+          valueText: null,
+          qualityFlag: 0,
+          isEstimated: false,
+        },
+      ],
+    });
+
+    const found = findAmedasSnapshot(connection, '44136');
+    assert.ok(found);
+    const sunObs = found.observations.find((o) => o.element === 'sun10m');
+    assert.ok(sunObs);
+    assert.equal(sunObs.isEstimated, true);
+    const tempObs = found.observations.find((o) => o.element === 'temp');
+    assert.ok(tempObs);
+    assert.equal(tempObs.isEstimated, false);
+
+    // is_estimated = 2 を直接 SQL で INSERT すると CHECK constraint failed で拒否されること
+    assert.throws(() => {
+      connection.exec(`
+        INSERT INTO amedas_observation (
+          id, snapshot_id, observed_at, element, value_number, quality_flag, is_estimated
+        ) VALUES (
+          99, 1, '2026-09-09T02:00:00Z', 'temp', 27.0, 0, 2
+        );
+      `);
+    }, /CHECK constraint failed/);
 
     connection.close();
     rmSync(tempMigrationsDir, { recursive: true, force: true });

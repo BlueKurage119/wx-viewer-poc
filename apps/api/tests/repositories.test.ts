@@ -816,6 +816,7 @@ test('7. アメダス (Amedas): 欠測(NULL)と0の区別, 複数時刻保持', 
           valueNumber: 25.4,
           valueText: null,
           qualityFlag: 0,
+          isEstimated: false,
         },
         {
           observedAt: '2026-09-09T00:00:00Z',
@@ -823,6 +824,7 @@ test('7. アメダス (Amedas): 欠測(NULL)と0の区別, 複数時刻保持', 
           valueNumber: null, // 欠測
           valueText: null,
           qualityFlag: 8,
+          isEstimated: true,
         },
         {
           observedAt: '2026-09-09T00:10:00Z',
@@ -830,6 +832,7 @@ test('7. アメダス (Amedas): 欠測(NULL)と0の区別, 複数時刻保持', 
           valueNumber: 25.6,
           valueText: null,
           qualityFlag: 0,
+          isEstimated: false,
         },
       ],
     });
@@ -842,6 +845,10 @@ test('7. アメダス (Amedas): 欠測(NULL)と0の区別, 複数時刻保持', 
     assert.ok(missingPrec);
     assert.equal(missingPrec.valueNumber, null, '欠測は null のままであり 0 に変換されないこと');
     assert.equal(missingPrec.qualityFlag, 8);
+    assert.equal(missingPrec.isEstimated, true, 'isEstimated === true が往復保存されること');
+    const tempObs = found.observations.find((o) => o.element === 'temp');
+    assert.ok(tempObs);
+    assert.equal(tempObs.isEstimated, false, 'isEstimated === false が往復保存されること');
 
     // stale 時の明細維持（空配列を渡しても既存明細が残る）
     const staleSaved = saveAmedasSnapshot(context.connection, {
@@ -852,12 +859,22 @@ test('7. アメダス (Amedas): 欠測(NULL)と0の区別, 複数時刻保持', 
     });
     assert.equal(staleSaved.metadata.availability, 'stale');
     assert.equal(staleSaved.observations.length, 3);
+    assert.equal(
+      staleSaved.observations.find((o) => o.element === 'precipitation10m')?.isEstimated,
+      true,
+      'stale 経路の読み出しでも isEstimated === true が保持されること',
+    );
 
     const foundStale = findAmedasSnapshot(context.connection, '44136');
     assert.ok(foundStale);
     assert.equal(foundStale.metadata.availability, 'stale');
     assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T00:15:00Z');
     assert.equal(foundStale.observations.length, 3);
+    assert.equal(
+      foundStale.observations.find((o) => o.element === 'precipitation10m')?.isEstimated,
+      true,
+    );
+    assert.equal(foundStale.observations.find((o) => o.element === 'temp')?.isEstimated, false);
 
     deleteAmedasSnapshot(context.connection, '44136');
     assert.equal(findAmedasSnapshot(context.connection, '44136'), null);
@@ -1292,6 +1309,7 @@ test('9. 時刻文字列の UTC ISO 8601 形式検証', () => {
             valueNumber: 25.0,
             valueText: null,
             qualityFlag: 0,
+            isEstimated: false,
           },
         ],
       });
