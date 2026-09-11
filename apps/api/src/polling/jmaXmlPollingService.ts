@@ -1,4 +1,6 @@
+import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
+import { sanitizeErrorMessage } from './httpGet.js';
 import {
   getFeedDefinitionsForTrigger,
   type FeedPollResult,
@@ -9,14 +11,89 @@ import {
 import { pollSingleFeed, type PollerContextOptions } from './jmaXmlPoller.js';
 import { FeedBackoffManager, type FeedBackoffStatus } from './retryBackoff.js';
 
+export type InitialFetchPhase = 'not_started' | 'running' | 'completed' | 'failed';
+
+export interface InitialFetchResult {
+  readonly completed: boolean;
+  readonly startedAt: UtcIso8601String;
+  readonly finishedAt: UtcIso8601String;
+  readonly failedFeedKinds: readonly JmaXmlFeedKind[];
+  readonly cycleResult: PollCycleResult | null;
+  readonly errorReason: string | null;
+}
+
+export interface InitialFetchStatus {
+  readonly phase: InitialFetchPhase;
+  readonly result: InitialFetchResult | null;
+}
+
 export interface JmaXmlPollingStatus {
   readonly isRunning: boolean;
+  readonly initialFetch: InitialFetchStatus;
   readonly lastCycleResult: PollCycleResult | null;
   readonly feedStatuses: Readonly<Record<JmaXmlFeedKind, FeedBackoffStatus>>;
 }
 
 export interface JmaXmlPollingServiceOptions extends PollerContextOptions {
   readonly intervalMs?: number;
+}
+
+export const INITIAL_FEED_KINDS: readonly JmaXmlFeedKind[] = [
+  'regular',
+  'extra',
+  'regular_l',
+  'extra_l',
+] as const;
+
+export function evaluateInitialFetchResult(
+  cycleResult: PollCycleResult,
+  startedAt: UtcIso8601String,
+  finishedAt: UtcIso8601String,
+): InitialFetchResult {
+  if (cycleResult.trigger !== 'initial') {
+    return {
+      completed: false,
+      startedAt,
+      finishedAt,
+      failedFeedKinds: [...INITIAL_FEED_KINDS],
+      cycleResult,
+      errorReason: null,
+    };
+  }
+
+  const kindCounts = new Map<JmaXmlFeedKind, number>();
+  for (const r of cycleResult.feedResults) {
+    kindCounts.set(r.feedKind, (kindCounts.get(r.feedKind) ?? 0) + 1);
+  }
+
+  const failedFeedKinds: JmaXmlFeedKind[] = [];
+
+  for (const expectedKind of INITIAL_FEED_KINDS) {
+    const count = kindCounts.get(expectedKind) ?? 0;
+    if (count !== 1) {
+      failedFeedKinds.push(expectedKind);
+      continue;
+    }
+    const matchingFeed = cycleResult.feedResults.find((r) => r.feedKind === expectedKind);
+    if (!matchingFeed || matchingFeed.feedFetchOutcome !== 'success') {
+      failedFeedKinds.push(expectedKind);
+    }
+  }
+
+  const hasUnexpectedFeeds = cycleResult.feedResults.some(
+    (r) => !INITIAL_FEED_KINDS.includes(r.feedKind),
+  );
+
+  const completed = failedFeedKinds.length === 0 && !hasUnexpectedFeeds;
+
+  return {
+    completed,
+    startedAt,
+    finishedAt,
+    failedFeedKinds,
+    cycleResult,
+    errorReason: null,
+  };
 }
 
 export class JmaXmlPollingService {
@@ -30,6 +107,10 @@ export class JmaXmlPollingService {
   private inFlightPollPromise: Promise<PollCycleResult> | null = null;
   private lastCycleResult: PollCycleResult | null = null;
 
+  private initialFetchPhase: InitialFetchPhase = 'not_started';
+  private initialFetchResult: InitialFetchResult | null = null;
+  private inFlightStartPromise: Promise<InitialFetchResult> | null = null;
+
   constructor(connection: DatabaseConnection, options?: JmaXmlPollingServiceOptions) {
     this.connection = connection;
     this.options = options ?? {};
@@ -40,6 +121,10 @@ export class JmaXmlPollingService {
     const nowFn = this.options.clock ?? (() => new Date().toISOString());
     return {
       isRunning: this.isRunning,
+      initialFetch: {
+        phase: this.initialFetchPhase,
+        result: this.initialFetchResult,
+      },
       lastCycleResult: this.lastCycleResult,
       feedStatuses: this.backoffManager.getAllStatuses(nowFn()),
     };
@@ -100,7 +185,7 @@ export class JmaXmlPollingService {
       feedResults.push(singleResult.feedResult);
 
       const finishedNow = nowFn();
-      if (singleResult.isFeedFetchSuccess) {
+      if (singleResult.feedResult.feedFetchOutcome === 'success') {
         this.backoffManager.recordSuccess(feedDef.kind, finishedNow);
       } else {
         this.backoffManager.recordFailure(
@@ -121,20 +206,64 @@ export class JmaXmlPollingService {
     };
   }
 
-  start(): void {
+  start(): Promise<InitialFetchResult> {
     if (this.isRunning) {
-      // 二重 start() はタイマーを増やさない
-      return;
+      if (this.inFlightStartPromise) {
+        return this.inFlightStartPromise;
+      }
+      if (this.initialFetchResult) {
+        return Promise.resolve(this.initialFetchResult);
+      }
     }
 
     this.isRunning = true;
 
-    // 即時 1 回実行（待たずに開始）
-    void this.pollOnce('scheduled').catch((err) => {
-      console.error('[JmaXmlPollingService] 即時ポーリングでエラーが発生しました:', err);
-    });
+    // 既に初期取得が実行済み（stop() 後の再 start()）の場合
+    if (this.initialFetchPhase === 'completed' || this.initialFetchPhase === 'failed') {
+      this.scheduleNextPoll();
+      return Promise.resolve(this.initialFetchResult!);
+    }
 
-    this.scheduleNextPoll();
+    // 初回 start()
+    const nowFn = this.options.clock ?? (() => new Date().toISOString());
+    const startedAt = nowFn();
+    this.initialFetchPhase = 'running';
+    this.initialFetchResult = null;
+
+    const startPromise = (async () => {
+      try {
+        const cycleResult = await this.pollOnce('initial');
+        const finishedAt = nowFn();
+        const initialResult = evaluateInitialFetchResult(cycleResult, startedAt, finishedAt);
+        this.initialFetchPhase = initialResult.completed ? 'completed' : 'failed';
+        this.initialFetchResult = initialResult;
+
+        if (this.isRunning) {
+          this.scheduleNextPoll();
+        }
+
+        return initialResult;
+      } catch (error: unknown) {
+        const finishedAt = nowFn();
+        const errorReason = sanitizeErrorMessage(String(error));
+        const failedResult: InitialFetchResult = {
+          completed: false,
+          startedAt,
+          finishedAt,
+          failedFeedKinds: [...INITIAL_FEED_KINDS],
+          cycleResult: null,
+          errorReason,
+        };
+        this.initialFetchPhase = 'failed';
+        this.initialFetchResult = failedResult;
+        throw error;
+      } finally {
+        this.inFlightStartPromise = null;
+      }
+    })();
+
+    this.inFlightStartPromise = startPromise;
+    return startPromise;
   }
 
   private scheduleNextPoll(): void {
@@ -151,7 +280,9 @@ export class JmaXmlPollingService {
           console.error('[JmaXmlPollingService] 定期ポーリングでエラーが発生しました:', err);
         })
         .finally(() => {
-          this.scheduleNextPoll();
+          if (this.isRunning) {
+            this.scheduleNextPoll();
+          }
         });
     }, this.intervalMs);
   }
