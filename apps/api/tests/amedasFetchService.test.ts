@@ -697,3 +697,100 @@ test('15. backfillBlocks: 8 を超える値は取得前に拒否する', async (
     cleanup();
   }
 });
+
+test('16. 観測行 0 件の最新ブロック: 正常取得として試行を記録する', async () => {
+  const { connection, cleanup } = setupDb();
+  try {
+    const state = new AmedasFetchState('east');
+    const emptyObservationBlock = JSON.stringify({
+      '20260911204000': { prefNumber: 44, observationNumber: 136 },
+    });
+
+    const result = await runAmedasFetchCycle(connection, state, {
+      fetchFn: async (url) => {
+        if (String(url).includes('latest_time.txt')) {
+          return new Response('2026-09-11T20:40:00+09:00', { status: 200 });
+        }
+        return new Response(emptyObservationBlock, { status: 200 });
+      },
+      clock: () => '2026-09-11T12:00:00.000Z',
+    });
+
+    assert.equal(result.pointData.succeeded, true);
+    assert.ok(result.snapshot);
+    assert.equal(result.snapshot.observations.length, 0);
+    const attempt = connection
+      .prepare(
+        "SELECT outcome, item_count, failed_item_count FROM fetch_attempt WHERE source_kind = 'amedas_point'",
+      )
+      .get() as { outcome: string; item_count: number | null; failed_item_count: number | null };
+    assert.deepEqual(attempt, {
+      outcome: 'success',
+      item_count: null,
+      failed_item_count: null,
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('17. 観測行 0 件の backfill ブロック: 正常取得として試行を記録する', async () => {
+  const { connection, cleanup } = setupDb();
+  try {
+    const state = new AmedasFetchState('east');
+    const emptyObservationBlock = JSON.stringify({
+      '20260911174000': { prefNumber: 44, observationNumber: 136 },
+    });
+
+    const result = await runAmedasFetchCycle(connection, state, {
+      fetchFn: async (url) => {
+        const stringUrl = String(url);
+        if (stringUrl.includes('latest_time.txt')) {
+          return new Response('2026-09-11T20:40:00+09:00', { status: 200 });
+        }
+        if (stringUrl.endsWith('/20260911_15.json')) {
+          return new Response(emptyObservationBlock, { status: 200 });
+        }
+        return new Response(point44136Json, { status: 200 });
+      },
+      backfillBlocks: 1,
+      clock: () => '2026-09-11T12:00:00.000Z',
+    });
+
+    assert.equal(result.pointData.succeeded, true);
+    const attempts = connection
+      .prepare(
+        "SELECT request_url, outcome, item_count, failed_item_count FROM fetch_attempt WHERE source_kind = 'amedas_point' ORDER BY id",
+      )
+      .all() as Array<{
+      request_url: string;
+      outcome: string;
+      item_count: number | null;
+      failed_item_count: number | null;
+    }>;
+    assert.deepEqual(
+      attempts.map((attempt) => ({
+        blockKey: /(\d{8}_\d{2})\.json$/.exec(attempt.request_url)?.[1],
+        outcome: attempt.outcome,
+        itemCount: attempt.item_count,
+        failedItemCount: attempt.failed_item_count,
+      })),
+      [
+        {
+          blockKey: '20260911_15',
+          outcome: 'success',
+          itemCount: null,
+          failedItemCount: null,
+        },
+        {
+          blockKey: '20260911_18',
+          outcome: 'success',
+          itemCount: 289,
+          failedItemCount: 0,
+        },
+      ],
+    );
+  } finally {
+    cleanup();
+  }
+});

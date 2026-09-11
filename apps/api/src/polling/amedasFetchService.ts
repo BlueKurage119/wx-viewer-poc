@@ -444,8 +444,11 @@ export async function runAmedasFetchCycle(
       outcome: 'success',
       httpStatus: previousHttpRes.status,
       responseBytes: previousHttpRes.responseBytes,
-      itemCount: previousParseResult.value.observations.length,
-      failedItemCount: 0,
+      itemCount:
+        previousParseResult.value.observations.length === 0
+          ? null
+          : previousParseResult.value.observations.length,
+      failedItemCount: previousParseResult.value.observations.length === 0 ? null : 0,
       contentHash: previousContentHash,
       errorKind: null,
       errorMessage: null,
@@ -654,8 +657,8 @@ export async function runAmedasFetchCycle(
     outcome: 'success',
     httpStatus: pointHttpRes.status,
     responseBytes: pointHttpRes.responseBytes,
-    itemCount: normalization.observations.length,
-    failedItemCount: 0,
+    itemCount: normalization.observations.length === 0 ? null : normalization.observations.length,
+    failedItemCount: normalization.observations.length === 0 ? null : 0,
     contentHash: pointContentHash,
     errorKind: null,
     errorMessage: null,
