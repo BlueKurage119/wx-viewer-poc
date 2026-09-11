@@ -322,3 +322,30 @@ test('3. 一覧から消えたフレームの本体だけ削除され、参照�
     fs.rmSync(sentinelDir, { recursive: true, force: true });
   }
 });
+
+test('PNGの所要時間はヘッダーだけでなく本文受信完了まで含む', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const result = await fetchPngBinary('https://example.com/tile.png', {
+    fetchFn: async () => {
+      now = 1100;
+      const response = new Response(VALID_1X1_PNG);
+      const readBody = response.arrayBuffer.bind(response);
+      t.mock.method(response, 'arrayBuffer', async () => {
+        await Promise.resolve();
+        now = 1750;
+        return readBody();
+      });
+      return response;
+    },
+  });
+  assert.deepStrictEqual(result, {
+    ok: true,
+    status: 200,
+    buffer: VALID_1X1_PNG,
+    responseBytes: 70,
+    errorKind: null,
+    errorMessage: null,
+    durationMs: 750,
+  });
+});

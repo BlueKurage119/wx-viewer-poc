@@ -48,8 +48,6 @@ export async function fetchPngBinary(
       signal: combinedSignal,
     });
 
-    const durationMs = Date.now() - startTime;
-
     if (!res.ok) {
       return {
         ok: false,
@@ -58,13 +56,14 @@ export async function fetchPngBinary(
         responseBytes: null,
         errorKind: 'http_status',
         errorMessage: sanitizeErrorMessage(`HTTP ${res.status} ${res.statusText}`),
-        durationMs,
+        durationMs: Date.now() - startTime,
       };
     }
 
     const arrayBuffer = await res.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const responseBytes = buffer.byteLength;
+    const durationMs = Date.now() - startTime;
 
     return {
       ok: true,
