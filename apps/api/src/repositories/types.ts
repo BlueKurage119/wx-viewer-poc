@@ -441,6 +441,7 @@ export interface AmedasObservationInput {
   readonly valueNumber: number | null;
   readonly valueText: string | null;
   readonly qualityFlag: number | null;
+  readonly isEstimated: boolean;
 }
 
 export interface AmedasObservation extends AmedasObservationInput {
@@ -612,7 +613,7 @@ export const KNOWN_FETCH_SOURCE_KINDS = [
   'risk_target_times', // キキクル時刻一覧
   'risk_tile_frame', // キキクルの PNG／PBF／GeoJSON。同じく 1 フレーム＝ 1 行
   'amedas_latest_time', // latest_time.txt
-  'amedas_point', // point/44136/{date}_{hh}.json
+  'amedas_point', // point/{stationCode}/{date}_{hh}.json
   'amedas_table', // amedastable.json
 ] as const;
 

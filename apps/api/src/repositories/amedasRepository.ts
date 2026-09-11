@@ -22,6 +22,7 @@ interface AmedasObservationRow {
   readonly value_number: number | null;
   readonly value_text: string | null;
   readonly quality_flag: number | null;
+  readonly is_estimated: number;
 }
 
 export function saveAmedasSnapshot(
@@ -96,14 +97,15 @@ export function saveAmedasSnapshot(
         valueNumber: obsRow.value_number,
         valueText: obsRow.value_text,
         qualityFlag: obsRow.quality_flag,
+        isEstimated: obsRow.is_estimated === 1,
       }));
     } else {
       connection.prepare('DELETE FROM amedas_observation WHERE snapshot_id = ?').run(snapshotId);
 
       const insertObsStmt = connection.prepare(`
         INSERT INTO amedas_observation (
-          snapshot_id, observed_at, element, value_number, value_text, quality_flag
-        ) VALUES (?, ?, ?, ?, ?, ?)
+          snapshot_id, observed_at, element, value_number, value_text, quality_flag, is_estimated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         RETURNING id
       `);
 
@@ -115,6 +117,7 @@ export function saveAmedasSnapshot(
           obs.valueNumber,
           obs.valueText,
           obs.qualityFlag,
+          obs.isEstimated ? 1 : 0,
         ) as { id: number };
 
         return {
@@ -172,6 +175,7 @@ export function findAmedasSnapshot(
     valueNumber: row.value_number,
     valueText: row.value_text,
     qualityFlag: row.quality_flag,
+    isEstimated: row.is_estimated === 1,
   }));
 
   return {

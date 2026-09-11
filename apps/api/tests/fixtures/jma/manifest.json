@@ -197,6 +197,64 @@
       "fixtureSha256": "fa943a25c27112532dcd1a0f17e2ae39d166d79e5df7e717560541e6c7a99d09",
       "retrievedAt": "2026-09-07T11:48:00+09:00",
       "purpose": "VPFD61の正例・対象地域判定"
+    },
+    {
+      "path": "amedas/amedas_latest_time.txt",
+      "kind": "original",
+      "sourceUrl": "https://www.jma.go.jp/bosai/amedas/data/latest_time.txt",
+      "sourceFileName": "latest_time.txt",
+      "sourceSha256": "43124580bcf91232da69fb64323097b0673d9730fa207d3cf61bb94afbf68552",
+      "fixtureSha256": "43124580bcf91232da69fb64323097b0673d9730fa207d3cf61bb94afbf68552",
+      "retrievedAt": "2026-09-11T20:54:00+09:00",
+      "purpose": "アメダス最新観測時刻（latest_time.txt）の正例・パース検証"
+    },
+    {
+      "path": "amedas/amedas_point_44136_block.json",
+      "kind": "derived",
+      "sourceUrl": "https://www.jma.go.jp/bosai/amedas/data/point/44136/20260911_18.json",
+      "sourceFileName": "20260911_18.json",
+      "sourceSha256": "d96c572006ed1b5961f9f3338d2cb4b2a4bbf2fbb5cec6d1666b6cdbb774ad27",
+      "fixtureSha256": "2fef2199098d8d2ba6e451cee7197c2defdaab387bae8fa2169730f588eb9619",
+      "transform": "地点ブロックJSON原文を整形。キー、値、配列構造は変更しない。",
+      "editor": "Antigravity (Gemini 3.8 Flash (High))",
+      "retrievedAt": "2026-09-11T20:54:00+09:00",
+      "purpose": "east（江戸川臨海・44136）の地点ブロックJSON正例・パース・正規化検証。正時に snow1h 等の aqc null キーを含む実データ"
+    },
+    {
+      "path": "amedas/amedas_point_44166_block.json",
+      "kind": "derived",
+      "sourceUrl": "https://www.jma.go.jp/bosai/amedas/data/point/44166/20260911_18.json",
+      "sourceFileName": "20260911_18.json",
+      "sourceSha256": "5ade7496382bac589c42c0c998ea0a83e3a89b228c0c9568a30d53e1526bbe6b",
+      "fixtureSha256": "58ac74634dc6d8dc68c3b75065284d3b80ac99bedfdef44c30c2ed625ebc095d",
+      "transform": "地点ブロックJSON原文を整形。キー、値、配列構造は変更しない。",
+      "editor": "Antigravity (Gemini 3.8 Flash (High))",
+      "retrievedAt": "2026-09-11T20:54:00+09:00",
+      "purpose": "trc（羽田・44166）の地点ブロックJSON正例。humidity・sunキーが実データで不在であることを確認"
+    },
+    {
+      "path": "amedas/amedas_point_44136_synthetic.json",
+      "kind": "synthetic",
+      "sourceUrl": "https://www.jma.go.jp/bosai/amedas/data/point/44136/20260911_18.json",
+      "sourceFileName": "20260911_18.json",
+      "sourceSha256": "d96c572006ed1b5961f9f3338d2cb4b2a4bbf2fbb5cec6d1666b6cdbb774ad27",
+      "fixtureSha256": "030e1edd9ca79cfc8a8e902ea44e7e238461968e7efbae6401fddd0b66450770",
+      "transform": "44136ブロックJSON原文を加工。欠測[null,0]、AQC1/2/3/4、AQC5/6数値入り（実観測未確認）、推計欠測sun1h[null,0]、推計AQC5欠測sun10m[10,5]、未知キーexperimentalValueを追加",
+      "editor": "リポジトリ開発者",
+      "retrievedAt": "2026-09-11T20:54:00+09:00",
+      "purpose": "欠測、AQCフラグ別挙動、推計フラグ独立性、未知キー許容の正規化検証用合成データ（公式データを加工した合成データ）"
+    },
+    {
+      "path": "amedas/amedas_point_44166_synthetic_with_humidity.json",
+      "kind": "synthetic",
+      "sourceUrl": "https://www.jma.go.jp/bosai/amedas/data/point/44166/20260911_18.json",
+      "sourceFileName": "20260911_18.json",
+      "sourceSha256": "5ade7496382bac589c42c0c998ea0a83e3a89b228c0c9568a30d53e1526bbe6b",
+      "fixtureSha256": "7f46763ae1ed6147c1d56011633996c36509410f9ab654da10f4ab2ad9f28b35",
+      "transform": "44166ブロックJSON原文に humidity: [55, 0] を追加",
+      "editor": "リポジトリ開発者",
+      "retrievedAt": "2026-09-11T20:54:00+09:00",
+      "purpose": "羽田でhumidityが存在した場合でもelems判定により除外されeastでは保存される対比検証用合成データ（公式データを加工した合成データ）"
     }
   ]
 }

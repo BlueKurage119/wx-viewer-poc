@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  DEFAULT_AMEDAS_TARGET,
+  resolveAmedasTarget,
   resolveAreaTimeseriesForecastTarget,
   resolveBosaiBulletinTarget,
   resolveEarlyWarningTargetArea,
@@ -54,4 +56,18 @@ test('C7向けadapterが両会場の速報判定対象（和集合・重複除�
   assert.deepEqual(resolveBosaiBulletinTarget(), {
     includedAreaCodes: ['1310800', '130012', '130010', '1311100', '130011'],
   });
+});
+
+test('C9向けadapterが会場定義からアメダス対象を解決する', () => {
+  assert.deepEqual(resolveAmedasTarget('east'), {
+    stationCode: '44136',
+    displayName: '江戸川臨海',
+    elements: '11112010',
+  });
+  assert.deepEqual(resolveAmedasTarget('trc'), {
+    stationCode: '44166',
+    displayName: '羽田',
+    elements: '11110000',
+  });
+  assert.deepEqual(DEFAULT_AMEDAS_TARGET, resolveAmedasTarget('east'));
 });

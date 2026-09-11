@@ -1,4 +1,8 @@
-import { resolveVenueForecastTargets, type VenueId } from '@wx-viewer-poc/shared';
+import {
+  resolveVenueForecastTargets,
+  type AmedasTarget,
+  type VenueId,
+} from '@wx-viewer-poc/shared';
 import type {
   AreaTimeseriesForecastTarget,
   BosaiBulletinTarget,
@@ -58,3 +62,11 @@ export function resolveBosaiBulletinTarget(): BosaiBulletinTarget {
 }
 
 export const DEFAULT_BOSAI_BULLETIN_TARGET: BosaiBulletinTarget = resolveBosaiBulletinTarget();
+
+/** C9 用のアメダス対象地点を会場定義から解決する。 */
+export function resolveAmedasTarget(venueId: VenueId): AmedasTarget {
+  return resolveVenueForecastTargets(venueId).amedas;
+}
+
+/** east 既定の後方互換 alias（Issue #109 §3.2 の DEFAULT_* と同じ作法）。 */
+export const DEFAULT_AMEDAS_TARGET: AmedasTarget = resolveAmedasTarget('east');
