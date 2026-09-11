@@ -385,6 +385,14 @@ export interface RadarSnapshot {
   readonly frames: readonly RadarFrame[];
 }
 
+export interface NowcastFrameKey {
+  readonly product: RadarProduct;
+  readonly baseTime: UtcIso8601String;
+  readonly validTime: UtcIso8601String;
+  readonly element: 'hrpns';
+  readonly member: 'none';
+}
+
 // 6. キキクル
 export type RiskLayer = 'heavyrain' | 'inund' | 'land' | 'flood';
 

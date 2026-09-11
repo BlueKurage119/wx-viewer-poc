@@ -1,0 +1,32 @@
+[
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907031000",
+    "elements": ["hrpns"]
+  },
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907030500",
+    "elements": ["hrpns"]
+  },
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907030000",
+    "elements": ["hrpns"]
+  },
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907030000",
+    "elements": ["hrpns"]
+  },
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907030500",
+    "elements": ["other_element"]
+  },
+  {
+    "basetime": "20260907025500",
+    "validtime": "20260907030500",
+    "elements": ["hrpns"]
+  }
+]
