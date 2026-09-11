@@ -729,6 +729,33 @@ test('7. 設定ファイルのバリデーション (受け入れ条件 7)', () 
       }),
     /amedasPointRecheckSeconds は正の有限整数/,
   );
+
+  assert.throws(
+    () =>
+      validatePollingScheduleConfig({
+        ...DEFAULT_POLLING_SCHEDULE,
+        intervalsSeconds: {
+          ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
+          typo: DEFAULT_POLLING_SCHEDULE.intervalsSeconds.busy,
+        } as typeof DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
+      }),
+    /未定義のモード設定/,
+  );
+
+  assert.throws(
+    () =>
+      validatePollingScheduleConfig({
+        ...DEFAULT_POLLING_SCHEDULE,
+        intervalsSeconds: {
+          ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
+          busy: {
+            ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds.busy,
+            typo: 60,
+          } as typeof DEFAULT_POLLING_SCHEDULE.intervalsSeconds.busy,
+        },
+      }),
+    /未定義の取得元設定/,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -742,31 +769,71 @@ test('8. #23 XML 単一タイマーとの統合・周期供給 (受け入れ条�
 
   try {
     const database = initializeDatabase({ databasePath, migrationsDirectory });
-    let scheduledPollCount = 0;
+    const timerScheduler = new FakeTimerScheduler('2026-09-12T01:00:00.000Z');
+    const emptyFeed = `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>test</title>
+  <updated>2026-09-12T01:00:00Z</updated>
+  <id>test</id>
+</feed>`;
+    let regularStatus = 200;
+    const requestedKinds: string[] = [];
 
     const xmlService = new JmaXmlPollingService(database.connection, {
-      intervalMs: 120_000,
-      clock: () => '2026-09-12T01:00:00.000Z',
+      clock: timerScheduler.clock,
+      timerScheduler: {
+        setTimeout: timerScheduler.setTimer,
+        clearTimeout: timerScheduler.clearTimer,
+      },
+      fetchFn: async (input) => {
+        const url = String(input);
+        const kind = /\/([a-z_]+)\.xml$/.exec(url)?.[1];
+        assert.notEqual(kind, undefined);
+        requestedKinds.push(kind);
+        if (kind === 'regular' && regularStatus !== 200) {
+          return new Response('Service Unavailable', { status: regularStatus });
+        }
+        return new Response(emptyFeed, { status: 200 });
+      },
     });
 
-    // pollOnce をスパイして呼出しを記録
-    const originalPollOnce = xmlService.pollOnce.bind(xmlService);
-    xmlService.pollOnce = async (trigger) => {
-      if (trigger === 'scheduled') {
-        scheduledPollCount++;
-      }
-      return originalPollOnce(trigger);
-    };
-
-    // 初期設定: busy の 60秒を供給
-    xmlService.setScheduledIntervalSeconds(60);
-    assert.equal(xmlService.getScheduledIntervalSeconds(), 60);
-
-    // late の 120秒へ更新
+    // C14 が late の 120秒を供給した状態で、実際に初期取得・通常周期を開始する。
     xmlService.setScheduledIntervalSeconds(120);
     assert.equal(xmlService.getScheduledIntervalSeconds(), 120);
-    assert.equal(scheduledPollCount, 0, 'ポーリング開始前は scheduledPoll は 0 回');
+    const initial = await xmlService.start();
+    assert.equal(initial.completed, true);
+    assert.deepEqual(requestedKinds, ['regular', 'extra', 'regular_l', 'extra_l']);
+    assert.equal(timerScheduler.getScheduledCount(), 1, 'XML サービス内の次回 timer は1本だけ');
 
+    // 通常周期は高頻度2フィードだけを1回ずつ取得する。
+    regularStatus = 503;
+    await timerScheduler.advanceTime(120_000);
+    assert.deepEqual(requestedKinds, [
+      'regular',
+      'extra',
+      'regular_l',
+      'extra_l',
+      'regular',
+      'extra',
+    ]);
+    assert.equal(timerScheduler.getScheduledCount(), 1, '通常周期後も timer は1本だけ');
+
+    // 通常周期（120秒）より早い nextAllowedFetchAt（60秒）では、失敗した regular だけを再試行する。
+    regularStatus = 200;
+    await timerScheduler.advanceTime(60_000);
+    assert.deepEqual(requestedKinds, [
+      'regular',
+      'extra',
+      'regular_l',
+      'extra_l',
+      'regular',
+      'extra',
+      'regular',
+    ]);
+    assert.equal(timerScheduler.getScheduledCount(), 1, 'backoff 再試行後も timer は1本だけ');
+    assert.equal(xmlService.getStatus().feedStatuses.regular.isWaiting, false);
+
+    await xmlService.stop();
     database.close();
   } finally {
     cleanup();

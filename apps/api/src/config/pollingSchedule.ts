@@ -217,6 +217,14 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
     throw new TypeError('intervalsSeconds はオブジェクトである必要があります');
   }
   const intervalsMap = c.intervalsSeconds as Record<string, unknown>;
+  const unexpectedModes = Object.keys(intervalsMap).filter(
+    (mode) => !ALL_POLLING_MODES.includes(mode as PollingMode),
+  );
+  if (unexpectedModes.length > 0) {
+    throw new Error(
+      `intervalsSeconds に未定義のモード設定があります: ${unexpectedModes.join(', ')}`,
+    );
+  }
 
   for (const mode of ALL_POLLING_MODES) {
     const modeMap = intervalsMap[mode];
@@ -224,6 +232,14 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
       throw new Error(`intervalsSeconds にモード "${mode}" の設定が存在しません`);
     }
     const sourceMap = modeMap as Record<string, unknown>;
+    const unexpectedSources = Object.keys(sourceMap).filter(
+      (source) => !ALL_SCHEDULED_SOURCES.includes(source as ScheduledSource),
+    );
+    if (unexpectedSources.length > 0) {
+      throw new Error(
+        `intervalsSeconds.${mode} に未定義の取得元設定があります: ${unexpectedSources.join(', ')}`,
+      );
+    }
 
     for (const source of ALL_SCHEDULED_SOURCES) {
       const val = sourceMap[source];
