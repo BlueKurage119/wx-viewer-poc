@@ -515,7 +515,7 @@ test('6. PNG 以外の本文や HTTP 失敗は保存されない。2 GET 中 1 �
     assert.strictEqual(results[1]?.kind, 'unavailable');
     assert.strictEqual(results[1]?.errorKind, 'http_status');
 
-    const attempts = listFetchAttempts(connection, { sourceKind: 'risk_tile' });
+    const attempts = listFetchAttempts(connection, { sourceKind: 'risk_tile_frame' });
     assert.strictEqual(attempts.length, 1);
     assert.strictEqual(attempts[0]?.itemCount, 2);
     assert.strictEqual(attempts[0]?.failedItemCount, 1);
@@ -527,13 +527,103 @@ test('6. PNG 以外の本文や HTTP 失敗は保存されない。2 GET 中 1 �
 
     // 完全キャッシュでの呼び出し -> 履歴は増えない
     await service.fetchFrameTiles(frame, [{ zoom: 10, tileX: 909, tileY: 404 }]);
-    const attempts2 = listFetchAttempts(connection, { sourceKind: 'risk_tile' });
+    const attempts2 = listFetchAttempts(connection, { sourceKind: 'risk_tile_frame' });
     assert.strictEqual(attempts2.length, 1);
 
     // 空要求 -> 履歴は増えない
     await service.fetchFrameTiles(frame, []);
-    const attempts3 = listFetchAttempts(connection, { sourceKind: 'risk_tile' });
+    const attempts3 = listFetchAttempts(connection, { sourceKind: 'risk_tile_frame' });
     assert.strictEqual(attempts3.length, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+test('7. 制御可能な Promise で一覧更新中のタイル取得を再現し、同一直列化機構により DB が参照するファイルが消えないことを検証', async () => {
+  const { tmpDir, connection, cleanup } = setupTestEnv();
+  try {
+    const currentTime = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
+
+    const started = deferred<void>();
+    const release = deferred<void>();
+    let pause = false;
+
+    const fakeFetch: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes('targetTimes.json')) {
+        return new Response(syntheticJson, { status: 200 });
+      }
+      if (pause && url.includes('10/909/405.png')) {
+        started.resolve();
+        await release.promise;
+      }
+      return new Response(VALID_1X1_PNG, { status: 200 });
+    };
+
+    const service = new KikikuruService(connection, {
+      cacheRoot: tmpDir,
+      allowedZooms: [10],
+      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      fetchFn: fakeFetch,
+      clock: () => currentTime,
+    });
+
+    // 1. 初期の一覧更新を行い、1つ目のタイルを保存
+    await service.refreshTimes();
+    const frame: KikikuruFrameKey = {
+      layer: 'heavyrain',
+      baseTime: '2026-09-07T03:00:00.000Z',
+      validTime: '2026-09-07T03:00:00.000Z',
+      imageId: 'rain_mesh',
+      member: 'immed0',
+    };
+    const coord0: TileCoordinate = { zoom: 10, tileX: 909, tileY: 404 };
+    const coord1: TileCoordinate = { zoom: 10, tileX: 909, tileY: 405 };
+    const [initialTile] = await service.fetchFrameTiles(frame, [coord0]);
+    assert.strictEqual(initialTile?.kind, 'downloaded');
+    const initialFilePath = initialTile.tile!.filePath;
+
+    // 2. 2つ目のタイルの取得を開始し、PNG fetch 中で一時停止
+    pause = true;
+    const first = service.fetchFrameTiles(frame, [coord1]);
+    await started.promise;
+
+    // 3. タイル取得が進行中（GET中）の状態で、一覧更新を並行実行
+    const update = service.refreshTimes();
+
+    // 4. さらに同座標へのタイル取得を重ねる
+    const second = service.fetchFrameTiles(frame, [coord1]);
+
+    // 5. タイル取得の fetch を解放
+    release.resolve();
+
+    // 6. 全ての完了を待機
+    const [a, , b] = await Promise.all([first, update, second]);
+    assert.strictEqual(a[0]?.kind, 'downloaded');
+    assert.strictEqual(b[0]?.kind, 'cached');
+
+    // 7. 一覧更新の清掃処理が走っても、既存タイル（coord0）と新規タイル（coord1）の両方が DB に保持される
+    const snap = findRiskSnapshot(connection, 'heavyrain')!;
+    const matchedFrame = snap.frames.find(
+      (f) => f.baseTime === frame.baseTime && f.validTime === frame.validTime,
+    )!;
+    assert.strictEqual(matchedFrame.tiles.length, 2);
+    assert.strictEqual(matchedFrame.tiles[0]?.filePath, initialFilePath);
+    assert.strictEqual(matchedFrame.tiles[1]?.filePath, a[0].tile!.filePath);
+
+    // 8. DB が参照する両方のファイルが一覧更新の清掃処理で削除されず、ディスク上に確実に存在すること
+    assert.strictEqual(fs.existsSync(path.join(tmpDir, initialFilePath)), true);
+    assert.strictEqual(fs.existsSync(path.join(tmpDir, a[0].tile!.filePath)), true);
   } finally {
     cleanup();
   }

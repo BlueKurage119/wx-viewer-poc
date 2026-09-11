@@ -168,110 +168,114 @@ export class KikikuruService {
 
       const nowIso = clock();
 
-      for (const layer of ALL_LAYERS) {
-        if (outcome === 'success' && parsedResult?.ok) {
-          const layerFrames = parsedResult.framesByLayer[layer];
-          let issuedAt: UtcIso8601String;
-          let validFrom: UtcIso8601String | null = null;
-          let validTo: UtcIso8601String | null = null;
+      await Promise.all(
+        ALL_LAYERS.map((layer) =>
+          this.enqueue(layer, async () => {
+            if (outcome === 'success' && parsedResult?.ok) {
+              const layerFrames = parsedResult.framesByLayer[layer];
+              let issuedAt: UtcIso8601String;
+              let validFrom: UtcIso8601String | null = null;
+              let validTo: UtcIso8601String | null = null;
 
-          if (layerFrames.length > 0 && layerFrames[0]) {
-            let maxBase = layerFrames[0].key.baseTime;
-            let minValid = layerFrames[0].key.validTime;
-            let maxValid = layerFrames[0].key.validTime;
-            for (const f of layerFrames) {
-              if (f.key.baseTime > maxBase) maxBase = f.key.baseTime;
-              if (f.key.validTime < minValid) minValid = f.key.validTime;
-              if (f.key.validTime > maxValid) maxValid = f.key.validTime;
-            }
-            issuedAt = maxBase;
-            validFrom = minValid;
-            validTo = maxValid;
-          } else {
-            issuedAt = nowIso;
-          }
+              if (layerFrames.length > 0 && layerFrames[0]) {
+                let maxBase = layerFrames[0].key.baseTime;
+                let minValid = layerFrames[0].key.validTime;
+                let maxValid = layerFrames[0].key.validTime;
+                for (const f of layerFrames) {
+                  if (f.key.baseTime > maxBase) maxBase = f.key.baseTime;
+                  if (f.key.validTime < minValid) minValid = f.key.validTime;
+                  if (f.key.validTime > maxValid) maxValid = f.key.validTime;
+                }
+                issuedAt = maxBase;
+                validFrom = minValid;
+                validTo = maxValid;
+              } else {
+                issuedAt = nowIso;
+              }
 
-          // 既存スナップショットから既存タイルを引き継ぐ
-          const prev = findRiskSnapshot(this.connection, layer);
-          const prevTilesMap = new Map<string, readonly RiskTile[]>();
-          if (prev?.frames) {
-            for (const pf of prev.frames) {
-              const key = `${pf.baseTime}|${pf.validTime}|${pf.imageId}|${pf.member}`;
-              if (pf.tiles && pf.tiles.length > 0) {
-                prevTilesMap.set(key, pf.tiles);
+              // 既存スナップショットから既存タイルを引き継ぐ
+              const prev = findRiskSnapshot(this.connection, layer);
+              const prevTilesMap = new Map<string, readonly RiskTile[]>();
+              if (prev?.frames) {
+                for (const pf of prev.frames) {
+                  const key = `${pf.baseTime}|${pf.validTime}|${pf.imageId}|${pf.member}`;
+                  if (pf.tiles && pf.tiles.length > 0) {
+                    prevTilesMap.set(key, pf.tiles);
+                  }
+                }
+              }
+
+              saveRiskSnapshot(this.connection, {
+                layer,
+                metadata: {
+                  source: url,
+                  issuedAt,
+                  validAt: null,
+                  validFrom,
+                  validTo,
+                  fetchedAt: nowIso,
+                  lastSuccessAt: nowIso,
+                  availability: 'available',
+                  sourceVersion: contentHash,
+                },
+                frames: layerFrames.map((f) => {
+                  const key = `${f.key.baseTime}|${f.key.validTime}|${f.key.imageId}|${f.key.member}`;
+                  const existingTiles = prevTilesMap.get(key);
+                  return {
+                    baseTime: f.key.baseTime,
+                    validTime: f.key.validTime,
+                    imageId: f.key.imageId,
+                    member: f.key.member,
+                    sequence: f.sequence,
+                    tiles: existingTiles?.map((t) => ({
+                      zoom: t.zoom,
+                      tileX: t.tileX,
+                      tileY: t.tileY,
+                      filePath: t.filePath,
+                      byteSize: t.byteSize,
+                      contentHash: t.contentHash,
+                      storedAt: t.storedAt,
+                    })),
+                  };
+                }),
+              });
+
+              await this.tileStore.cleanLayerUnreferencedTiles(this.connection, layer);
+            } else {
+              // 失敗時: 前回正常値があれば stale で保持
+              const prev = findRiskSnapshot(this.connection, layer);
+              if (prev && prev.metadata.lastSuccessAt !== null) {
+                saveRiskSnapshot(this.connection, {
+                  layer,
+                  metadata: {
+                    ...prev.metadata,
+                    fetchedAt: nowIso,
+                    availability: 'stale',
+                  },
+                  frames: prev.frames,
+                });
+              } else {
+                // 初回失敗: 空の unavailable スナップショットを保存
+                saveRiskSnapshot(this.connection, {
+                  layer,
+                  metadata: {
+                    source: url,
+                    issuedAt: nowIso,
+                    validAt: null,
+                    validFrom: null,
+                    validTo: null,
+                    fetchedAt: nowIso,
+                    lastSuccessAt: null,
+                    availability: 'unavailable',
+                    sourceVersion: null,
+                  },
+                  frames: [],
+                });
               }
             }
-          }
-
-          saveRiskSnapshot(this.connection, {
-            layer,
-            metadata: {
-              source: url,
-              issuedAt,
-              validAt: null,
-              validFrom,
-              validTo,
-              fetchedAt: nowIso,
-              lastSuccessAt: nowIso,
-              availability: 'available',
-              sourceVersion: contentHash,
-            },
-            frames: layerFrames.map((f) => {
-              const key = `${f.key.baseTime}|${f.key.validTime}|${f.key.imageId}|${f.key.member}`;
-              const existingTiles = prevTilesMap.get(key);
-              return {
-                baseTime: f.key.baseTime,
-                validTime: f.key.validTime,
-                imageId: f.key.imageId,
-                member: f.key.member,
-                sequence: f.sequence,
-                tiles: existingTiles?.map((t) => ({
-                  zoom: t.zoom,
-                  tileX: t.tileX,
-                  tileY: t.tileY,
-                  filePath: t.filePath,
-                  byteSize: t.byteSize,
-                  contentHash: t.contentHash,
-                  storedAt: t.storedAt,
-                })),
-              };
-            }),
-          });
-
-          await this.tileStore.cleanLayerUnreferencedTiles(this.connection, layer);
-        } else {
-          // 失敗時: 前回正常値があれば stale で保持
-          const prev = findRiskSnapshot(this.connection, layer);
-          if (prev && prev.metadata.lastSuccessAt !== null) {
-            saveRiskSnapshot(this.connection, {
-              layer,
-              metadata: {
-                ...prev.metadata,
-                fetchedAt: nowIso,
-                availability: 'stale',
-              },
-              frames: prev.frames,
-            });
-          } else {
-            // 初回失敗: 空の unavailable スナップショットを保存
-            saveRiskSnapshot(this.connection, {
-              layer,
-              metadata: {
-                source: url,
-                issuedAt: nowIso,
-                validAt: null,
-                validFrom: null,
-                validTo: null,
-                fetchedAt: nowIso,
-                lastSuccessAt: null,
-                availability: 'unavailable',
-                sourceVersion: null,
-              },
-              frames: [],
-            });
-          }
-        }
-      }
+          }),
+        ),
+      );
 
       return this.readCatalog();
     };
@@ -690,7 +694,7 @@ export class KikikuruService {
 
           try {
             recordFetchAttempt(this.connection, {
-              sourceKind: 'risk_tile',
+              sourceKind: 'risk_tile_frame',
               targetRef: `${frame.layer}:${frame.baseTime}:${frame.validTime}:${frame.imageId}:${frame.member}`,
               requestUrl: getAttempts[0].url,
               triggerKind: options?.triggerKind ?? 'manual',
