@@ -106,3 +106,26 @@ export class FeedBackoffManager {
     return result;
   }
 }
+
+export type NotificationLevelProposal = '警報（案）' | '問いかけ（案）' | '非通知（案）';
+
+export type PollingFailureScope = 'feed' | 'document';
+
+export interface PollingFailureClassificationInput {
+  readonly scope: PollingFailureScope;
+  readonly errorKind?: string | null;
+  readonly adoptionResult?: string | null;
+  readonly isAnomalyThresholdReached?: boolean;
+}
+
+export function classifyNotificationLevel(
+  input: PollingFailureClassificationInput,
+): NotificationLevelProposal {
+  if (input.scope === 'feed') {
+    if (input.isAnomalyThresholdReached) {
+      return '問いかけ（案）';
+    }
+    return '警報（案）';
+  }
+  return '非通知（案）';
+}
