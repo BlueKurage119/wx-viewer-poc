@@ -31,8 +31,32 @@ export interface StartServerOptions {
 const DEFAULT_PORT = 3001;
 
 function closeServer(server: Server): Promise<void> {
+  if (!server.listening) {
+    return Promise.resolve();
+  }
+
   return new Promise((resolve, reject) => {
     server.close((error) => (error === undefined ? resolve() : reject(error)));
+  });
+}
+
+function waitForServerListening(server: Server): Promise<void> {
+  if (server.listening) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const onListening = () => {
+      server.off('error', onError);
+      resolve();
+    };
+    const onError = (error: Error) => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+
+    server.once('listening', onListening);
+    server.once('error', onError);
   });
 }
 
@@ -41,19 +65,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const app = createApp();
   const actualServer = app.listen(options.port ?? DEFAULT_PORT);
 
-  const serverListeningPromise = new Promise<void>((resolve, reject) => {
-    actualServer.once('error', reject);
-    if (actualServer.listening) {
-      resolve();
-    } else {
-      actualServer.once('listening', resolve);
-    }
-  });
+  const serverListeningPromise = waitForServerListening(actualServer);
 
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let pollingService: JmaXmlPollingService | undefined;
 
   try {
+    // 初期取得より先に待受失敗を監視する。失敗時は直ちに catch で全資源を解放する。
+    await serverListeningPromise;
+
     if (enablePolling) {
       const rawTargetArea =
         options.pollingServiceOptions?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA;
@@ -77,8 +97,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
         new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
       await pollingService.start();
     }
-
-    await serverListeningPromise;
   } catch (error) {
     if (pollingService) {
       await pollingService.stop();
@@ -121,16 +139,6 @@ async function main(): Promise<void> {
   const app = createApp();
   const server = app.listen(port);
   let pollingService: JmaXmlPollingService | undefined;
-  if (process.env.DISABLE_POLLING !== 'true') {
-    await reprocessPendingWarningTelegramReceptions(
-      database.connection,
-      DEFAULT_WARNING_CURRENT_TARGET_AREA,
-      () => new Date().toISOString(),
-    );
-    rebuildWarningCurrentFromReceptions(database.connection, DEFAULT_WARNING_CURRENT_TARGET_AREA);
-    pollingService = new JmaXmlPollingService(database.connection);
-    await pollingService.start();
-  }
 
   let closed = false;
   const close = async () => {
@@ -145,19 +153,34 @@ async function main(): Promise<void> {
     database.close();
   };
 
-  server.once('error', (error) => {
-    if (pollingService) {
-      void pollingService.stop();
+  try {
+    await waitForServerListening(server);
+
+    if (process.env.DISABLE_POLLING !== 'true') {
+      await reprocessPendingWarningTelegramReceptions(
+        database.connection,
+        DEFAULT_WARNING_CURRENT_TARGET_AREA,
+        () => new Date().toISOString(),
+      );
+      rebuildWarningCurrentFromReceptions(database.connection, DEFAULT_WARNING_CURRENT_TARGET_AREA);
+      pollingService = new JmaXmlPollingService(database.connection);
+      await pollingService.start();
     }
-    database.close();
-    console.error(error);
-    process.exitCode = 1;
-  });
-  server.once('listening', () => {
+
     console.log(
       `[api] database: ${database.connection.name}, applied migrations: ${database.migrationSummary.appliedVersions.length}`,
     );
     console.log(`[api] listening on http://localhost:${port}`);
+  } catch (error) {
+    await close();
+    throw error;
+  }
+
+  server.once('error', (error) => {
+    void close().finally(() => {
+      console.error(error);
+      process.exitCode = 1;
+    });
   });
   process.once('SIGINT', () => void close());
   process.once('SIGTERM', () => void close());

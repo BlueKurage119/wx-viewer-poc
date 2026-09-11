@@ -3057,6 +3057,48 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
 });
 
 // -------------------------------------------------------------------------------------------------
+// 22-9b. 待受失敗は初期取得より先に処理する
+// -------------------------------------------------------------------------------------------------
+test('22-9b. HTTP待受失敗時は初期取得を開始せず、DBを解放して起動に失敗する', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const occupiedServer = http.createServer();
+
+  await new Promise<void>((resolve) => occupiedServer.listen(0, resolve));
+  const address = occupiedServer.address();
+  assert.ok(address !== null && typeof address !== 'string');
+
+  let initialFetchStarted = false;
+  const pollingService = {
+    start: async () => {
+      initialFetchStarted = true;
+      throw new Error('初期取得は開始されてはならない');
+    },
+    stop: async () => undefined,
+  } as unknown as JmaXmlPollingService;
+
+  try {
+    await assert.rejects(
+      () =>
+        startServer({
+          config: { databasePath, migrationsDirectory },
+          port: address.port,
+          pollingService,
+        }),
+      /EADDRINUSE/,
+    );
+    assert.equal(initialFetchStarted, false);
+
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    database.close();
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      occupiedServer.close((error) => (error === undefined ? resolve() : reject(error)));
+    });
+    cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
 // 22-10. 保存済み履歴の復元、初期サイクルでの未受信電文復元、通知履歴の非生成
 // -------------------------------------------------------------------------------------------------
 test('22-10. 保存済み履歴の C3 再構成後に初期サイクルが未受信電文を反映し、notification_output_history を増やさない', async () => {
