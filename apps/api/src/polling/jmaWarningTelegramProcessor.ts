@@ -39,16 +39,8 @@ export function processWarningTelegramReception(
           reason: '原文（raw_body）がありません',
         }
       : parseWarningTelegram(reception.rawBody, reception, targetArea);
-  const adoptionResult = result.ok ? '警報・注意報として解析済み' : result.disposition;
-  const adoptionReason = result.ok ? null : result.reason;
-  const transaction = connection.transaction(() => {
-    updateTelegramReceptionAdoption(connection, reception.id, {
-      adoptionResult,
-      adoptionReason,
-      adoptionDecidedAt: decidedAt,
-    });
-  });
-  transaction();
+  let adoptionResult = result.ok ? '警報・注意報として解析済み' : result.disposition;
+  let adoptionReason = result.ok ? null : result.reason;
 
   if (result.ok) {
     const currentTargetArea: WarningCurrentTargetArea =
@@ -60,12 +52,30 @@ export function processWarningTelegramReception(
           };
 
     try {
-      applyWarningCurrentReception(connection, reception, result.value, currentTargetArea);
+      const currentResult = applyWarningCurrentReception(
+        connection,
+        reception,
+        result.value,
+        currentTargetArea,
+      );
+      if (!currentResult.applied && currentResult.reason === 'unsupported_code') {
+        adoptionResult = '未対応コード';
+        adoptionReason = currentResult.detail;
+      }
     } catch (error) {
       // C3 の例外によって C2 の解析成功を取り消さない
       console.error('Failed to apply warning current reception:', error);
     }
   }
+
+  const transaction = connection.transaction(() => {
+    updateTelegramReceptionAdoption(connection, reception.id, {
+      adoptionResult,
+      adoptionReason,
+      adoptionDecidedAt: decidedAt,
+    });
+  });
+  transaction();
 
   return result;
 }

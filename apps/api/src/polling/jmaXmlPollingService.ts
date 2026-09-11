@@ -123,6 +123,8 @@ export class JmaXmlPollingService {
   private initialFetchResult: InitialFetchResult | null = null;
   private inFlightStartPromise: Promise<InitialFetchResult> | null = null;
   private readonly successfulInitialFeedKinds = new Set<JmaXmlFeedKind>();
+  private nextScheduledPollAtMs: number | null = null;
+  private scheduledPollDueOnNextRun = false;
 
   constructor(connection: DatabaseConnection, options?: JmaXmlPollingServiceOptions) {
     this.connection = connection;
@@ -251,6 +253,7 @@ export class JmaXmlPollingService {
 
     // stop() 後の再 start()
     if (this.initialFetchPhase === 'completed') {
+      this.nextScheduledPollAtMs = null;
       this.scheduleNextCycle();
       return Promise.resolve(this.initialFetchResult!);
     }
@@ -336,6 +339,7 @@ export class JmaXmlPollingService {
     const nowMs = new Date(nowIso).getTime();
 
     let delayMs = this.intervalMs;
+    this.scheduledPollDueOnNextRun = false;
 
     if (this.initialFetchPhase === 'failed') {
       const pendingFeeds = INITIAL_FEED_KINDS.filter(
@@ -356,6 +360,9 @@ export class JmaXmlPollingService {
       delayMs = minPendingDelayMs === Infinity ? 0 : minPendingDelayMs;
     } else if (this.initialFetchPhase === 'completed') {
       const scheduledFeeds: readonly JmaXmlFeedKind[] = ['regular', 'extra'];
+      if (this.nextScheduledPollAtMs === null) {
+        this.nextScheduledPollAtMs = nowMs + this.intervalMs;
+      }
       let minRetryDelayMs = Infinity;
 
       for (const feedKind of scheduledFeeds) {
@@ -366,7 +373,9 @@ export class JmaXmlPollingService {
         }
       }
 
-      delayMs = Math.min(this.intervalMs, minRetryDelayMs);
+      const scheduledDelayMs = Math.max(0, this.nextScheduledPollAtMs - nowMs);
+      this.scheduledPollDueOnNextRun = scheduledDelayMs <= minRetryDelayMs;
+      delayMs = Math.min(scheduledDelayMs, minRetryDelayMs);
     }
 
     this.timerId = this.timerScheduler.setTimeout(() => {
@@ -428,10 +437,22 @@ export class JmaXmlPollingService {
         }
       } else if (this.initialFetchPhase === 'completed') {
         const scheduledFeeds: readonly JmaXmlFeedKind[] = ['regular', 'extra'];
-        const readyFeeds = scheduledFeeds.filter((k) => !this.backoffManager.isWaiting(k, nowIso));
+        const nowMs = new Date(nowIso).getTime();
+        const isScheduledPollDue =
+          this.scheduledPollDueOnNextRun ||
+          (this.nextScheduledPollAtMs !== null && nowMs >= this.nextScheduledPollAtMs);
+        this.scheduledPollDueOnNextRun = false;
+        const retryFeeds = scheduledFeeds.filter((feedKind) => {
+          const status = this.backoffManager.getStatus(feedKind, nowIso);
+          return status.consecutiveFailures > 0 && !status.isWaiting;
+        });
+        const targetFeeds = isScheduledPollDue ? scheduledFeeds : retryFeeds;
 
-        if (readyFeeds.length > 0) {
-          await this.pollFeeds('scheduled', readyFeeds);
+        if (targetFeeds.length > 0) {
+          await this.pollFeeds('scheduled', targetFeeds);
+        }
+        if (isScheduledPollDue) {
+          this.nextScheduledPollAtMs = nowMs + this.intervalMs;
         }
       }
     } catch (err) {

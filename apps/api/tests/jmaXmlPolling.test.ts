@@ -3520,6 +3520,70 @@ test('23-3. 一方のフィードが再試行待ちでも他方は通常周期�
   }
 });
 
+test('23-3b. 再試行時刻が通常周期より早い場合、失敗していないフィードを早期取得しない', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+  let service: JmaXmlPollingService | null = null;
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const feedXml = createSampleAtomFeed([]);
+    let regularStatus = 200;
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml') {
+        res.statusCode = regularStatus;
+        res.end(regularStatus === 200 ? feedXml : 'Service Unavailable');
+        return;
+      }
+      if (
+        req.url === '/feed/extra.xml' ||
+        req.url === '/feed/regular_l.xml' ||
+        req.url === '/feed/extra_l.xml'
+      ) {
+        res.statusCode = 200;
+        res.end(feedXml);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+    const customFetch: typeof fetch = (input, init) => {
+      const url = String(input);
+      for (const kind of ['regular', 'extra', 'regular_l', 'extra_l']) {
+        if (url.includes(`/developer/xml/feed/${kind}.xml`)) {
+          return fetch(`${server.baseUrl}/feed/${kind}.xml`, init);
+        }
+      }
+      return fetch(input, init);
+    };
+    const scheduler = new ManualTimerScheduler(new Date('2026-09-09T01:00:00.000Z').getTime());
+    service = new JmaXmlPollingService(db.connection, {
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      intervalMs: 300_000,
+      timerScheduler: scheduler,
+      clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
+    });
+
+    const initial = await service.start();
+    assert.equal(initial.completed, true);
+    regularStatus = 503;
+
+    await scheduler.advanceTime(300_000);
+    assert.equal(server.requestCounts.get('/feed/regular.xml'), 2);
+    assert.equal(server.requestCounts.get('/feed/extra.xml'), 2);
+
+    await scheduler.advanceTime(60_000);
+    assert.equal(server.requestCounts.get('/feed/regular.xml'), 3);
+    assert.equal(server.requestCounts.get('/feed/extra.xml'), 2);
+  } finally {
+    if (service) await service.stop();
+    await server.close();
+    cleanup();
+  }
+});
+
 // -------------------------------------------------------------------------------------------------
 // 23-4. フィード取得失敗およびAtom構造不正時に既存の正常snapshot・受信履歴が空値で上書きされず保持される
 // -------------------------------------------------------------------------------------------------
