@@ -255,6 +255,66 @@
       "editor": "リポジトリ開発者",
       "retrievedAt": "2026-09-11T20:54:00+09:00",
       "purpose": "羽田でhumidityが存在した場合でもelems判定により除外されeastでは保存される対比検証用合成データ（公式データを加工した合成データ）"
+    },
+    {
+      "path": "nowcast/nowcast_target_times_n1_synthetic.json",
+      "kind": "synthetic",
+      "sourceUrl": "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json",
+      "sourceFileName": "targetTimes_N1.json",
+      "sourceSha256": null,
+      "fixtureSha256": "89141d837ccc5642445c9d67e5648a63d51f6636f24f789049cb7c79723df1c9",
+      "transform": "順序シャッフル、完全重複行、hrpns以外の要素、同一validtimeの複数basetimeを含む合成データ",
+      "editor": "Antigravity (Gemini 3.8 Flash)",
+      "retrievedAt": "2026-09-12T01:23:00+09:00",
+      "purpose": "N1時刻一覧の重複除去・並び順・同一validTime複数候補保持のパース検証用合成データ"
+    },
+    {
+      "path": "nowcast/nowcast_target_times_n2_synthetic.json",
+      "kind": "synthetic",
+      "sourceUrl": "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N2.json",
+      "sourceFileName": "targetTimes_N2.json",
+      "sourceSha256": null,
+      "fixtureSha256": "52433d94ffa3907c1b88835a004ab9b3fa5151a0907012a0843dcac25517770c",
+      "transform": "N1より5分古いbasetimeと最遠03:55を含む合成データ",
+      "editor": "Antigravity (Gemini 3.8 Flash)",
+      "retrievedAt": "2026-09-12T01:23:00+09:00",
+      "purpose": "N2時刻一覧のパース検証用合成データ"
+    },
+    {
+      "path": "nowcast/nowcast_target_times_window_synthetic.json",
+      "kind": "synthetic",
+      "sourceUrl": "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json",
+      "sourceFileName": "targetTimes_N1.json",
+      "sourceSha256": null,
+      "fixtureSha256": "a05a37d023aec91cef6c71169cb6f548738f8247ae13d41b98be54978a04c8af",
+      "transform": "now=03:00:00に対する±60分の両端(02:00:00, 04:00:00)および各1秒外側(01:59:59, 04:00:01)を含む合成データ",
+      "editor": "Antigravity (Gemini 3.8 Flash)",
+      "retrievedAt": "2026-09-12T01:23:00+09:00",
+      "purpose": "表示窓±60分（両端含む、外側除外）の境界検証用合成データ"
+    },
+    {
+      "path": "nowcast/nowcast_target_times_empty.json",
+      "kind": "synthetic",
+      "sourceUrl": "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json",
+      "sourceFileName": "targetTimes_N1.json",
+      "sourceSha256": null,
+      "fixtureSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "transform": "空配列 []",
+      "editor": "Antigravity (Gemini 3.8 Flash)",
+      "retrievedAt": "2026-09-12T01:23:00+09:00",
+      "purpose": "正常な空配列のパース検証用合成データ"
+    },
+    {
+      "path": "nowcast/nowcast_target_times_no_hrpns.json",
+      "kind": "synthetic",
+      "sourceUrl": "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json",
+      "sourceFileName": "targetTimes_N1.json",
+      "sourceSha256": null,
+      "fixtureSha256": "87f4d51a50dfa3f5b453b3bcc1361dd0658f5876e10614d6928f948f0b061607",
+      "transform": "hrpnsを含まない要素のみを持つ行で構成",
+      "editor": "Antigravity (Gemini 3.8 Flash)",
+      "retrievedAt": "2026-09-12T01:23:00+09:00",
+      "purpose": "hrpnsなしの場合に成功の空一覧となることの検証用合成データ"
     }
   ]
 }
