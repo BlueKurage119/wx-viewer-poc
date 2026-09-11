@@ -65,3 +65,4 @@ export {
 } from './kikikuruParser.js';
 export { KikikuruTileStore } from './kikikuruTileStore.js';
 export { KikikuruService } from './kikikuruService.js';
+export * from './timeBasedPollingScheduler.js';

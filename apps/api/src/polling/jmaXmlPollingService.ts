@@ -110,7 +110,7 @@ const defaultTimerScheduler: PollingTimerScheduler = {
 export class JmaXmlPollingService {
   private readonly connection: DatabaseConnection;
   private readonly options: JmaXmlPollingServiceOptions;
-  private readonly intervalMs: number;
+  private intervalMs: number;
   private readonly timerScheduler: PollingTimerScheduler;
   private readonly backoffManager = new FeedBackoffManager();
 
@@ -132,6 +132,88 @@ export class JmaXmlPollingService {
     this.options = options ?? {};
     this.intervalMs = this.options.intervalMs ?? 60_000;
     this.timerScheduler = this.options.timerScheduler ?? defaultTimerScheduler;
+  }
+
+  setScheduledIntervalSeconds(seconds: number | null): void {
+    if (seconds === null) {
+      return;
+    }
+    const newIntervalMs = seconds * 1000;
+    if (this.intervalMs === newIntervalMs) {
+      return;
+    }
+    const oldIntervalMs = this.intervalMs;
+    this.intervalMs = newIntervalMs;
+
+    if (this.isRunning && this.initialFetchPhase === 'completed') {
+      if (this.nextScheduledPollAtMs !== null) {
+        const nowFn = this.options.clock ?? (() => new Date().toISOString());
+        const nowMs = new Date(nowFn()).getTime();
+        const previousBaseMs = this.nextScheduledPollAtMs - oldIntervalMs;
+        this.nextScheduledPollAtMs = Math.max(nowMs, previousBaseMs + newIntervalMs);
+      }
+      this.scheduleNextCycle();
+    }
+  }
+
+  getScheduledIntervalSeconds(): number | null {
+    return Math.round(this.intervalMs / 1000);
+  }
+
+  isExecuting(): boolean {
+    return this.inFlightPollPromise !== null || this.inFlightStartPromise !== null;
+  }
+
+  getNextRunAt(): UtcIso8601String | null {
+    if (!this.isRunning) {
+      return null;
+    }
+    const nowFn = this.options.clock ?? (() => new Date().toISOString());
+    const nowIso = nowFn();
+    const nowMs = new Date(nowIso).getTime();
+
+    if (this.initialFetchPhase === 'failed') {
+      const pendingFeeds = INITIAL_FEED_KINDS.filter(
+        (k) => !this.successfulInitialFeedKinds.has(k),
+      );
+      let minPendingDelayMs = Infinity;
+      for (const feedKind of pendingFeeds) {
+        const status = this.backoffManager.getStatus(feedKind, nowIso);
+        if (status.nextAllowedFetchAt) {
+          const allowedMs = new Date(status.nextAllowedFetchAt).getTime();
+          minPendingDelayMs = Math.min(minPendingDelayMs, Math.max(0, allowedMs - nowMs));
+        } else {
+          minPendingDelayMs = 0;
+        }
+      }
+      if (minPendingDelayMs === Infinity) {
+        return null;
+      }
+      return new Date(nowMs + minPendingDelayMs).toISOString() as UtcIso8601String;
+    }
+
+    if (this.initialFetchPhase === 'completed') {
+      const scheduledFeeds: readonly JmaXmlFeedKind[] = ['regular', 'extra'];
+      let minRetryDelayMs = Infinity;
+      for (const feedKind of scheduledFeeds) {
+        const status = this.backoffManager.getStatus(feedKind, nowIso);
+        if (status.isWaiting && status.nextAllowedFetchAt) {
+          const allowedMs = new Date(status.nextAllowedFetchAt).getTime();
+          minRetryDelayMs = Math.min(minRetryDelayMs, Math.max(0, allowedMs - nowMs));
+        }
+      }
+      const scheduledDelayMs =
+        this.nextScheduledPollAtMs !== null
+          ? Math.max(0, this.nextScheduledPollAtMs - nowMs)
+          : this.intervalMs;
+      const delayMs = Math.min(scheduledDelayMs, minRetryDelayMs);
+      if (delayMs === Infinity) {
+        return null;
+      }
+      return new Date(nowMs + delayMs).toISOString() as UtcIso8601String;
+    }
+
+    return null;
   }
 
   getStatus(): JmaXmlPollingStatus {
@@ -240,7 +322,7 @@ export class JmaXmlPollingService {
     };
   }
 
-  start(): Promise<InitialFetchResult> {
+  start(startOptions?: { immediateScheduled?: boolean }): Promise<InitialFetchResult> {
     if (this.isRunning) {
       if (this.inFlightStartPromise) {
         return this.inFlightStartPromise;
@@ -254,7 +336,9 @@ export class JmaXmlPollingService {
 
     // stop() 後の再 start()
     if (this.initialFetchPhase === 'completed') {
-      this.nextScheduledPollAtMs = null;
+      const nowFn = this.options.clock ?? (() => new Date().toISOString());
+      const nowMs = new Date(nowFn()).getTime();
+      this.nextScheduledPollAtMs = startOptions?.immediateScheduled ? nowMs : null;
       this.scheduleNextCycle();
       return Promise.resolve(this.initialFetchResult!);
     }

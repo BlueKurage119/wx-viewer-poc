@@ -3,7 +3,18 @@ import type { Server } from 'node:http';
 
 import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
-import { JmaXmlPollingService, type JmaXmlPollingServiceOptions } from './polling/index.js';
+import {
+  DEFAULT_POLLING_SCHEDULE,
+  resolvePollingMode,
+  type PollingScheduleConfig,
+} from './config/pollingSchedule.js';
+import {
+  JmaXmlPollingService,
+  TimeBasedPollingScheduler,
+  createScheduledAdapters,
+  type JmaXmlPollingServiceOptions,
+  type TimeBasedPollingSchedulerOptions,
+} from './polling/index.js';
 import {
   DEFAULT_WARNING_CURRENT_TARGET_AREA,
   rebuildWarningCurrentFromReceptions,
@@ -17,6 +28,7 @@ import type { WarningCurrentTargetArea } from './repositories/types.js';
 export interface StartedServer {
   readonly port: number;
   readonly pollingService?: JmaXmlPollingService;
+  readonly scheduler?: TimeBasedPollingScheduler;
   close(): Promise<void>;
 }
 
@@ -26,6 +38,9 @@ export interface StartServerOptions {
   readonly enablePolling?: boolean;
   readonly pollingService?: JmaXmlPollingService;
   readonly pollingServiceOptions?: JmaXmlPollingServiceOptions;
+  readonly scheduler?: TimeBasedPollingScheduler;
+  readonly schedulerOptions?: Partial<TimeBasedPollingSchedulerOptions>;
+  readonly pollingSchedule?: PollingScheduleConfig;
 }
 
 const DEFAULT_PORT = 3001;
@@ -88,6 +103,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let pollingService: JmaXmlPollingService | undefined;
+  let scheduler: TimeBasedPollingScheduler | undefined;
 
   try {
     // 初期取得より先に待受失敗を監視する。失敗時は直ちに catch で全資源を解放する。
@@ -122,13 +138,50 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
           pollingService =
             options.pollingService ??
             new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
-          await pollingService.start();
+
+          const schedule = options.pollingSchedule ?? DEFAULT_POLLING_SCHEDULE;
+          const defaultNow = options.pollingServiceOptions?.clock
+            ? () => new Date(options.pollingServiceOptions!.clock!())
+            : () => new Date();
+          const nowFn = options.schedulerOptions?.now ?? defaultNow;
+          const now = nowFn();
+          const mode = resolvePollingMode(now, schedule);
+
+          const adapters =
+            options.schedulerOptions?.adapters ??
+            createScheduledAdapters({
+              connection: database.connection,
+              now: nowFn,
+              amedasPointRecheckSeconds: schedule.amedasPointRecheckSeconds,
+            });
+
+          scheduler =
+            options.scheduler ??
+            new TimeBasedPollingScheduler({
+              schedule,
+              adapters,
+              xmlPollingService: pollingService,
+              now: nowFn,
+              setTimer: options.schedulerOptions?.setTimer,
+              clearTimer: options.schedulerOptions?.clearTimer,
+            });
+
+          if (mode === 'off_hours') {
+            await scheduler.start();
+          } else {
+            pollingService.setScheduledIntervalSeconds(schedule.intervalsSeconds[mode].xml);
+            await pollingService.start();
+            await scheduler.start();
+          }
         })(),
       ]);
     } finally {
       serverErrorMonitor.dispose();
     }
   } catch (error) {
+    if (scheduler) {
+      await scheduler.stop();
+    }
     if (pollingService) {
       await pollingService.stop();
     }
@@ -139,6 +192,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
   const address = actualServer.address();
   if (address === null || typeof address === 'string') {
+    if (scheduler) {
+      await scheduler.stop();
+    }
     if (pollingService) {
       await pollingService.stop();
     }
@@ -151,6 +207,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const close = async () => {
     if (!closed) {
       closed = true;
+      if (scheduler) {
+        await scheduler.stop();
+      }
       if (pollingService) {
         await pollingService.stop();
       }
@@ -168,6 +227,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   return {
     port: address.port,
     pollingService,
+    scheduler,
     close,
   };
 }
@@ -178,6 +238,7 @@ async function main(): Promise<void> {
   const app = createApp();
   const server = app.listen(port);
   let pollingService: JmaXmlPollingService | undefined;
+  let scheduler: TimeBasedPollingScheduler | undefined;
 
   let closed = false;
   const close = async () => {
@@ -185,6 +246,9 @@ async function main(): Promise<void> {
       return;
     }
     closed = true;
+    if (scheduler) {
+      await scheduler.stop();
+    }
     if (pollingService) {
       await pollingService.stop();
     }
@@ -214,7 +278,28 @@ async function main(): Promise<void> {
             DEFAULT_WARNING_CURRENT_TARGET_AREA,
           );
           pollingService = new JmaXmlPollingService(database.connection);
-          await pollingService.start();
+          const schedule = DEFAULT_POLLING_SCHEDULE;
+          const now = new Date();
+          const mode = resolvePollingMode(now, schedule);
+
+          const adapters = createScheduledAdapters({
+            connection: database.connection,
+            amedasPointRecheckSeconds: schedule.amedasPointRecheckSeconds,
+          });
+
+          scheduler = new TimeBasedPollingScheduler({
+            schedule,
+            adapters,
+            xmlPollingService: pollingService,
+          });
+
+          if (mode === 'off_hours') {
+            await scheduler.start();
+          } else {
+            pollingService.setScheduledIntervalSeconds(schedule.intervalsSeconds[mode].xml);
+            await pollingService.start();
+            await scheduler.start();
+          }
         })(),
       ]);
     } finally {
