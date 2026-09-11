@@ -41,38 +41,49 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const app = createApp();
   const actualServer = app.listen(options.port ?? DEFAULT_PORT);
 
+  const serverListeningPromise = new Promise<void>((resolve, reject) => {
+    actualServer.once('error', reject);
+    if (actualServer.listening) {
+      resolve();
+    } else {
+      actualServer.once('listening', resolve);
+    }
+  });
+
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let pollingService: JmaXmlPollingService | undefined;
-  if (enablePolling) {
-    const rawTargetArea =
-      options.pollingServiceOptions?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA;
-    const currentTargetArea: WarningCurrentTargetArea =
-      'prefectureCode' in rawTargetArea && typeof rawTargetArea.prefectureCode === 'string'
-        ? (rawTargetArea as WarningCurrentTargetArea)
-        : { ...rawTargetArea, prefectureCode: DEFAULT_WARNING_CURRENT_TARGET_AREA.prefectureCode };
-
-    await reprocessPendingWarningTelegramReceptions(
-      database.connection,
-      currentTargetArea,
-      options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
-    );
-    rebuildWarningCurrentFromReceptions(database.connection, currentTargetArea);
-
-    pollingService =
-      options.pollingService ??
-      new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
-    pollingService.start();
-  }
 
   try {
-    await new Promise<void>((resolve, reject) => {
-      actualServer.once('error', reject);
-      actualServer.once('listening', resolve);
-    });
+    if (enablePolling) {
+      const rawTargetArea =
+        options.pollingServiceOptions?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA;
+      const currentTargetArea: WarningCurrentTargetArea =
+        'prefectureCode' in rawTargetArea && typeof rawTargetArea.prefectureCode === 'string'
+          ? (rawTargetArea as WarningCurrentTargetArea)
+          : {
+              ...rawTargetArea,
+              prefectureCode: DEFAULT_WARNING_CURRENT_TARGET_AREA.prefectureCode,
+            };
+
+      await reprocessPendingWarningTelegramReceptions(
+        database.connection,
+        currentTargetArea,
+        options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
+      );
+      rebuildWarningCurrentFromReceptions(database.connection, currentTargetArea);
+
+      pollingService =
+        options.pollingService ??
+        new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
+      await pollingService.start();
+    }
+
+    await serverListeningPromise;
   } catch (error) {
     if (pollingService) {
       await pollingService.stop();
     }
+    await closeServer(actualServer);
     database.close();
     throw error;
   }
@@ -109,7 +120,7 @@ async function main(): Promise<void> {
   const database = initializeDatabase();
   const app = createApp();
   const server = app.listen(port);
-  const pollingService = new JmaXmlPollingService(database.connection);
+  let pollingService: JmaXmlPollingService | undefined;
   if (process.env.DISABLE_POLLING !== 'true') {
     await reprocessPendingWarningTelegramReceptions(
       database.connection,
@@ -117,7 +128,8 @@ async function main(): Promise<void> {
       () => new Date().toISOString(),
     );
     rebuildWarningCurrentFromReceptions(database.connection, DEFAULT_WARNING_CURRENT_TARGET_AREA);
-    pollingService.start();
+    pollingService = new JmaXmlPollingService(database.connection);
+    await pollingService.start();
   }
 
   let closed = false;
@@ -126,12 +138,17 @@ async function main(): Promise<void> {
       return;
     }
     closed = true;
-    await pollingService.stop();
+    if (pollingService) {
+      await pollingService.stop();
+    }
     await closeServer(server);
     database.close();
   };
 
   server.once('error', (error) => {
+    if (pollingService) {
+      void pollingService.stop();
+    }
     database.close();
     console.error(error);
     process.exitCode = 1;

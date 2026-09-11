@@ -60,7 +60,6 @@ export async function pollSingleFeed(
   options?: PollerContextOptions,
 ): Promise<{
   readonly feedResult: FeedPollResult;
-  readonly isFeedFetchSuccess: boolean;
   readonly errorReason: string | null;
 }> {
   const nowFn = options?.clock ?? (() => new Date().toISOString());
@@ -103,12 +102,12 @@ export async function pollSingleFeed(
     return {
       feedResult: {
         feedKind: feedDef.kind,
+        feedFetchOutcome: 'failure',
         discoveredCount: 0,
         skippedDuplicateCount: 0,
         downloadedCount: 0,
         failedDocumentCount: 0,
       },
-      isFeedFetchSuccess: false,
       errorReason: feedHttpResult.errorMessage,
     };
   }
@@ -146,12 +145,12 @@ export async function pollSingleFeed(
     return {
       feedResult: {
         feedKind: feedDef.kind,
+        feedFetchOutcome: 'failure',
         discoveredCount: 0,
         skippedDuplicateCount: 0,
         downloadedCount: 0,
         failedDocumentCount: 0,
       },
-      isFeedFetchSuccess: false,
       errorReason: parseErrMsg,
     };
   }
@@ -347,12 +346,12 @@ export async function pollSingleFeed(
   return {
     feedResult: {
       feedKind: feedDef.kind,
+      feedFetchOutcome: 'success',
       discoveredCount,
       skippedDuplicateCount,
       downloadedCount,
       failedDocumentCount,
     },
-    isFeedFetchSuccess: true,
     errorReason: null,
   };
 }
