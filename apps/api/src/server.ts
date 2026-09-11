@@ -60,6 +60,25 @@ function waitForServerListening(server: Server): Promise<void> {
   });
 }
 
+function monitorServerErrors(server: Server): {
+  readonly promise: Promise<never>;
+  dispose(): void;
+} {
+  let rejectPromise: (error: Error) => void;
+  const onError = (error: Error) => rejectPromise(error);
+  const promise = new Promise<never>((_resolve, reject) => {
+    rejectPromise = reject;
+    server.once('error', onError);
+  });
+
+  return {
+    promise,
+    dispose() {
+      server.off('error', onError);
+    },
+  };
+}
+
 export async function startServer(options: StartServerOptions = {}): Promise<StartedServer> {
   const database = initializeDatabase(options.config);
   const app = createApp();
@@ -74,28 +93,40 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     // 初期取得より先に待受失敗を監視する。失敗時は直ちに catch で全資源を解放する。
     await serverListeningPromise;
 
-    if (enablePolling) {
-      const rawTargetArea =
-        options.pollingServiceOptions?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA;
-      const currentTargetArea: WarningCurrentTargetArea =
-        'prefectureCode' in rawTargetArea && typeof rawTargetArea.prefectureCode === 'string'
-          ? (rawTargetArea as WarningCurrentTargetArea)
-          : {
-              ...rawTargetArea,
-              prefectureCode: DEFAULT_WARNING_CURRENT_TARGET_AREA.prefectureCode,
-            };
+    const serverErrorMonitor = monitorServerErrors(actualServer);
+    try {
+      await Promise.race([
+        serverErrorMonitor.promise,
+        (async () => {
+          if (!enablePolling) {
+            return;
+          }
 
-      await reprocessPendingWarningTelegramReceptions(
-        database.connection,
-        currentTargetArea,
-        options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
-      );
-      rebuildWarningCurrentFromReceptions(database.connection, currentTargetArea);
+          const rawTargetArea =
+            options.pollingServiceOptions?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA;
+          const currentTargetArea: WarningCurrentTargetArea =
+            'prefectureCode' in rawTargetArea && typeof rawTargetArea.prefectureCode === 'string'
+              ? (rawTargetArea as WarningCurrentTargetArea)
+              : {
+                  ...rawTargetArea,
+                  prefectureCode: DEFAULT_WARNING_CURRENT_TARGET_AREA.prefectureCode,
+                };
 
-      pollingService =
-        options.pollingService ??
-        new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
-      await pollingService.start();
+          await reprocessPendingWarningTelegramReceptions(
+            database.connection,
+            currentTargetArea,
+            options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
+          );
+          rebuildWarningCurrentFromReceptions(database.connection, currentTargetArea);
+
+          pollingService =
+            options.pollingService ??
+            new JmaXmlPollingService(database.connection, options.pollingServiceOptions);
+          await pollingService.start();
+        })(),
+      ]);
+    } finally {
+      serverErrorMonitor.dispose();
     }
   } catch (error) {
     if (pollingService) {
@@ -117,19 +148,27 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   }
 
   let closed = false;
+  const close = async () => {
+    if (!closed) {
+      closed = true;
+      if (pollingService) {
+        await pollingService.stop();
+      }
+      await closeServer(actualServer);
+      database.close();
+    }
+  };
+  actualServer.once('error', (error) => {
+    void close().catch((closeError: unknown) => {
+      console.error('Failed to close API server after an error:', closeError);
+    });
+    console.error(error);
+  });
+
   return {
     port: address.port,
     pollingService,
-    async close() {
-      if (!closed) {
-        closed = true;
-        if (pollingService) {
-          await pollingService.stop();
-        }
-        await closeServer(actualServer);
-        database.close();
-      }
-    },
+    close,
   };
 }
 
@@ -156,15 +195,30 @@ async function main(): Promise<void> {
   try {
     await waitForServerListening(server);
 
-    if (process.env.DISABLE_POLLING !== 'true') {
-      await reprocessPendingWarningTelegramReceptions(
-        database.connection,
-        DEFAULT_WARNING_CURRENT_TARGET_AREA,
-        () => new Date().toISOString(),
-      );
-      rebuildWarningCurrentFromReceptions(database.connection, DEFAULT_WARNING_CURRENT_TARGET_AREA);
-      pollingService = new JmaXmlPollingService(database.connection);
-      await pollingService.start();
+    const serverErrorMonitor = monitorServerErrors(server);
+    try {
+      await Promise.race([
+        serverErrorMonitor.promise,
+        (async () => {
+          if (process.env.DISABLE_POLLING === 'true') {
+            return;
+          }
+
+          await reprocessPendingWarningTelegramReceptions(
+            database.connection,
+            DEFAULT_WARNING_CURRENT_TARGET_AREA,
+            () => new Date().toISOString(),
+          );
+          rebuildWarningCurrentFromReceptions(
+            database.connection,
+            DEFAULT_WARNING_CURRENT_TARGET_AREA,
+          );
+          pollingService = new JmaXmlPollingService(database.connection);
+          await pollingService.start();
+        })(),
+      ]);
+    } finally {
+      serverErrorMonitor.dispose();
     }
 
     console.log(
