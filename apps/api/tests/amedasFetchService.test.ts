@@ -573,3 +573,127 @@ test('12. 推計フラグ保存結果のDBクエリ検証', async () => {
     cleanup();
   }
 });
+
+test('13. backfillBlocks: 最新を含む過去ブロックを古い順に取得・マージし、各試行を記録する', async () => {
+  const { connection, cleanup } = setupDb();
+  try {
+    const state = new AmedasFetchState('east');
+    const requestedBlockKeys: string[] = [];
+    const shiftBlockHours = (hours: number): string => {
+      const original = JSON.parse(point44136Json) as Record<string, unknown>;
+      const shifted: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(original)) {
+        const date = new Date(
+          Date.UTC(
+            Number(key.slice(0, 4)),
+            Number(key.slice(4, 6)) - 1,
+            Number(key.slice(6, 8)),
+            Number(key.slice(8, 10)) - 9 + hours,
+            Number(key.slice(10, 12)),
+            Number(key.slice(12, 14)),
+          ),
+        );
+        const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+        const shiftedKey = `${jst.getUTCFullYear()}${String(jst.getUTCMonth() + 1).padStart(2, '0')}${String(jst.getUTCDate()).padStart(2, '0')}${String(jst.getUTCHours()).padStart(2, '0')}${String(jst.getUTCMinutes()).padStart(2, '0')}${String(jst.getUTCSeconds()).padStart(2, '0')}`;
+        shifted[shiftedKey] = value;
+      }
+      return JSON.stringify(shifted);
+    };
+
+    const result = await runAmedasFetchCycle(connection, state, {
+      fetchFn: async (url) => {
+        const stringUrl = String(url);
+        if (stringUrl.includes('latest_time.txt')) {
+          return new Response('2026-09-11T20:40:00+09:00', { status: 200 });
+        }
+        const blockKey = /\/(\d{8}_\d{2})\.json$/.exec(stringUrl)?.[1];
+        assert.ok(blockKey);
+        requestedBlockKeys.push(blockKey);
+        return new Response(
+          blockKey === '20260911_12'
+            ? shiftBlockHours(-6)
+            : blockKey === '20260911_15'
+              ? shiftBlockHours(-3)
+              : point44136Json,
+          { status: 200 },
+        );
+      },
+      backfillBlocks: 2,
+      clock: () => '2026-09-11T12:00:00.000Z',
+    });
+
+    assert.deepEqual(requestedBlockKeys, ['20260911_12', '20260911_15', '20260911_18']);
+    assert.equal(result.pointData.succeeded, true);
+    assert.ok(result.snapshot);
+    assert.equal(result.snapshot.metadata.validFrom, '2026-09-11T03:00:00.000Z');
+    assert.equal(result.snapshot.metadata.validTo, '2026-09-11T11:40:00.000Z');
+
+    const attempts = connection
+      .prepare(
+        "SELECT request_url, outcome FROM fetch_attempt WHERE source_kind = 'amedas_point' ORDER BY id",
+      )
+      .all() as Array<{ request_url: string; outcome: string }>;
+    assert.deepEqual(
+      attempts.map((attempt) => [
+        /(\d{8}_\d{2})\.json$/.exec(attempt.request_url)?.[1],
+        attempt.outcome,
+      ]),
+      [
+        ['20260911_12', 'success'],
+        ['20260911_15', 'success'],
+        ['20260911_18', 'success'],
+      ],
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('14. backfillBlocks: 過去ブロックの失敗でも他の成功ブロックを保存する', async () => {
+  const { connection, cleanup } = setupDb();
+  try {
+    const state = new AmedasFetchState('east');
+    const result = await runAmedasFetchCycle(connection, state, {
+      fetchFn: async (url) => {
+        const stringUrl = String(url);
+        if (stringUrl.includes('latest_time.txt')) {
+          return new Response('2026-09-11T20:40:00+09:00', { status: 200 });
+        }
+        if (stringUrl.endsWith('/20260911_15.json')) {
+          return new Response('upstream failure', { status: 500 });
+        }
+        return new Response(point44136Json, { status: 200 });
+      },
+      backfillBlocks: 1,
+      clock: () => '2026-09-11T12:00:00.000Z',
+    });
+
+    assert.equal(result.pointData.succeeded, true);
+    assert.ok(result.snapshot);
+    assert.ok(result.snapshot.observations.length > 0);
+    const attempts = connection
+      .prepare("SELECT outcome FROM fetch_attempt WHERE source_kind = 'amedas_point' ORDER BY id")
+      .all() as Array<{ outcome: string }>;
+    assert.deepEqual(attempts, [{ outcome: 'failure' }, { outcome: 'success' }]);
+  } finally {
+    cleanup();
+  }
+});
+
+test('15. backfillBlocks: 8 を超える値は取得前に拒否する', async () => {
+  const { connection, cleanup } = setupDb();
+  try {
+    await assert.rejects(
+      runAmedasFetchCycle(connection, new AmedasFetchState('east'), {
+        backfillBlocks: 9,
+      }),
+      /backfillBlocks must be an integer between 0 and 8/,
+    );
+    const attemptCount = (
+      connection.prepare('SELECT COUNT(*) AS count FROM fetch_attempt').get() as { count: number }
+    ).count;
+    assert.equal(attemptCount, 0);
+  } finally {
+    cleanup();
+  }
+});

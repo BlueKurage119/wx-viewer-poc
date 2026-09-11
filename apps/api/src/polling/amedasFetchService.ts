@@ -132,7 +132,12 @@ export async function runAmedasFetchCycle(
   const retentionHours = options?.retentionHours ?? 25;
   const staleAfterSeconds = options?.staleAfterSeconds ?? 600;
   const pointFetchPolicy = options?.pointFetchPolicy ?? 'always';
+  const backfillBlocks = options?.backfillBlocks ?? 0;
   const triggerKind = options?.triggerKind ?? 'manual';
+
+  if (!Number.isInteger(backfillBlocks) || backfillBlocks < 0 || backfillBlocks > 8) {
+    throw new RangeError('backfillBlocks must be an integer between 0 and 8');
+  }
 
   const target = resolveAmedasTarget(state.venueId);
 
@@ -354,6 +359,99 @@ export async function runAmedasFetchCycle(
 
   // 3. ブロックキー算出
   const blockKey = resolveBlockKey(parsedLatestTime!);
+
+  // 過去ブロックは古い順に取得する。最新ブロックは下の既存処理が担当し、
+  // 結果の返却契約（blockKey / normalization / fetchAttemptId）を変えない。
+  const pointBlockKeys = Array.from({ length: backfillBlocks + 1 }, (_, index) => {
+    const offsetBlocks = backfillBlocks - index;
+    return resolveBlockKey(
+      new Date(
+        Date.parse(parsedLatestTime!) - offsetBlocks * 3 * 60 * 60 * 1000,
+      ).toISOString() as UtcIso8601String,
+    );
+  });
+  const backfillObservations: AmedasObservationInput[] = [];
+
+  for (const previousBlockKey of pointBlockKeys.slice(0, -1)) {
+    const previousPointUrl = sanitizeUrl(buildPointBlockUrl(target.stationCode, previousBlockKey));
+    const previousStartedAt = clock();
+    const previousStartTimeMs = Date.now();
+    const previousHttpRes = await performHttpGet(previousPointUrl, {
+      fetchFn: options?.fetchFn,
+      timeoutMs,
+      accept: 'application/json, text/plain, */*',
+    });
+    const previousFinishedAt = clock();
+    const previousDurationMs = Math.max(0, Date.now() - previousStartTimeMs);
+    const previousContentHash = previousHttpRes.bodyText
+      ? crypto.createHash('sha256').update(previousHttpRes.bodyText).digest('hex')
+      : null;
+
+    if (!previousHttpRes.ok || !previousHttpRes.bodyText) {
+      recordFetchAttempt(connection, {
+        sourceKind: AMEDAS_POINT_SOURCE_KIND,
+        targetRef: target.stationCode,
+        requestUrl: previousPointUrl,
+        triggerKind,
+        attemptNo: 1,
+        startedAt: previousStartedAt,
+        finishedAt: previousFinishedAt,
+        durationMs: previousDurationMs,
+        outcome: 'failure',
+        httpStatus: previousHttpRes.status,
+        responseBytes: previousHttpRes.responseBytes,
+        itemCount: null,
+        failedItemCount: null,
+        contentHash: previousContentHash,
+        errorKind: previousHttpRes.errorKind,
+        errorMessage: previousHttpRes.errorMessage,
+      });
+      continue;
+    }
+
+    const previousParseResult = parseAmedasPointBlock(previousHttpRes.bodyText, target);
+    if (!previousParseResult.ok) {
+      recordFetchAttempt(connection, {
+        sourceKind: AMEDAS_POINT_SOURCE_KIND,
+        targetRef: target.stationCode,
+        requestUrl: previousPointUrl,
+        triggerKind,
+        attemptNo: 1,
+        startedAt: previousStartedAt,
+        finishedAt: previousFinishedAt,
+        durationMs: previousDurationMs,
+        outcome: 'failure',
+        httpStatus: previousHttpRes.status,
+        responseBytes: previousHttpRes.responseBytes,
+        itemCount: null,
+        failedItemCount: null,
+        contentHash: previousContentHash,
+        errorKind: 'invalid_structure',
+        errorMessage: previousParseResult.reason,
+      });
+      continue;
+    }
+
+    recordFetchAttempt(connection, {
+      sourceKind: AMEDAS_POINT_SOURCE_KIND,
+      targetRef: target.stationCode,
+      requestUrl: previousPointUrl,
+      triggerKind,
+      attemptNo: 1,
+      startedAt: previousStartedAt,
+      finishedAt: previousFinishedAt,
+      durationMs: previousDurationMs,
+      outcome: 'success',
+      httpStatus: previousHttpRes.status,
+      responseBytes: previousHttpRes.responseBytes,
+      itemCount: previousParseResult.value.observations.length,
+      failedItemCount: 0,
+      contentHash: previousContentHash,
+      errorKind: null,
+      errorMessage: null,
+    });
+    backfillObservations.push(...previousParseResult.value.observations);
+  }
 
   // 4. 地点ブロックJSON の GET
   const pointUrl = buildPointBlockUrl(target.stationCode, blockKey);
@@ -579,6 +677,9 @@ export async function runAmedasFetchCycle(
       qualityFlag: obs.qualityFlag,
       isEstimated: obs.isEstimated,
     });
+  }
+  for (const obs of backfillObservations) {
+    obsMap.set(`${obs.observedAt}__${obs.element}`, obs);
   }
   for (const obs of normalization.observations) {
     obsMap.set(`${obs.observedAt}__${obs.element}`, obs);

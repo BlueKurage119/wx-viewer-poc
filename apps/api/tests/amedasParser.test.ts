@@ -287,3 +287,22 @@ test('parseAmedasPointBlock: 構造検証による ok: false（例外なし）',
     false,
   );
 });
+
+test('parseAmedasPointBlock: AQC が null 以外の非数値なら未知形状として行を作らない', () => {
+  const eastTarget = resolveAmedasTarget('east');
+  const result = parseAmedasPointBlock(
+    JSON.stringify({
+      '20260911180000': {
+        prefNumber: 44,
+        observationNumber: 136,
+        temp: [20.0, 'invalid-aqc'],
+      },
+    }),
+    eastTarget,
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.value.observations, []);
+  assert.equal(result.value.unknownShapeCount, 1);
+});

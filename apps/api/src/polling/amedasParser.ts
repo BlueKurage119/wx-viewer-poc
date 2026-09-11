@@ -141,6 +141,13 @@ export function parseAmedasPointBlock(
           continue;
         }
 
+        // AQC は null または数値だけを受け入れる。文字列などを null 扱いすると、
+        // 壊れた上流データを通常観測値として保存してしまう。
+        if (aqc !== null && typeof aqc !== 'number') {
+          unknownShapeCount++;
+          continue;
+        }
+
         // 規則 2: aqc === null
         if (aqc === null) {
           unsupportedElementCount++;
