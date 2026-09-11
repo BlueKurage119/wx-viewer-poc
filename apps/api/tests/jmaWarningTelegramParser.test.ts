@@ -405,3 +405,33 @@ test('未判定の対象原文を keyset で一度だけ処理し、履歴だけ
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('現況適用で未対応コードとなった電文を未対応コードとして記録する', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wx-warning-parser-'));
+  const database = initializeDatabase({
+    databasePath: join(directory, 'test.sqlite3'),
+    migrationsDirectory,
+  });
+  try {
+    const reception = recordTelegramReception(database.connection, {
+      ...receptionInput(999),
+      rawBody: telegramXml({
+        kinds: '<Kind><Name>未知警報</Name><Code>99</Code><Status>発表</Status></Kind>',
+      }),
+    });
+
+    processWarningTelegramReception(
+      database.connection,
+      reception,
+      '2026-09-09T02:00:00.000Z',
+      DEFAULT_WARNING_TARGET_AREA,
+    );
+
+    const recorded = findTelegramReceptionById(database.connection, reception.id);
+    assert.equal(recorded?.adoptionResult, '未対応コード');
+    assert.match(recorded?.adoptionReason ?? '', /未対応の警報等コードです: 99/);
+  } finally {
+    database.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
