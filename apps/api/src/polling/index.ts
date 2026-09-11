@@ -44,3 +44,24 @@ export * from './nowcastSource.js';
 export * from './nowcastParser.js';
 export * from './nowcastTileStore.js';
 export * from './nowcastService.js';
+export type {
+  KikikuruLayer,
+  KikikuruFrameKey,
+  KikikuruCatalog,
+  KikikuruTileResult,
+  KikikuruOptions,
+  KikikuruAttemptOptions,
+} from './kikikuruTypes.js';
+export {
+  KIKIKURU_TARGET_TIMES_URL,
+  KIKIKURU_TILE_URL_TEMPLATE,
+  buildKikikuruTileUrl,
+  buildKikikuruTileRelativePath,
+} from './kikikuruSource.js';
+export {
+  type ParsedKikikuruFrame,
+  type ParseKikikuruTargetTimesResult,
+  parseKikikuruTargetTimes,
+} from './kikikuruParser.js';
+export { KikikuruTileStore } from './kikikuruTileStore.js';
+export { KikikuruService } from './kikikuruService.js';
