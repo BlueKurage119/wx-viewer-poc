@@ -3577,6 +3577,25 @@ test('23-3b. 再試行時刻が通常周期より早い場合、失敗してい�
     await scheduler.advanceTime(60_000);
     assert.equal(server.requestCounts.get('/feed/regular.xml'), 3);
     assert.equal(server.requestCounts.get('/feed/extra.xml'), 2);
+
+    const internals = service as unknown as {
+      nextScheduledPollAtMs: number | null;
+      pollFeeds: () => Promise<never>;
+      runScheduledOrRetryCycle: () => Promise<void>;
+    };
+    let internalFailureCount = 0;
+    internals.nextScheduledPollAtMs = scheduler.getCurrentTimeMs();
+    internals.pollFeeds = async () => {
+      internalFailureCount += 1;
+      throw new Error('simulated database failure');
+    };
+
+    await internals.runScheduledOrRetryCycle();
+    assert.equal(internalFailureCount, 1);
+    await scheduler.advanceTime(0);
+    assert.equal(internalFailureCount, 1);
+    await scheduler.advanceTime(300_000);
+    assert.equal(internalFailureCount, 2);
   } finally {
     if (service) await service.stop();
     await server.close();

@@ -125,6 +125,7 @@ export class JmaXmlPollingService {
   private readonly successfulInitialFeedKinds = new Set<JmaXmlFeedKind>();
   private nextScheduledPollAtMs: number | null = null;
   private scheduledPollDueOnNextRun = false;
+  private nextCycleNotBeforeMs: number | null = null;
 
   constructor(connection: DatabaseConnection, options?: JmaXmlPollingServiceOptions) {
     this.connection = connection;
@@ -378,6 +379,10 @@ export class JmaXmlPollingService {
       delayMs = Math.min(scheduledDelayMs, minRetryDelayMs);
     }
 
+    if (this.nextCycleNotBeforeMs !== null) {
+      delayMs = Math.max(delayMs, Math.max(0, this.nextCycleNotBeforeMs - nowMs));
+    }
+
     this.timerId = this.timerScheduler.setTimeout(() => {
       this.timerId = null;
       if (!this.isRunning) {
@@ -455,8 +460,10 @@ export class JmaXmlPollingService {
           this.nextScheduledPollAtMs = nowMs + this.intervalMs;
         }
       }
+      this.nextCycleNotBeforeMs = null;
     } catch (err) {
       console.error('[JmaXmlPollingService] ポーリング実行中にエラーが発生しました:', err);
+      this.nextCycleNotBeforeMs = new Date(nowFn()).getTime() + this.intervalMs;
     } finally {
       if (this.isRunning) {
         this.scheduleNextCycle();
