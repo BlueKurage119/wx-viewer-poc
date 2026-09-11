@@ -315,6 +315,30 @@
       "editor": "Antigravity (Gemini 3.8 Flash)",
       "retrievedAt": "2026-09-12T01:23:00+09:00",
       "purpose": "hrpnsなしの場合に成功の空一覧となることの検証用合成データ"
+    },
+    {
+      "path": "kikikuru/kikikuru_target_times_synthetic.json",
+      "kind": "synthetic",
+      "sourceUrl": "https://www.jma.go.jp/bosai/jmatile/data/risk/targetTimes.json",
+      "sourceFileName": "targetTimes.json",
+      "sourceSha256": null,
+      "fixtureSha256": "a28528d9722c277d2654f03b839d95395bdba9fd56aaeb2cbcd517d8d91ca2ac",
+      "transform": "3レイヤー混在、複数member(immed0/immed1/none)、重複行、対象外elementを含む合成データ",
+      "editor": "Antigravity (Gemini 3.8 Flash)",
+      "retrievedAt": "2026-09-12T02:50:00+09:00",
+      "purpose": "キキクル時刻一覧の3レイヤーフレーム抽出・重複除去・member維持・並び順のパース検証用合成データ"
+    },
+    {
+      "path": "kikikuru/kikikuru_target_times_empty.json",
+      "kind": "synthetic",
+      "sourceUrl": "https://www.jma.go.jp/bosai/jmatile/data/risk/targetTimes.json",
+      "sourceFileName": "targetTimes.json",
+      "sourceSha256": null,
+      "fixtureSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "transform": "空配列 []",
+      "editor": "Antigravity (Gemini 3.8 Flash)",
+      "retrievedAt": "2026-09-12T02:50:00+09:00",
+      "purpose": "正常な空配列のパース検証用合成データ"
     }
   ]
 }

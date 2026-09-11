@@ -1,0 +1,44 @@
+[
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907031000",
+    "member": "immed1",
+    "elements": ["heavyrain"]
+  },
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907030000",
+    "member": "immed0",
+    "elements": ["heavyrain", "land"]
+  },
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907032000",
+    "member": "none",
+    "elements": ["inund"]
+  },
+  {
+    "basetime": "20260907025000",
+    "validtime": "20260907030000",
+    "member": "immed0",
+    "elements": ["land"]
+  },
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907030000",
+    "member": "immed0",
+    "elements": ["heavyrain", "land"]
+  },
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907033000",
+    "member": "immed0",
+    "elements": ["flood", "river_depth"]
+  },
+  {
+    "basetime": "20260907030000",
+    "validtime": "20260907025000",
+    "member": "immed0",
+    "elements": ["inund", "land"]
+  }
+]
