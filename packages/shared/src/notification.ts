@@ -60,3 +60,22 @@ export interface NotificationOutputSnapshot {
   readonly summary: string;
   readonly messageDefinition: NotificationMessageDefinitionRef | null;
 }
+
+export interface NotificationDisplayMessage {
+  readonly title: string;
+  readonly target: string | null;
+  readonly content: string | null;
+}
+
+export interface NotificationAcknowledgeAction {
+  readonly kind: 'acknowledge';
+  readonly label: '確認';
+}
+
+export type NotificationAction = NotificationAcknowledgeAction | null;
+
+export interface ResolvedNotificationOutputSnapshot extends NotificationOutputSnapshot {
+  readonly messageDefinition: NotificationMessageDefinitionRef;
+  readonly display: NotificationDisplayMessage;
+  readonly action: NotificationAction;
+}
