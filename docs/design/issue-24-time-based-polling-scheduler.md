@@ -4,7 +4,7 @@
 
 対象 Issue: #24「C14. 時間帯別取得周期スケジューラ」
 
-改訂: PR #125 レビュー後のヒアリングを反映した設計案。製造への移行は本改訂の承認後とする。
+改訂: PR #125 レビュー後のヒアリングと最終承認を反映。取得周期・独立設定・固定秒鮮度・画像取得分離はユーザー承認済みであり、これらについて製造前の追加承認は不要。
 
 ## 1. 目的・確定事項
 
@@ -12,7 +12,7 @@
 
 【確定】既定では20:00〜翌04:00（JST）の全上流取得を停止する。オンデマンド取得も停止対象で、保存済みデータ・検証済み画像キャッシュは読み出せる。夜間稼働が必要になった場合は設定ファイルで変更できるようにし、画面からは変更しない。
 
-索引と画像の混同を訂正し、前の草稿にあった「索引の定期取得廃止」「readCatalogは常にstale」「staleAfterMs廃止」の案は取り消す。XML・索引の周期初期値は双方120/60/120秒・夜間停止とし、設定は分離する。アメダスの既定日中周期、XMLの初期取得・バックオフ、前回値保持、検証済み画像キャッシュを維持する。鮮度閾値の値・判定は未確定であり、本書§5.2の製造前判断事項を解決するまで実装へ進まない。
+索引と画像の混同を訂正し、前の草稿にあった「索引の定期取得廃止」「readCatalogは常にstale」「staleAfterMs廃止」の案は取り消す。XML・索引の周期初期値は双方120/60/120秒・夜間停止とし、設定は分離する。アメダスの既定日中周期、XMLの初期取得・バックオフ、前回値保持、検証済み画像キャッシュを維持する。鮮度はXML・索引それぞれ固定300秒を初期値とし、独立変更できる。300秒は今回承認された運用初期値であり、実測による最適値ではない。
 
 対象外は REST の新設（E7/E8）、地図・画面（F2/F3）、画像の先読み・解析通知、設定変更 UI/API、ホットリロード、手動操作 API（E11/K2）、アメダス複数会場収集である。今回のオンデマンド入口は内部サービス API として実装・検証する。表示中の自動更新頻度は未確定であり、この Issue でクライアントタイマーを追加しない。
 
@@ -24,9 +24,9 @@
 | docs/issues-draft.md C14 / E7・E8 / F2・F3 | C14 は取得制御を担当し、REST と画面接続は後続に残す。 |
 | docs/basic-design.md §6.3、§8.1〜8.3 | available / stale / unavailable と前回値保持を維持。§8.3 の未確定周期案に対して本ヒアリング結果を適用する。 |
 | docs/design/issue-19-amedas-normalization.md、既存 AmedasScheduledAdapter | latest_time と地点取得は別成功。600秒の地点再確認と単一会場 east を維持する。 |
-| docs/design/issue-20-nowcast-tiles.md、issue-21-kikikuru-tiles.md と実サービス | 一覧・フレーム検証、PNG検証、キャッシュ、通信履歴を再利用。鮮度閾値は未確定、catalog_stale 抑止との分離は本改訂の設計案とする。 |
+| docs/design/issue-20-nowcast-tiles.md、issue-21-kikikuru-tiles.md と実サービス | 一覧・フレーム検証、PNG検証、キャッシュ、通信履歴を再利用。固定300秒の初期値とcatalog_staleによる画像抑止の撤廃は今回の最終承認を反映する。 |
 | docs/design/issue-22-initial-recovery.md、issue-23-exponential-backoff-retry.md | XML 初期4フィード、通常高頻度2フィード、失敗フィード限定 recovery と単一タイマー調停を維持する。 |
-| apps/api/src/polling/timeBasedPollingScheduler.ts | 現在は4対象。factory が雨雲・キキクルを生成し、一律300,000 msを注入している。4対象を維持し、同じサービスを索引adapterと画像要求側へ注入する。一律5分は未承認である。 |
+| apps/api/src/polling/timeBasedPollingScheduler.ts | 現在は4対象。factory が雨雲・キキクルを生成し、一律300,000 msを注入している。4対象を維持し、同じサービスを索引adapterと画像要求側へ注入する。従来の未承認値を、今回明示承認されたXML用・索引用の独立300秒設定へ置き換える。 |
 | apps/api/src/polling/nowcastService.ts、kikikuruService.ts と各 Types | 公開入口は refreshTimes / readCatalog / fetchFrameTiles。サービス自身にタイマーはない。一覧の経過時間で stale を算出し、stale 時の画像キャッシュミスを拒否する実装を改訂する。 |
 | apps/api/src/server.ts、app.ts | startServer と main の両方が off_hours 特別分岐でXMLを開始する。app の HTTP 入口は現時点で health のみ。内部サービスを保持・公開する結線が必要。 |
 | PR #125 の修正 cfc1105 / 38dee5d | 境界をまたぐ実行中取得の完了後再予約と、地点データを実際に試行した回だけ再確認時刻を更新する修正を維持する。 |
@@ -55,6 +55,11 @@
 ```yaml
 timezone: Asia/Tokyo
 amedasPointRecheckSeconds: 600
+freshness:
+  xml:
+    staleAfterSeconds: 300
+  imageCatalog:
+    staleAfterSeconds: 300
 periods:
   - start: "04:00"
     end: "05:00"
@@ -90,7 +95,7 @@ xmlSecondsはXML通常、imageCatalogSecondsは雨雲索引・キキクル索引
 
 夜間も日中主時間帯と同じ方針にするには20:00〜04:00のxmlSeconds / imageCatalogSeconds / amedasSecondsをそれぞれ60にし、nowcastEnabled / kikikuruEnabledをtrueにする。これは変更方法の例であり既定値変更ではない。xmlSecondsだけ数値ならXMLだけ、imageCatalogSecondsだけ数値なら両索引だけが稼働する。画像許可がfalseなら画像上流取得は停止したままとなる。
 
-鮮度設定はXML用と画像索引用を別キーにする（§5.2）。上のYAMLは確定済みの周期・画像許可部分の例であり、鮮度項目を含む製造用設定としては未完成。鮮度の初期具体値が決まったら追記する。
+鮮度設定もXML用と画像索引用を別キーにする（§5.2）。両方300秒を初期値として明記するが、値の等しさを検証で強制せず、一方の編集が他方へ影響しない。
 
 ### 3.3 内部型・YAML読み込み
 
@@ -113,7 +118,7 @@ export interface PollingScheduleConfig {
   readonly timezone: 'Asia/Tokyo';
   readonly amedasPointRecheckSeconds: number;
   readonly periods: readonly PollingPeriod[];
-  // freshness: XML用・索引用の独立設定。§5.2の設計案確定後に必須追加。
+  readonly freshness: FreshnessConfig; // §5.2の固定秒ポリシー
 }
 export function loadPollingScheduleConfig(
   configUrl?: URL,
@@ -139,7 +144,7 @@ loaderはUTF-8読込 → YAML単一文書の解析 → unknownとして厳密検
 
 検証規則:
 
-- ルートは timezone / amedasPointRecheckSeconds / periods の3キー、各periodは上記7キーが過不足なく存在するplain object。mode、旧intervalsSeconds等の未知キーも拒否する。YAML重複キーはparser段階で拒否する。鮮度設定確定時にはルート許可キーへfreshnessを追加し、その内側はxml / imageCatalogを必須とする。
+- ルートは timezone / amedasPointRecheckSeconds / freshness / periods の4キー、各periodは上記7キーが過不足なく存在するplain object。mode、旧intervalsSeconds等の未知キーも拒否する。YAML重複キーはparser段階で拒否する。freshness内はxml / imageCatalog、その各値はstaleAfterSecondsだけを持つobjectとし、過不足・型違いを拒否する。staleAfterSecondsは正の有限整数かつ秒からミリ秒への変換結果も安全な整数であることを検証する。xmlとimageCatalogに異なる値を許可する。
 - timezoneはAsia/Tokyo固定。periodsは空でない配列。start/endは実在するquoted HH:mmとして記載し、読込後string型かつ正規形式を検証する。start=endは曖昧な全日指定として拒否する。24時間運転を指定する場合も2つ以上の非零長区間へ分ける。
 - 日跨ぎ区間を0時で分割して検査し、24時間に重複・欠落がないことを確認する。配列順序には依存しない。全区間を同じ方針にする場合も正常に受理する。
 - 全区間共通で各周期はnullまたは1〜86,400の有限整数秒。文字列の数値、NaN、Infinity等を拒否する。夜間数値と日中nullを許可し、時刻・名前から停止を推定しない。
@@ -174,7 +179,7 @@ export function getNextEnabledAt(
 
 ### 4.1 構成と状態
 
-TimeBasedPollingSchedulerのScheduledSourceと状態マップはxml / nowcast / kikikuru / amedasの4対象を維持する。ScheduledPollAdapterはnowcast / kikikuru / amedasを各1つ要求し、重複・欠落・未知対象を拒否する。XMLは既存xmlPollingServiceを別注入する。NowcastScheduledAdapter / KikikuruScheduledAdapterは共用サービスのrefreshTimes({ triggerKind: 'scheduled' })を呼び、画像は取得しない。XMLはxmlSeconds、両索引はimageCatalogSecondsを参照し、factoryの一律5分鮮度閾値は承認済みと扱わない。
+TimeBasedPollingSchedulerのScheduledSourceと状態マップはxml / nowcast / kikikuru / amedasの4対象を維持する。ScheduledPollAdapterはnowcast / kikikuru / amedasを各1つ要求し、重複・欠落・未知対象を拒否する。XMLは既存xmlPollingServiceを別注入する。NowcastScheduledAdapter / KikikuruScheduledAdapterは共用サービスのrefreshTimes({ triggerKind: 'scheduled' })を呼び、画像は取得しない。XMLはxmlSeconds、両索引はimageCatalogSecondsを参照し、鮮度はYAMLのXML用・索引用ポリシーをそれぞれ注入し、factory側に300秒のフォールバックを残さない。
 
 start / stop / getStatus の入口を維持する。返却状態のmodeをperiod: PollingPeriodへ、nextModeChangeAtをnextPeriodChangeAtへ変更し、未実装の後続監視も新しい型を参照する。状態は waiting / running / scheduled_stopped とし、intervalSeconds が null の対象だけ scheduled_stopped にする。取得中以外のnon-XML対象は各自の完了時刻＋適用周期をnextRunAtとするため、共通周期でも予定時刻は異なり得る。停止対象の nextRunAt は getNextEnabledAt({ kind: 'scheduled', source }, ...)、全日停止または明示 stop 後は null とする。nextPeriodChangeAt は設定上の次境界であり次回取得時刻とは区別する。
 
@@ -204,7 +209,8 @@ latest_time.txt を周期ごとに確認し、通常は onLatestTimeChange、最
 // 両サービスのOptionsに追加する取得許可の内部契約
 readonly getCatalogAccess: () => UpstreamAccess; // imageCatalogSecondsによる索引許可
 readonly getImageAccess: () => UpstreamAccess; // *Enabledによる画像許可
-// staleAfterMsの最終型・値・導出方法は§5.2の製造前判断事項。
+readonly freshnessPolicy: FreshnessPolicy; // freshness.imageCatalogを注入
+// 従来のレイヤー別staleAfterMsはこの索引共通ポリシーへ置き換える。
 
 // 両Catalogに追加する取得許可状態
 readonly catalogAccess: UpstreamAccess;
@@ -223,19 +229,15 @@ fetchFrameTiles(
 
 索引はtriggerKind: 'scheduled'、画像閲覧要求は既存の'manual'で通信履歴を記録する。キャッシュ読取・スケジュール停止のみでは通信失敗履歴を捏造しない。索引・画像許可関数は必須注入し、停止時間の直接呼出しでも設定を参照する。両取得許可のnextAllowedAtは、それぞれscheduled / imageのtargetで求める。
 
-### 5.2 鮮度設定・判定
+### 5.2 鮮度設定・判定（承認済み）
 
-【確定】XMLと画像索引は鮮度閾値の初期設定を揃え、それぞれ独立して変更できるようにする。雨雲・キキクル索引はimageCatalog側の設定を共用する。XMLに合わせるのは初期設定であり、恒久連動ではない。アメダスの鮮度設定は今回変更しない。
+XMLと画像索引は固定秒方式とし、freshness.xml.staleAfterSeconds / freshness.imageCatalog.staleAfterSecondsの初期値をそれぞれ300にする。設定は独立し、雨雲N1/N2・キキクル3レイヤーはimageCatalog側を共用する。アメダスの鮮度設定は変更しない。300秒は今回ユーザーが承認した運用初期値であり、実測最適値・上流提供保証ではない。basic-design.md §8.1の未確定な周期×3を採用したものではない。
 
-【未確定・製造前判断事項】XML自身の具体的な鮮度閾値・判定規則はまだ確定していない。issue-23-exponential-backoff-retry.mdはavailability遷移閾値を後続判断とし、basic-design.md §8.1の周期×3は未確定案である。「既存XMLの確定値」が存在すると仮定しない。一律300,000 ms、周期×3、代替秒数・Infinityを推定採用しない。
-
-前草稿の「staleAfterMs廃止」「readCatalogなら常にstale」「今回の閲覧要求だけavailable」の案は取り消す。readCatalogは保存索引の最終取得成否と、承認する鮮度判定を反映する。HTTPを実行しないこと自体をstaleの理由にせず、読取でlastSuccessAt / fetchedAtを変更しない。
-
-【設計案】判定コードをapps/api/src/polling/freshnessPolicy.tsへ共通化し、設定をYAMLルートのfreshness.xml / freshness.imageCatalogで分ける。以下は固定秒方式を選ぶ場合の具体的な注入契約であり、方式自体は製造前判断の対象とする。
+apps/api/src/polling/freshnessPolicy.tsに判定コードを共通化する。
 
 ```ts
 export interface FreshnessPolicy {
-  readonly staleAfterSeconds: number; // 正の有限整数。具体値未確定
+  readonly staleAfterSeconds: number;
 }
 export interface FreshnessConfig {
   readonly xml: FreshnessPolicy;
@@ -245,35 +247,61 @@ export interface FreshnessInput {
   readonly now: UtcIso8601String;
   readonly lastSuccessAt: UtcIso8601String | null;
   readonly latestAttemptFailed: boolean;
-  readonly scheduledStopped: boolean;
 }
 export function evaluateFreshness(
   input: FreshnessInput, policy: FreshnessPolicy,
 ): Availability;
 ```
 
-固定秒方式が承認された場合はPollingScheduleConfigにfreshness: FreshnessConfigを必須追加し、YAMLにfreshness.xml.staleAfterSeconds / freshness.imageCatalog.staleAfterSecondsをそれぞれ明示する。初期値は同値で記載するが、等値をvalidationで強制せず、別オブジェクトとして注入する。imageCatalog側の変更でXML判定が変化しないこと、その逆も保証する。初期値・停止時の扱い・閾値到達時の比較を確定後、本節とYAML例へ追記する。周期連動方式を採用する判断になった場合は、本案の型を先に改訂し、XMLはxmlSeconds、索引はimageCatalogSecondsを別々に参照する。
+判定は次の優先順位で完全に定義する。
 
-XML側はフィード別最終成功・失敗の公開状態からこの判定を適用し、#23のバックオフ・失敗集合・timerを変更しない。索引側はNowcastService / KikikuruServiceへfreshness.imageCatalogを注入する。既存staleAfterMsを新しい契約へ置き換える具体差分は方式確定後に決める。XML側のフィード別結果を全体availabilityへ集約する規則が必要な場合も、既存の確定規則がなければ合わせて製造前に決める。
+1. lastSuccessAtがnullならunavailable。初期未取得・初回取得失敗も含む。
+2. 正常取得歴がありlatestAttemptFailedがtrueなら経過時間にかかわらずstale。
+3. それ以外は now - lastSuccessAt が staleAfterSeconds × 1,000 以上ならstale、未満ならavailable。
 
-維持する契約:
+固定300秒なら299,999 msはavailable、300,000 msはstale。失敗回数を許容する設定ではなく、最後の正常取得からの時間と直近失敗を評価する。時刻は既存clockのUTC時刻を使い、負の経過時間も閾値未満として扱う。
 
-- 索引の正常取得・解析成功で正常値を保存し、正常な空一覧も成功とする。
-- 取得失敗で前回正常値があればstaleとして前回フレーム・lastSuccessAtを保持し、正常値がなければunavailableとする。
-- N1/N2およびキキクル各レイヤーの既存成否判定を維持し、一部成功を全体成功に縮約しない。
-- 画像取得成功で索引のlastSuccessAtを更新しない。意図的停止はcatalogAccess / imageAccessで障害と区別する。
+夜間停止中も同じ計算を続ける。停止時刻を起点にせず、時計を凍結せず、停止だけで即座に一律staleにしない。scheduledStoppedは判定入力に含めず、取得許可状態で別途表現する。readCatalog/getStatusの読取でDB・lastSuccessAt・fetchedAtを書き換えない。
 
-製造前に必要なのは初期共通値と判定方式・意図的停止中の経過時間の扱いの決定であり、「独立設定にしてよいか」「初期設定を揃えてよいか」の再確認ではない。値未確定のまま鮮度設定キーへ仮値を入れて製造を開始しない。
+#### 索引への結線
+
+NowcastOptions / KikikuruOptionsにfreshnessPolicy: FreshnessPolicyを必須注入し、従来のレイヤー別staleAfterMsを置き換える。N1/N2とキキクル各レイヤーはそれぞれの保存lastSuccessAtと直近の取得成否を入力にする。readCatalogは共通関数でavailabilityを評価し、HTTPなしで保存値を参照することをstaleの理由にしない。
+
+既存の「直近取得失敗なら保存availability=stale、成功ならavailable」をlatestAttemptFailedの入力として利用できる。経過時間だけのstaleをDBへ書き戻さず、直近失敗と混同しない。未取得はlastSuccessAt=nullを優先する。正常な空索引も成功として保存し、失敗時は前回フレーム・lastSuccessAtを保持する。画像の成功/失敗で索引の最終成功・成否を変更しない。
+
+#### XMLへの結線と公開型
+
+JmaXmlPollingServiceOptionsにfreshnessPolicy: FreshnessPolicyを必須注入し、serverはfreshness.xmlを渡す。通常のregular / extraだけをそれぞれ評価する。既存のgetStatus().feedStatusesからlastSuccessAtとconsecutiveFailuresを読み、latestAttemptFailed = consecutiveFailures > 0とする。成功でconsecutiveFailuresが0へ戻る既存契約を利用し、最終失敗時刻の大小から直近成否を推測しない。
+
+recordSuccess後も過去のlastFailureAtは残るため、lastFailureAtが非nullという理由だけでstaleにしてはならない。回復テストではlastFailureAtが残った状態でavailableへ戻ることを確認する。constructorのoptions省略や既存テストの省略注入も改訂し、明示的なポリシーを必ず受ける。設定未注入を300秒の既定値で隠さない。
+
+```ts
+export interface XmlFeedFreshnessStatus {
+  readonly availability: Availability;
+  readonly lastSuccessAt: UtcIso8601String | null;
+  readonly staleAfterSeconds: number;
+}
+export interface JmaXmlPollingStatus {
+  // 既存isRunning / initialFetch / lastCycleResult / feedStatusesを維持
+  readonly feedFreshness: Readonly<
+    Record<'regular' | 'extra', XmlFeedFreshnessStatus>
+  >;
+}
+```
+
+getStatusで同じnowを取得し、feedStatusesとfeedFreshnessを組み立てる。regular_l / extra_lは既存feedStatusesに残すが、feedFreshnessへ追加せず、通常2フィード用の鮮度閾値を適用しない。XML全体availabilityの集約フィールドは追加しない。初期4フィードが未完了でもregularが正常取得済みならそのフィードを個別に評価し、未成功のextraはunavailableとする。初期完了状態は既存initialFetchが別に表す。
+
+フィードの取得鮮度は、個別気象警報が現在有効か解除済みかとは別概念である。この判定から警報DBを書き換えたり解除を発生させたりしない。#23のバックオフ、失敗集合、nextAllowedFetchAt、タイマー、初期/recovery処理も変更しない。
 
 ### 5.3 画像取得・停止境界
 
 既存の保存索引との完全一致、雨雲の表示窓、要素/member、座標・許可zoom、PNG/ハッシュ検証、重複座標の順序維持は変更しない。自由な上流URLを受け付けない。
 
-【設計案・承認対象】索引の鮮度判定と画像取得許可を分離する。検証済みキャッシュは許可時・停止時とも返す。画像キャッシュミスでは索引staleだけを理由に拒否せず、保存索引にある有効フレームなら画像上流取得を試みる。不存在やHTTP失敗は既存画像失敗結果で返す。kind: downloaded / cachedが画像結果、availabilityは索引状態を表す。この分離は鮮度値の未確定とは別の承認対象とする。
+【確定】索引の鮮度判定と画像取得許可を分離する。検証済みキャッシュは許可時・停止時とも返す。画像キャッシュミスでは索引staleだけを理由に拒否せず、保存索引にある有効フレームなら画像上流取得を試みる。不存在やHTTP失敗は既存画像失敗結果で返す。kind: downloaded / cachedが画像結果、availabilityは索引状態を表す。この分離もユーザー承認済みである。画像HTTP失敗は画像結果として返し、索引availabilityへ書き戻さない。
 
 画像はgetImageAccessをキュー投入時だけでなく各キャッシュミスHTTP開始直前に評価し、停止後の未開始HTTPを行わない。画像結果はkind: unavailable / errorKind: 'scheduled_stopped'。既に開始したHTTPは完了・保存を許可し、破損キャッシュも停止中は再取得しない。
 
-索引refreshTimesはジョブ開始時にgetCatalogAccessを評価する。許可中に開始した定期ジョブは§4.2どおり完了を許可し、停止後に新しい索引ジョブを開始しない。拒否時は保存索引の読取結果を返し、そのavailabilityは§5.2の承認後の規則による。
+索引refreshTimesはジョブ開始時にgetCatalogAccessを評価する。許可中に開始した定期ジョブは§4.2どおり完了を許可し、停止後に新しい索引ジョブを開始しない。拒否時は保存索引の読取結果を返し、そのavailabilityは§5.2の規則による。
 
 同一索引ジョブの重複はschedulerの対象別in-flightで防ぐ。閲覧はreadCatalogなので追加索引ジョブを生成しない。同一画像は既存直列化と保存後キャッシュ確認で成功時の重複取得を防ぎ、失敗後の独立再要求は新たな試行としてよい。索引更新と画像取得は同じサービスの既存キューを利用し、保存索引・キャッシュの競合制御を別インスタンスに分裂させない。
 
@@ -292,19 +320,20 @@ enablePolling: false / DISABLE_POLLING=true は既存定期停止を維持する
 | config/polling.yaml（リポジトリルート、新規） | 外部運用設定、既定4時間帯 |
 | apps/api/src/config/pollingSchedule.ts、pollingScheduleLoader.ts（新規） | 時間帯配列型、厳密検証、YAML読込、次回許可計算 |
 | polling/timeBasedPollingScheduler.ts | 4定期対象維持、XML・索引の独立周期、対象別停止・予定、任意境界、共用サービス注入 |
-| polling/nowcastService.ts、kikikuruService.ts | 索引と画像の許可分離、共用インスタンス、承認後の鮮度判定反映 |
-| polling/freshnessPolicy.ts（新規候補） | XML・索引用の共通判定コード、独立設定注入（方式・具体値は製造前確定） |
-| polling/nowcastTypes.ts、kikikuruTypes.ts | 索引・画像の必須許可関数とCatalog状態、鮮度型は製造前判断後に確定 |
+| polling/nowcastService.ts、kikikuruService.ts | 索引と画像の許可分離、共用インスタンス、固定秒鮮度判定の結線 |
+| polling/freshnessPolicy.ts（新規候補） | XML・索引用の共通判定コード、独立設定注入（XML・索引それぞれ初期300秒） |
+| polling/jmaXmlPollingService.ts | 必須ポリシー注入、regular/extraのfeedFreshness公開。backoff・DB更新規則は変更しない |
+| polling/nowcastTypes.ts、kikikuruTypes.ts | 索引・画像の必須許可関数とCatalog状態、固定秒ポリシー型 |
 | polling/imageServices.ts（新規候補） | 索引・画像共用サービスcompositionと終了待機を集約 |
 | polling/index.ts、server.ts | export、両起動経路の起動前設定読込・共通結線・終了処理 |
 | apps/api/package.json、package-lock.json、README.md | YAML直接依存・型、外部設定の配布・変更手順 |
 | apps/api/tests の既存関連テストと追加統合テスト | 改訂契約・レビュー回帰を検証 |
 
-DB schema / repositories / packages/shared / apps/web / REST endpoint は変更しない。XMLサービスは既存lifecycle・周期供給・公開フィード状態を利用する。鮮度の共通判定への接続は方式確定後の必要最小限にとどめ、#23の取得・backoff自体は変更しない。
+DB schema / repositories / packages/shared / apps/web / REST endpoint は変更しない。XMLサービスは既存lifecycle・周期供給・公開フィード状態を利用する。鮮度の共通判定へ公開状態を接続し、#23の取得・backoff自体は変更しない。
 
 ## 7. 製造手順と受け入れ条件
 
-§5.2の鮮度判定と§5.3の画像取得分離について製造前判断を完了し、本書の型・設定・受け入れ条件を確定してから、設定・scheduler変更、共用サービスとcomposition変更、統合検証の順に行う。以下の未確定項目を未実行のまま検収合格にしてはならない。fake clock/timer、fixture fetch、一時DBを用い、実上流・実運用DBを使わない。
+設定・scheduler変更、共用サービスと鮮度判定の結線、統合検証の順に行う。本書の製造方針はユーザー承認済みで追加承認は不要。共通関数の単体テストだけで済ませず、XMLと索引の実サービス状態を使って結線を検証する。fake clock/timer、fixture fetch、一時DBを用い、実上流・実運用DBを使わない。
 
 1. JST 04:00 / 05:00 / 18:00 / 20:00 / 00:00 / 03:59:59.999 の時間帯start/end、XML・両索引・アメダス周期、画像許可が §3.1 と完全一致する。
 2. 閲覧なしで起動・境界・1日分のtimerを進める。XML通常と両索引が120/60/120秒、アメダスが300/60/300秒で動作し、画像HTTPは0回。索引はXMLが失敗・長時間実行中でも独立して取得する。non-XMLは各自の完了時刻＋周期の次回予定が一致する。
@@ -315,25 +344,25 @@ DB schema / repositories / packages/shared / apps/web / REST endpoint は変更�
 7. XMLの実サービス＋fixtureで初期4フィード、高頻度通常2フィード、失敗フィードだけrecovery、バックオフ時刻、単一timerを確認する。C12/C13の正常・訓練・試験分離と現況再構成の既存テストを通す。
 8. アメダス時刻不変で10分再確認。10分目のlatest_time失敗で地点未試行、11分目の復旧では同時刻でも地点再確認する。時刻更新時も取得する。
 9. 閲覧でreadCatalogを複数回呼んでも索引HTTPが増えない。schedulerの雨雲N1/N2各1回・キキクル索引1回の更新が同じサービスのreadCatalogに反映され、保存フレームをfetchFrameTilesで取得できる。
-10. 【方式・値確定後】freshness.xmlだけ変更して索引判定が変わらず、freshness.imageCatalogだけ変更してXML判定が変わらないことを同一時刻・同一最終成功時刻のfixtureで確認する。初期設定は同値とする。索引失敗前回値stale、初回失敗unavailable、正常空一覧を含む成功保存、readCatalogでDB時刻が不変であることを確認する。【未確定・製造前に条件追記必須】成功後の経過時間・周期切替・夜間停止に対するavailable/stale境界は§5.2の回答から具体値と完全一致アサーションを追記する。
-11. 【§5.3承認後】索引取得失敗でstaleとなった保存索引の有効フレームについて、画像許可中はキャッシュミス画像を取得する。HTTP失敗は画像失敗として返り、索引lastSuccessAtを更新しない。経過時間によるstaleの場合は§5.2確定後の閾値で追加検証する。
-12. 夜間のrefreshTimes / fetchFrameTiles直接呼出しで上流0回。正常キャッシュはcached、未取得/破損キャッシュはscheduled_stopped。画像のキュー待ちや複数座標の途中で20:00を越えた場合も未開始画像HTTPが0回、開始済み画像HTTPは完了できる。開始済み索引ジョブは完了を許可するが新規索引ジョブは0回。
-13. 不正フレーム・範囲外座標・不正PNG・破損キャッシュ・順序/重複・保存失敗後始末の既存C10/C11テストを新しい契約で通す。
-14. startServer経由のimageServicesで日中取得・夜間停止・カスタム夜間許可を確認する。mainの共通compositionも同じ設定解決を使用する。無通信起動とclose後は新規HTTP0回、終了待機中にDBを先に閉じない。
-15. 一時YAMLを用いてsrc/distのloaderがcwdをリポジトリroot・apps/api・一時ディレクトリへ変えても同じ既定URLを解決することを確認する。既定設定本体をテストで書き換えず、URL注入で設定編集→プロセス再起動のみの値反映を検証する。ファイルなし・構文不正・検証不正ではDB/待受/上流呼出しが0回で起動に失敗する。既定YAMLとdistの配布配置も検査する。
-16. npm run build / typecheck / lint / format:check、およびnpm run test -w apps/apiを通す。
+10. 共通判定でlastSuccessAt=nullは未取得/失敗ともunavailable、正常値あり直近失敗は即stale、正常取得後299,999 msはavailable、300,000 msはstaleと完全一致する。freshness.xmlを600へ変更して同じ300,000 msでXMLだけavailableになり、索引はstaleのまま。逆にimageCatalogだけ600へ変更すると索引だけavailableになる。既定値は双方300。
+11. JmaXmlPollingServiceとNowcastService / KikikuruServiceの実インスタンス、fixture取得・一時DB・注入clockで上記境界を再現する。XMLはregular成功/extra初回失敗でavailable/unavailable、その後extra成功でavailable、成功後の失敗でstale、回復成功でavailable。索引もN1/N2・キキクル各レイヤーで初回失敗/成功/失敗/回復を確認する。夜間に時計を進めても最後の正常取得から299,999/300,000 msで判定し、停止直後の一律staleや停止起点への変更がない。getStatus/readCatalogでDB時刻・警報状態・backoff予定が変わらず、feedFreshnessにregular/extraの2キーだけが存在し、XML全体availabilityを追加していないことを確認する。
+12. 索引失敗または閾値到達でstaleとなった保存索引の有効フレームについて、画像許可中はキャッシュミス画像を取得する。画像HTTP失敗は画像結果だけに反映し、索引availability / lastSuccessAtを変更しない。正常空一覧の成功保存と読取時DB無変更も確認する。
+13. 夜間のrefreshTimes / fetchFrameTiles直接呼出しで上流0回。正常キャッシュはcached、未取得/破損キャッシュはscheduled_stopped。画像のキュー待ちや複数座標の途中で20:00を越えた場合も未開始画像HTTPが0回、開始済み画像HTTPは完了できる。開始済み索引ジョブは完了を許可するが新規索引ジョブは0回。
+14. 不正フレーム・範囲外座標・不正PNG・破損キャッシュ・順序/重複・保存失敗後始末の既存C10/C11テストを新しい契約で通す。
+15. startServer経由のimageServicesで日中取得・夜間停止・カスタム夜間許可を確認する。mainの共通compositionも同じ設定解決を使用する。無通信起動とclose後は新規HTTP0回、終了待機中にDBを先に閉じない。
+16. 一時YAMLを用いてsrc/distのloaderがcwdをリポジトリroot・apps/api・一時ディレクトリへ変えても同じ既定URLを解決することを確認する。既定設定本体をテストで書き換えず、URL注入で設定編集→プロセス再起動のみの値反映を検証する。ファイルなし・構文不正・検証不正ではDB/待受/上流呼出しが0回で起動に失敗する。既定YAMLとdistの配布配置も検査する。
+17. npm run build / typecheck / lint / format:check、およびnpm run test -w apps/apiを通す。
 
-新しい重要テストは、意味を変えない表示ラベル変更で成功を維持する対照実験後に、(a)停止判定を外す、(b)20:00〜04:00停止を設定によらず固定する、(c)§5.3承認後に索引staleによる画像拒否を戻す、(d)境界in-flight完了の再予約を外す、(e)地点未試行でも時刻更新する、の対応ミューテーションでredを確認する。一時変更・一時ファイルを残さない。
+新しい重要テストは、意味を変えない表示ラベル変更で成功を維持する対照実験後に、(a)停止判定を外す、(b)20:00〜04:00停止を設定によらず固定する、(c)索引staleによる画像拒否を戻す、(d)境界in-flight完了の再予約を外す、(e)地点未試行でも時刻更新する、に加え、(f)鮮度境界を>=から>へ変更、(g)XML/索引の注入ポリシーを取り違える、の対応ミューテーションでredを確認する。一時変更・一時ファイルを残さない。
 
 ## 8. 後続への引き継ぎ・未確認事項
 
-- 【未確定・製造前判断事項】XMLと索引に初期適用する同じ鮮度値、固定値か周期連動か、意図的停止中の扱いを統括で確認する。設定はXML用・画像索引用を分け、後からそれぞれ変更できることは確定している。一律5分や周期×3を未承認のまま採用しない。
-- 【設計案・製造前承認対象】§5.3の「索引staleと画像上流取得許可を分離する」を確認する。承認後に鮮度判定と画像取得の両方の受け入れ条件を完成させる。
+- 取得周期・鮮度の独立設定、固定300秒の初期値、夜間も経過時間判定、画像取得分離は承認済み。製造前に追加判断を必要とする事項はない。後続UI/RESTの未確定事項を本Issueの製造停止条件にしない。
 - E7/E8は共用サービスのreadCatalog / fetchFrameTilesへRESTを結線する。自由URLプロキシにしない。F2/F3は保存索引参照→選択→画像要求の順に接続し、catalogAccess / imageAccess / availability / lastSuccessAtを表示判断へ使う。
 - 【未確定・後続確認】画面の保存索引再読込・表示中の自動更新頻度はUI/API設計時に決める。サーバー上流の索引周期は今回確定しており、画面更新のたびにrefreshTimesを呼び出さない。
 - K6/E10は現在periodと実際の許可を参照し、固定モード名を復活させない。XML・索引・アメダスそれぞれのnextRunAtを表示できる状態にする。画像には定期nextRunAtを設定しない。
 - E11の手動強制更新・復旧選択、設定ホットリロードは未設計。現在の停止設定を迂回する入口を本Issueで作らない。
-- C10/C11既存設計の鮮度契約は§5.2の確定まで変更内容未決とする。基本設計§8.3の索引周期案は本ヒアリングのXMLと初期同値・独立変更可能な周期へ更新するが、画像本体の定期取得は行わない。
+- C10/C11既存設計の鮮度契約は本書§5.2の固定秒・索引共通ポリシーで更新する。基本設計§8.3の索引周期案は本ヒアリングのXMLと初期同値・独立変更可能な周期へ更新するが、画像本体の定期取得は行わない。
 - 実上流による夜間復帰・古い画像の取得可能期間は実挙動未確認。保存フレームの存在は上流画像の存続保証ではなく、失敗を通常結果として扱う。
 
 設計改訂: Codex (GPT-6)
