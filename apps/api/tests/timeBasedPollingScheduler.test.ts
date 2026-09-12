@@ -141,6 +141,7 @@ class FakeXmlPollingService {
   stopCount = 0;
   initialFetchCount = 0;
   scheduledFetchCount = 0;
+  failNextStart = false;
   executing = false;
   nextRunAt: UtcIso8601String | null = null;
 
@@ -165,6 +166,11 @@ class FakeXmlPollingService {
   start(options?: { immediateScheduled?: boolean }): Promise<InitialFetchResult> {
     this.isRunning = true;
     this.startCount++;
+    if (this.failNextStart) {
+      this.failNextStart = false;
+      this.isRunning = false;
+      return Promise.reject(new Error('initial XML fetch failed'));
+    }
     if (options?.immediateScheduled) {
       this.scheduledFetchCount++;
     } else {
@@ -411,6 +417,38 @@ test('明示再開時は XML 通常取得を即時投入する', async () => {
 
   assert.equal(xmlService.initialFetchCount, 1, '初回だけ初期取得する');
   assert.equal(xmlService.scheduledFetchCount, 1, '再開時に通常取得を即時投入する');
+  await scheduler.stop();
+});
+
+test('停止から稼働への境界で XML 初期取得が失敗しても recovery を予約する', async () => {
+  const timer = new FakeTimerScheduler('2026-09-12T13:00:00.000Z'); // 22:00 JST
+  const xmlService = new FakeXmlPollingService(timer);
+  const scheduler = new TimeBasedPollingScheduler({
+    schedule: defaultSchedule,
+    adapters: [
+      new FakeScheduledAdapter('nowcast'),
+      new FakeScheduledAdapter('kikikuru'),
+      new FakeScheduledAdapter('amedas'),
+    ],
+    xmlPollingService: xmlService as unknown as JmaXmlPollingService,
+    now: timer.now,
+    setTimer: timer.setTimer,
+    clearTimer: timer.clearTimer,
+  });
+
+  await scheduler.start();
+  xmlService.failNextStart = true;
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    await timer.advanceTime(6 * 60 * 60 * 1000); // 翌04:00 JST
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(xmlService.startCount, 2, '失敗後に recovery 登録のため再度 start する');
+  assert.equal(xmlService.initialFetchCount, 1, '再度の start は recovery 登録に相当する');
   await scheduler.stop();
 });
 

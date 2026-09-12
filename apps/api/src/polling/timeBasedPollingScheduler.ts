@@ -322,9 +322,9 @@ export class TimeBasedPollingScheduler {
       this.xmlPollingService.setScheduledIntervalSeconds(newXmlSec);
       if (!this.xmlInitialStarted) {
         this.xmlInitialStarted = true;
-        void this.xmlPollingService.start();
+        this.startXmlAfterBoundary(nextGen);
       } else if (!this.xmlPollingService.getStatus().isRunning) {
-        void this.xmlPollingService.start({ immediateScheduled: true });
+        this.startXmlAfterBoundary(nextGen, { immediateScheduled: true });
       }
     }
 
@@ -386,6 +386,25 @@ export class TimeBasedPollingScheduler {
     }
 
     this.scheduleBoundaryCheck(nextGen);
+  }
+
+  private startXmlAfterBoundary(
+    generation: number,
+    options?: { immediateScheduled?: boolean },
+  ): void {
+    void this.xmlPollingService.start(options).catch((error: unknown) => {
+      console.error('[TimeBasedPollingScheduler] XML start failed at period boundary:', error);
+
+      if (!this.isRunning || this.generation !== generation) {
+        return;
+      }
+
+      // 初期取得の例外後は JmaXmlPollingService が failed 状態を保持する。
+      // start() を再度呼ぶと同サービスの既存 recovery timer が登録される。
+      void this.xmlPollingService.start().catch((recoveryError: unknown) => {
+        console.error('[TimeBasedPollingScheduler] XML recovery scheduling failed:', recoveryError);
+      });
+    });
   }
 
   private triggerSourcePoll(source: ScheduledSource, generation: number): Promise<void> {
