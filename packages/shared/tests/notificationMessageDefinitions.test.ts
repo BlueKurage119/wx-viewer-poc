@@ -217,14 +217,61 @@ test('受け入れ条件 3: 5つの気象防災速報定義がすべて title "�
   );
 });
 
-test('受け入れ条件 4: weather-advisory-issued と weather-warning-released は操作なし/ackRequired false、weather-special-warning-issued は確認操作/ackRequired true', () => {
-  const advisoryNotif = createWeatherNotification({ category: 'warning', changeType: 'new' });
-  const advisoryResolved = resolveNotificationMessage(advisoryNotif, {
-    definitionId: 'weather-advisory-issued',
-  });
-  assert.equal(advisoryResolved.action, null);
-  assert.equal(advisoryResolved.ackRequired, false);
-  assert.equal(advisoryResolved.display.title, '気象注意報発表');
+test('受け入れ条件 4: 気象の新規発表定義は許容 category ごとに title・操作・ackRequired を解決する', () => {
+  const issuedCases: ReadonlyArray<{
+    readonly definitionId:
+      'weather-advisory-issued' | 'weather-warning-issued' | 'weather-special-warning-issued';
+    readonly category: NotificationCategory;
+    readonly expectedTitle: string;
+    readonly expectedAction: { readonly kind: 'acknowledge'; readonly label: '確認' } | null;
+    readonly expectedAckRequired: boolean;
+  }> = [
+    {
+      definitionId: 'weather-advisory-issued',
+      category: 'warning',
+      expectedTitle: '気象注意報発表',
+      expectedAction: null,
+      expectedAckRequired: false,
+    },
+    {
+      definitionId: 'weather-advisory-issued',
+      category: 'question',
+      expectedTitle: '気象注意報発表',
+      expectedAction: { kind: 'acknowledge', label: '確認' },
+      expectedAckRequired: true,
+    },
+    {
+      definitionId: 'weather-warning-issued',
+      category: 'question',
+      expectedTitle: '気象警報発表',
+      expectedAction: { kind: 'acknowledge', label: '確認' },
+      expectedAckRequired: true,
+    },
+    {
+      definitionId: 'weather-warning-issued',
+      category: 'emergency',
+      expectedTitle: '気象警報発表',
+      expectedAction: { kind: 'acknowledge', label: '確認' },
+      expectedAckRequired: true,
+    },
+    {
+      definitionId: 'weather-special-warning-issued',
+      category: 'emergency',
+      expectedTitle: '気象特別警報発表',
+      expectedAction: { kind: 'acknowledge', label: '確認' },
+      expectedAckRequired: true,
+    },
+  ];
+
+  for (const issuedCase of issuedCases) {
+    const resolved = resolveNotificationMessage(
+      createWeatherNotification({ category: issuedCase.category, changeType: 'new' }),
+      { definitionId: issuedCase.definitionId },
+    );
+    assert.equal(resolved.display.title, issuedCase.expectedTitle);
+    assert.deepEqual(resolved.action, issuedCase.expectedAction);
+    assert.equal(resolved.ackRequired, issuedCase.expectedAckRequired);
+  }
 
   const releasedNotif = createWeatherNotification({ category: 'warning', changeType: 'released' });
   const releasedResolved = resolveNotificationMessage(releasedNotif, {
@@ -233,14 +280,6 @@ test('受け入れ条件 4: weather-advisory-issued と weather-warning-released
   assert.equal(releasedResolved.action, null);
   assert.equal(releasedResolved.ackRequired, false);
   assert.equal(releasedResolved.display.title, '気象警報等解除');
-
-  const specialNotif = createWeatherNotification({ category: 'emergency', changeType: 'new' });
-  const specialResolved = resolveNotificationMessage(specialNotif, {
-    definitionId: 'weather-special-warning-issued',
-  });
-  assert.deepEqual(specialResolved.action, { kind: 'acknowledge', label: '確認' });
-  assert.equal(specialResolved.ackRequired, true);
-  assert.equal(specialResolved.display.title, '気象特別警報発表');
 });
 
 test('受け入れ条件 5: weather-warning-strengthened / weather-warning-weakened は category に応じて操作と ackRequired を決定し、changeType 不一致を拒否する', () => {

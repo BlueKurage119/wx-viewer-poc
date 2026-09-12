@@ -50,6 +50,9 @@ Issue #25 で実装済みの `Notification` を入力に、通知として表示
 - 同じ情報の複数地域は一通知の `targets` にまとめて併記し、異なる気象情報は別通知とする。
 - 操作は表示3要素と分離して定義する。
 - 「気象防災速報発表」に竜巻を含め、固定の内容タイトル候補を「線状降水帯発生」「線状降水帯直前予測」「記録的短時間大雨」「竜巻注意」「竜巻目撃」とする。
+- `weather-advisory-issued` は通常注意報を `warning`、レベル2注意報を `question` として受け付ける。同じ表示名「気象注意報発表」を使い、操作と確認要否は区分に従う。
+- `weather-warning-issued` はレベル3警報等を `question`、レベル4危険警報を `emergency` として受け付ける。同じ表示名「気象警報発表」を使い、操作と確認要否は区分に従う。
+- `weather-special-warning-issued` は `emergency` 固定で「気象特別警報発表」とする。
 - システム通知10種の名称、通知区分、対象表示方針は §5.2 の表とする。詳細は原則任意で、通知生成側が必要な場合だけ供給する。
 - 「運転モード切替」の対象は「防災気象情報」固定とする。モード名を含む詳細の組立・出力・妥当性はモード切替実装側の責任とし、本 Issue では一般の任意詳細として扱う。
 - 「サービス停止」はサーバー異常等を想定し、対象を「防災気象情報」固定とする。
@@ -93,7 +96,7 @@ Issue #25 で実装済みの `Notification` を入力に、通知として表示
 - `warning`: `action: null`、`ackRequired: false`
 - `question` / `emergency`: `action: { kind: 'acknowledge', label: '確認' }`、`ackRequired: true`
 
-定義内で `category`、`action`、`ackRequired` の組を固定し、呼び出し元から上書きさせない。回答選択肢、送信 payload、二段階 UI、確認済み状態は後続 Issue の責務である。
+定義内で許容する `category` と、それに対応する操作規則を固定し、呼び出し元から操作や確認要否を上書きさせない。回答選択肢、送信 payload、二段階 UI、確認済み状態は後続 Issue の責務である。
 
 ### 3.5 定義版と不変スナップショット
 
@@ -208,8 +211,8 @@ TypeScript の union はコンパイル時の入力を制限するが、JavaScri
 
 | 定義 ID | category | changeType | ① title | ②対象 | ③固定内容 | 操作 |
 |---|---|---|---|---|---|---|
-| `weather-advisory-issued` | warning | new | 気象注意報発表 | 通知対象 | なし | なし |
-| `weather-warning-issued` | question | new | 気象警報発表 | 通知対象 | なし | 確認 |
+| `weather-advisory-issued` | warning / question | new | 気象注意報発表 | 通知対象 | なし | category に従う |
+| `weather-warning-issued` | question / emergency | new | 気象警報発表 | 通知対象 | なし | category に従う |
 | `weather-special-warning-issued` | emergency | new | 気象特別警報発表 | 通知対象 | なし | 確認 |
 | `weather-warning-strengthened` | 定義選択時の通知区分 | strengthened | 気象警報等強化 | 通知対象 | なし | category に従う |
 | `weather-warning-weakened` | 定義選択時の通知区分 | weakened | 気象警報等緩和 | 通知対象 | なし | category に従う |
@@ -220,7 +223,7 @@ TypeScript の union はコンパイル時の入力を制限するが、JavaScri
 | `weather-bosai-bulletin-tornado-warning` | question | new | 気象防災速報発表 | 通知対象 | 竜巻注意 | 確認 |
 | `weather-bosai-bulletin-tornado-sighting` | question | new | 気象防災速報発表 | 通知対象 | 竜巻目撃 | 確認 |
 
-`strengthened` / `weakened` は変更後情報の区分に従うという基本設計 §7.5 のため、単一の固定 category を持てない。レジストリ内部では category ごとに定義を複製せず、許容 category と、それに対応する操作規則を持つ。解決時の `notification.category` が `warning` なら操作なし、`question` / `emergency` なら確認とする。定義 ID／版は category によらず同じである。
+`weather-advisory-issued` は通常注意報 (`warning`) とレベル2注意報 (`question`) を、`weather-warning-issued` はレベル3警報等 (`question`) とレベル4危険警報 (`emergency`) を、それぞれ同じ定義 ID で扱う。`strengthened` / `weakened` も変更後情報の区分に従うという基本設計 §7.5 のため、単一の固定 category を持てない。レジストリ内部では category ごとに定義を複製せず、許容 category と、それに対応する操作規則を持つ。解決時の `notification.category` が `warning` なら操作なし、`question` / `emergency` なら確認とする。定義 ID／版は category によらず同じである。
 
 例として、レベル3大雨警報の新規発表を `weather-warning-issued`、対象 `江東区`、detail `レベル3大雨警報` で解決した結果は次になる。
 
@@ -270,7 +273,7 @@ TypeScript の union はコンパイル時の入力を制限するが、JavaScri
 - [ ] `weather-warning-issued` に `origin: 'weather'`、`category: 'question'`、`changeType: 'new'`、江東区 target、detail `レベル3大雨警報` を渡すと、§5.1 の例と表示3要素・操作・`ackRequired`・`summary`・定義 ID／版が完全一致する。
 - [ ] 同定義に江東区・大田区の順で targets を渡すと、`target === '江東区、大田区'`、`summary === '気象警報発表\n江東区、大田区\nレベル3大雨警報'` となる。順序変更・重複排除がないことも完全一致で確認する。
 - [ ] 5つの気象防災速報定義がすべて title `気象防災速報発表` を生成し、content がそれぞれ §5.1 の固定タイトルに完全一致する。任意詳細 `東京都東部` を追加した1ケースでは `固定タイトル：東京都東部` になる。
-- [ ] `weather-advisory-issued` と `weather-warning-released` は `action === null` / `ackRequired === false`、`weather-special-warning-issued` は確認操作 / `ackRequired === true` を返す。
+- [ ] `weather-advisory-issued` は `warning` の通常注意報で操作なし / `ackRequired === false`、`question` のレベル2注意報で確認操作 / `ackRequired === true` を返す。`weather-warning-issued` は `question` のレベル3警報等と `emergency` のレベル4危険警報のどちらでも確認操作 / `ackRequired === true` を返す。`weather-special-warning-issued` は `emergency` 固定で確認操作 / `ackRequired === true` を返す。各ケースの title は順に「気象注意報発表」「気象警報発表」「気象特別警報発表」で完全一致する。`weather-warning-released` は操作なし / `ackRequired === false` を返す。
 - [ ] `weather-warning-strengthened` / `weather-warning-weakened` は入力 category が `warning` の場合は操作なし、`question` / `emergency` の場合は確認を生成し、changeType が異なる入力を拒否する。
 - [ ] §5.2 のシステム通知10種について、title、許容 category、操作、確認要否、対象方式、定義 ID／版を表駆動テストで完全一致確認する。
 - [ ] サービス停止と運転モード切替は `Notification.targets` の名称にかかわらず target `防災気象情報` を生成する。運転モード切替の detail を省略でき、呼び出し元が `モード：手動` を渡した場合はその文字列を改変しない。
