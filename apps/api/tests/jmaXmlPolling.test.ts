@@ -3082,6 +3082,9 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
             config: { databasePath: fresh.databasePath, migrationsDirectory },
             port: 0,
             pollingService: crashingService,
+            schedulerOptions: {
+              now: () => new Date('2026-09-09T12:00:00+09:00'),
+            },
           }),
         /Database\/Internal fatal invariant violation/,
       );
