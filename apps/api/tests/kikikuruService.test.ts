@@ -25,6 +25,12 @@ const emptyJson = fs.readFileSync(
   'utf-8',
 );
 
+const defaultAccessOptions = {
+  getCatalogAccess: () => ({ allowed: true, nextChangeAt: null }),
+  getImageAccess: () => ({ allowed: true, nextChangeAt: null }),
+  freshnessPolicy: { staleAfterSeconds: 300 },
+};
+
 function setupTestEnv() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kikikuru-service-test-'));
   const connection = openDatabase(':memory:');
@@ -51,7 +57,7 @@ test('1. 初回失敗は unavailable、成功後の一覧失敗は旧フレー�
     let service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: failFetch,
       clock,
     });
@@ -73,7 +79,7 @@ test('1. 初回失敗は unavailable、成功後の一覧失敗は旧フレー�
     service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: successFetch,
       clock,
     });
@@ -96,7 +102,7 @@ test('1. 初回失敗は unavailable、成功後の一覧失敗は旧フレー�
     service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: failFetch,
       clock,
     });
@@ -117,14 +123,15 @@ test('1. 初回失敗は unavailable、成功後の一覧失敗は旧フレー�
     );
 
     // Case 1-4: 閾値境界の再読出し（サービス再生成）
-    const staleAfterMs = 300_000;
-    // 成功時刻 03:00:00 から 299,999ms 後 -> 03:04:59.999 (available だった場合)
+    const staleAfterSeconds = 300;
+    // 成功時刻 03:03:00 から 299,999ms 後 -> 03:07:59.999 (available だった場合)
     // まず成功で復帰させる
     currentTime = '2026-09-07T03:03:00.000Z' as UtcIso8601String;
     service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: staleAfterMs, inund: staleAfterMs, land: staleAfterMs },
+      ...defaultAccessOptions,
+      freshnessPolicy: { staleAfterSeconds },
       fetchFn: successFetch,
       clock,
     });
@@ -133,7 +140,8 @@ test('1. 初回失敗は unavailable、成功後の一覧失敗は旧フレー�
     const service2 = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: staleAfterMs, inund: staleAfterMs, land: staleAfterMs },
+      ...defaultAccessOptions,
+      freshnessPolicy: { staleAfterSeconds },
       fetchFn: successFetch,
       clock,
     });
@@ -142,14 +150,14 @@ test('1. 初回失敗は unavailable、成功後の一覧失敗は旧フレー�
 
     // 閾値直前: 4分59秒999ms後 (03:03:00 + 300,000 - 1 ms)
     currentTime = new Date(
-      new Date('2026-09-07T03:03:00.000Z').getTime() + staleAfterMs - 1,
+      new Date('2026-09-07T03:03:00.000Z').getTime() + staleAfterSeconds * 1000 - 1,
     ).toISOString() as UtcIso8601String;
     readCat = service2.readCatalog();
     assert.strictEqual(readCat.layers.heavyrain.availability, 'available');
 
     // 閾値ちょうど: 5分00秒後 (03:03:00 + 300,000 ms)
     currentTime = new Date(
-      new Date('2026-09-07T03:03:00.000Z').getTime() + staleAfterMs,
+      new Date('2026-09-07T03:03:00.000Z').getTime() + staleAfterSeconds * 1000,
     ).toISOString() as UtcIso8601String;
     readCat = service2.readCatalog();
     assert.strictEqual(readCat.layers.heavyrain.availability, 'stale');
@@ -159,7 +167,8 @@ test('1. 初回失敗は unavailable、成功後の一覧失敗は旧フレー�
     service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: staleAfterMs, inund: staleAfterMs, land: staleAfterMs },
+      ...defaultAccessOptions,
+      freshnessPolicy: { staleAfterSeconds },
       fetchFn: emptyFetch,
       clock,
     });
@@ -189,7 +198,7 @@ test('2. 一覧に存在しないフレーム、別レイヤーへ差し替え�
     const service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -272,7 +281,7 @@ test('3. 3レイヤーの有効フレームに対する PNG をそれぞれ取�
     const service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -362,7 +371,7 @@ test('4. 一覧更新を跨いでも既存タイルが保持され、一覧か�
     const service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -399,7 +408,7 @@ test('4. 一覧更新を跨いでも既存タイルが保持され、一覧か�
     const emptyService = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: async () => new Response(emptyJson, { status: 200 }),
       clock: () => currentTime,
     });
@@ -411,7 +420,7 @@ test('4. 一覧更新を跨いでも既存タイルが保持され、一覧か�
   }
 });
 
-test('5. stale のキャッシュミスは GET せず catalog_stale。stale のキャッシュありは stale で返す', async () => {
+test('5. stale の有効フレームは画像許可中にキャッシュミス画像を取得試行（downloaded）、画像停止中は scheduled_stopped。キャッシュありは stale かつ cached で返る', async () => {
   const { tmpDir, connection, cleanup } = setupTestEnv();
   try {
     let currentTime = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
@@ -424,11 +433,13 @@ test('5. stale のキャッシュミスは GET せず catalog_stale。stale の�
       return new Response(VALID_1X1_PNG, { status: 200 });
     };
 
-    const staleAfterMs = 300_000;
+    let imageAllowed = true;
     const service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: staleAfterMs, inund: staleAfterMs, land: staleAfterMs },
+      getCatalogAccess: () => ({ allowed: true, nextChangeAt: null }),
+      getImageAccess: () => ({ allowed: imageAllowed, nextChangeAt: null }),
+      freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -454,20 +465,38 @@ test('5. stale のキャッシュミスは GET せず catalog_stale。stale の�
 
     requestedUrls.length = 0;
 
-    // 座標 909, 404 (キャッシュあり) と 909, 405 (キャッシュなし) を要求
+    // 1. 画像許可中: 座標 909, 404 (キャッシュあり) と 909, 405 (キャッシュなし) を要求
+    // 索引 stale でも画像許可中はキャッシュミス画像の上流取得を試行する
     const coordMissing: TileCoordinate = { zoom: 10, tileX: 909, tileY: 405 };
-    const results = await service.fetchFrameTiles(frame, [coordSaved, coordMissing]);
+    const resultsAllowed = await service.fetchFrameTiles(frame, [coordSaved, coordMissing]);
 
     // キャッシュあり: availability='stale', kind='cached'
-    assert.strictEqual(results[0]?.kind, 'cached');
-    assert.strictEqual(results[0]?.availability, 'stale');
+    assert.strictEqual(resultsAllowed[0]?.kind, 'cached');
+    assert.strictEqual(resultsAllowed[0]?.availability, 'stale');
 
-    // キャッシュなし: GET 抑止、catalog_stale
-    assert.strictEqual(results[1]?.kind, 'unavailable');
-    assert.strictEqual(results[1]?.availability, 'stale');
-    assert.strictEqual(results[1]?.errorKind, 'catalog_stale');
+    // キャッシュなし: 許可中なので上流取得試行 -> downloaded
+    assert.strictEqual(resultsAllowed[1]?.kind, 'downloaded');
+    assert.strictEqual(resultsAllowed[1]?.availability, 'stale');
+    assert.strictEqual(requestedUrls.length, 1);
+    assert.strictEqual(
+      requestedUrls[0],
+      'https://www.jma.go.jp/bosai/jmatile/data/risk/20260907030000/immed0/20260907030000/surf/rain_mesh/10/909/405.png',
+    );
 
-    // 外部 fetch が一切呼ばれていないこと
+    // 2. 画像停止中 (imageAllowed = false)
+    imageAllowed = false;
+    requestedUrls.length = 0;
+    const coordMissing2: TileCoordinate = { zoom: 10, tileX: 909, tileY: 406 };
+    const resultsStopped = await service.fetchFrameTiles(frame, [coordSaved, coordMissing2]);
+
+    // キャッシュあり: 停止中でも cached
+    assert.strictEqual(resultsStopped[0]?.kind, 'cached');
+    assert.strictEqual(resultsStopped[0]?.availability, 'stale');
+
+    // キャッシュなし: 停止中なので GET 抑止し scheduled_stopped
+    assert.strictEqual(resultsStopped[1]?.kind, 'unavailable');
+    assert.strictEqual(resultsStopped[1]?.availability, 'stale');
+    assert.strictEqual(resultsStopped[1]?.errorKind, 'scheduled_stopped');
     assert.strictEqual(requestedUrls.length, 0);
   } finally {
     cleanup();
@@ -490,7 +519,7 @@ test('6. PNG 以外の本文や HTTP 失敗は保存されない。2 GET 中 1 �
     const service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -573,7 +602,7 @@ test('7. 制御可能な Promise で一覧更新中のタイル取得を再現�
     const service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { heavyrain: 300_000, inund: 300_000, land: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });

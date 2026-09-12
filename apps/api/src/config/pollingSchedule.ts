@@ -1,198 +1,330 @@
-export type PollingMode = 'early' | 'busy' | 'late' | 'off_hours';
-export type ScheduledSource = 'xml' | 'nowcast' | 'kikikuru' | 'amedas';
+import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { FreshnessPolicy } from '../polling/freshnessPolicy.js';
 
-export interface TimeRangeConfig {
-  readonly mode: PollingMode;
-  readonly start: `${number}:${number}`; // HH:mm、JST
-  readonly end: `${number}:${number}`;
+export type ScheduledSource = 'xml' | 'nowcast' | 'kikikuru' | 'amedas';
+export type OnDemandSource = 'nowcast' | 'kikikuru';
+
+export type AcquisitionTarget =
+  | { readonly kind: 'scheduled'; readonly source: ScheduledSource }
+  | { readonly kind: 'image'; readonly source: OnDemandSource };
+
+export interface PollingPeriod {
+  readonly start: string; // "HH:mm" (JST)
+  readonly end: string; // "HH:mm" (JST)
+  readonly xmlSeconds: number | null;
+  readonly imageCatalogSeconds: number | null;
+  readonly amedasSeconds: number | null;
+  readonly nowcastEnabled: boolean;
+  readonly kikikuruEnabled: boolean;
 }
 
 export interface PollingScheduleConfig {
-  readonly timeZone: 'Asia/Tokyo';
-  readonly ranges: readonly TimeRangeConfig[];
-  readonly intervalsSeconds: Readonly<
-    Record<PollingMode, Readonly<Record<ScheduledSource, number | null>>>
-  >;
-  readonly amedasPointRecheckSeconds?: number;
+  readonly timezone: 'Asia/Tokyo';
+  readonly amedasPointRecheckSeconds: number;
+  readonly freshness: {
+    readonly xml: FreshnessPolicy;
+    readonly imageCatalog: FreshnessPolicy;
+  };
+  readonly periods: readonly PollingPeriod[];
 }
 
-export const ALL_POLLING_MODES: readonly PollingMode[] = [
-  'early',
-  'busy',
-  'late',
-  'off_hours',
-] as const;
+export interface UpstreamAccess {
+  readonly allowed: boolean;
+  readonly period: PollingPeriod;
+  readonly nextAllowedAt: UtcIso8601String | null;
+}
 
-export const ALL_SCHEDULED_SOURCES: readonly ScheduledSource[] = [
-  'xml',
-  'nowcast',
-  'kikikuru',
-  'amedas',
-] as const;
-
-export const DEFAULT_POLLING_SCHEDULE: PollingScheduleConfig = {
-  timeZone: 'Asia/Tokyo',
-  ranges: [
-    { mode: 'early', start: '04:00', end: '05:00' },
-    { mode: 'busy', start: '05:00', end: '18:00' },
-    { mode: 'late', start: '18:00', end: '20:00' },
-    { mode: 'off_hours', start: '20:00', end: '04:00' },
-  ],
-  intervalsSeconds: {
-    early: { xml: 120, nowcast: 300, kikikuru: 300, amedas: 300 },
-    busy: { xml: 60, nowcast: 60, kikikuru: 60, amedas: 60 },
-    late: { xml: 120, nowcast: 300, kikikuru: 300, amedas: 300 },
-    off_hours: { xml: null, nowcast: null, kikikuru: null, amedas: null },
-  },
-  amedasPointRecheckSeconds: 600,
-};
-
-const MS_PER_DAY = 86_400_000;
-const MINUTES_PER_DAY = 1440;
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MINUTES_PER_DAY = 24 * 60;
 
 function parseTimeStringToMinutes(timeStr: string): number {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(timeStr);
   if (!match) {
-    throw new RangeError(`時刻形式は HH:mm (00:00〜23:59) である必要があります: ${timeStr}`);
+    throw new Error(`不正な時刻形式です (期待: HH:mm): ${timeStr}`);
   }
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   return hours * 60 + minutes;
 }
 
-export function getJstDayTimeMs(date: Date): number {
+function getJstMinutesOfDay(date: Date): number {
   const utcMs = date.getTime();
-  const jstMs = (utcMs + JST_OFFSET_MS) % MS_PER_DAY;
-  return (jstMs + MS_PER_DAY) % MS_PER_DAY;
+  const jstMs = utcMs + JST_OFFSET_MS;
+  const totalSeconds = Math.floor(jstMs / 1000);
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutesOfDay = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  return minutesOfDay;
 }
 
-export function resolvePollingMode(
-  date: Date,
-  schedule: PollingScheduleConfig = DEFAULT_POLLING_SCHEDULE,
-): PollingMode {
-  const currentJstMs = getJstDayTimeMs(date);
+function isMinuteInPeriod(currentMinute: number, startStr: string, endStr: string): boolean {
+  const start = parseTimeStringToMinutes(startStr);
+  const end = parseTimeStringToMinutes(endStr);
 
-  for (const range of schedule.ranges) {
-    const startMs = parseTimeStringToMinutes(range.start) * 60 * 1000;
-    const endMs = parseTimeStringToMinutes(range.end) * 60 * 1000;
+  if (start < end) {
+    return currentMinute >= start && currentMinute < end;
+  }
+  return currentMinute >= start || currentMinute < end;
+}
 
-    if (startMs < endMs) {
-      if (currentJstMs >= startMs && currentJstMs < endMs) {
-        return range.mode;
-      }
-    } else {
-      // 日跨ぎ区間 (例: 20:00〜04:00)
-      if (currentJstMs >= startMs || currentJstMs < endMs) {
-        return range.mode;
-      }
+export function resolvePollingPeriod(now: Date, schedule: PollingScheduleConfig): PollingPeriod {
+  const currentMinute = getJstMinutesOfDay(now);
+
+  for (const period of schedule.periods) {
+    if (isMinuteInPeriod(currentMinute, period.start, period.end)) {
+      return period;
     }
   }
 
-  throw new Error(`時間帯モードを解決できませんでした: ${date.toISOString()}`);
+  throw new Error(
+    `時刻 ${now.toISOString()} (JST ${currentMinute}分) に合致する時間帯が見つかりません`,
+  );
 }
 
-export function getNextModeChangeAt(
-  date: Date,
-  schedule: PollingScheduleConfig = DEFAULT_POLLING_SCHEDULE,
-): Date {
-  const nowMs = date.getTime();
+export function getNextPeriodChangeAt(now: Date, schedule: PollingScheduleConfig): Date {
+  const nowMs = now.getTime();
   const jstTotalMs = nowMs + JST_OFFSET_MS;
   const jstDayBaseUtcMs = Math.floor(jstTotalMs / MS_PER_DAY) * MS_PER_DAY - JST_OFFSET_MS;
 
-  const candidateBoundaries: number[] = [];
-  for (const dayOffset of [-1, 0, 1, 2]) {
+  let minCandidateMs = Infinity;
+
+  for (const dayOffset of [0, 1]) {
     const dayStartUtcMs = jstDayBaseUtcMs + dayOffset * MS_PER_DAY;
-    for (const range of schedule.ranges) {
-      const startMs = dayStartUtcMs + parseTimeStringToMinutes(range.start) * 60 * 1000;
-      if (startMs > nowMs) {
-        candidateBoundaries.push(startMs);
-      }
-      const endMs = dayStartUtcMs + parseTimeStringToMinutes(range.end) * 60 * 1000;
-      if (endMs > nowMs) {
-        candidateBoundaries.push(endMs);
+    for (const period of schedule.periods) {
+      const boundaryMs = dayStartUtcMs + parseTimeStringToMinutes(period.end) * 60 * 1000;
+      if (boundaryMs > nowMs && boundaryMs < minCandidateMs) {
+        minCandidateMs = boundaryMs;
       }
     }
   }
 
-  if (candidateBoundaries.length === 0) {
-    throw new Error('次回モード切替時刻の計算に失敗しました');
+  if (minCandidateMs === Infinity) {
+    throw new Error('次回の時間帯境界を算出できませんでした');
   }
 
-  return new Date(Math.min(...candidateBoundaries));
+  return new Date(minCandidateMs);
 }
 
-export function getNextJstTime(date: Date, timeStr: `${number}:${number}` = '04:00'): Date {
-  const nowMs = date.getTime();
+function isTargetAllowedInPeriod(target: AcquisitionTarget, period: PollingPeriod): boolean {
+  if (target.kind === 'scheduled') {
+    switch (target.source) {
+      case 'xml':
+        return period.xmlSeconds !== null;
+      case 'nowcast':
+      case 'kikikuru':
+        return period.imageCatalogSeconds !== null;
+      case 'amedas':
+        return period.amedasSeconds !== null;
+    }
+  } else {
+    switch (target.source) {
+      case 'nowcast':
+        return period.nowcastEnabled;
+      case 'kikikuru':
+        return period.kikikuruEnabled;
+    }
+  }
+}
+
+export function getNextEnabledAt(
+  target: AcquisitionTarget,
+  now: Date,
+  schedule: PollingScheduleConfig,
+): Date | null {
+  const currentPeriod = resolvePollingPeriod(now, schedule);
+  if (isTargetAllowedInPeriod(target, currentPeriod)) {
+    return new Date(now.getTime());
+  }
+
+  const nowMs = now.getTime();
   const jstTotalMs = nowMs + JST_OFFSET_MS;
   const jstDayBaseUtcMs = Math.floor(jstTotalMs / MS_PER_DAY) * MS_PER_DAY - JST_OFFSET_MS;
-  const targetMsToday = jstDayBaseUtcMs + parseTimeStringToMinutes(timeStr) * 60 * 1000;
 
-  if (targetMsToday > nowMs) {
-    return new Date(targetMsToday);
+  interface BoundaryCandidate {
+    timeMs: number;
+    period: PollingPeriod;
   }
-  return new Date(targetMsToday + MS_PER_DAY);
+  const candidates: BoundaryCandidate[] = [];
+
+  for (const dayOffset of [0, 1, 2]) {
+    const dayStartUtcMs = jstDayBaseUtcMs + dayOffset * MS_PER_DAY;
+    for (const period of schedule.periods) {
+      const startMs = dayStartUtcMs + parseTimeStringToMinutes(period.start) * 60 * 1000;
+      if (startMs > nowMs) {
+        candidates.push({ timeMs: startMs, period });
+      }
+    }
+  }
+
+  candidates.sort((a, b) => a.timeMs - b.timeMs);
+
+  for (const candidate of candidates) {
+    if (isTargetAllowedInPeriod(target, candidate.period)) {
+      return new Date(candidate.timeMs);
+    }
+  }
+
+  return null;
 }
+
+export function resolveOnDemandAccess(
+  source: OnDemandSource,
+  now: Date,
+  schedule: PollingScheduleConfig,
+): UpstreamAccess {
+  const period = resolvePollingPeriod(now, schedule);
+  const allowed = source === 'nowcast' ? period.nowcastEnabled : period.kikikuruEnabled;
+  let nextAllowedAt: UtcIso8601String | null = null;
+
+  if (allowed) {
+    nextAllowedAt = now.toISOString() as UtcIso8601String;
+  } else {
+    const nextDate = getNextEnabledAt({ kind: 'image', source }, now, schedule);
+    nextAllowedAt = nextDate ? (nextDate.toISOString() as UtcIso8601String) : null;
+  }
+
+  return {
+    allowed,
+    period,
+    nextAllowedAt,
+  };
+}
+
+const EXPECTED_PERIOD_KEYS = new Set([
+  'start',
+  'end',
+  'xmlSeconds',
+  'imageCatalogSeconds',
+  'amedasSeconds',
+  'nowcastEnabled',
+  'kikikuruEnabled',
+]);
+
+const EXPECTED_ROOT_KEYS = new Set([
+  'timezone',
+  'amedasPointRecheckSeconds',
+  'periods',
+  'freshness',
+]);
 
 export function validatePollingScheduleConfig(config: unknown): PollingScheduleConfig {
-  if (typeof config !== 'object' || config === null) {
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
     throw new TypeError('PollingScheduleConfig はオブジェクトである必要があります');
   }
 
   const c = config as Record<string, unknown>;
 
-  if (c.timeZone !== 'Asia/Tokyo') {
-    throw new Error('timeZone は "Asia/Tokyo" 固定である必要があります');
+  const rootKeys = Object.keys(c);
+  for (const key of rootKeys) {
+    if (!EXPECTED_ROOT_KEYS.has(key)) {
+      throw new Error(`未知のルート設定キーです: ${key}`);
+    }
+  }
+  for (const key of EXPECTED_ROOT_KEYS) {
+    if (!(key in c)) {
+      throw new Error(`必須ルート設定キーが不足しています: ${key}`);
+    }
   }
 
-  if (!Array.isArray(c.ranges) || c.ranges.length === 0) {
-    throw new Error('ranges は空でない配列である必要があります');
+  if (c.timezone !== 'Asia/Tokyo') {
+    throw new Error('timezone は "Asia/Tokyo" 固定である必要があります');
   }
 
-  const seenModes = new Set<PollingMode>();
+  if (
+    typeof c.amedasPointRecheckSeconds !== 'number' ||
+    !Number.isSafeInteger(c.amedasPointRecheckSeconds) ||
+    c.amedasPointRecheckSeconds <= 0
+  ) {
+    throw new Error('amedasPointRecheckSeconds は正の有限整数秒である必要があります');
+  }
+
+  if (typeof c.freshness !== 'object' || c.freshness === null || Array.isArray(c.freshness)) {
+    throw new TypeError('freshness はオブジェクトである必要があります');
+  }
+  const f = c.freshness as Record<string, unknown>;
+  if (!('xml' in f) || !('imageCatalog' in f)) {
+    throw new Error('freshness に xml または imageCatalog が不足しています');
+  }
+  for (const fKey of ['xml', 'imageCatalog']) {
+    const policy = f[fKey];
+    if (typeof policy !== 'object' || policy === null || Array.isArray(policy)) {
+      throw new TypeError(`freshness.${fKey} はオブジェクトである必要があります`);
+    }
+    const p = policy as Record<string, unknown>;
+    if (
+      typeof p.staleAfterSeconds !== 'number' ||
+      !Number.isSafeInteger(p.staleAfterSeconds) ||
+      p.staleAfterSeconds <= 0
+    ) {
+      throw new Error(`freshness.${fKey}.staleAfterSeconds は正の有限整数秒である必要があります`);
+    }
+  }
+
+  if (!Array.isArray(c.periods) || c.periods.length === 0) {
+    throw new Error('periods は空でない配列である必要があります');
+  }
+
   interface MinuteInterval {
     start: number;
     end: number;
   }
   const intervals: MinuteInterval[] = [];
 
-  for (const r of c.ranges) {
+  for (const r of c.periods) {
     if (typeof r !== 'object' || r === null) {
-      throw new TypeError('ranges の各要素はオブジェクトである必要があります');
+      throw new TypeError('periods の各要素はオブジェクトである必要があります');
     }
-    const range = r as Record<string, unknown>;
+    const period = r as Record<string, unknown>;
 
-    if (typeof range.mode !== 'string' || !ALL_POLLING_MODES.includes(range.mode as PollingMode)) {
-      throw new Error(`不正なモード指定です: ${String(range.mode)}`);
+    for (const key of Object.keys(period)) {
+      if (!EXPECTED_PERIOD_KEYS.has(key)) {
+        throw new Error(`未知の period キーです: ${key}`);
+      }
     }
-    const mode = range.mode as PollingMode;
-    if (seenModes.has(mode)) {
-      throw new Error(`モード "${mode}" が重複して定義されています`);
+    for (const key of EXPECTED_PERIOD_KEYS) {
+      if (!(key in period)) {
+        throw new Error(`必須 period キーが不足しています: ${key}`);
+      }
     }
-    seenModes.add(mode);
 
-    if (typeof range.start !== 'string' || typeof range.end !== 'string') {
+    if (typeof period.start !== 'string' || typeof period.end !== 'string') {
       throw new TypeError('start および end は HH:mm 形式の文字列である必要があります');
     }
 
-    const startMin = parseTimeStringToMinutes(range.start);
-    const endMin = parseTimeStringToMinutes(range.end);
+    const startMin = parseTimeStringToMinutes(period.start);
+    const endMin = parseTimeStringToMinutes(period.end);
 
     if (startMin === endMin) {
-      throw new Error(`start と end が同一です (${range.start})`);
+      throw new Error(`start と end が同一です (${period.start})`);
     }
 
     if (startMin < endMin) {
       intervals.push({ start: startMin, end: endMin });
     } else {
       intervals.push({ start: startMin, end: MINUTES_PER_DAY });
-      intervals.push({ start: 0, end: endMin });
+      if (endMin > 0) {
+        intervals.push({ start: 0, end: endMin });
+      }
     }
-  }
 
-  for (const expectedMode of ALL_POLLING_MODES) {
-    if (!seenModes.has(expectedMode)) {
-      throw new Error(`モード "${expectedMode}" の定義が不足しています`);
+    const checkSeconds = (name: string, val: unknown) => {
+      if (val === null) return;
+      if (typeof val !== 'number' || !Number.isSafeInteger(val) || val <= 0 || val > 86400) {
+        throw new Error(
+          `${name} は 1〜86400 の有限整数秒または null である必要があります: ${String(val)}`,
+        );
+      }
+    };
+
+    checkSeconds('xmlSeconds', period.xmlSeconds);
+    checkSeconds('imageCatalogSeconds', period.imageCatalogSeconds);
+    checkSeconds('amedasSeconds', period.amedasSeconds);
+
+    if (typeof period.nowcastEnabled !== 'boolean') {
+      throw new TypeError('nowcastEnabled は boolean である必要があります');
+    }
+    if (typeof period.kikikuruEnabled !== 'boolean') {
+      throw new TypeError('kikikuruEnabled は boolean である必要があります');
     }
   }
 
@@ -208,66 +340,11 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
     }
     currentMinute = iv.end;
   }
+
   if (currentMinute !== MINUTES_PER_DAY) {
-    throw new Error(`時間帯範囲が24時間を完全に網羅していません (終了: ${currentMinute}分)`);
-  }
-
-  // intervalsSeconds 検査
-  if (typeof c.intervalsSeconds !== 'object' || c.intervalsSeconds === null) {
-    throw new TypeError('intervalsSeconds はオブジェクトである必要があります');
-  }
-  const intervalsMap = c.intervalsSeconds as Record<string, unknown>;
-  const unexpectedModes = Object.keys(intervalsMap).filter(
-    (mode) => !ALL_POLLING_MODES.includes(mode as PollingMode),
-  );
-  if (unexpectedModes.length > 0) {
     throw new Error(
-      `intervalsSeconds に未定義のモード設定があります: ${unexpectedModes.join(', ')}`,
+      `時間帯範囲が24時間を完全に網羅していません (現在 ${currentMinute}分 / 1440分)`,
     );
-  }
-
-  for (const mode of ALL_POLLING_MODES) {
-    const modeMap = intervalsMap[mode];
-    if (typeof modeMap !== 'object' || modeMap === null) {
-      throw new Error(`intervalsSeconds にモード "${mode}" の設定が存在しません`);
-    }
-    const sourceMap = modeMap as Record<string, unknown>;
-    const unexpectedSources = Object.keys(sourceMap).filter(
-      (source) => !ALL_SCHEDULED_SOURCES.includes(source as ScheduledSource),
-    );
-    if (unexpectedSources.length > 0) {
-      throw new Error(
-        `intervalsSeconds.${mode} に未定義の取得元設定があります: ${unexpectedSources.join(', ')}`,
-      );
-    }
-
-    for (const source of ALL_SCHEDULED_SOURCES) {
-      const val = sourceMap[source];
-      if (mode === 'off_hours') {
-        if (val !== null) {
-          throw new Error(
-            `off_hours の周期はすべて null である必要があります: ${source}=${String(val)}`,
-          );
-        }
-      } else {
-        if (val === null) {
-          throw new Error(`運用時間モード "${mode}" の ${source} 周期に null は指定できません`);
-        }
-        if (typeof val !== 'number' || !Number.isSafeInteger(val) || val < 1 || val > 86400) {
-          throw new Error(
-            `運用時間モード "${mode}" の ${source} 周期は 1〜86400 の有限整数秒である必要があります: ${String(val)}`,
-          );
-        }
-      }
-    }
-  }
-
-  // amedasPointRecheckSeconds 検査
-  if (c.amedasPointRecheckSeconds !== undefined) {
-    const s = c.amedasPointRecheckSeconds;
-    if (typeof s !== 'number' || !Number.isSafeInteger(s) || s <= 0) {
-      throw new Error(`amedasPointRecheckSeconds は正の有限整数である必要があります: ${String(s)}`);
-    }
   }
 
   return config as PollingScheduleConfig;

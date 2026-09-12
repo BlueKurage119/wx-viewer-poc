@@ -1,5 +1,6 @@
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { Availability, UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
+import { evaluateFreshness, type FreshnessPolicy } from './freshnessPolicy.js';
 import { sanitizeErrorMessage } from './httpGet.js';
 import {
   getFeedDefinitionsForTrigger,
@@ -27,11 +28,18 @@ export interface InitialFetchStatus {
   readonly result: InitialFetchResult | null;
 }
 
+export interface XmlFeedFreshnessStatus {
+  readonly availability: Availability;
+  readonly lastSuccessAt: UtcIso8601String | null;
+  readonly staleAfterSeconds: number;
+}
+
 export interface JmaXmlPollingStatus {
   readonly isRunning: boolean;
   readonly initialFetch: InitialFetchStatus;
   readonly lastCycleResult: PollCycleResult | null;
   readonly feedStatuses: Readonly<Record<JmaXmlFeedKind, FeedBackoffStatus>>;
+  readonly feedFreshness: Readonly<Record<'regular' | 'extra', XmlFeedFreshnessStatus>>;
 }
 
 export interface PollingTimerScheduler {
@@ -40,6 +48,7 @@ export interface PollingTimerScheduler {
 }
 
 export interface JmaXmlPollingServiceOptions extends PollerContextOptions {
+  readonly freshnessPolicy: FreshnessPolicy;
   readonly intervalMs?: number;
   readonly timerScheduler?: PollingTimerScheduler;
 }
@@ -127,9 +136,12 @@ export class JmaXmlPollingService {
   private scheduledPollDueOnNextRun = false;
   private nextCycleNotBeforeMs: number | null = null;
 
-  constructor(connection: DatabaseConnection, options?: JmaXmlPollingServiceOptions) {
+  constructor(connection: DatabaseConnection, options: JmaXmlPollingServiceOptions) {
+    if (!options || !options.freshnessPolicy) {
+      throw new Error('freshnessPolicy は必須です');
+    }
     this.connection = connection;
-    this.options = options ?? {};
+    this.options = options;
     this.intervalMs = this.options.intervalMs ?? 60_000;
     this.timerScheduler = this.options.timerScheduler ?? defaultTimerScheduler;
   }
@@ -218,6 +230,38 @@ export class JmaXmlPollingService {
 
   getStatus(): JmaXmlPollingStatus {
     const nowFn = this.options.clock ?? (() => new Date().toISOString());
+    const nowIso = nowFn();
+    const feedStatuses = this.backoffManager.getAllStatuses(nowIso);
+
+    const regularStatus = feedStatuses.regular;
+    const extraStatus = feedStatuses.extra;
+
+    const regularFreshness: XmlFeedFreshnessStatus = {
+      availability: evaluateFreshness(
+        {
+          now: nowIso,
+          lastSuccessAt: regularStatus.lastSuccessAt,
+          latestAttemptFailed: regularStatus.consecutiveFailures > 0,
+        },
+        this.options.freshnessPolicy,
+      ),
+      lastSuccessAt: regularStatus.lastSuccessAt,
+      staleAfterSeconds: this.options.freshnessPolicy.staleAfterSeconds,
+    };
+
+    const extraFreshness: XmlFeedFreshnessStatus = {
+      availability: evaluateFreshness(
+        {
+          now: nowIso,
+          lastSuccessAt: extraStatus.lastSuccessAt,
+          latestAttemptFailed: extraStatus.consecutiveFailures > 0,
+        },
+        this.options.freshnessPolicy,
+      ),
+      lastSuccessAt: extraStatus.lastSuccessAt,
+      staleAfterSeconds: this.options.freshnessPolicy.staleAfterSeconds,
+    };
+
     return {
       isRunning: this.isRunning,
       initialFetch: {
@@ -225,7 +269,11 @@ export class JmaXmlPollingService {
         result: this.initialFetchResult,
       },
       lastCycleResult: this.lastCycleResult,
-      feedStatuses: this.backoffManager.getAllStatuses(nowFn()),
+      feedStatuses,
+      feedFreshness: {
+        regular: regularFreshness,
+        extra: extraFreshness,
+      },
     };
   }
 

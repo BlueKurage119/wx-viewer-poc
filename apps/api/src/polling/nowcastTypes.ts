@@ -1,4 +1,6 @@
 import type { Availability, UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { UpstreamAccess } from '../config/pollingSchedule.js';
+import type { FreshnessPolicy } from './freshnessPolicy.js';
 import type {
   NowcastFrameKey,
   RadarProduct,
@@ -15,6 +17,8 @@ export interface TileCoordinate {
 export interface NowcastCatalog {
   readonly now: UtcIso8601String;
   readonly window: { readonly from: UtcIso8601String; readonly to: UtcIso8601String };
+  readonly catalogAccess: UpstreamAccess;
+  readonly imageAccess: UpstreamAccess;
   readonly products: Readonly<
     Record<
       RadarProduct,
@@ -38,7 +42,9 @@ export type NowcastTileResult = {
 export interface NowcastOptions {
   readonly cacheRoot: string;
   readonly allowedZooms: readonly number[];
-  readonly staleAfterMs: Readonly<Record<RadarProduct, number>>;
+  readonly getCatalogAccess: () => UpstreamAccess;
+  readonly getImageAccess: () => UpstreamAccess;
+  readonly freshnessPolicy: FreshnessPolicy;
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
   readonly timeoutMs?: number;

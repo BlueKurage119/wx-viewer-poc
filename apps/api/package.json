@@ -17,11 +17,13 @@
     "@wx-viewer-poc/shared": "0.1.0",
     "@xmldom/xmldom": "^0.9.12",
     "better-sqlite3": "^13.0.3",
-    "express": "^5.0.1"
+    "express": "^5.0.1",
+    "js-yaml": "^4.3.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

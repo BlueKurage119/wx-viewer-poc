@@ -1,11 +1,7 @@
 import crypto from 'node:crypto';
-import {
-  resolveAvailability,
-  type Availability,
-  type FreshnessStatus,
-  type UtcIso8601String,
-} from '@wx-viewer-poc/shared';
+import type { Availability, UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
+import { evaluateFreshness } from './freshnessPolicy.js';
 import { recordFetchAttempt } from '../repositories/fetchAttemptRepository.js';
 import {
   findRadarSnapshot,
@@ -60,16 +56,19 @@ export class NowcastService {
       }
     }
 
+    if (typeof options.getCatalogAccess !== 'function') {
+      throw new Error('getCatalogAccess must be a function');
+    }
+    if (typeof options.getImageAccess !== 'function') {
+      throw new Error('getImageAccess must be a function');
+    }
     if (
-      !options.staleAfterMs ||
-      typeof options.staleAfterMs.N1 !== 'number' ||
-      !Number.isFinite(options.staleAfterMs.N1) ||
-      options.staleAfterMs.N1 <= 0 ||
-      typeof options.staleAfterMs.N2 !== 'number' ||
-      !Number.isFinite(options.staleAfterMs.N2) ||
-      options.staleAfterMs.N2 <= 0
+      !options.freshnessPolicy ||
+      typeof options.freshnessPolicy.staleAfterSeconds !== 'number' ||
+      !Number.isSafeInteger(options.freshnessPolicy.staleAfterSeconds) ||
+      options.freshnessPolicy.staleAfterSeconds <= 0
     ) {
-      throw new Error('staleAfterMs must define positive finite numbers for both N1 and N2');
+      throw new Error('freshnessPolicy.staleAfterSeconds must be a positive safe integer');
     }
 
     this.tileStore = new NowcastTileStore(options.cacheRoot);
@@ -100,6 +99,11 @@ export class NowcastService {
   }
 
   async refreshTimes(options?: NowcastAttemptOptions): Promise<NowcastCatalog> {
+    const catalogAccess = this.options.getCatalogAccess();
+    if (!catalogAccess.allowed) {
+      return this.readCatalog();
+    }
+
     await Promise.all([
       this.refreshProductTimes('N1', options),
       this.refreshProductTimes('N2', options),
@@ -267,6 +271,8 @@ export class NowcastService {
     const clock = this.getClock();
     const nowIso = clock();
     const window = calculateNowcastWindow(nowIso);
+    const catalogAccess = this.options.getCatalogAccess();
+    const imageAccess = this.options.getImageAccess();
 
     const snapN1 = findRadarSnapshot(this.connection, 'N1');
     const snapN2 = findRadarSnapshot(this.connection, 'N2');
@@ -280,25 +286,15 @@ export class NowcastService {
         };
       }
 
-      const hasLastNormalValue = snap.metadata.lastSuccessAt !== null;
-      let freshness: FreshnessStatus = 'normal';
-
-      if (snap.metadata.availability === 'stale' || snap.metadata.availability === 'unavailable') {
-        freshness = 'abnormal';
-      } else if (snap.metadata.lastSuccessAt !== null) {
-        const lastSuccessMs = new Date(snap.metadata.lastSuccessAt).getTime();
-        const nowMs = new Date(nowIso).getTime();
-        const elapsedMs = nowMs - lastSuccessMs;
-        if (elapsedMs >= this.options.staleAfterMs[product]) {
-          freshness = 'delayed';
-        } else {
-          freshness = 'normal';
-        }
-      } else {
-        freshness = 'abnormal';
-      }
-
-      const availability = resolveAvailability({ hasLastNormalValue, freshness });
+      const latestAttemptFailed = snap.metadata.availability === 'stale';
+      const availability = evaluateFreshness(
+        {
+          now: nowIso,
+          lastSuccessAt: snap.metadata.lastSuccessAt,
+          latestAttemptFailed,
+        },
+        this.options.freshnessPolicy,
+      );
 
       // 表示窓（now ± 60分）でフィルタ
       const inWindowFrames = filterNowcastFramesByWindow(snap.frames, nowIso);
@@ -320,6 +316,8 @@ export class NowcastService {
     return {
       now: nowIso,
       window,
+      catalogAccess,
+      imageAccess,
       products: {
         N1: evalProduct('N1', snapN1),
         N2: evalProduct('N2', snapN2),
@@ -440,19 +438,6 @@ export class NowcastService {
           }
         }
 
-        // キャッシュミス時の扱い
-        if (productAvailability === 'stale') {
-          // 一覧が stale の場合のキャッシュミスは新規 GET を抑止し catalog_stale
-          resultsMap.set(key, {
-            coordinate: coord,
-            availability: 'stale',
-            kind: 'unavailable',
-            tile: null,
-            errorKind: 'catalog_stale',
-          });
-          continue;
-        }
-
         toFetch.push(coord);
       }
 
@@ -477,6 +462,19 @@ export class NowcastService {
 
       try {
         for (const coord of toFetch) {
+          const key = `${coord.zoom}/${coord.tileX}/${coord.tileY}`;
+          const currentImageAccess = this.options.getImageAccess();
+          if (!currentImageAccess.allowed) {
+            resultsMap.set(key, {
+              coordinate: coord,
+              availability: productAvailability,
+              kind: 'unavailable',
+              tile: null,
+              errorKind: 'scheduled_stopped',
+            });
+            continue;
+          }
+
           const tileUrl = buildNowcastTileUrl(
             frame.baseTime,
             frame.validTime,
@@ -528,7 +526,6 @@ export class NowcastService {
             });
           }
           const attempt = getAttempts[getAttempts.length - 1]!;
-          const key = `${attempt.coord.zoom}/${attempt.coord.tileX}/${attempt.coord.tileY}`;
           if (attempt.errorKind !== null || !attempt.buffer) {
             resultsMap.set(key, {
               coordinate: attempt.coord,
@@ -648,5 +645,9 @@ export class NowcastService {
       if (operationErrors.length === 1) throw operationErrors[0];
       return coordinates.map((c) => resultsMap.get(`${c.zoom}/${c.tileX}/${c.tileY}`)!);
     });
+  }
+
+  async waitForIdle(): Promise<void> {
+    await Promise.all([this.queueN1, this.queueN2]);
   }
 }

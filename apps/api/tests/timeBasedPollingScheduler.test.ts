@@ -8,19 +8,22 @@ import { fileURLToPath } from 'node:url';
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
 import {
-  DEFAULT_POLLING_SCHEDULE,
-  resolvePollingMode,
-  getNextModeChangeAt,
-  getNextJstTime,
+  resolvePollingPeriod,
+  getNextPeriodChangeAt,
+  getNextEnabledAt,
+  resolveOnDemandAccess,
   validatePollingScheduleConfig,
   type PollingScheduleConfig,
   type ScheduledSource,
 } from '../src/config/pollingSchedule.js';
+import { loadPollingScheduleConfig } from '../src/config/pollingScheduleLoader.js';
 import {
   TimeBasedPollingScheduler,
   AmedasScheduledAdapter,
   type ScheduledPollAdapter,
 } from '../src/polling/timeBasedPollingScheduler.js';
+
+const defaultSchedule = loadPollingScheduleConfig();
 import {
   JmaXmlPollingService,
   type InitialFetchResult,
@@ -237,107 +240,184 @@ class FakeXmlPollingService {
           lastErrorReason: null,
         },
       },
+      feedFreshness: {
+        regular: { availability: 'available', lastSuccessAt: null, latestAttemptFailed: false },
+        extra: { availability: 'available', lastSuccessAt: null, latestAttemptFailed: false },
+      },
     };
   }
 }
 
 // ---------------------------------------------------------------------------
 // 受け入れ条件 1:
-// 04:00:00、05:00:00、18:00:00、20:00:00、00:00:00、03:59:59.999 の JST 時刻について
-// モードと4対象の周期値が上表と完全一致する。UTC日付をまたぐ夜間も off_hours となる。
+// JST 04:00 / 05:00 / 18:00 / 20:00 / 00:00 / 03:59:59.999 の時間帯start/end、
+// XML・両索引・アメダス周期、画像許可が §3.1 と完全一致する。
 // ---------------------------------------------------------------------------
-test('1. JST 時間帯判定と周期値の完全一致 (受け入れ条件 1)', () => {
+test('1. JST 時間帯判定と周期値・画像許可の完全一致 (受け入れ条件 1)', () => {
   const cases = [
     {
       jstLabel: '04:00:00',
       iso: '2026-09-11T19:00:00.000Z',
-      expectedMode: 'early' as const,
-      expectedIntervals: { xml: 120, nowcast: 300, kikikuru: 300, amedas: 300 },
+      expectedPeriod: {
+        start: '04:00',
+        end: '05:00',
+        xmlSeconds: 120,
+        imageCatalogSeconds: 120,
+        amedasSeconds: 300,
+        nowcastEnabled: true,
+        kikikuruEnabled: true,
+      },
     },
     {
       jstLabel: '05:00:00',
       iso: '2026-09-11T20:00:00.000Z',
-      expectedMode: 'busy' as const,
-      expectedIntervals: { xml: 60, nowcast: 60, kikikuru: 60, amedas: 60 },
+      expectedPeriod: {
+        start: '05:00',
+        end: '18:00',
+        xmlSeconds: 60,
+        imageCatalogSeconds: 60,
+        amedasSeconds: 60,
+        nowcastEnabled: true,
+        kikikuruEnabled: true,
+      },
     },
     {
       jstLabel: '18:00:00',
       iso: '2026-09-12T09:00:00.000Z',
-      expectedMode: 'late' as const,
-      expectedIntervals: { xml: 120, nowcast: 300, kikikuru: 300, amedas: 300 },
+      expectedPeriod: {
+        start: '18:00',
+        end: '20:00',
+        xmlSeconds: 120,
+        imageCatalogSeconds: 120,
+        amedasSeconds: 300,
+        nowcastEnabled: true,
+        kikikuruEnabled: true,
+      },
     },
     {
       jstLabel: '20:00:00',
       iso: '2026-09-12T11:00:00.000Z',
-      expectedMode: 'off_hours' as const,
-      expectedIntervals: { xml: null, nowcast: null, kikikuru: null, amedas: null },
+      expectedPeriod: {
+        start: '20:00',
+        end: '04:00',
+        xmlSeconds: null,
+        imageCatalogSeconds: null,
+        amedasSeconds: null,
+        nowcastEnabled: false,
+        kikikuruEnabled: false,
+      },
     },
     {
       jstLabel: '00:00:00 (UTC跨ぎの夜間)',
       iso: '2026-09-11T15:00:00.000Z',
-      expectedMode: 'off_hours' as const,
-      expectedIntervals: { xml: null, nowcast: null, kikikuru: null, amedas: null },
+      expectedPeriod: {
+        start: '20:00',
+        end: '04:00',
+        xmlSeconds: null,
+        imageCatalogSeconds: null,
+        amedasSeconds: null,
+        nowcastEnabled: false,
+        kikikuruEnabled: false,
+      },
     },
     {
       jstLabel: '03:59:59.999',
       iso: '2026-09-11T18:59:59.999Z',
-      expectedMode: 'off_hours' as const,
-      expectedIntervals: { xml: null, nowcast: null, kikikuru: null, amedas: null },
+      expectedPeriod: {
+        start: '20:00',
+        end: '04:00',
+        xmlSeconds: null,
+        imageCatalogSeconds: null,
+        amedasSeconds: null,
+        nowcastEnabled: false,
+        kikikuruEnabled: false,
+      },
     },
   ];
 
   for (const tc of cases) {
     const d = new Date(tc.iso);
-    const mode = resolvePollingMode(d, DEFAULT_POLLING_SCHEDULE);
-    assert.equal(mode, tc.expectedMode, `JST ${tc.jstLabel} のモード不一致`);
-    assert.deepEqual(
-      DEFAULT_POLLING_SCHEDULE.intervalsSeconds[mode],
-      tc.expectedIntervals,
-      `JST ${tc.jstLabel} の周期不一致`,
+    const period = resolvePollingPeriod(d, defaultSchedule);
+    assert.equal(period.start, tc.expectedPeriod.start, `JST ${tc.jstLabel} start 不一致`);
+    assert.equal(period.end, tc.expectedPeriod.end, `JST ${tc.jstLabel} end 不一致`);
+    assert.equal(
+      period.xmlSeconds,
+      tc.expectedPeriod.xmlSeconds,
+      `JST ${tc.jstLabel} xmlSeconds 不一致`,
     );
+    assert.equal(
+      period.imageCatalogSeconds,
+      tc.expectedPeriod.imageCatalogSeconds,
+      `JST ${tc.jstLabel} imageCatalogSeconds 不一致`,
+    );
+    assert.equal(
+      period.amedasSeconds,
+      tc.expectedPeriod.amedasSeconds,
+      `JST ${tc.jstLabel} amedasSeconds 不一致`,
+    );
+    assert.equal(
+      period.nowcastEnabled,
+      tc.expectedPeriod.nowcastEnabled,
+      `JST ${tc.jstLabel} nowcastEnabled 不一致`,
+    );
+    assert.equal(
+      period.kikikuruEnabled,
+      tc.expectedPeriod.kikikuruEnabled,
+      `JST ${tc.jstLabel} kikikuruEnabled 不一致`,
+    );
+
+    const nowcastAccess = resolveOnDemandAccess('nowcast', d, defaultSchedule);
+    assert.equal(nowcastAccess.allowed, tc.expectedPeriod.nowcastEnabled);
+    const kikikuruAccess = resolveOnDemandAccess('kikikuru', d, defaultSchedule);
+    assert.equal(kikikuruAccess.allowed, tc.expectedPeriod.kikikuruEnabled);
   }
 
-  // 次回モード切替時刻と次回04:00の計算検証
+  // 次回切替時刻と次回許可時刻の計算検証
   const earlyDate = new Date('2026-09-11T19:00:00.000Z'); // 04:00 JST
   assert.equal(
-    getNextModeChangeAt(earlyDate, DEFAULT_POLLING_SCHEDULE).toISOString(),
+    getNextPeriodChangeAt(earlyDate, defaultSchedule).toISOString(),
     '2026-09-11T20:00:00.000Z', // 05:00 JST
   );
+  const nightDate = new Date('2026-09-12T11:00:00.000Z'); // 20:00 JST
   assert.equal(
-    getNextJstTime(earlyDate, '04:00').toISOString(),
-    '2026-09-12T19:00:00.000Z', // 翌日 04:00 JST
+    getNextEnabledAt(
+      { kind: 'scheduled', source: 'nowcast' },
+      nightDate,
+      defaultSchedule,
+    )?.toISOString(),
+    '2026-09-12T19:00:00.000Z', // 翌 04:00 JST
   );
 });
 
 // ---------------------------------------------------------------------------
 // 受け入れ条件 2:
 // 既定設定の運用時間中に各 non-XML adapter を起動直後1回呼び、early / busy / late で
-// それぞれ300、60、300秒後に次回が1本だけ登録される。XML サービスには
-// early / busy / late の120/60/120秒が供給され、通常 scheduled は高頻度2フィードだけで長期フィードを増やさない。
+// 雨雲/キキクル索引が120/60/120秒、アメダスが300/60/300秒後に次回が1本だけ登録される。XML サービスには
+// 120/60/120秒が供給される。
 // ---------------------------------------------------------------------------
 test('2. 運用時間帯中の起動即時実行と次回登録・XML周期供給 (受け入れ条件 2)', async () => {
-  const modesToTest = [
+  const periodsToTest = [
     {
-      mode: 'early',
-      iso: '2026-09-11T19:30:00.000Z',
-      expectedInterval: 300,
+      iso: '2026-09-11T19:30:00.000Z', // 04:30 JST (early)
       expectedXmlInterval: 120,
+      expectedCatalogInterval: 120,
+      expectedAmedasInterval: 300,
     },
     {
-      mode: 'busy',
-      iso: '2026-09-12T01:00:00.000Z',
-      expectedInterval: 60,
+      iso: '2026-09-12T01:00:00.000Z', // 10:00 JST (busy)
       expectedXmlInterval: 60,
+      expectedCatalogInterval: 60,
+      expectedAmedasInterval: 60,
     },
     {
-      mode: 'late',
-      iso: '2026-09-12T09:30:00.000Z',
-      expectedInterval: 300,
+      iso: '2026-09-12T09:30:00.000Z', // 18:30 JST (late)
       expectedXmlInterval: 120,
+      expectedCatalogInterval: 120,
+      expectedAmedasInterval: 300,
     },
   ];
 
-  for (const tc of modesToTest) {
+  for (const tc of periodsToTest) {
     const timer = new FakeTimerScheduler(tc.iso);
     const nowcastAdapter = new FakeScheduledAdapter('nowcast');
     const kikikuruAdapter = new FakeScheduledAdapter('kikikuru');
@@ -345,7 +425,7 @@ test('2. 運用時間帯中の起動即時実行と次回登録・XML周期供�
     const xmlService = new FakeXmlPollingService(timer);
 
     const scheduler = new TimeBasedPollingScheduler({
-      schedule: DEFAULT_POLLING_SCHEDULE,
+      schedule: defaultSchedule,
       adapters: [nowcastAdapter, kikikuruAdapter, amedasAdapter],
       xmlPollingService: xmlService as unknown as JmaXmlPollingService,
       now: timer.now,
@@ -357,30 +437,32 @@ test('2. 運用時間帯中の起動即時実行と次回登録・XML周期供�
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     // 各 non-XML adapter が起動直後に1回呼ばれたこと
-    assert.equal(nowcastAdapter.callCount, 1, `${tc.mode}: nowcast 初回実行回数`);
-    assert.equal(kikikuruAdapter.callCount, 1, `${tc.mode}: kikikuru 初回実行回数`);
-    assert.equal(amedasAdapter.callCount, 1, `${tc.mode}: amedas 初回実行回数`);
+    assert.equal(nowcastAdapter.callCount, 1, 'nowcast 初回実行回数');
+    assert.equal(kikikuruAdapter.callCount, 1, 'kikikuru 初回実行回数');
+    assert.equal(amedasAdapter.callCount, 1, 'amedas 初回実行回数');
 
     // XML サービスへ正しい周期が供給されたこと
     assert.equal(
       xmlService.getScheduledIntervalSeconds(),
       tc.expectedXmlInterval,
-      `${tc.mode}: XML 供給周期不一致`,
+      'XML 供給周期不一致',
     );
 
     // non-XML 各 adapter に次回 timer が 1 本だけ登録されたこと
     const status = scheduler.getStatus();
-    assert.equal(status.mode, tc.mode);
     assert.equal(status.sources.nowcast.state, 'waiting');
     assert.equal(status.sources.kikikuru.state, 'waiting');
     assert.equal(status.sources.amedas.state, 'waiting');
 
-    const expectedNextRunAt = new Date(
-      timer.now().getTime() + tc.expectedInterval * 1000,
+    const expectedCatalogNext = new Date(
+      timer.now().getTime() + tc.expectedCatalogInterval * 1000,
     ).toISOString();
-    assert.equal(status.sources.nowcast.nextRunAt, expectedNextRunAt);
-    assert.equal(status.sources.kikikuru.nextRunAt, expectedNextRunAt);
-    assert.equal(status.sources.amedas.nextRunAt, expectedNextRunAt);
+    const expectedAmedasNext = new Date(
+      timer.now().getTime() + tc.expectedAmedasInterval * 1000,
+    ).toISOString();
+    assert.equal(status.sources.nowcast.nextRunAt, expectedCatalogNext);
+    assert.equal(status.sources.kikikuru.nextRunAt, expectedCatalogNext);
+    assert.equal(status.sources.amedas.nextRunAt, expectedAmedasNext);
 
     await scheduler.stop();
   }
@@ -392,7 +474,7 @@ test('2. 運用時間帯中の起動即時実行と次回登録・XML周期供�
 // 開始済み Promise は完了できる。状態は scheduled_stopped、nextRunAt は翌04:00となる。
 // ---------------------------------------------------------------------------
 test('3. 20:00 停止と実行中ジョブの安全な完了 (受け入れ条件 3)', async () => {
-  // 19:59:50 JST -> 2026-09-12 10:59:50Z (late モード、20:00まであと10秒)
+  // 19:59:50 JST -> 2026-09-12 10:59:50Z (20:00まであと10秒)
   const timer = new FakeTimerScheduler('2026-09-12T10:59:50.000Z');
   // 実行に 20秒かかる adapter (20:00:10 JST までかかる)
   const slowAdapter = new FakeScheduledAdapter('nowcast', {
@@ -404,7 +486,7 @@ test('3. 20:00 停止と実行中ジョブの安全な完了 (受け入れ条件
   const xmlService = new FakeXmlPollingService(timer);
 
   const scheduler = new TimeBasedPollingScheduler({
-    schedule: DEFAULT_POLLING_SCHEDULE,
+    schedule: defaultSchedule,
     adapters: [slowAdapter, kikikuruAdapter, amedasAdapter],
     xmlPollingService: xmlService as unknown as JmaXmlPollingService,
     now: timer.now,
@@ -418,7 +500,7 @@ test('3. 20:00 停止と実行中ジョブの安全な完了 (受け入れ条件
   assert.equal(slowAdapter.callCount, 1);
   assert.equal(slowAdapter.inFlight, true);
 
-  // 15 秒進めて 20:00:05 JST (off_hours 到達)
+  // 15 秒進めて 20:00:05 JST (夜間停止区間 到達)
   await timer.advanceTime(15_000);
 
   // 20:00 到達により、新規呼出しは 0 回
@@ -438,7 +520,8 @@ test('3. 20:00 停止と実行中ジョブの安全な完了 (受け入れ条件
 
   // 状態が scheduled_stopped、nextRunAt が翌 04:00 (JST)
   const status = scheduler.getStatus();
-  assert.equal(status.mode, 'off_hours');
+  assert.equal(status.period.start, '20:00');
+  assert.equal(status.period.end, '04:00');
   assert.equal(status.sources.nowcast.state, 'scheduled_stopped');
   assert.equal(status.sources.kikikuru.state, 'scheduled_stopped');
   assert.equal(status.sources.amedas.state, 'scheduled_stopped');
@@ -469,7 +552,7 @@ test('4. 夜間起動と 04:00 の即時投入 (受け入れ条件 4)', async ()
   const xmlService = new FakeXmlPollingService(timer);
 
   const scheduler = new TimeBasedPollingScheduler({
-    schedule: DEFAULT_POLLING_SCHEDULE,
+    schedule: defaultSchedule,
     adapters: [nowcastAdapter, kikikuruAdapter, amedasAdapter],
     xmlPollingService: xmlService as unknown as JmaXmlPollingService,
     now: timer.now,
@@ -525,7 +608,7 @@ test('5. 同一 tick 競合時の排他と世代照合 (受け入れ条件 5)', 
   const xmlService = new FakeXmlPollingService(timer);
 
   const scheduler = new TimeBasedPollingScheduler({
-    schedule: DEFAULT_POLLING_SCHEDULE,
+    schedule: defaultSchedule,
     adapters: [nowcastAdapter, kikikuruAdapter, amedasAdapter],
     xmlPollingService: xmlService as unknown as JmaXmlPollingService,
     now: timer.now,
@@ -580,7 +663,7 @@ test('5b. 運用時間帯境界をまたぐ実行中取得は完了後に新周�
   const amedasAdapter = new FakeScheduledAdapter('amedas');
   const xmlService = new FakeXmlPollingService(timer);
   const scheduler = new TimeBasedPollingScheduler({
-    schedule: DEFAULT_POLLING_SCHEDULE,
+    schedule: defaultSchedule,
     adapters: [slowNowcast, kikikuruAdapter, amedasAdapter],
     xmlPollingService: xmlService as unknown as JmaXmlPollingService,
     now: timer.now,
@@ -597,11 +680,11 @@ test('5b. 運用時間帯境界をまたぐ実行中取得は完了後に新周�
   assert.equal(slowNowcast.callCount, 1);
   assert.equal(slowNowcast.inFlight, true);
 
-  // 05:00:30 に完了したら、busy の60秒周期で次回が必ず予約される。
   await timer.advanceTime(30_000);
   assert.equal(slowNowcast.inFlight, false);
   const status = scheduler.getStatus();
-  assert.equal(status.mode, 'busy');
+  assert.equal(status.period.start, '05:00');
+  assert.equal(status.period.end, '18:00');
   assert.equal(status.sources.nowcast.state, 'waiting');
   assert.equal(status.sources.nowcast.nextRunAt, '2026-09-11T20:01:30.000Z');
 
@@ -629,7 +712,7 @@ test('6. 実行時間が周期を超える場合の重複防止 (受け入れ条
   const xmlService = new FakeXmlPollingService(timer);
 
   const scheduler = new TimeBasedPollingScheduler({
-    schedule: DEFAULT_POLLING_SCHEDULE,
+    schedule: defaultSchedule,
     adapters: [slowNowcast, kikikuruAdapter, amedasAdapter],
     xmlPollingService: xmlService as unknown as JmaXmlPollingService,
     now: timer.now,
@@ -669,145 +752,182 @@ test('6. 実行時間が周期を超える場合の重複防止 (受け入れ条
 });
 
 // ---------------------------------------------------------------------------
-// 受け入れ条件 7 (設定検証):
-// 範囲欠落・重複、0秒、off_hours の数値、運用時間の null は起動前に拒否する。
+// 受け入れ条件 5 (設定検証):
+// 未知・欠落・範囲重複/欠落、0秒・小数・範囲外、非booleanを拒否。日中null、夜間数値は受理。
 // ---------------------------------------------------------------------------
-test('7. 設定ファイルのバリデーション (受け入れ条件 7)', () => {
-  const validated = validatePollingScheduleConfig(DEFAULT_POLLING_SCHEDULE);
-  assert.equal(validated.timeZone, 'Asia/Tokyo');
+test('7. 設定ファイルのバリデーション (受け入れ条件 5)', () => {
+  const validated = validatePollingScheduleConfig(defaultSchedule);
+  assert.equal(validated.timezone, 'Asia/Tokyo');
+  assert.equal(validated.freshness.xml.staleAfterSeconds, 300);
+  assert.equal(validated.freshness.imageCatalog.staleAfterSeconds, 300);
 
+  // カスタム設定が正しく受理されること
   const customConfig: PollingScheduleConfig = {
-    ...DEFAULT_POLLING_SCHEDULE,
-    intervalsSeconds: {
-      ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
-      busy: { ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds.busy, xml: 61 },
-      late: { ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds.late, amedas: 301 },
-    },
+    ...defaultSchedule,
+    periods: defaultSchedule.periods.map((p) =>
+      p.start === '05:00' ? { ...p, xmlSeconds: 70, imageCatalogSeconds: 80 } : p,
+    ),
   };
   const customValidated = validatePollingScheduleConfig(customConfig);
-  assert.equal(customValidated.intervalsSeconds.busy.xml, 61);
-  assert.equal(customValidated.intervalsSeconds.late.amedas, 301);
+  assert.equal(customValidated.periods.find((p) => p.start === '05:00')?.xmlSeconds, 70);
+  assert.equal(customValidated.periods.find((p) => p.start === '05:00')?.imageCatalogSeconds, 80);
 
+  // 不正な timezone
   assert.throws(
     () =>
       validatePollingScheduleConfig({
-        ...DEFAULT_POLLING_SCHEDULE,
-        timeZone: 'UTC',
+        ...defaultSchedule,
+        timezone: 'UTC' as 'Asia/Tokyo',
       }),
-    /timeZone/,
+    /timezone/,
   );
 
+  // 時間帯の重複
   assert.throws(
     () =>
       validatePollingScheduleConfig({
-        ...DEFAULT_POLLING_SCHEDULE,
-        ranges: [
-          { mode: 'early', start: '04:00', end: '05:30' },
-          { mode: 'busy', start: '05:00', end: '18:00' },
-          { mode: 'late', start: '18:00', end: '20:00' },
-          { mode: 'off_hours', start: '20:00', end: '04:00' },
+        ...defaultSchedule,
+        periods: [
+          {
+            start: '04:00',
+            end: '05:30',
+            xmlSeconds: 120,
+            imageCatalogSeconds: 120,
+            amedasSeconds: 300,
+            nowcastEnabled: true,
+            kikikuruEnabled: true,
+          },
+          {
+            start: '05:00',
+            end: '18:00',
+            xmlSeconds: 60,
+            imageCatalogSeconds: 60,
+            amedasSeconds: 60,
+            nowcastEnabled: true,
+            kikikuruEnabled: true,
+          },
+          {
+            start: '18:00',
+            end: '20:00',
+            xmlSeconds: 120,
+            imageCatalogSeconds: 120,
+            amedasSeconds: 300,
+            nowcastEnabled: true,
+            kikikuruEnabled: true,
+          },
+          {
+            start: '20:00',
+            end: '04:00',
+            xmlSeconds: null,
+            imageCatalogSeconds: null,
+            amedasSeconds: null,
+            nowcastEnabled: false,
+            kikikuruEnabled: false,
+          },
         ],
       }),
     /時間帯範囲に欠落または重複があります/,
   );
 
+  // 時間帯の欠落
   assert.throws(
     () =>
       validatePollingScheduleConfig({
-        ...DEFAULT_POLLING_SCHEDULE,
-        ranges: [
-          { mode: 'early', start: '04:00', end: '05:00' },
-          { mode: 'busy', start: '06:00', end: '18:00' },
-          { mode: 'late', start: '18:00', end: '20:00' },
-          { mode: 'off_hours', start: '20:00', end: '04:00' },
+        ...defaultSchedule,
+        periods: [
+          {
+            start: '04:00',
+            end: '05:00',
+            xmlSeconds: 120,
+            imageCatalogSeconds: 120,
+            amedasSeconds: 300,
+            nowcastEnabled: true,
+            kikikuruEnabled: true,
+          },
+          {
+            start: '06:00',
+            end: '18:00',
+            xmlSeconds: 60,
+            imageCatalogSeconds: 60,
+            amedasSeconds: 60,
+            nowcastEnabled: true,
+            kikikuruEnabled: true,
+          },
+          {
+            start: '18:00',
+            end: '20:00',
+            xmlSeconds: 120,
+            imageCatalogSeconds: 120,
+            amedasSeconds: 300,
+            nowcastEnabled: true,
+            kikikuruEnabled: true,
+          },
+          {
+            start: '20:00',
+            end: '04:00',
+            xmlSeconds: null,
+            imageCatalogSeconds: null,
+            amedasSeconds: null,
+            nowcastEnabled: false,
+            kikikuruEnabled: false,
+          },
         ],
       }),
     /時間帯範囲に欠落または重複があります/,
   );
 
+  // 0秒周期拒否
   assert.throws(
     () =>
       validatePollingScheduleConfig({
-        ...DEFAULT_POLLING_SCHEDULE,
-        intervalsSeconds: {
-          ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
-          busy: { ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds.busy, xml: 0 },
-        },
+        ...defaultSchedule,
+        periods: defaultSchedule.periods.map((p) =>
+          p.start === '05:00' ? { ...p, xmlSeconds: 0 } : p,
+        ),
       }),
     /1〜86400 の有限整数秒/,
   );
 
+  // 小数周期拒否
   assert.throws(
     () =>
       validatePollingScheduleConfig({
-        ...DEFAULT_POLLING_SCHEDULE,
-        intervalsSeconds: {
-          ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
-          off_hours: { ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds.off_hours, xml: 300 },
-        },
+        ...defaultSchedule,
+        periods: defaultSchedule.periods.map((p) =>
+          p.start === '05:00' ? { ...p, xmlSeconds: 60.5 } : p,
+        ),
       }),
-    /off_hours の周期はすべて null/,
+    /1〜86400 の有限整数秒/,
   );
 
+  // amedasPointRecheckSeconds 不正
   assert.throws(
     () =>
       validatePollingScheduleConfig({
-        ...DEFAULT_POLLING_SCHEDULE,
-        intervalsSeconds: {
-          ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
-          busy: {
-            ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds.busy,
-            xml: null as unknown as number,
-          },
-        },
-      }),
-    /null は指定できません/,
-  );
-
-  assert.throws(
-    () =>
-      validatePollingScheduleConfig({
-        ...DEFAULT_POLLING_SCHEDULE,
+        ...defaultSchedule,
         amedasPointRecheckSeconds: 0,
       }),
     /amedasPointRecheckSeconds は正の有限整数/,
   );
 
+  // freshness 欠落
   assert.throws(
     () =>
       validatePollingScheduleConfig({
-        ...DEFAULT_POLLING_SCHEDULE,
-        intervalsSeconds: {
-          ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
-          typo: DEFAULT_POLLING_SCHEDULE.intervalsSeconds.busy,
-        } as typeof DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
+        ...defaultSchedule,
+        freshness: undefined as unknown as typeof defaultSchedule.freshness,
       }),
-    /未定義のモード設定/,
-  );
-
-  assert.throws(
-    () =>
-      validatePollingScheduleConfig({
-        ...DEFAULT_POLLING_SCHEDULE,
-        intervalsSeconds: {
-          ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds,
-          busy: {
-            ...DEFAULT_POLLING_SCHEDULE.intervalsSeconds.busy,
-            typo: 60,
-          } as typeof DEFAULT_POLLING_SCHEDULE.intervalsSeconds.busy,
-        },
-      }),
-    /未定義の取得元設定/,
+    /freshness はオブジェクト/,
   );
 });
 
 // ---------------------------------------------------------------------------
-// 受け入れ条件 8:
+// 受け入れ条件 7:
 // #23 の XML 単一timer結線で、C14 が周期を供給しても、通常周期・recovery・初期取得の
 // timer が多重化せず、1周期あたり pollOnce('scheduled') が1回だけである。
 // nextAllowedFetchAt 到達時は失敗フィードだけが recovery される。
 // ---------------------------------------------------------------------------
-test('8. #23 XML 単一タイマーとの統合・周期供給 (受け入れ条件 8)', async () => {
+test('8. #23 XML 単一タイマーとの統合・周期供給 (受け入れ条件 7)', async () => {
   const { databasePath, cleanup } = createTempDb();
 
   try {
@@ -823,6 +943,7 @@ test('8. #23 XML 単一タイマーとの統合・周期供給 (受け入れ条�
     const requestedKinds: string[] = [];
 
     const xmlService = new JmaXmlPollingService(database.connection, {
+      freshnessPolicy: { staleAfterSeconds: 300 },
       clock: timerScheduler.clock,
       timerScheduler: {
         setTimeout: timerScheduler.setTimer,

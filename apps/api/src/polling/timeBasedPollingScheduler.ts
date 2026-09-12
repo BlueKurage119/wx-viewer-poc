@@ -1,13 +1,11 @@
-import path from 'node:path';
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
-  DEFAULT_POLLING_SCHEDULE,
-  getNextJstTime,
-  getNextModeChangeAt,
-  resolvePollingMode,
+  getNextEnabledAt,
+  getNextPeriodChangeAt,
+  resolvePollingPeriod,
   validatePollingScheduleConfig,
-  type PollingMode,
+  type PollingPeriod,
   type PollingScheduleConfig,
   type ScheduledSource,
 } from '../config/pollingSchedule.js';
@@ -27,7 +25,7 @@ export interface ScheduledPollAdapter {
 }
 
 export interface TimeBasedPollingSchedulerOptions {
-  readonly schedule?: PollingScheduleConfig;
+  readonly schedule: PollingScheduleConfig;
   readonly adapters: readonly ScheduledPollAdapter[];
   readonly xmlPollingService: JmaXmlPollingService;
   readonly now?: () => Date;
@@ -37,15 +35,15 @@ export interface TimeBasedPollingSchedulerOptions {
 
 export interface ScheduledPollStatus {
   readonly source: ScheduledSource;
-  readonly mode: PollingMode;
+  readonly period: PollingPeriod;
   readonly state: 'waiting' | 'running' | 'scheduled_stopped';
   readonly intervalSeconds: number | null;
   readonly nextRunAt: UtcIso8601String | null;
 }
 
 export interface TimeBasedPollingStatus {
-  readonly mode: PollingMode;
-  readonly nextModeChangeAt: UtcIso8601String;
+  readonly period: PollingPeriod;
+  readonly nextPeriodChangeAt: UtcIso8601String;
   readonly sources: Readonly<Record<ScheduledSource, ScheduledPollStatus>>;
 }
 
@@ -54,6 +52,21 @@ const REQUIRED_ADAPTER_SOURCES: readonly ScheduledSource[] = [
   'kikikuru',
   'amedas',
 ] as const;
+
+export function getIntervalSecondsForSource(
+  period: PollingPeriod,
+  source: ScheduledSource,
+): number | null {
+  switch (source) {
+    case 'xml':
+      return period.xmlSeconds;
+    case 'nowcast':
+    case 'kikikuru':
+      return period.imageCatalogSeconds;
+    case 'amedas':
+      return period.amedasSeconds;
+  }
+}
 
 export class TimeBasedPollingScheduler {
   private readonly schedule: PollingScheduleConfig;
@@ -77,7 +90,10 @@ export class TimeBasedPollingScheduler {
   private xmlInitialStarted = false;
 
   constructor(options: TimeBasedPollingSchedulerOptions) {
-    this.schedule = validatePollingScheduleConfig(options.schedule ?? DEFAULT_POLLING_SCHEDULE);
+    if (!options.schedule) {
+      throw new Error('schedule は必須です');
+    }
+    this.schedule = validatePollingScheduleConfig(options.schedule);
 
     if (!options.xmlPollingService) {
       throw new Error('xmlPollingService は必須です');
@@ -118,22 +134,29 @@ export class TimeBasedPollingScheduler {
 
   getStatus(): TimeBasedPollingStatus {
     const now = this.nowFn();
-    const mode = resolvePollingMode(now, this.schedule);
-    const nextModeChangeAt = getNextModeChangeAt(
+    const period = resolvePollingPeriod(now, this.schedule);
+    const nextPeriodChangeAt = getNextPeriodChangeAt(
       now,
       this.schedule,
     ).toISOString() as UtcIso8601String;
-    const isOffHours = mode === 'off_hours';
-    const next0400Iso = getNextJstTime(now, '04:00').toISOString() as UtcIso8601String;
 
     // XML ステータス
     let xmlState: 'waiting' | 'running' | 'scheduled_stopped' = 'waiting';
     let xmlNextRunAt: UtcIso8601String | null = null;
-    const xmlIntervalSeconds = this.schedule.intervalsSeconds[mode].xml;
+    const xmlIntervalSeconds = period.xmlSeconds;
 
-    if (!this.isRunning || isOffHours) {
+    if (!this.isRunning || xmlIntervalSeconds === null) {
       xmlState = 'scheduled_stopped';
-      xmlNextRunAt = isOffHours ? next0400Iso : null;
+      if (this.isRunning) {
+        const nextEnabled = getNextEnabledAt(
+          { kind: 'scheduled', source: 'xml' },
+          now,
+          this.schedule,
+        );
+        xmlNextRunAt = nextEnabled ? (nextEnabled.toISOString() as UtcIso8601String) : null;
+      } else {
+        xmlNextRunAt = null;
+      }
     } else if (this.xmlPollingService.isExecuting()) {
       xmlState = 'running';
       xmlNextRunAt = this.xmlPollingService.getNextRunAt();
@@ -144,7 +167,7 @@ export class TimeBasedPollingScheduler {
 
     const xmlStatus: ScheduledPollStatus = {
       source: 'xml',
-      mode,
+      period,
       state: xmlState,
       intervalSeconds: xmlIntervalSeconds,
       nextRunAt: xmlNextRunAt,
@@ -152,31 +175,35 @@ export class TimeBasedPollingScheduler {
 
     const sourcesResult: Record<ScheduledSource, ScheduledPollStatus> = {
       xml: xmlStatus,
-      nowcast: this.buildNonXmlStatus('nowcast', mode, isOffHours, next0400Iso),
-      kikikuru: this.buildNonXmlStatus('kikikuru', mode, isOffHours, next0400Iso),
-      amedas: this.buildNonXmlStatus('amedas', mode, isOffHours, next0400Iso),
+      nowcast: this.buildNonXmlStatus('nowcast', period, now),
+      kikikuru: this.buildNonXmlStatus('kikikuru', period, now),
+      amedas: this.buildNonXmlStatus('amedas', period, now),
     };
 
     return {
-      mode,
-      nextModeChangeAt,
+      period,
+      nextPeriodChangeAt,
       sources: sourcesResult,
     };
   }
 
   private buildNonXmlStatus(
     source: ScheduledSource,
-    mode: PollingMode,
-    isOffHours: boolean,
-    next0400Iso: UtcIso8601String,
+    period: PollingPeriod,
+    now: Date,
   ): ScheduledPollStatus {
-    const intervalSeconds = this.schedule.intervalsSeconds[mode][source];
+    const intervalSeconds = getIntervalSecondsForSource(period, source);
     let state: 'waiting' | 'running' | 'scheduled_stopped' = 'waiting';
     let nextRunAt: UtcIso8601String | null = null;
 
-    if (!this.isRunning || isOffHours) {
+    if (!this.isRunning || intervalSeconds === null) {
       state = 'scheduled_stopped';
-      nextRunAt = isOffHours ? next0400Iso : null;
+      if (this.isRunning) {
+        const nextEnabled = getNextEnabledAt({ kind: 'scheduled', source }, now, this.schedule);
+        nextRunAt = nextEnabled ? (nextEnabled.toISOString() as UtcIso8601String) : null;
+      } else {
+        nextRunAt = null;
+      }
     } else if (this.inFlightPromises.has(source)) {
       state = 'running';
       nextRunAt = this.nextRunAtMap.get(source) ?? null;
@@ -187,7 +214,7 @@ export class TimeBasedPollingScheduler {
 
     return {
       source,
-      mode,
+      period,
       state,
       intervalSeconds,
       nextRunAt,
@@ -204,28 +231,32 @@ export class TimeBasedPollingScheduler {
     const currentGen = this.generation;
 
     const now = this.nowFn();
-    const mode = resolvePollingMode(now, this.schedule);
+    const period = resolvePollingPeriod(now, this.schedule);
 
     this.scheduleBoundaryCheck(currentGen);
 
-    if (mode === 'off_hours') {
-      // 夜間起動: XML初期取得を含め、上流HTTP取得を一切実行しない
-      const next0400 = getNextJstTime(now, '04:00').toISOString() as UtcIso8601String;
-      for (const src of REQUIRED_ADAPTER_SOURCES) {
-        this.sourceStates.set(src, 'scheduled_stopped');
-        this.nextRunAtMap.set(src, next0400);
+    // non-XML を先に投入（XML初期完了を待たずに即時開始）
+    for (const source of REQUIRED_ADAPTER_SOURCES) {
+      const intervalSec = getIntervalSecondsForSource(period, source);
+      if (intervalSec !== null) {
+        void this.triggerSourcePoll(source, currentGen);
+      } else {
+        this.sourceStates.set(source, 'scheduled_stopped');
+        const nextEnabled = getNextEnabledAt({ kind: 'scheduled', source }, now, this.schedule);
+        this.nextRunAtMap.set(
+          source,
+          nextEnabled ? (nextEnabled.toISOString() as UtcIso8601String) : null,
+        );
       }
-      return;
     }
 
-    // 運用時間帯: XMLサービスに通常周期を供給して起動
-    this.xmlPollingService.setScheduledIntervalSeconds(this.schedule.intervalsSeconds[mode].xml);
-    this.xmlInitialStarted = true;
-    void this.xmlPollingService.start();
-
-    // non-XMLの初回即時実行
-    for (const source of REQUIRED_ADAPTER_SOURCES) {
-      void this.triggerSourcePoll(source, currentGen);
+    // XML
+    if (period.xmlSeconds !== null) {
+      this.xmlPollingService.setScheduledIntervalSeconds(period.xmlSeconds);
+      this.xmlInitialStarted = true;
+      await this.xmlPollingService.start();
+    } else {
+      this.xmlPollingService.setScheduledIntervalSeconds(null);
     }
   }
 
@@ -263,7 +294,7 @@ export class TimeBasedPollingScheduler {
     }
 
     const now = this.nowFn();
-    const nextBoundary = getNextModeChangeAt(now, this.schedule);
+    const nextBoundary = getNextPeriodChangeAt(now, this.schedule);
     const delayMs = Math.max(0, nextBoundary.getTime() - now.getTime());
 
     this.boundaryTimerId = this.setTimerFn(() => {
@@ -277,69 +308,61 @@ export class TimeBasedPollingScheduler {
 
   private handleBoundaryTriggered(): void {
     const now = this.nowFn();
-    const newMode = resolvePollingMode(now, this.schedule);
+    const newPeriod = resolvePollingPeriod(now, this.schedule);
 
     this.generation++;
     const nextGen = this.generation;
 
-    if (newMode === 'off_hours') {
-      // 20:00 到達: 新規ジョブを投入せず、開始済みは中断せず待つ
-      for (const tid of this.timerIds.values()) {
-        this.clearTimerFn(tid);
-      }
-      this.timerIds.clear();
-
+    // XML 周期切替・開始・停止
+    const newXmlSec = newPeriod.xmlSeconds;
+    if (newXmlSec === null) {
       void this.xmlPollingService.stop();
-
-      const next0400 = getNextJstTime(now, '04:00').toISOString() as UtcIso8601String;
-      for (const src of REQUIRED_ADAPTER_SOURCES) {
-        this.sourceStates.set(src, 'scheduled_stopped');
-        this.nextRunAtMap.set(src, next0400);
-      }
     } else {
-      // 運用時間帯への移行または運用時間帯同士の移行
-      this.xmlPollingService.setScheduledIntervalSeconds(
-        this.schedule.intervalsSeconds[newMode].xml,
-      );
-
+      this.xmlPollingService.setScheduledIntervalSeconds(newXmlSec);
       if (!this.xmlInitialStarted) {
-        // 夜間起動後の 04:00: XML 初期4フィードを一度実行
         this.xmlInitialStarted = true;
         void this.xmlPollingService.start();
       } else if (!this.xmlPollingService.getStatus().isRunning) {
-        // 20:00 で stop() された後の 04:00: 通常取得を即時投入して再開
         void this.xmlPollingService.start({ immediateScheduled: true });
       }
+    }
 
-      // non-XMLの即時投入または再スケジュール
-      for (const source of REQUIRED_ADAPTER_SOURCES) {
-        const existingTimer = this.timerIds.get(source);
-        if (existingTimer !== undefined) {
-          this.clearTimerFn(existingTimer);
-          this.timerIds.delete(source);
-        }
+    // non-XML
+    for (const source of REQUIRED_ADAPTER_SOURCES) {
+      const existingTimer = this.timerIds.get(source);
+      if (existingTimer !== undefined) {
+        this.clearTimerFn(existingTimer);
+        this.timerIds.delete(source);
+      }
 
-        const inFlight = this.inFlightPromises.get(source);
-        if (inFlight) {
-          // 境界前世代の完了処理は再予約せずに終了する。完了後に現在世代で
-          // 新しいモードの周期を予約しないと、この source が次の境界まで停止する。
-          void inFlight.then(() => {
-            if (this.isRunning && this.generation === nextGen) {
-              this.onPollCompleted(source, nextGen);
-            }
-          });
-          continue;
-        }
+      const inFlight = this.inFlightPromises.get(source);
+      if (inFlight) {
+        // 境界前世代の完了処理は再予約せずに終了する。完了後に現在世代で
+        // 新しいモードの周期を予約しないと、この source が次の境界まで停止する。(cfc1105)
+        void inFlight.then(() => {
+          if (this.isRunning && this.generation === nextGen) {
+            this.onPollCompleted(source, nextGen);
+          }
+        });
+        continue;
+      }
 
+      const newIntervalSec = getIntervalSecondsForSource(newPeriod, source);
+      if (newIntervalSec === null) {
+        this.sourceStates.set(source, 'scheduled_stopped');
+        const nextEnabled = getNextEnabledAt({ kind: 'scheduled', source }, now, this.schedule);
+        this.nextRunAtMap.set(
+          source,
+          nextEnabled ? (nextEnabled.toISOString() as UtcIso8601String) : null,
+        );
+      } else {
         const lastCompletedAt = this.lastCompletedAtMap.get(source);
-        const intervalSec = this.schedule.intervalsSeconds[newMode][source];
-
-        if (lastCompletedAt === undefined || intervalSec === null) {
-          // 未実行または夜間明け: 即時投入
+        if (lastCompletedAt === undefined) {
+          // 未実行: 即時投入
           void this.triggerSourcePoll(source, nextGen);
         } else {
-          // 既に実行履歴がある日中移行: 新周期に合わせて再計算
-          const intervalMs = intervalSec * 1000;
+          // 既に実行履歴がある場合: 新周期に合わせて再計算
+          const intervalMs = newIntervalSec * 1000;
           const nextRunMs = lastCompletedAt + intervalMs;
           const remainingMs = Math.max(0, nextRunMs - now.getTime());
 
@@ -369,8 +392,9 @@ export class TimeBasedPollingScheduler {
       return Promise.resolve();
     }
 
-    const currentMode = resolvePollingMode(this.nowFn(), this.schedule);
-    if (currentMode === 'off_hours') {
+    const currentPeriod = resolvePollingPeriod(this.nowFn(), this.schedule);
+    const intervalSec = getIntervalSecondsForSource(currentPeriod, source);
+    if (intervalSec === null) {
       return Promise.resolve();
     }
 
@@ -416,18 +440,19 @@ export class TimeBasedPollingScheduler {
       return;
     }
 
-    const currentMode = resolvePollingMode(this.nowFn(), this.schedule);
-    if (currentMode === 'off_hours') {
+    const currentPeriod = resolvePollingPeriod(this.nowFn(), this.schedule);
+    const intervalSeconds = getIntervalSecondsForSource(currentPeriod, source);
+    if (intervalSeconds === null) {
       this.sourceStates.set(source, 'scheduled_stopped');
+      const nextEnabled = getNextEnabledAt(
+        { kind: 'scheduled', source },
+        this.nowFn(),
+        this.schedule,
+      );
       this.nextRunAtMap.set(
         source,
-        getNextJstTime(this.nowFn(), '04:00').toISOString() as UtcIso8601String,
+        nextEnabled ? (nextEnabled.toISOString() as UtcIso8601String) : null,
       );
-      return;
-    }
-
-    const intervalSeconds = this.schedule.intervalsSeconds[currentMode][source];
-    if (intervalSeconds === null) {
       return;
     }
 
@@ -523,39 +548,18 @@ export interface CreateScheduledAdaptersOptions {
   readonly amedasVenueId?: VenueId;
   readonly amedasPointRecheckSeconds?: number;
   readonly now?: () => Date;
-  readonly nowcastOptions?: ConstructorParameters<typeof NowcastService>[1];
-  readonly kikikuruOptions?: ConstructorParameters<typeof KikikuruService>[1];
   readonly amedasFetchOptions?: AmedasFetchOptions;
+  readonly schedule?: PollingScheduleConfig;
 }
 
 export function createScheduledAdapters(
   options: CreateScheduledAdaptersOptions,
 ): readonly ScheduledPollAdapter[] {
-  const nowcast =
-    options.nowcastService ??
-    new NowcastService(
-      options.connection,
-      options.nowcastOptions ?? {
-        cacheRoot: path.resolve(process.cwd(), 'data/cache/nowcast'),
-        allowedZooms: [10],
-        staleAfterMs: { N1: 300_000, N2: 300_000 },
-      },
+  if (!options.nowcastService || !options.kikikuruService) {
+    throw new Error(
+      'nowcastService と kikikuruService は必須です (共用インスタンスを注入してください)',
     );
-
-  const kikikuru =
-    options.kikikuruService ??
-    new KikikuruService(
-      options.connection,
-      options.kikikuruOptions ?? {
-        cacheRoot: path.resolve(process.cwd(), 'data/cache/kikikuru'),
-        allowedZooms: [10],
-        staleAfterMs: {
-          heavyrain: 300_000,
-          inund: 300_000,
-          land: 300_000,
-        },
-      },
-    );
+  }
 
   const amedasVenueId = options.amedasVenueId ?? 'east';
   const amedasState = options.amedasState ?? new AmedasFetchState(amedasVenueId);
@@ -569,5 +573,9 @@ export function createScheduledAdapters(
     },
   );
 
-  return [new NowcastScheduledAdapter(nowcast), new KikikuruScheduledAdapter(kikikuru), amedas];
+  return [
+    new NowcastScheduledAdapter(options.nowcastService),
+    new KikikuruScheduledAdapter(options.kikikuruService),
+    amedas,
+  ];
 }

@@ -65,4 +65,6 @@ export {
 } from './kikikuruParser.js';
 export { KikikuruTileStore } from './kikikuruTileStore.js';
 export { KikikuruService } from './kikikuruService.js';
+export * from './freshnessPolicy.js';
+export * from './imageServices.js';
 export * from './timeBasedPollingScheduler.js';
