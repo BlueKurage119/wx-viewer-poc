@@ -502,3 +502,30 @@ test('§7-9 端末モードの非混入: migration・venueWeatherService のソ�
   );
   assert.doesNotMatch(adoptionTypeSection, /'H'|'K'|"H"|"K"/);
 });
+
+// -------------------------------------------------------------------------------------------------
+// §3.3.1: C5/C6 は「全会場で同一に解決される」という前提が崩れたら静かに壊れるため、
+// resolveSharedEarlyWarningTargetArea / resolveSharedAreaTimeseriesForecastTarget を
+// 実際のポーリング経路（jmaXmlPoller.ts）で呼び出すことを保証する。
+// この表明をテストだけが呼び、本番経路が素の DEFAULT_* 定数を直に使う退行を防ぐ。
+// -------------------------------------------------------------------------------------------------
+test('§3.3.1 共有対象の表明が実際のポーリング経路から呼ばれている', () => {
+  const pollerSource = readFileSync(join(apiRoot, 'src', 'polling', 'jmaXmlPoller.ts'), 'utf-8');
+
+  assert.match(
+    pollerSource,
+    /resolveSharedEarlyWarningTargetArea\(\)/,
+    'jmaXmlPoller.ts は C5 の対象解決に resolveSharedEarlyWarningTargetArea() を使う必要があります',
+  );
+  assert.match(
+    pollerSource,
+    /resolveSharedAreaTimeseriesForecastTarget\(\)/,
+    'jmaXmlPoller.ts は C6 の対象解決に resolveSharedAreaTimeseriesForecastTarget() を使う必要があります',
+  );
+  assert.doesNotMatch(
+    pollerSource,
+    /DEFAULT_EARLY_WARNING_TARGET_AREA|DEFAULT_AREA_TIMESERIES_FORECAST_TARGET/,
+    'jmaXmlPoller.ts が会場非依存の DEFAULT_* 定数を直接使うと、会場間の対象不一致を検知する ' +
+      'resolveShared* の表明を素通りしてしまいます',
+  );
+});
