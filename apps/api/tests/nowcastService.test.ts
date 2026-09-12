@@ -26,6 +26,12 @@ const n2SyntheticJson = fs.readFileSync(
   'utf-8',
 );
 
+const defaultAccessOptions = {
+  getCatalogAccess: () => ({ allowed: true, nextChangeAt: null }),
+  getImageAccess: () => ({ allowed: true, nextChangeAt: null }),
+  freshnessPolicy: { staleAfterSeconds: 300 },
+};
+
 function setupTestEnv() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nowcast-service-test-'));
   const connection = openDatabase(':memory:');
@@ -58,7 +64,7 @@ test('1. N1 成功／N2 失敗、その逆、両方初回失敗。正常側を�
     let service = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: 300_000, N2: 300_000 },
+      ...defaultAccessOptions,
       fetchFn,
       clock,
     });
@@ -77,7 +83,7 @@ test('1. N1 成功／N2 失敗、その逆、両方初回失敗。正常側を�
       const failService = new NowcastService(connFail, {
         cacheRoot: tmpDir,
         allowedZooms: [10],
-        staleAfterMs: { N1: 300_000, N2: 300_000 },
+        ...defaultAccessOptions,
         fetchFn: failFetch,
         clock,
       });
@@ -108,7 +114,7 @@ test('1. N1 成功／N2 失敗、その逆、両方初回失敗。正常側を�
     service = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: 300_000, N2: 300_000 },
+      ...defaultAccessOptions,
       fetchFn,
       clock,
     });
@@ -132,7 +138,7 @@ test('1. N1 成功／N2 失敗、その逆、両方初回失敗。正常側を�
     service = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: 300_000, N2: 300_000 },
+      ...defaultAccessOptions,
       fetchFn,
       clock,
     });
@@ -160,11 +166,12 @@ test('2. サービスを同じ DB で再生成して前回正常値を取得で�
       return new Response(n2SyntheticJson, { status: 200 });
     };
 
-    const staleAfterMs = 300_000; // 5分
+    const staleAfterSeconds = 300; // 5分
     const service1 = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: staleAfterMs, N2: staleAfterMs },
+      ...defaultAccessOptions,
+      freshnessPolicy: { staleAfterSeconds },
       fetchFn: fakeFetch,
       clock,
     });
@@ -175,7 +182,8 @@ test('2. サービスを同じ DB で再生成して前回正常値を取得で�
     const service2 = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: staleAfterMs, N2: staleAfterMs },
+      ...defaultAccessOptions,
+      freshnessPolicy: { staleAfterSeconds },
       fetchFn: fakeFetch,
       clock,
     });
@@ -186,14 +194,14 @@ test('2. サービスを同じ DB で再生成して前回正常値を取得で�
 
     // 閾値直前: 4分59秒999ミリ秒後 (300_000 - 1 ms)
     currentTime = new Date(
-      new Date('2026-09-07T03:00:00.000Z').getTime() + staleAfterMs - 1,
+      new Date('2026-09-07T03:00:00.000Z').getTime() + staleAfterSeconds * 1000 - 1,
     ).toISOString() as UtcIso8601String;
     catalog = service2.readCatalog();
     assert.strictEqual(catalog.products.N1.availability, 'available');
 
     // 閾値ちょうど: 5分00秒後 (300_000 ms)
     currentTime = new Date(
-      new Date('2026-09-07T03:00:00.000Z').getTime() + staleAfterMs,
+      new Date('2026-09-07T03:00:00.000Z').getTime() + staleAfterSeconds * 1000,
     ).toISOString() as UtcIso8601String;
     catalog = service2.readCatalog();
     assert.strictEqual(catalog.products.N1.availability, 'stale');
@@ -235,7 +243,7 @@ test('3. 一覧にない時刻、N2 の baseTime を N1 の最新で置換した
     const service = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: 300_000, N2: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -347,7 +355,7 @@ test('4. 1フレーム3座標（うち重複1つ）を要求すると異なる2 
     const service = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: 300_000, N2: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -419,7 +427,7 @@ test('5. 制御可能な fetch Promise で同時要求と一覧更新を重ね�
     const service = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: 300_000, N2: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -479,7 +487,7 @@ test('5. 制御可能な fetch Promise で同時要求と一覧更新を重ね�
   }
 });
 
-test('6. stale の正常キャッシュは stale と実時刻付きで返り、stale のキャッシュミスは GET せず catalog_stale（§10 承認後）。キャッシュ画像と選択時刻が完全一致する', async () => {
+test('6. stale の有効フレームは画像許可中にキャッシュミス画像を取得試行（downloaded）、画像停止中は scheduled_stopped。キャッシュありは stale かつ cached で返る', async () => {
   const { tmpDir, connection, cleanup } = setupTestEnv();
   try {
     let currentTime = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
@@ -495,10 +503,13 @@ test('6. stale の正常キャッシュは stale と実時刻付きで返り、s
       return new Response(VALID_1X1_PNG, { status: 200 });
     };
 
+    let imageAllowed = true;
     const service = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: 300_000, N2: 300_000 },
+      getCatalogAccess: () => ({ allowed: true, nextChangeAt: null }),
+      getImageAccess: () => ({ allowed: imageAllowed, nextChangeAt: null }),
+      freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -524,23 +535,41 @@ test('6. stale の正常キャッシュは stale と実時刻付きで返り、s
 
     requestedUrls.length = 0;
 
-    // 座標 909, 404 (キャッシュあり) と 909, 405 (キャッシュなし) を同時に要求
+    // 1. 画像許可中: 座標 909, 404 (キャッシュあり) と 909, 405 (キャッシュなし) を要求
+    // 索引 stale でも画像許可中はキャッシュミス画像の上流取得を試行する
     const coordMissing: TileCoordinate = { zoom: 10, tileX: 909, tileY: 405 };
-    const results = await service.fetchFrameTiles(frame, [coordSaved, coordMissing]);
+    const resultsAllowed = await service.fetchFrameTiles(frame, [coordSaved, coordMissing]);
 
     // キャッシュあり: availability='stale', kind='cached'
-    assert.strictEqual(results[0]?.kind, 'cached');
-    assert.strictEqual(results[0]?.availability, 'stale');
-    if (results[0]?.kind === 'cached') {
-      assert.strictEqual(results[0].tile.contentHash, EXPECTED_HASH);
+    assert.strictEqual(resultsAllowed[0]?.kind, 'cached');
+    assert.strictEqual(resultsAllowed[0]?.availability, 'stale');
+    if (resultsAllowed[0]?.kind === 'cached') {
+      assert.strictEqual(resultsAllowed[0].tile.contentHash, EXPECTED_HASH);
     }
 
-    // キャッシュなし: GET を抑止し catalog_stale
-    assert.strictEqual(results[1]?.kind, 'unavailable');
-    assert.strictEqual(results[1]?.availability, 'stale');
-    assert.strictEqual(results[1]?.errorKind, 'catalog_stale');
+    // キャッシュなし: 許可中なので上流取得試行 -> downloaded
+    assert.strictEqual(resultsAllowed[1]?.kind, 'downloaded');
+    assert.strictEqual(resultsAllowed[1]?.availability, 'stale');
+    assert.strictEqual(requestedUrls.length, 1);
+    assert.strictEqual(
+      requestedUrls[0],
+      'https://www.jma.go.jp/bosai/jmatile/data/nowc/20260907030000/none/20260907030000/surf/hrpns/10/909/405.png',
+    );
 
-    // fake fetch にタイル取得 URL が一切呼ばれていないことを確認
+    // 2. 画像停止中 (imageAllowed = false)
+    imageAllowed = false;
+    requestedUrls.length = 0;
+    const coordMissing2: TileCoordinate = { zoom: 10, tileX: 909, tileY: 406 };
+    const resultsStopped = await service.fetchFrameTiles(frame, [coordSaved, coordMissing2]);
+
+    // キャッシュあり: 停止中でも cached
+    assert.strictEqual(resultsStopped[0]?.kind, 'cached');
+    assert.strictEqual(resultsStopped[0]?.availability, 'stale');
+
+    // キャッシュなし: 停止中なので GET 抑止し scheduled_stopped
+    assert.strictEqual(resultsStopped[1]?.kind, 'unavailable');
+    assert.strictEqual(resultsStopped[1]?.availability, 'stale');
+    assert.strictEqual(resultsStopped[1]?.errorKind, 'scheduled_stopped');
     assert.strictEqual(requestedUrls.length, 0);
   } finally {
     cleanup();
@@ -569,7 +598,7 @@ test('7. 同じフレームの2 GET 中1失敗は履歴1行、itemCount=2／fail
     const service = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      staleAfterMs: { N1: 300_000, N2: 300_000 },
+      ...defaultAccessOptions,
       fetchFn: fakeFetch,
       clock: () => currentTime,
     });
@@ -643,11 +672,15 @@ function makeRepairEnv() {
     now: '2026-09-07T03:00:00.000Z' as UtcIso8601String,
     n1: n1SyntheticJson,
     fail: false,
+    catalogAllowed: true,
+    imageAllowed: true,
   };
   const options = {
     cacheRoot: env.tmpDir,
     allowedZooms: [10],
-    staleAfterMs: { N1: 300_000, N2: 300_000 },
+    getCatalogAccess: () => ({ allowed: state.catalogAllowed, nextChangeAt: null }),
+    getImageAccess: () => ({ allowed: state.imageAllowed, nextChangeAt: null }),
+    freshnessPolicy: { staleAfterSeconds: 300 },
     clock: () => state.now,
     fetchFn: (async (input) => {
       const url = String(input);
@@ -780,7 +813,7 @@ for (const saveFails of [false, true]) {
   });
 }
 
-test('修正: availableの欠落・改変は再GETしstaleの欠落・改変はGETしない', async () => {
+test('修正: 欠落・改変は画像許可中なら stale でも再GETして復元し、画像停止中は再GETせず scheduled_stopped', async () => {
   const env = makeRepairEnv();
   try {
     await env.service.refreshTimes();
@@ -803,24 +836,41 @@ test('修正: availableの欠落・改変は再GETしstaleの欠落・改変はG
     assert.deepStrictEqual(env.urls, FIX_URLS.slice(0, 2));
     assert.deepStrictEqual(fs.readFileSync(path.join(env.tmpDir, tile0.filePath)), VALID_1X1_PNG);
     assert.deepStrictEqual(fs.readFileSync(path.join(env.tmpDir, tile1.filePath)), VALID_1X1_PNG);
+
+    // 1. 画像許可中の stale: 欠落・破損でも再GETを試行する
     damage();
     env.urls.length = 0;
-    env.state.now = '2026-09-07T03:05:00.000Z';
-    const stale = await env.service.fetchFrameTiles(FIX_FRAME, FIX_COORDS);
-    assert.deepStrictEqual(stale, [
+    env.state.now = '2026-09-07T03:05:00.000Z'; // 300秒到達で stale
+    const staleAllowed = await env.service.fetchFrameTiles(FIX_FRAME, FIX_COORDS);
+    assert.deepStrictEqual(
+      staleAllowed.map((r) => ({ kind: r.kind, availability: r.availability })),
+      [
+        { kind: 'downloaded', availability: 'stale' },
+        { kind: 'downloaded', availability: 'stale' },
+        { kind: 'cached', availability: 'stale' },
+      ],
+    );
+    assert.deepStrictEqual(env.urls, FIX_URLS.slice(0, 2));
+
+    // 2. 画像停止中の stale: 欠落・破損は再GETせず scheduled_stopped
+    damage();
+    env.urls.length = 0;
+    env.state.imageAllowed = false;
+    const staleStopped = await env.service.fetchFrameTiles(FIX_FRAME, FIX_COORDS);
+    assert.deepStrictEqual(staleStopped, [
       {
         coordinate: FIX_COORDS[0],
         availability: 'stale',
         kind: 'unavailable',
         tile: null,
-        errorKind: 'catalog_stale',
+        errorKind: 'scheduled_stopped',
       },
       {
         coordinate: FIX_COORDS[1],
         availability: 'stale',
         kind: 'unavailable',
         tile: null,
-        errorKind: 'catalog_stale',
+        errorKind: 'scheduled_stopped',
       },
       { coordinate: FIX_COORDS[2], availability: 'stale', kind: 'cached', tile: original[2].tile },
     ]);

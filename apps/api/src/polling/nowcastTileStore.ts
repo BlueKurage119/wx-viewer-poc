@@ -338,6 +338,13 @@ export class NowcastTileStore {
   }
 
   cleanOrphanAndTempFiles(connection: DatabaseConnection): void {
+    const tableExists = connection
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='radar_tile'")
+      .get();
+    if (!tableExists) {
+      return;
+    }
+
     const rows = connection.prepare('SELECT file_path FROM radar_tile').all() as {
       file_path: string;
     }[];

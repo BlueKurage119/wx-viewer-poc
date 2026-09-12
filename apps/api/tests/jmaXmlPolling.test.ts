@@ -61,6 +61,8 @@ interface TestHttpServer {
   close(): Promise<void>;
 }
 
+const defaultXmlFreshnessPolicy = { staleAfterSeconds: 300 };
+
 async function createTestHttpServer(): Promise<TestHttpServer> {
   const requestCounts = new Map<string, number>();
   let currentHandler: (req: http.IncomingMessage, res: http.ServerResponse) => void = (
@@ -358,6 +360,7 @@ test('2. Atom エントリの link.href でだけ個別電文を取得する。�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -435,6 +438,7 @@ test('3. 同じ document_url が複数フィードまたは同一フィードに
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -521,6 +525,7 @@ test('4. 前サイクルで受信済みの URL は、次サイクルで個別 GE
 
     let currentTime = '2026-09-09T01:00:00Z';
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -619,6 +624,7 @@ test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -737,6 +743,7 @@ test('6. title だけが対象らしく見えても、本文の名前空間・�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -830,6 +837,7 @@ test('7. フィード・個別電文の HTTP 非成功、ネットワーク例�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -972,6 +980,7 @@ test('9. 同時の pollOnce は同一 Promise を共有し、上流のフィー�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -1044,6 +1053,7 @@ test('10. start() の複数呼出しがタイマーを増やさず、stop() 後�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -1259,6 +1269,7 @@ test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -1436,6 +1447,7 @@ test('16. 混在フィードで VPFD61/VPFW60 は早期注意 processor にだ�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -1676,6 +1688,7 @@ test('17. 混在フィードで VPFD51 は地域時系列予報 processor にだ
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -1903,6 +1916,7 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -2227,6 +2241,7 @@ test('8. 混在フィード（regular + extra）ポーリングで VPHW50/51（�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -2309,7 +2324,10 @@ test('22-1. 新規 JmaXmlPollingService の initialFetch は not_started / resul
   const { databasePath, cleanup } = createTempDb();
   try {
     const db = initializeDatabase({ databasePath, migrationsDirectory });
-    const service = new JmaXmlPollingService(db.connection);
+    const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+    });
     const status = service.getStatus();
 
     assert.deepEqual(status.initialFetch, {
@@ -2380,6 +2398,7 @@ test('22-2. start() で regular, extra, regular_l, extra_l が各 1 回要求さ
 
     let fakeNow = '2026-09-09T01:00:00.000Z';
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -2497,6 +2516,7 @@ test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本す�
       };
 
       const service = new JmaXmlPollingService(db.connection, {
+        freshnessPolicy: defaultXmlFreshnessPolicy,
         fetchFn: customFetch,
         allowedUrlPrefixes: [server.baseUrl],
         allowHttpForTesting: true,
@@ -2590,6 +2610,7 @@ test('22-4. 正常な空 Atom と取得失敗が feedFetchOutcome で区別さ�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -2674,6 +2695,7 @@ test('22-5. フィードは成功し個別電文 GET だけが失敗した場合
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -2755,6 +2777,7 @@ test('22-6. 同時複数 start() で 4 フィードは各 1 回のみ要求さ�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -2859,6 +2882,7 @@ test('22-7. 同じ DB で新しいサービスインスタンスを作成する�
 
     // サービス 1 回目
     const service1 = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -2872,6 +2896,7 @@ test('22-7. 同じ DB で新しいサービスインスタンスを作成する�
 
     // 同じ DB を使って新しいサービスインスタンスを作成
     const service2 = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -2947,6 +2972,7 @@ test('22-8. pollOnce(trigger) の直接呼出しは initialFetch を変更せず
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -3013,6 +3039,7 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
     db.connection.prepare('DROP TABLE fetch_attempt').run();
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
       clock: () => '2026-09-09T01:00:00Z',
@@ -3041,7 +3068,10 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
         databasePath: fresh.databasePath,
         migrationsDirectory,
       });
-      const crashingService = new JmaXmlPollingService(freshDb.connection);
+      const crashingService = new JmaXmlPollingService(freshDb.connection, {
+        freshnessPolicy: defaultXmlFreshnessPolicy,
+        freshnessPolicy: defaultXmlFreshnessPolicy,
+      });
       crashingService.start = async () => {
         throw new Error('Database/Internal fatal invariant violation');
       };
@@ -3193,6 +3223,7 @@ test('22-10. 保存済み履歴の C3 再構成後に初期サイクルが未受
     assert.equal(notificationsBefore.length, 0);
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -3482,6 +3513,7 @@ test('23-3. 一方のフィードが再試行待ちでも他方は通常周期�
 
     let currentTime = '2026-09-09T01:00:00.000Z';
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -3558,6 +3590,7 @@ test('23-3b. 再試行時刻が通常周期より早い場合、失敗してい�
     };
     const scheduler = new ManualTimerScheduler(new Date('2026-09-09T01:00:00.000Z').getTime());
     service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -3666,6 +3699,7 @@ test('23-4. フィード取得失敗およびAtom構造不正時に既存の正�
 
     let currentTime = '2026-09-09T01:00:00.000Z';
     service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -3772,6 +3806,7 @@ test('23-5. 個別電文のHTTP失敗・未対応構造・未対応コードは�
     };
 
     service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -3876,6 +3911,7 @@ test('23-6. 失敗分類に応じた通知レベル案（警報/問いかけ/非
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -3951,6 +3987,7 @@ test('23-7. 初期取得失敗時に待機終了後に失敗フィードだけ�
     const scheduler = new ManualTimerScheduler(initialTimeMs);
 
     service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -4060,6 +4097,7 @@ test('23-8. 初期取得失敗の再試行が再度失敗した場合の指数�
     const scheduler = new ManualTimerScheduler(initialTimeMs);
 
     service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -4141,6 +4179,7 @@ test('23-9. stop() 後の通常・再試行取得停止と、重複 start によ
     const scheduler = new ManualTimerScheduler(initialTimeMs);
 
     const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
@@ -4204,6 +4243,7 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
 
     let currentTime = '2026-09-09T01:00:00.000Z';
     service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,

@@ -1,0 +1,36 @@
+timezone: Asia/Tokyo
+amedasPointRecheckSeconds: 600
+freshness:
+  xml:
+    staleAfterSeconds: 300
+  imageCatalog:
+    staleAfterSeconds: 300
+periods:
+  - start: '04:00'
+    end: '05:00'
+    xmlSeconds: 120
+    imageCatalogSeconds: 120
+    amedasSeconds: 300
+    nowcastEnabled: true
+    kikikuruEnabled: true
+  - start: '05:00'
+    end: '18:00'
+    xmlSeconds: 60
+    imageCatalogSeconds: 60
+    amedasSeconds: 60
+    nowcastEnabled: true
+    kikikuruEnabled: true
+  - start: '18:00'
+    end: '20:00'
+    xmlSeconds: 120
+    imageCatalogSeconds: 120
+    amedasSeconds: 300
+    nowcastEnabled: true
+    kikikuruEnabled: true
+  - start: '20:00'
+    end: '04:00'
+    xmlSeconds: null
+    imageCatalogSeconds: null
+    amedasSeconds: null
+    nowcastEnabled: false
+    kikikuruEnabled: false

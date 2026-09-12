@@ -1,4 +1,6 @@
 import type { Availability, UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { UpstreamAccess } from '../config/pollingSchedule.js';
+import type { FreshnessPolicy } from './freshnessPolicy.js';
 import type { RiskSnapshot, RiskTile } from '../repositories/types.js';
 
 export type KikikuruLayer = 'heavyrain' | 'inund' | 'land';
@@ -19,6 +21,8 @@ export interface TileCoordinate {
 
 export interface KikikuruCatalog {
   readonly now: UtcIso8601String;
+  readonly catalogAccess: UpstreamAccess;
+  readonly imageAccess: UpstreamAccess;
   readonly layers: Readonly<
     Record<
       KikikuruLayer,
@@ -42,7 +46,9 @@ export type KikikuruTileResult = {
 export interface KikikuruOptions {
   readonly cacheRoot: string;
   readonly allowedZooms: readonly number[];
-  readonly staleAfterMs: Readonly<Record<KikikuruLayer, number>>;
+  readonly getCatalogAccess: () => UpstreamAccess;
+  readonly getImageAccess: () => UpstreamAccess;
+  readonly freshnessPolicy: FreshnessPolicy;
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
   readonly timeoutMs?: number;

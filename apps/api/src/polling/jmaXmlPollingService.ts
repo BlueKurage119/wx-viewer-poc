@@ -1,5 +1,6 @@
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { Availability, UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
+import { evaluateFreshness, type FreshnessPolicy } from './freshnessPolicy.js';
 import { sanitizeErrorMessage } from './httpGet.js';
 import {
   getFeedDefinitionsForTrigger,
@@ -27,11 +28,18 @@ export interface InitialFetchStatus {
   readonly result: InitialFetchResult | null;
 }
 
+export interface XmlFeedFreshnessStatus {
+  readonly availability: Availability;
+  readonly lastSuccessAt: UtcIso8601String | null;
+  readonly staleAfterSeconds: number;
+}
+
 export interface JmaXmlPollingStatus {
   readonly isRunning: boolean;
   readonly initialFetch: InitialFetchStatus;
   readonly lastCycleResult: PollCycleResult | null;
   readonly feedStatuses: Readonly<Record<JmaXmlFeedKind, FeedBackoffStatus>>;
+  readonly feedFreshness: Readonly<Record<'regular' | 'extra', XmlFeedFreshnessStatus>>;
 }
 
 export interface PollingTimerScheduler {
@@ -40,6 +48,7 @@ export interface PollingTimerScheduler {
 }
 
 export interface JmaXmlPollingServiceOptions extends PollerContextOptions {
+  readonly freshnessPolicy: FreshnessPolicy;
   readonly intervalMs?: number;
   readonly timerScheduler?: PollingTimerScheduler;
 }
@@ -110,7 +119,7 @@ const defaultTimerScheduler: PollingTimerScheduler = {
 export class JmaXmlPollingService {
   private readonly connection: DatabaseConnection;
   private readonly options: JmaXmlPollingServiceOptions;
-  private readonly intervalMs: number;
+  private intervalMs: number;
   private readonly timerScheduler: PollingTimerScheduler;
   private readonly backoffManager = new FeedBackoffManager();
 
@@ -127,15 +136,132 @@ export class JmaXmlPollingService {
   private scheduledPollDueOnNextRun = false;
   private nextCycleNotBeforeMs: number | null = null;
 
-  constructor(connection: DatabaseConnection, options?: JmaXmlPollingServiceOptions) {
+  constructor(connection: DatabaseConnection, options: JmaXmlPollingServiceOptions) {
+    if (!options || !options.freshnessPolicy) {
+      throw new Error('freshnessPolicy は必須です');
+    }
     this.connection = connection;
-    this.options = options ?? {};
+    this.options = options;
     this.intervalMs = this.options.intervalMs ?? 60_000;
     this.timerScheduler = this.options.timerScheduler ?? defaultTimerScheduler;
   }
 
+  setScheduledIntervalSeconds(seconds: number | null): void {
+    if (seconds === null) {
+      return;
+    }
+    const newIntervalMs = seconds * 1000;
+    if (this.intervalMs === newIntervalMs) {
+      return;
+    }
+    const oldIntervalMs = this.intervalMs;
+    this.intervalMs = newIntervalMs;
+
+    if (this.isRunning && this.initialFetchPhase === 'completed') {
+      if (this.nextScheduledPollAtMs !== null) {
+        const nowFn = this.options.clock ?? (() => new Date().toISOString());
+        const nowMs = new Date(nowFn()).getTime();
+        const previousBaseMs = this.nextScheduledPollAtMs - oldIntervalMs;
+        this.nextScheduledPollAtMs = Math.max(nowMs, previousBaseMs + newIntervalMs);
+      }
+      this.scheduleNextCycle();
+    }
+  }
+
+  getScheduledIntervalSeconds(): number | null {
+    return Math.round(this.intervalMs / 1000);
+  }
+
+  isExecuting(): boolean {
+    return this.inFlightPollPromise !== null || this.inFlightStartPromise !== null;
+  }
+
+  getNextRunAt(): UtcIso8601String | null {
+    if (!this.isRunning) {
+      return null;
+    }
+    const nowFn = this.options.clock ?? (() => new Date().toISOString());
+    const nowIso = nowFn();
+    const nowMs = new Date(nowIso).getTime();
+
+    if (this.initialFetchPhase === 'failed') {
+      const pendingFeeds = INITIAL_FEED_KINDS.filter(
+        (k) => !this.successfulInitialFeedKinds.has(k),
+      );
+      let minPendingDelayMs = Infinity;
+      for (const feedKind of pendingFeeds) {
+        const status = this.backoffManager.getStatus(feedKind, nowIso);
+        if (status.nextAllowedFetchAt) {
+          const allowedMs = new Date(status.nextAllowedFetchAt).getTime();
+          minPendingDelayMs = Math.min(minPendingDelayMs, Math.max(0, allowedMs - nowMs));
+        } else {
+          minPendingDelayMs = 0;
+        }
+      }
+      if (minPendingDelayMs === Infinity) {
+        return null;
+      }
+      return new Date(nowMs + minPendingDelayMs).toISOString() as UtcIso8601String;
+    }
+
+    if (this.initialFetchPhase === 'completed') {
+      const scheduledFeeds: readonly JmaXmlFeedKind[] = ['regular', 'extra'];
+      let minRetryDelayMs = Infinity;
+      for (const feedKind of scheduledFeeds) {
+        const status = this.backoffManager.getStatus(feedKind, nowIso);
+        if (status.isWaiting && status.nextAllowedFetchAt) {
+          const allowedMs = new Date(status.nextAllowedFetchAt).getTime();
+          minRetryDelayMs = Math.min(minRetryDelayMs, Math.max(0, allowedMs - nowMs));
+        }
+      }
+      const scheduledDelayMs =
+        this.nextScheduledPollAtMs !== null
+          ? Math.max(0, this.nextScheduledPollAtMs - nowMs)
+          : this.intervalMs;
+      const delayMs = Math.min(scheduledDelayMs, minRetryDelayMs);
+      if (delayMs === Infinity) {
+        return null;
+      }
+      return new Date(nowMs + delayMs).toISOString() as UtcIso8601String;
+    }
+
+    return null;
+  }
+
   getStatus(): JmaXmlPollingStatus {
     const nowFn = this.options.clock ?? (() => new Date().toISOString());
+    const nowIso = nowFn();
+    const feedStatuses = this.backoffManager.getAllStatuses(nowIso);
+
+    const regularStatus = feedStatuses.regular;
+    const extraStatus = feedStatuses.extra;
+
+    const regularFreshness: XmlFeedFreshnessStatus = {
+      availability: evaluateFreshness(
+        {
+          now: nowIso,
+          lastSuccessAt: regularStatus.lastSuccessAt,
+          latestAttemptFailed: regularStatus.consecutiveFailures > 0,
+        },
+        this.options.freshnessPolicy,
+      ),
+      lastSuccessAt: regularStatus.lastSuccessAt,
+      staleAfterSeconds: this.options.freshnessPolicy.staleAfterSeconds,
+    };
+
+    const extraFreshness: XmlFeedFreshnessStatus = {
+      availability: evaluateFreshness(
+        {
+          now: nowIso,
+          lastSuccessAt: extraStatus.lastSuccessAt,
+          latestAttemptFailed: extraStatus.consecutiveFailures > 0,
+        },
+        this.options.freshnessPolicy,
+      ),
+      lastSuccessAt: extraStatus.lastSuccessAt,
+      staleAfterSeconds: this.options.freshnessPolicy.staleAfterSeconds,
+    };
+
     return {
       isRunning: this.isRunning,
       initialFetch: {
@@ -143,7 +269,11 @@ export class JmaXmlPollingService {
         result: this.initialFetchResult,
       },
       lastCycleResult: this.lastCycleResult,
-      feedStatuses: this.backoffManager.getAllStatuses(nowFn()),
+      feedStatuses,
+      feedFreshness: {
+        regular: regularFreshness,
+        extra: extraFreshness,
+      },
     };
   }
 
@@ -240,7 +370,7 @@ export class JmaXmlPollingService {
     };
   }
 
-  start(): Promise<InitialFetchResult> {
+  start(startOptions?: { immediateScheduled?: boolean }): Promise<InitialFetchResult> {
     if (this.isRunning) {
       if (this.inFlightStartPromise) {
         return this.inFlightStartPromise;
@@ -254,7 +384,9 @@ export class JmaXmlPollingService {
 
     // stop() 後の再 start()
     if (this.initialFetchPhase === 'completed') {
-      this.nextScheduledPollAtMs = null;
+      const nowFn = this.options.clock ?? (() => new Date().toISOString());
+      const nowMs = new Date(nowFn()).getTime();
+      this.nextScheduledPollAtMs = startOptions?.immediateScheduled ? nowMs : null;
       this.scheduleNextCycle();
       return Promise.resolve(this.initialFetchResult!);
     }

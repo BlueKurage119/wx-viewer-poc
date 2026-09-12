@@ -1,11 +1,7 @@
 import crypto from 'node:crypto';
-import {
-  resolveAvailability,
-  type Availability,
-  type FreshnessStatus,
-  type UtcIso8601String,
-} from '@wx-viewer-poc/shared';
+import type { Availability, UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
+import { evaluateFreshness } from './freshnessPolicy.js';
 import { recordFetchAttempt } from '../repositories/fetchAttemptRepository.js';
 import { findRiskSnapshot, saveRiskSnapshot } from '../repositories/riskRepository.js';
 import type { RiskTile } from '../repositories/types.js';
@@ -52,21 +48,19 @@ export class KikikuruService {
       }
     }
 
+    if (typeof options.getCatalogAccess !== 'function') {
+      throw new Error('getCatalogAccess must be a function');
+    }
+    if (typeof options.getImageAccess !== 'function') {
+      throw new Error('getImageAccess must be a function');
+    }
     if (
-      !options.staleAfterMs ||
-      typeof options.staleAfterMs.heavyrain !== 'number' ||
-      !Number.isFinite(options.staleAfterMs.heavyrain) ||
-      options.staleAfterMs.heavyrain <= 0 ||
-      typeof options.staleAfterMs.inund !== 'number' ||
-      !Number.isFinite(options.staleAfterMs.inund) ||
-      options.staleAfterMs.inund <= 0 ||
-      typeof options.staleAfterMs.land !== 'number' ||
-      !Number.isFinite(options.staleAfterMs.land) ||
-      options.staleAfterMs.land <= 0
+      !options.freshnessPolicy ||
+      typeof options.freshnessPolicy.staleAfterSeconds !== 'number' ||
+      !Number.isSafeInteger(options.freshnessPolicy.staleAfterSeconds) ||
+      options.freshnessPolicy.staleAfterSeconds <= 0
     ) {
-      throw new Error(
-        'staleAfterMs must define positive finite numbers for heavyrain, inund, and land',
-      );
+      throw new Error('freshnessPolicy.staleAfterSeconds must be a positive safe integer');
     }
 
     this.tileStore = new KikikuruTileStore(options.cacheRoot);
@@ -97,6 +91,11 @@ export class KikikuruService {
   }
 
   async refreshTimes(options?: KikikuruAttemptOptions): Promise<KikikuruCatalog> {
+    const catalogAccess = this.options.getCatalogAccess();
+    if (!catalogAccess.allowed) {
+      return this.readCatalog();
+    }
+
     const task = async () => {
       const clock = this.getClock();
       const startedAt = clock();
@@ -291,6 +290,8 @@ export class KikikuruService {
   readCatalog(): KikikuruCatalog {
     const clock = this.getClock();
     const nowIso = clock();
+    const catalogAccess = this.options.getCatalogAccess();
+    const imageAccess = this.options.getImageAccess();
 
     const evalLayer = (layer: KikikuruLayer) => {
       const snap = findRiskSnapshot(this.connection, layer);
@@ -302,25 +303,15 @@ export class KikikuruService {
         };
       }
 
-      const hasLastNormalValue = snap.metadata.lastSuccessAt !== null;
-      let freshness: FreshnessStatus = 'normal';
-
-      if (snap.metadata.availability === 'stale' || snap.metadata.availability === 'unavailable') {
-        freshness = 'abnormal';
-      } else if (snap.metadata.lastSuccessAt !== null) {
-        const lastSuccessMs = new Date(snap.metadata.lastSuccessAt).getTime();
-        const nowMs = new Date(nowIso).getTime();
-        const elapsedMs = nowMs - lastSuccessMs;
-        if (elapsedMs >= this.options.staleAfterMs[layer]) {
-          freshness = 'delayed';
-        } else {
-          freshness = 'normal';
-        }
-      } else {
-        freshness = 'abnormal';
-      }
-
-      const availability = resolveAvailability({ hasLastNormalValue, freshness });
+      const latestAttemptFailed = snap.metadata.availability === 'stale';
+      const availability = evaluateFreshness(
+        {
+          now: nowIso,
+          lastSuccessAt: snap.metadata.lastSuccessAt,
+          latestAttemptFailed,
+        },
+        this.options.freshnessPolicy,
+      );
 
       // 全フレームを返す（3時間窓などの絞り込みはしない）
       const frames: KikikuruFrameKey[] = snap.frames.map((f) => ({
@@ -340,6 +331,8 @@ export class KikikuruService {
 
     return {
       now: nowIso,
+      catalogAccess,
+      imageAccess,
       layers: {
         heavyrain: evalLayer('heavyrain'),
         inund: evalLayer('inund'),
@@ -460,19 +453,6 @@ export class KikikuruService {
           }
         }
 
-        // キャッシュミス時の扱い
-        if (layerAvailability === 'stale') {
-          // 一覧が stale の場合のキャッシュミスは新規 GET を抑止し catalog_stale
-          resultsMap.set(key, {
-            coordinate: coord,
-            availability: 'stale',
-            kind: 'unavailable',
-            tile: null,
-            errorKind: 'catalog_stale',
-          });
-          continue;
-        }
-
         toFetch.push(coord);
       }
 
@@ -497,6 +477,19 @@ export class KikikuruService {
 
       try {
         for (const coord of toFetch) {
+          const key = `${coord.zoom}/${coord.tileX}/${coord.tileY}`;
+          const currentImageAccess = this.options.getImageAccess();
+          if (!currentImageAccess.allowed) {
+            resultsMap.set(key, {
+              coordinate: coord,
+              availability: layerAvailability,
+              kind: 'unavailable',
+              tile: null,
+              errorKind: 'scheduled_stopped',
+            });
+            continue;
+          }
+
           const tileUrl = buildKikikuruTileUrl(
             frame.baseTime,
             frame.validTime,
@@ -551,7 +544,6 @@ export class KikikuruService {
           }
 
           const attempt = getAttempts[getAttempts.length - 1]!;
-          const key = `${attempt.coord.zoom}/${attempt.coord.tileX}/${attempt.coord.tileY}`;
 
           if (attempt.errorKind !== null || !attempt.buffer) {
             resultsMap.set(key, {
@@ -723,5 +715,9 @@ export class KikikuruService {
       if (operationErrors.length === 1) throw operationErrors[0];
       return coordinates.map((c) => resultsMap.get(`${c.zoom}/${c.tileX}/${c.tileY}`)!);
     });
+  }
+
+  async waitForIdle(): Promise<void> {
+    await Promise.all([this.queueHeavyrain, this.queueInund, this.queueLand, this.queueTimes]);
   }
 }
