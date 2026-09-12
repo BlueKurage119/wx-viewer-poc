@@ -2376,7 +2376,6 @@ test('22-1. 新規 JmaXmlPollingService の initialFetch は not_started / resul
     const db = initializeDatabase({ databasePath, migrationsDirectory });
     const service = new JmaXmlPollingService(db.connection, {
       freshnessPolicy: defaultXmlFreshnessPolicy,
-      freshnessPolicy: defaultXmlFreshnessPolicy,
     });
     const status = service.getStatus();
 
