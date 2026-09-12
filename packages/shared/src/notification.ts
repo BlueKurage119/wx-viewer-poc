@@ -33,7 +33,8 @@ interface NotificationBase {
   readonly category: NotificationCategory;
   readonly sourceType: string;
   readonly sourceVersion: string | null;
-  readonly target: NotificationTarget | null;
+  /** 発生対象。空配列は許可しない。 */
+  readonly targets: readonly [NotificationTarget, ...NotificationTarget[]];
   readonly occurredAt: UtcIso8601String;
   readonly detectedAt: UtcIso8601String;
   readonly relatedRefs: readonly NotificationRelatedRef[];

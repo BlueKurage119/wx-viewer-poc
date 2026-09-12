@@ -30,13 +30,21 @@ function createTempDbPath(): { databasePath: string; cleanup: () => void } {
   };
 }
 
-test('受け入れ条件 2: 対象が { kind: "area", codeType, code, name } の気象通知を mapper に渡すと、targetAreaJson がその JSON、relatedRefsJson が配列 JSON になり、全 B4 入力値が完全一致する', () => {
-  const target: NotificationTarget = {
-    kind: 'area',
-    codeType: 'jma_forecast_area',
-    code: '130010',
-    name: '東京都',
-  };
+test('受け入れ条件 2: 大田区・江東区を含む気象通知を mapper に渡すと、targetAreaJson が二要素の JSON 配列、relatedRefsJson が配列 JSON になり、全 B4 入力値が完全一致する', () => {
+  const targets: readonly [NotificationTarget, NotificationTarget] = [
+    {
+      kind: 'area',
+      codeType: 'jma_municipality',
+      code: '131113',
+      name: '大田区',
+    },
+    {
+      kind: 'area',
+      codeType: 'jma_municipality',
+      code: '131083',
+      name: '江東区',
+    },
+  ];
 
   const notification: WeatherNotification = {
     notificationId: 'notif-weather-c2-001',
@@ -45,7 +53,7 @@ test('受け入れ条件 2: 対象が { kind: "area", codeType, code, name } の
     changeType: 'strengthened',
     sourceType: 'warning_current',
     sourceVersion: '20260912000000_0_VPWW55_130000',
-    target,
+    targets,
     occurredAt: '2026-09-12T00:00:00Z',
     detectedAt: '2026-09-12T00:00:02Z',
     relatedRefs: [
@@ -71,7 +79,7 @@ test('受け入れ条件 2: 対象が { kind: "area", codeType, code, name } の
   assert.equal(input.category, 'warning');
   assert.equal(input.sourceType, 'warning_current');
   assert.equal(input.sourceVersion, '20260912000000_0_VPWW55_130000');
-  assert.equal(input.targetAreaJson, JSON.stringify(target));
+  assert.equal(input.targetAreaJson, JSON.stringify(targets));
   assert.equal(input.occurredAt, '2026-09-12T00:00:00Z');
   assert.equal(input.detectedAt, '2026-09-12T00:00:02Z');
   assert.equal(input.changeType, 'strengthened');
@@ -85,7 +93,7 @@ test('受け入れ条件 2: 対象が { kind: "area", codeType, code, name } の
   assert.equal(input.messageDefinitionVersion, 'v1.0.0');
 });
 
-test('受け入れ条件 3: target: null の装置通知を mapper に渡すと、targetAreaJson === null のまま、origin === "system"、sourceVersion === null を保持する', () => {
+test('受け入れ条件 3: 単一の設備 target を持つ装置通知を mapper に渡すと、targetAreaJson が一要素の JSON 配列、origin === "system"、sourceVersion === null を保持する', () => {
   const notification: SystemNotification = {
     notificationId: 'notif-system-c3-001',
     category: 'emergency',
@@ -93,7 +101,14 @@ test('受け入れ条件 3: target: null の装置通知を mapper に渡すと�
     changeType: 'connection_lost',
     sourceType: 'fetch_attempt',
     sourceVersion: null,
-    target: null,
+    targets: [
+      {
+        kind: 'equipment',
+        codeType: 'system_component',
+        code: 'jma-feed-connection',
+        name: '気象庁フィード接続',
+      },
+    ],
     occurredAt: '2026-09-12T01:00:00Z',
     detectedAt: '2026-09-12T01:00:05Z',
     relatedRefs: [],
@@ -113,7 +128,17 @@ test('受け入れ条件 3: target: null の装置通知を mapper に渡すと�
   assert.equal(input.category, 'emergency');
   assert.equal(input.sourceType, 'fetch_attempt');
   assert.equal(input.sourceVersion, null);
-  assert.equal(input.targetAreaJson, null);
+  assert.equal(
+    input.targetAreaJson,
+    JSON.stringify([
+      {
+        kind: 'equipment',
+        codeType: 'system_component',
+        code: 'jma-feed-connection',
+        name: '気象庁フィード接続',
+      },
+    ]),
+  );
   assert.equal(input.occurredAt, '2026-09-12T01:00:00Z');
   assert.equal(input.detectedAt, '2026-09-12T01:00:05Z');
   assert.equal(input.changeType, 'connection_lost');
@@ -135,12 +160,14 @@ test('受け入れ条件 4: detectionContext: "initial" の気象通知で、cha
     changeType: 'new',
     sourceType: 'warning_current',
     sourceVersion: 'v1',
-    target: {
-      kind: 'area',
-      codeType: 'jma_forecast_area',
-      code: '130010',
-      name: '東京都',
-    },
+    targets: [
+      {
+        kind: 'area',
+        codeType: 'jma_forecast_area',
+        code: '130010',
+        name: '東京都',
+      },
+    ],
     occurredAt: '2026-09-12T02:00:00Z',
     detectedAt: '2026-09-12T02:00:01Z',
     relatedRefs: [],
@@ -168,12 +195,14 @@ test('受け入れ条件 5: isTraining: true が mapper を通過して B4 入�
     changeType: 'new',
     sourceType: 'warning_current',
     sourceVersion: 'v1_training',
-    target: {
-      kind: 'area',
-      codeType: 'jma_forecast_area',
-      code: '130010',
-      name: '東京都',
-    },
+    targets: [
+      {
+        kind: 'area',
+        codeType: 'jma_forecast_area',
+        code: '130010',
+        name: '東京都',
+      },
+    ],
     occurredAt: '2026-09-12T03:00:00Z',
     detectedAt: '2026-09-12T03:00:01Z',
     relatedRefs: [],
@@ -200,7 +229,14 @@ test('受け入れ条件 6: messageDefinition: null の出力スナップショ�
     changeType: 'stale_check',
     sourceType: 'fetch_attempt',
     sourceVersion: null,
-    target: null,
+    targets: [
+      {
+        kind: 'equipment',
+        codeType: 'system_component',
+        code: 'data-freshness',
+        name: 'データ鮮度監視',
+      },
+    ],
     occurredAt: '2026-09-12T04:00:00Z',
     detectedAt: '2026-09-12T04:00:01Z',
     relatedRefs: [],
@@ -228,12 +264,14 @@ test('受け入れ条件 7: messageDefinition がある出力スナップショ�
     changeType: 'new',
     sourceType: 'bosai_bulletin',
     sourceVersion: '20260912_VPBS50',
-    target: {
-      kind: 'area',
-      codeType: 'bosai_bulletin_area',
-      code: '130000',
-      name: '東京都',
-    },
+    targets: [
+      {
+        kind: 'area',
+        codeType: 'bosai_bulletin_area',
+        code: '130000',
+        name: '東京都',
+      },
+    ],
     occurredAt: '2026-09-12T05:00:00Z',
     detectedAt: '2026-09-12T05:00:02Z',
     relatedRefs: [{ type: 'telegram', ref: '20260912_VPBS50' }],
@@ -264,7 +302,14 @@ test('受け入れ条件 8: summary と ackRequired が NotificationOutputSnapsh
     changeType: 'new',
     sourceType: 'bosai_bulletin',
     sourceVersion: 'v1',
-    target: null,
+    targets: [
+      {
+        kind: 'equipment',
+        codeType: 'system_component',
+        code: 'message-renderer',
+        name: 'メッセージ生成',
+      },
+    ],
     occurredAt: '2026-09-12T06:00:00Z',
     detectedAt: '2026-09-12T06:00:01Z',
     relatedRefs: [],
@@ -307,7 +352,7 @@ test('受け入れ条件 2〜8 のインテグレーション: mapper の出力�
       changeType: 'strengthened',
       sourceType: 'amedas',
       sourceVersion: '20260912070000',
-      target: weatherTarget,
+      targets: [weatherTarget],
       occurredAt: '2026-09-12T07:00:00Z',
       detectedAt: '2026-09-12T07:00:02Z',
       relatedRefs: [{ type: 'station', ref: '44132' }],
@@ -357,7 +402,9 @@ test('受け入れ条件 2〜8 のインテグレーション: mapper の出力�
       changeType: 'link_down',
       sourceType: 'equipment_monitor',
       sourceVersion: null,
-      target: null,
+      targets: [
+        { kind: 'equipment', codeType: 'system_component', code: 'network-link', name: '回線監視' },
+      ],
       occurredAt: '2026-09-12T07:10:00Z',
       detectedAt: '2026-09-12T07:10:03Z',
       relatedRefs: [],
@@ -377,7 +424,7 @@ test('受け入れ条件 2〜8 のインテグレーション: mapper の出力�
     const fetchedSystem = findNotificationOutputHistoryById(context.connection, recordedSystem.id);
     assert.ok(fetchedSystem !== null);
     assert.equal(fetchedSystem.notificationId, systemInput.notificationId);
-    assert.equal(fetchedSystem.targetAreaJson, null);
+    assert.equal(fetchedSystem.targetAreaJson, systemInput.targetAreaJson);
     assert.equal(fetchedSystem.sourceVersion, null);
     assert.equal(fetchedSystem.origin, 'system');
     assert.equal(fetchedSystem.detectionContext, 'initial');

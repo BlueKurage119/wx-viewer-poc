@@ -1,5 +1,6 @@
 import type {
   Notification,
+  NotificationTarget,
   NotificationOutputSnapshot,
   SystemNotification,
   WeatherNotification,
@@ -34,6 +35,13 @@ type _NotificationHasNoForbiddenKeys = AssertNever<ExtractForbiddenKeys<Notifica
 void (null as unknown as _NotificationHasNoForbiddenKeys);
 
 declare const notification: Notification;
+
+const target: NotificationTarget = {
+  kind: 'equipment',
+  codeType: 'system_component',
+  code: 'notification-service',
+  name: '通知サービス',
+};
 
 // @ts-expect-error Notification は端末 ID を持たない
 void notification.terminalId;
@@ -80,7 +88,7 @@ const invalidWeatherChangeType: WeatherNotification = {
   changeType: 'device_offline',
   sourceType: 'warning_current',
   sourceVersion: 'v1',
-  target: null,
+  targets: [target],
   occurredAt: '2026-09-12T00:00:00Z',
   detectedAt: '2026-09-12T00:00:01Z',
   relatedRefs: [],
@@ -97,7 +105,7 @@ const validSystemNotification: SystemNotification = {
   changeType: 'device_offline',
   sourceType: 'fetch_attempt',
   sourceVersion: null,
-  target: null,
+  targets: [target],
   occurredAt: '2026-09-12T00:00:00Z',
   detectedAt: '2026-09-12T00:00:01Z',
   relatedRefs: [],
@@ -105,6 +113,10 @@ const validSystemNotification: SystemNotification = {
   isTraining: false,
 };
 void validSystemNotification;
+
+// @ts-expect-error Notification の targets は空配列を許可しない
+const _emptyTargets: SystemNotification = { ...validSystemNotification, targets: [] };
+void _emptyTargets;
 
 // @ts-expect-error WeatherNotification に origin: 'system' を代入できない
 const _invalidOriginWeather: WeatherNotification = validSystemNotification;

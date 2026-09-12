@@ -16,7 +16,7 @@ export function toNotificationOutputHistoryInput(
     category: notification.category,
     sourceType: notification.sourceType,
     sourceVersion: notification.sourceVersion,
-    targetAreaJson: notification.target === null ? null : JSON.stringify(notification.target),
+    targetAreaJson: JSON.stringify(notification.targets),
     occurredAt: notification.occurredAt,
     detectedAt: notification.detectedAt,
     changeType: notification.changeType,
