@@ -5,6 +5,7 @@ import { resolveTerminal, resolveView, views, type Terminal, type ViewId } from 
 import { NotificationArea } from './shell/NotificationArea';
 import { visibleNotices } from './shell/notifications';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
+import { fetchStartupNotifications } from './api/startupNotifications';
 
 const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
   weather: {
@@ -72,6 +73,10 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    // #41 で通知 store へ接続するまで、応答を UI 状態へ保存しない。
+    void fetchStartupNotifications(terminal.id);
+  }, [terminal.id]);
   const current = views.find((item) => item.id === view)!;
   const displayed = visibleNotices(notices, terminal.mode);
   const selectScenario = (next: PreviewScenario) => {

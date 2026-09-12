@@ -1,10 +1,12 @@
 import {
+  TERMINAL_DEFINITIONS,
   resolveVenueForecastTargets,
+  type TerminalMode,
   type VenueForecastTargets,
   type VenueId,
 } from '@wx-viewer-poc/shared';
 
-export type TerminalMode = 'H' | 'K';
+export type { TerminalMode } from '@wx-viewer-poc/shared';
 export type ViewId = 'weather' | 'warnings' | 'monitor' | 'training';
 export interface Venue {
   id: VenueId;
@@ -32,12 +34,18 @@ const venues = {
     weatherTargets: resolveVenueForecastTargets('trc'),
   },
 } satisfies Record<string, Venue>;
-export const terminals: readonly Terminal[] = [
-  { id: 'hkeagh01', name: '東地区外務H1', mode: 'H', venue: venues.east },
-  { id: 'kkeagh01', name: '東地区外務K1', mode: 'K', venue: venues.east },
-  { id: 'htrcph01', name: 'TRC公共H1', mode: 'H', venue: venues.trc },
-  { id: 'ktrcph01', name: 'TRC公共K1', mode: 'K', venue: venues.trc },
-];
+const terminalNames: Readonly<Record<string, string>> = {
+  hkeagh01: '東地区外務H1',
+  kkeagh01: '東地区外務K1',
+  htrcph01: 'TRC公共H1',
+  ktrcph01: 'TRC公共K1',
+};
+export const terminals: readonly Terminal[] = TERMINAL_DEFINITIONS.map((terminal) => ({
+  id: terminal.id,
+  name: terminalNames[terminal.id]!,
+  mode: terminal.mode,
+  venue: venues[terminal.venueId],
+}));
 export const views: readonly {
   id: ViewId;
   /** ナビレール表示用。4文字以内とする。 */
