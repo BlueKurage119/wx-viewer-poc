@@ -12,6 +12,11 @@ import type {
 } from '../repositories/types.js';
 import { parseWarningTelegram } from './jmaWarningTelegramParser.js';
 import { resolveVenueWarningContext, type VenueWarningContext } from '../venueForecastTargets.js';
+import {
+  type WarningNotificationEmitDeps,
+  emitWarningNotificationsForReception,
+} from '../notifications/warningNotificationEmitter.js';
+import { InitialWarningNotificationTracker } from '../notifications/initialWarningNotificationTracker.js';
 
 export interface WarningTelegramProcessResult {
   readonly parseResult: WarningTelegramParseResult;
@@ -27,6 +32,7 @@ export function processWarningTelegramReception(
   reception: TelegramReception,
   decidedAt: UtcIso8601String,
   venue: VenueWarningContext,
+  emitDeps?: WarningNotificationEmitDeps,
 ): WarningTelegramParseResult {
   const result =
     reception.rawBody === null
@@ -50,6 +56,18 @@ export function processWarningTelegramReception(
       if (!currentResult.applied && currentResult.reason === 'unsupported_code') {
         adoptionResult = '未対応コード';
         adoptionReason = currentResult.detail;
+      } else if (currentResult.applied) {
+        const resolvedDeps: WarningNotificationEmitDeps = emitDeps ?? {
+          tracker: new InitialWarningNotificationTracker(),
+          now: () => decidedAt,
+        };
+        emitWarningNotificationsForReception(
+          connection,
+          reception,
+          currentResult,
+          result.value,
+          resolvedDeps,
+        );
       }
     } catch (error) {
       // C3 の例外によって C2 の解析成功を取り消さない
@@ -75,11 +93,15 @@ export function processWarningTelegramReceptionForAllVenues(
   connection: DatabaseConnection,
   reception: TelegramReception,
   decidedAt: UtcIso8601String,
+  emitDeps?: WarningNotificationEmitDeps,
 ): ReadonlyMap<VenueId, WarningTelegramParseResult> {
   const results = new Map<VenueId, WarningTelegramParseResult>();
   for (const venueId of VENUE_IDS) {
     const venue = resolveVenueWarningContext(venueId);
-    results.set(venueId, processWarningTelegramReception(connection, reception, decidedAt, venue));
+    results.set(
+      venueId,
+      processWarningTelegramReception(connection, reception, decidedAt, venue, emitDeps),
+    );
   }
   return results;
 }
@@ -88,6 +110,7 @@ export async function reprocessPendingWarningTelegramReceptions(
   connection: DatabaseConnection,
   venue: VenueWarningContext,
   clock: () => UtcIso8601String,
+  emitDeps?: WarningNotificationEmitDeps,
 ): Promise<{ readonly processedCount: number }> {
   let after: { readonly receivedAt: UtcIso8601String; readonly id: number } | undefined;
   let processedCount = 0;
@@ -97,7 +120,7 @@ export async function reprocessPendingWarningTelegramReceptions(
       limit: 100,
     });
     for (const reception of page.receptions) {
-      processWarningTelegramReception(connection, reception, clock(), venue);
+      processWarningTelegramReception(connection, reception, clock(), venue, emitDeps);
       processedCount += 1;
     }
     after = page.nextCursor ?? undefined;

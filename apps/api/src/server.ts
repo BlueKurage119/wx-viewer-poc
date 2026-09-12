@@ -23,6 +23,11 @@ import {
 import { rebuildWarningCurrentFromReceptions } from './polling/jmaWarningCurrentProcessor.js';
 import { reprocessPendingWarningTelegramReceptions } from './polling/jmaWarningTelegramProcessor.js';
 import { resolveVenueWarningContext } from './venueForecastTargets.js';
+import {
+  InitialWarningNotificationTracker,
+  emitInitialWarningNotifications,
+  type WarningNotificationEmitDeps,
+} from './notifications/index.js';
 
 export interface StartedServer {
   readonly port: number;
@@ -145,20 +150,29 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             return;
           }
 
+          const warningTracker = new InitialWarningNotificationTracker();
+          const warningEmitDeps: WarningNotificationEmitDeps = {
+            tracker: warningTracker,
+            now: options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
+          };
+
           for (const venueId of VENUE_IDS) {
             const venue = resolveVenueWarningContext(venueId);
             await reprocessPendingWarningTelegramReceptions(
               database.connection,
               venue,
               options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
+              warningEmitDeps,
             );
             rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
+            emitInitialWarningNotifications(database.connection, venue.targetArea, warningEmitDeps);
           }
 
           pollingService =
             options.pollingService ??
             new JmaXmlPollingService(database.connection, {
               freshnessPolicy: schedule.freshness.xml,
+              warningNotificationEmitDeps: warningEmitDeps,
               ...options.pollingServiceOptions,
             });
 
@@ -310,16 +324,27 @@ async function main(): Promise<void> {
             return;
           }
 
+          const warningTracker = new InitialWarningNotificationTracker();
+          const warningEmitDeps: WarningNotificationEmitDeps = {
+            tracker: warningTracker,
+            now: () => new Date().toISOString(),
+          };
+
           for (const venueId of VENUE_IDS) {
             const venue = resolveVenueWarningContext(venueId);
-            await reprocessPendingWarningTelegramReceptions(database.connection, venue, () =>
-              new Date().toISOString(),
+            await reprocessPendingWarningTelegramReceptions(
+              database.connection,
+              venue,
+              () => new Date().toISOString(),
+              warningEmitDeps,
             );
             rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
+            emitInitialWarningNotifications(database.connection, venue.targetArea, warningEmitDeps);
           }
 
           pollingService = new JmaXmlPollingService(database.connection, {
             freshnessPolicy: schedule.freshness.xml,
+            warningNotificationEmitDeps: warningEmitDeps,
           });
 
           const adapters = createScheduledAdapters({

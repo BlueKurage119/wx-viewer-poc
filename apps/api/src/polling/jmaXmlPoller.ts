@@ -38,6 +38,8 @@ import {
   type EarlyWarningTargetArea,
 } from '../repositories/types.js';
 
+import type { WarningNotificationEmitDeps } from '../notifications/warningNotificationEmitter.js';
+
 export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
@@ -45,6 +47,7 @@ export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly earlyWarningTargetArea?: EarlyWarningTargetArea;
   readonly areaTimeseriesForecastTarget?: AreaTimeseriesForecastTarget;
   readonly bosaiBulletinTarget?: BosaiBulletinTarget;
+  readonly warningNotificationEmitDeps?: WarningNotificationEmitDeps;
 }
 import { performHttpGet, sanitizeErrorMessage, sanitizeUrl } from './httpGet.js';
 
@@ -299,7 +302,12 @@ export async function pollSingleFeed(
       reception.telegramType &&
       (WARNING_TELEGRAM_TYPES as readonly string[]).includes(reception.telegramType)
     ) {
-      processWarningTelegramReceptionForAllVenues(connection, reception, docFinishedAt);
+      processWarningTelegramReceptionForAllVenues(
+        connection,
+        reception,
+        docFinishedAt,
+        options?.warningNotificationEmitDeps,
+      );
     } else if (reception.telegramType === VPWP50_TELEGRAM_TYPE) {
       processVpwp50ReceptionForAllVenues(connection, reception, docFinishedAt);
     } else if (

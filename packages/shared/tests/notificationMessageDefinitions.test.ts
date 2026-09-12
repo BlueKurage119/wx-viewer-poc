@@ -809,3 +809,73 @@ test('設計書 §4.2: 例外メッセージに任意詳細や対象名が含ま
     assert.equal(err.message.includes(sensitiveTargetName), false);
   }
 });
+
+test('weather-warning-corrected: 訂正電文用の定義が正しく解決される', () => {
+  const notif = createWeatherNotification({
+    category: 'question',
+    changeType: 'corrected',
+    targets: [
+      {
+        kind: 'area',
+        codeType: 'jma_municipality',
+        code: '1310800',
+        name: '江東区',
+      },
+    ],
+  });
+
+  const resolved = resolveNotificationMessage(notif, {
+    definitionId: 'weather-warning-corrected',
+    detail: 'レベル3大雨警報',
+  });
+
+  assert.deepEqual(resolved, {
+    display: {
+      title: '気象警報等訂正',
+      target: '江東区',
+      content: 'レベル3大雨警報',
+    },
+    action: { kind: 'acknowledge', label: '確認' },
+    ackRequired: true,
+    summary: '気象警報等訂正\n江東区\nレベル3大雨警報',
+    messageDefinition: {
+      id: 'weather-warning-corrected',
+      version: '1',
+    },
+  });
+});
+
+test('weather-warning-cancelled: 取消電文用の定義が正しく解決される (warning, action=none, ackRequired=false)', () => {
+  const notif = createWeatherNotification({
+    category: 'warning',
+    changeType: 'cancelled',
+    targets: [
+      {
+        kind: 'area',
+        codeType: 'jma_municipality',
+        code: '1310800',
+        name: '江東区',
+      },
+    ],
+  });
+
+  const resolved = resolveNotificationMessage(notif, {
+    definitionId: 'weather-warning-cancelled',
+    detail: 'レベル3大雨警報',
+  });
+
+  assert.deepEqual(resolved, {
+    display: {
+      title: '気象警報等取消',
+      target: '江東区',
+      content: 'レベル3大雨警報',
+    },
+    action: null,
+    ackRequired: false,
+    summary: '気象警報等取消\n江東区\nレベル3大雨警報',
+    messageDefinition: {
+      id: 'weather-warning-cancelled',
+      version: '1',
+    },
+  });
+});

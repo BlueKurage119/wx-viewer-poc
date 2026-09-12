@@ -14,6 +14,8 @@ export type NotificationMessageDefinitionId =
   | 'weather-warning-strengthened'
   | 'weather-warning-weakened'
   | 'weather-warning-released'
+  | 'weather-warning-corrected'
+  | 'weather-warning-cancelled'
   | 'weather-bosai-bulletin-linear-rainband-observed'
   | 'weather-bosai-bulletin-linear-rainband-forecast'
   | 'weather-bosai-bulletin-record-short-rain'
@@ -138,6 +140,26 @@ const MESSAGE_DEFINITIONS = {
     allowedCategories: ['warning'],
     requiredWeatherChangeType: 'released',
     title: '気象警報等解除',
+    targetMode: { kind: 'notificationTargets' },
+    actionResolution: { kind: 'none' },
+  },
+  'weather-warning-corrected': {
+    id: 'weather-warning-corrected',
+    version: '1',
+    origin: 'weather',
+    allowedCategories: ['warning', 'question', 'emergency'],
+    requiredWeatherChangeType: 'corrected',
+    title: '気象警報等訂正',
+    targetMode: { kind: 'notificationTargets' },
+    actionResolution: { kind: 'byCategory' },
+  },
+  'weather-warning-cancelled': {
+    id: 'weather-warning-cancelled',
+    version: '1',
+    origin: 'weather',
+    allowedCategories: ['warning'],
+    requiredWeatherChangeType: 'cancelled',
+    title: '気象警報等取消',
     targetMode: { kind: 'notificationTargets' },
     actionResolution: { kind: 'none' },
   },
