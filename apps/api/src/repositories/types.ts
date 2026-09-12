@@ -903,6 +903,7 @@ export type WarningCurrentApplyResult =
       readonly origin: 'initial' | 'normal';
       readonly snapshot: WarningCurrentSnapshot;
       readonly changes: readonly WarningCurrentChange[];
+      readonly infoType: '発表' | '訂正' | '取消';
     }
   | {
       readonly applied: false;

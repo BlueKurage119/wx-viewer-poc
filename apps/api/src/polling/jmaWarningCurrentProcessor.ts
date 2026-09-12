@@ -46,14 +46,12 @@ export function applyWarningCurrentReception(
   targetArea: WarningCurrentTargetArea,
 ): WarningCurrentApplyResult {
   // 1. InfoType の検証（§3.7）
-  if (parsed.infoType === '取消') {
-    return {
-      applied: false,
-      reason: 'cancelled',
-      detail: 'InfoType=取消 の電文はストリームへ採用しません',
-    };
-  }
-  if (parsed.infoType !== null && parsed.infoType !== '発表' && parsed.infoType !== '訂正') {
+  if (
+    parsed.infoType !== null &&
+    parsed.infoType !== '発表' &&
+    parsed.infoType !== '訂正' &&
+    parsed.infoType !== '取消'
+  ) {
     return {
       applied: false,
       reason: 'cancelled',
@@ -62,16 +60,19 @@ export function applyWarningCurrentReception(
   }
 
   // 2. 電文バリデーション（コード・Status・整合性）
-  try {
-    extractActiveKindsByPhenomenon(parsed);
-  } catch (err) {
-    if (err instanceof WarningCurrentUnsupportedError) {
-      return { applied: false, reason: err.reasonKind, detail: err.message };
+  // 取消電文の本文 Kind は一切解釈しない（§4.6.1）
+  if (parsed.infoType !== '取消') {
+    try {
+      extractActiveKindsByPhenomenon(parsed);
+    } catch (err) {
+      if (err instanceof WarningCurrentUnsupportedError) {
+        return { applied: false, reason: err.reasonKind, detail: err.message };
+      }
+      if (err instanceof WarningCurrentConflictError) {
+        return { applied: false, reason: 'same_version_conflict', detail: err.message };
+      }
+      throw err;
     }
-    if (err instanceof WarningCurrentConflictError) {
-      return { applied: false, reason: 'same_version_conflict', detail: err.message };
-    }
-    throw err;
   }
 
   const transaction = connection.transaction((): WarningCurrentApplyResult => {
@@ -205,7 +206,9 @@ export function applyWarningCurrentReception(
     for (const [type, s] of streamMap) {
       if (type !== 'VPWS50') {
         if (type === parsed.telegramType) {
-          individualMap.set(type as IndividualWarningTelegramType, parsed);
+          if (parsed.infoType !== '取消') {
+            individualMap.set(type as IndividualWarningTelegramType, parsed);
+          }
         } else {
           const indReception = findTelegramReceptionById(connection, s.receptionId);
           if (indReception?.rawBody) {
@@ -214,7 +217,7 @@ export function applyWarningCurrentReception(
               indReception,
               targetArea,
             );
-            if (indParseResult.ok) {
+            if (indParseResult.ok && indParseResult.value.infoType !== '取消') {
               individualMap.set(type as IndividualWarningTelegramType, indParseResult.value);
             }
           }
@@ -224,16 +227,24 @@ export function applyWarningCurrentReception(
 
     // 3.6 現況の合成
     let reduction: WarningCurrentReductionResult;
-    try {
-      reduction = reduceWarningCurrent(vpws50Parsed, individualMap);
-    } catch (err) {
-      if (err instanceof WarningCurrentConflictError) {
-        return { applied: false, reason: 'same_version_conflict', detail: err.message };
+    if (vpws50Parsed.infoType === '取消') {
+      // H1 / §4.6.1: VPWS50 取消時は現況を空にする
+      reduction = {
+        items: [],
+        contributingTelegramTypes: ['VPWS50'],
+      };
+    } else {
+      try {
+        reduction = reduceWarningCurrent(vpws50Parsed, individualMap);
+      } catch (err) {
+        if (err instanceof WarningCurrentConflictError) {
+          return { applied: false, reason: 'same_version_conflict', detail: err.message };
+        }
+        if (err instanceof WarningCurrentUnsupportedError) {
+          return { applied: false, reason: err.reasonKind, detail: err.message };
+        }
+        throw err;
       }
-      if (err instanceof WarningCurrentUnsupportedError) {
-        return { applied: false, reason: err.reasonKind, detail: err.message };
-      }
-      throw err;
     }
 
     // 3.7 差分計算
@@ -349,11 +360,15 @@ export function applyWarningCurrentReception(
 
     const snapshot = saveWarningCurrentSnapshot(connection, snapshotInput);
 
+    const normalizedInfoType =
+      parsed.infoType === '訂正' || parsed.infoType === '取消' ? parsed.infoType : '発表';
+
     return {
       applied: true,
       origin,
       snapshot,
       changes,
+      infoType: normalizedInfoType,
     };
   });
 
@@ -388,14 +403,20 @@ export function rebuildWarningCurrentFromReceptions(
       if (!parseResult.ok) continue;
 
       const parsed = parseResult.value;
-      if (parsed.infoType === '取消') continue;
-      if (parsed.infoType !== null && parsed.infoType !== '発表' && parsed.infoType !== '訂正')
+      if (
+        parsed.infoType !== null &&
+        parsed.infoType !== '発表' &&
+        parsed.infoType !== '訂正' &&
+        parsed.infoType !== '取消'
+      )
         continue;
 
-      try {
-        extractActiveKindsByPhenomenon(parsed);
-      } catch {
-        continue;
+      if (parsed.infoType !== '取消') {
+        try {
+          extractActiveKindsByPhenomenon(parsed);
+        } catch {
+          continue;
+        }
       }
 
       let statusMap = candidatesByStatus.get(parsed.controlStatus);
@@ -513,7 +534,7 @@ export function rebuildWarningCurrentFromReceptions(
           const indReception = findTelegramReceptionById(connection, s.receptionId);
           if (indReception?.rawBody) {
             const indParse = parseWarningTelegram(indReception.rawBody, indReception, targetArea);
-            if (indParse.ok) {
+            if (indParse.ok && indParse.value.infoType !== '取消') {
               individualMap.set(type as IndividualWarningTelegramType, indParse.value);
             }
           }
@@ -521,7 +542,16 @@ export function rebuildWarningCurrentFromReceptions(
       }
 
       // 現況合成
-      const reduction = reduceWarningCurrent(vpws50Parsed, individualMap);
+      let reduction: WarningCurrentReductionResult;
+      if (vpws50Parsed.infoType === '取消') {
+        // H1 / §4.6.1: VPWS50 取消時は現況を空にする
+        reduction = {
+          items: [],
+          contributingTelegramTypes: ['VPWS50'],
+        };
+      } else {
+        reduction = reduceWarningCurrent(vpws50Parsed, individualMap);
+      }
 
       // メタ情報構成
       const contributingStreams: Array<{
@@ -610,11 +640,16 @@ export function rebuildWarningCurrentFromReceptions(
       });
 
       if (status === 'normal') {
+        const normalizedInfoType =
+          primaryMeta.infoType === '訂正' || primaryMeta.infoType === '取消'
+            ? primaryMeta.infoType
+            : '発表';
         normalResult = {
           applied: true,
           origin: existingSnapshot ? 'normal' : 'initial',
           snapshot,
           changes,
+          infoType: normalizedInfoType,
         };
       }
     }
