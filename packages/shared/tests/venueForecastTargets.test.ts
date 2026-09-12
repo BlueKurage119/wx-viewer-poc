@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { VENUE_FORECAST_TARGETS, resolveVenueForecastTargets } from '../src/index.ts';
+import {
+  VENUE_FORECAST_TARGETS,
+  VENUE_IDS,
+  isVenueId,
+  resolveVenueForecastTargets,
+} from '../src/index.ts';
 
 test('会場別の気象対象を用途ごとに完全一致で解決する', () => {
   assert.deepEqual(VENUE_FORECAST_TARGETS, {
@@ -29,4 +34,31 @@ test('会場別の気象対象を用途ごとに完全一致で解決する', ()
   });
   assert.equal(resolveVenueForecastTargets('east'), VENUE_FORECAST_TARGETS.east);
   assert.equal(resolveVenueForecastTargets('trc'), VENUE_FORECAST_TARGETS.trc);
+});
+
+test('VENUE_IDS は VENUE_FORECAST_TARGETS の全キーと集合として一致する', () => {
+  assert.deepEqual([...VENUE_IDS].sort(), Object.keys(VENUE_FORECAST_TARGETS).sort());
+  assert.deepEqual(VENUE_IDS, ['east', 'trc']);
+});
+
+test('isVenueId は VenueId のリテラルのみを真として判定する', () => {
+  assert.equal(isVenueId('east'), true);
+  assert.equal(isVenueId('trc'), true);
+  assert.equal(isVenueId('osaka'), false);
+  assert.equal(isVenueId(''), false);
+  assert.equal(isVenueId(null), false);
+  assert.equal(isVenueId(undefined), false);
+  assert.equal(isVenueId(1), false);
+});
+
+test('会場ごとの市町村等警報コードは相異なる（§3.4 不変条件）', () => {
+  const codes = VENUE_IDS.map((venueId) => VENUE_FORECAST_TARGETS[venueId].warning.municipalCode);
+  assert.equal(new Set(codes).size, codes.length);
+});
+
+test('warning と warningTimeseries の市町村等コードは会場内で一致する（C3/C4 のキー整合）', () => {
+  for (const venueId of VENUE_IDS) {
+    const target = VENUE_FORECAST_TARGETS[venueId];
+    assert.equal(target.warningTimeseries.municipalCode, target.warning.municipalCode);
+  }
 });

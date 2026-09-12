@@ -163,3 +163,15 @@ export const VENUE_FORECAST_TARGETS: Readonly<Record<VenueId, VenueForecastTarge
 export function resolveVenueForecastTargets(venueId: VenueId): VenueForecastTargets {
   return VENUE_FORECAST_TARGETS[venueId];
 }
+
+/**
+ * VenueId の全列挙。VENUE_FORECAST_TARGETS のキーから導出せずリテラルで定義する
+ * （キー順序に依存する処理を作らないため）。全キーとの一致は
+ * packages/shared/tests/venueForecastTargets.test.ts で固定する。
+ */
+export const VENUE_IDS: readonly VenueId[] = Object.freeze(['east', 'trc']);
+
+/** DB から読み出した venue_id 文字列を VenueId へ戻す唯一の経路。外部入力を無検証でキャストしない。 */
+export function isVenueId(value: unknown): value is VenueId {
+  return typeof value === 'string' && (VENUE_IDS as readonly string[]).includes(value);
+}
