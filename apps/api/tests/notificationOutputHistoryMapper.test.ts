@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type {
-  NotificationOutputSnapshot,
-  NotificationTarget,
-  SystemNotification,
-  WeatherNotification,
+import {
+  type NotificationOutputSnapshot,
+  type NotificationTarget,
+  type SystemNotification,
+  type WeatherNotification,
+  resolveNotificationMessage,
 } from '@wx-viewer-poc/shared';
+
 import { initializeDatabase } from '../src/database/index.js';
 import { toNotificationOutputHistoryInput } from '../src/notifications/notificationOutputHistoryMapper.js';
 import {
@@ -439,4 +441,40 @@ test('受け入れ条件 2〜8 のインテグレーション: mapper の出力�
   } finally {
     cleanup();
   }
+});
+
+test('受け入れ条件 12: 生成結果を toNotificationOutputHistoryInput へ渡す統合テストで、summary、ackRequired、定義 ID weather-warning-issued、版 1 が完全一致で B4 入力へ渡る', () => {
+  const notification: WeatherNotification = {
+    notificationId: 'notif-weather-int-001',
+    category: 'question',
+    origin: 'weather',
+    changeType: 'new',
+    sourceType: 'warning_current',
+    sourceVersion: 'v1',
+    targets: [
+      {
+        kind: 'area',
+        codeType: 'jma_municipality',
+        code: '1310800',
+        name: '江東区',
+      },
+    ],
+    occurredAt: '2026-09-12T00:00:00Z',
+    detectedAt: '2026-09-12T00:00:01Z',
+    relatedRefs: [],
+    detectionContext: 'normal',
+    isTraining: false,
+  };
+
+  const resolvedOutput = resolveNotificationMessage(notification, {
+    definitionId: 'weather-warning-issued',
+    detail: 'レベル3大雨警報',
+  });
+
+  const input = toNotificationOutputHistoryInput(notification, resolvedOutput);
+
+  assert.equal(input.summary, '気象警報発表\n江東区\nレベル3大雨警報');
+  assert.equal(input.ackRequired, true);
+  assert.equal(input.messageDefinitionId, 'weather-warning-issued');
+  assert.equal(input.messageDefinitionVersion, '1');
 });
