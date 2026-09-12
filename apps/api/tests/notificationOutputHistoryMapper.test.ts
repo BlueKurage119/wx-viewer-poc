@@ -35,16 +35,21 @@ test('受け入れ条件 2: 大田区・江東区を含む気象通知を mapper
     {
       kind: 'area',
       codeType: 'jma_municipality',
-      code: '131113',
+      code: '1311100',
       name: '大田区',
     },
     {
       kind: 'area',
       codeType: 'jma_municipality',
-      code: '131083',
+      code: '1310800',
       name: '江東区',
     },
   ];
+
+  assert.deepEqual(
+    targets.map((target) => target.code),
+    ['1311100', '1310800'],
+  );
 
   const notification: WeatherNotification = {
     notificationId: 'notif-weather-c2-001',
