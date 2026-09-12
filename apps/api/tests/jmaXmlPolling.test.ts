@@ -2376,7 +2376,6 @@ test('22-1. 新規 JmaXmlPollingService の initialFetch は not_started / resul
     const db = initializeDatabase({ databasePath, migrationsDirectory });
     const service = new JmaXmlPollingService(db.connection, {
       freshnessPolicy: defaultXmlFreshnessPolicy,
-      freshnessPolicy: defaultXmlFreshnessPolicy,
     });
     const status = service.getStatus();
 
@@ -3119,7 +3118,6 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
         migrationsDirectory,
       });
       const crashingService = new JmaXmlPollingService(freshDb.connection, {
-        freshnessPolicy: defaultXmlFreshnessPolicy,
         freshnessPolicy: defaultXmlFreshnessPolicy,
       });
       crashingService.start = async () => {
