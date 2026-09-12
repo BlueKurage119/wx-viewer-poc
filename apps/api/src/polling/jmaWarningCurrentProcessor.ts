@@ -26,7 +26,6 @@ import {
   type WarningTelegramType,
 } from '../repositories/types.js';
 import { parseWarningTelegram } from './jmaWarningTelegramParser.js';
-import { resolveWarningCurrentTargetArea } from '../venueForecastTargets.js';
 import {
   computeSourceVersion,
   diffWarningCurrent,
@@ -36,9 +35,6 @@ import {
   WarningCurrentUnsupportedError,
 } from './jmaWarningCurrentReducer.js';
 
-export const DEFAULT_WARNING_CURRENT_TARGET_AREA: WarningCurrentTargetArea =
-  resolveWarningCurrentTargetArea('east');
-
 /**
  * 新規受信した電文を C3 現況へ適用する。
  * 1 つのトランザクション内でストリームポインター更新とスナップショット保存を行う。
@@ -47,7 +43,7 @@ export function applyWarningCurrentReception(
   connection: DatabaseConnection,
   reception: TelegramReception,
   parsed: ParsedWarningTelegram,
-  targetArea: WarningCurrentTargetArea = DEFAULT_WARNING_CURRENT_TARGET_AREA,
+  targetArea: WarningCurrentTargetArea,
 ): WarningCurrentApplyResult {
   // 1. InfoType の検証（§3.7）
   if (parsed.infoType === '取消') {
@@ -370,7 +366,7 @@ export function applyWarningCurrentReception(
  */
 export function rebuildWarningCurrentFromReceptions(
   connection: DatabaseConnection,
-  targetArea: WarningCurrentTargetArea = DEFAULT_WARNING_CURRENT_TARGET_AREA,
+  targetArea: WarningCurrentTargetArea,
 ): WarningCurrentApplyResult {
   // controlStatus ('normal', 'training', 'test') ごとに復旧候補を収集
   const candidatesByStatus = new Map<

@@ -17,7 +17,7 @@ import {
   listTelegramReceptions,
   recordFetchAttempt,
   recordTelegramReception,
-  updateTelegramReceptionAdoption,
+  upsertTelegramReceptionAdoption,
   type FetchAttemptInput,
   type TelegramReceptionInput,
 } from '../src/repositories/index.js';
@@ -68,9 +68,6 @@ const sampleTelegramInput: TelegramReceptionInput = {
   reportDateTime: '2026-09-09T00:00:00Z',
   targetDateTime: '2026-09-09T00:00:00Z',
   receivedAt: '2026-09-09T00:00:02Z',
-  adoptionResult: '採用',
-  adoptionReason: '最新の発表',
-  adoptionDecidedAt: '2026-09-09T00:00:03Z',
   rawBody: '<Report>...</Report>',
   bodyBytes: 20,
   contentHash: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
@@ -80,6 +77,14 @@ const sampleTelegramInput: TelegramReceptionInput = {
       areaName: '江東区',
       codeType: '気象情報／細分区域等',
       sequence: 1,
+    },
+  ],
+  adoptions: [
+    {
+      venueId: 'east',
+      adoptionResult: '採用',
+      adoptionReason: '最新の発表',
+      adoptionDecidedAt: '2026-09-09T00:00:03Z',
     },
   ],
 };
@@ -647,20 +652,33 @@ test('12. 解析失敗相当の行を保存・取得でき、NULL が既定値�
       reportDateTime: null,
       targetDateTime: null,
       receivedAt: '2026-09-09T00:00:00Z',
-      adoptionResult: '未対応形式',
-      adoptionReason: 'ルートタグが未知のフォーマット',
-      adoptionDecidedAt: '2026-09-09T00:00:01Z',
       rawBody: '<UnknownXml>content</UnknownXml>',
       bodyBytes: 32,
       contentHash: 'hash123',
       areas: [],
+      adoptions: [
+        {
+          venueId: 'east',
+          adoptionResult: '未対応形式',
+          adoptionReason: 'ルートタグが未知のフォーマット',
+          adoptionDecidedAt: '2026-09-09T00:00:01Z',
+        },
+      ],
     };
 
     const created = recordTelegramReception(context.connection, parseFailInput);
     assert.strictEqual(created.telegramType, null);
     assert.strictEqual(created.controlStatus, null);
     assert.strictEqual(created.reportDateTime, null);
-    assert.strictEqual(created.adoptionResult, '未対応形式');
+    assert.deepEqual(created.adoptions, [
+      {
+        receptionId: created.id,
+        venueId: 'east',
+        adoptionResult: '未対応形式',
+        adoptionReason: 'ルートタグが未知のフォーマット',
+        adoptionDecidedAt: '2026-09-09T00:00:01Z',
+      },
+    ]);
 
     const found = findTelegramReceptionById(context.connection, created.id);
     assert.ok(found);
@@ -682,12 +700,26 @@ test('13. 同一 documentUrl を 2 回 recordTelegramReception すると 2 行�
     const row1 = recordTelegramReception(context.connection, {
       ...sampleTelegramInput,
       receivedAt: '2026-09-09T00:00:00Z',
-      adoptionResult: '未判定',
+      adoptions: [
+        {
+          venueId: 'east',
+          adoptionResult: '未判定',
+          adoptionReason: null,
+          adoptionDecidedAt: null,
+        },
+      ],
     });
     const row2 = recordTelegramReception(context.connection, {
       ...sampleTelegramInput,
       receivedAt: '2026-09-09T00:10:00Z',
-      adoptionResult: '重複受信',
+      adoptions: [
+        {
+          venueId: 'east',
+          adoptionResult: '重複受信',
+          adoptionReason: null,
+          adoptionDecidedAt: null,
+        },
+      ],
     });
 
     assert.notEqual(row1.id, row2.id);
@@ -695,7 +727,7 @@ test('13. 同一 documentUrl を 2 回 recordTelegramReception すると 2 行�
     const found1 = findTelegramReceptionById(context.connection, row1.id);
     assert.ok(found1);
     assert.equal(found1.receivedAt, '2026-09-09T00:00:00Z');
-    assert.equal(found1.adoptionResult, '未判定');
+    assert.equal(found1.adoptions[0]?.adoptionResult, '未判定');
 
     assert.equal(
       countTelegramReceptions(context.connection, { documentUrl: sampleTelegramInput.documentUrl }),
@@ -792,7 +824,9 @@ test('16. telegramType / infoType / receivedAtFrom/To / reportDateTimeFrom/To / 
       ...sampleTelegramInput,
       telegramType: 'VPWW55',
       infoType: '発表',
-      adoptionResult: '採用',
+      adoptions: [
+        { venueId: 'east', adoptionResult: '採用', adoptionReason: null, adoptionDecidedAt: null },
+      ],
       receivedAt: '2026-09-09T01:00:00Z',
       reportDateTime: '2026-09-09T01:00:00Z',
       documentUrl: 'https://example.com/1.xml',
@@ -801,7 +835,14 @@ test('16. telegramType / infoType / receivedAtFrom/To / reportDateTimeFrom/To / 
       ...sampleTelegramInput,
       telegramType: 'VPWW56',
       infoType: '訂正',
-      adoptionResult: '不採用',
+      adoptions: [
+        {
+          venueId: 'east',
+          adoptionResult: '不採用',
+          adoptionReason: null,
+          adoptionDecidedAt: null,
+        },
+      ],
       receivedAt: '2026-09-09T02:00:00Z',
       reportDateTime: '2026-09-09T02:00:00Z',
       documentUrl: 'https://example.com/2.xml',
@@ -810,7 +851,7 @@ test('16. telegramType / infoType / receivedAtFrom/To / reportDateTimeFrom/To / 
       ...sampleTelegramInput,
       telegramType: null,
       infoType: null,
-      adoptionResult: null,
+      adoptions: [],
       receivedAt: '2026-09-09T03:00:00Z',
       reportDateTime: null,
       documentUrl: 'https://example.com/3.xml',
@@ -855,42 +896,58 @@ test('16. telegramType / infoType / receivedAtFrom/To / reportDateTimeFrom/To / 
   }
 });
 
-test('17. updateTelegramReceptionAdoption で採用結果・理由・判定時刻だけが変わり、rawBody を含む他の列と areas が変化しない。存在しない id で null', () => {
+test('17. upsertTelegramReceptionAdoption で対象会場の採用結果・理由・判定時刻だけが変わり、rawBody を含む他の列と areas が変化しない。存在しない reception_id は外部キー制約違反になる', () => {
   const { databasePath, cleanup } = createTempDbPath();
   try {
     const context = initializeDatabase({ databasePath, migrationsDirectory });
 
     const created = recordTelegramReception(context.connection, {
       ...sampleTelegramInput,
-      adoptionResult: null,
-      adoptionReason: null,
-      adoptionDecidedAt: null,
+      adoptions: [],
     });
 
-    const updated = updateTelegramReceptionAdoption(context.connection, created.id, {
+    const updated = upsertTelegramReceptionAdoption(context.connection, created.id, {
+      venueId: 'east',
       adoptionResult: '採用（集約版）',
       adoptionReason: '全域カバーのため',
       adoptionDecidedAt: '2026-09-09T00:01:00Z',
     });
 
-    assert.ok(updated);
-    assert.equal(updated.id, created.id);
-    assert.equal(updated.adoptionResult, '採用（集約版）');
-    assert.equal(updated.adoptionReason, '全域カバーのため');
-    assert.equal(updated.adoptionDecidedAt, '2026-09-09T00:01:00Z');
-    assert.equal(updated.rawBody, created.rawBody);
-    assert.equal(updated.documentUrl, created.documentUrl);
-    assert.deepEqual(updated.areas, created.areas);
+    assert.deepEqual(updated, {
+      receptionId: created.id,
+      venueId: 'east',
+      adoptionResult: '採用（集約版）',
+      adoptionReason: '全域カバーのため',
+      adoptionDecidedAt: '2026-09-09T00:01:00Z',
+    });
 
-    // 存在しない ID
-    assert.equal(
-      updateTelegramReceptionAdoption(context.connection, 999999, {
+    const found = findTelegramReceptionById(context.connection, created.id);
+    assert.ok(found);
+    assert.equal(found.rawBody, created.rawBody);
+    assert.equal(found.documentUrl, created.documentUrl);
+    assert.deepEqual(found.areas, created.areas);
+    assert.deepEqual(found.adoptions, [updated]);
+
+    // 同一 (reception_id, venue_id) への再 upsert は上書きする
+    const reupserted = upsertTelegramReceptionAdoption(context.connection, created.id, {
+      venueId: 'east',
+      adoptionResult: '再判定',
+      adoptionReason: null,
+      adoptionDecidedAt: '2026-09-09T00:02:00Z',
+    });
+    assert.deepEqual(findTelegramReceptionById(context.connection, created.id)?.adoptions, [
+      reupserted,
+    ]);
+
+    // 存在しない reception_id は外部キー制約違反になる
+    assert.throws(() => {
+      upsertTelegramReceptionAdoption(context.connection, 999999, {
+        venueId: 'east',
         adoptionResult: '採用',
         adoptionReason: null,
         adoptionDecidedAt: null,
-      }),
-      null,
-    );
+      });
+    });
 
     context.close();
   } finally {

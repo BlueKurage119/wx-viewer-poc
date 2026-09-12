@@ -1,6 +1,6 @@
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
-import { updateTelegramReceptionAdoption } from '../repositories/telegramReceptionRepository.js';
+import { upsertTelegramReceptionAdoptionForAllVenues } from '../repositories/telegramReceptionRepository.js';
 import { saveAreaTimeseriesSnapshot } from '../repositories/areaTimeseriesRepository.js';
 import type {
   AreaTimeseriesForecastTarget,
@@ -24,7 +24,7 @@ export function processVpfd51Reception(
       reason: '原文（raw_body）がありません',
     };
     const tx = connection.transaction(() => {
-      updateTelegramReceptionAdoption(connection, reception.id, {
+      upsertTelegramReceptionAdoptionForAllVenues(connection, reception.id, {
         adoptionResult: errorResult.disposition,
         adoptionReason: errorResult.reason,
         adoptionDecidedAt: processedAt,
@@ -66,13 +66,13 @@ export function processVpfd51Reception(
         values: parsed.values,
       });
 
-      updateTelegramReceptionAdoption(connection, reception.id, {
+      upsertTelegramReceptionAdoptionForAllVenues(connection, reception.id, {
         adoptionResult: '地域時系列予報として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,
       });
     } else {
-      updateTelegramReceptionAdoption(connection, reception.id, {
+      upsertTelegramReceptionAdoptionForAllVenues(connection, reception.id, {
         adoptionResult: parseResult.disposition,
         adoptionReason: parseResult.reason,
         adoptionDecidedAt: processedAt,

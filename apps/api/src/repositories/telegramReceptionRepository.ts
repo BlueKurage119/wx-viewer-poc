@@ -1,3 +1,4 @@
+import { VENUE_IDS, isVenueId, type VenueId } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   validateControlStatus,
@@ -9,6 +10,7 @@ import type {
   ControlStatus,
   ListTelegramReceptionsOptions,
   TelegramReception,
+  TelegramReceptionAdoption,
   TelegramReceptionAdoptionInput,
   TelegramReceptionArea,
   TelegramReceptionInput,
@@ -33,9 +35,6 @@ interface TelegramReceptionRow {
   readonly report_datetime: string | null;
   readonly target_datetime: string | null;
   readonly received_at: string;
-  readonly adoption_result: string | null;
-  readonly adoption_reason: string | null;
-  readonly adoption_decided_at: string | null;
   readonly raw_body?: string | null;
   readonly has_raw_body?: number;
   readonly body_bytes: number | null;
@@ -49,6 +48,24 @@ interface TelegramReceptionAreaRow {
   readonly area_name: string | null;
   readonly code_type: string | null;
   readonly sequence: number;
+}
+
+interface TelegramReceptionAdoptionRow {
+  readonly reception_id: number;
+  readonly venue_id: string;
+  readonly adoption_result: string | null;
+  readonly adoption_reason: string | null;
+  readonly adoption_decided_at: string | null;
+}
+
+function validateTelegramReceptionAdoptionInput(input: TelegramReceptionAdoptionInput): void {
+  if (!isVenueId(input.venueId)) {
+    throw new Error(`venueId must be a known VenueId: ${String(input.venueId)}`);
+  }
+  validateUtcIso8601StringOrNull(input.adoptionDecidedAt, 'adoptionDecidedAt');
+  if (input.adoptionResult !== null && input.adoptionResult.trim().length === 0) {
+    throw new Error('adoptionResult must be a non-empty string or null');
+  }
 }
 
 function validateTelegramReceptionInput(input: TelegramReceptionInput): void {
@@ -78,11 +95,6 @@ function validateTelegramReceptionInput(input: TelegramReceptionInput): void {
   validateUtcIso8601StringOrNull(input.controlDateTime, 'controlDateTime');
   validateUtcIso8601StringOrNull(input.reportDateTime, 'reportDateTime');
   validateUtcIso8601StringOrNull(input.targetDateTime, 'targetDateTime');
-  validateUtcIso8601StringOrNull(input.adoptionDecidedAt, 'adoptionDecidedAt');
-
-  if (input.adoptionResult !== null && input.adoptionResult.trim().length === 0) {
-    throw new Error('adoptionResult must be a non-empty string or null');
-  }
 
   if (input.bodyBytes !== null && (!Number.isInteger(input.bodyBytes) || input.bodyBytes < 0)) {
     throw new Error(`bodyBytes must be an integer >= 0 or null: ${input.bodyBytes}`);
@@ -94,6 +106,10 @@ function validateTelegramReceptionInput(input: TelegramReceptionInput): void {
       throw new Error(`area.sequence must be an integer: ${area.sequence}`);
     }
   }
+
+  for (const adoption of input.adoptions) {
+    validateTelegramReceptionAdoptionInput(adoption);
+  }
 }
 
 function mapAreaRow(row: TelegramReceptionAreaRow): TelegramReceptionArea {
@@ -103,6 +119,19 @@ function mapAreaRow(row: TelegramReceptionAreaRow): TelegramReceptionArea {
     areaName: row.area_name,
     codeType: row.code_type,
     sequence: row.sequence,
+  };
+}
+
+function mapAdoptionRow(row: TelegramReceptionAdoptionRow): TelegramReceptionAdoption {
+  if (!isVenueId(row.venue_id)) {
+    throw new Error(`telegram_reception_adoption.venue_id が未知の値です: ${row.venue_id}`);
+  }
+  return {
+    receptionId: row.reception_id,
+    venueId: row.venue_id,
+    adoptionResult: row.adoption_result,
+    adoptionReason: row.adoption_reason,
+    adoptionDecidedAt: row.adoption_decided_at,
   };
 }
 
@@ -137,8 +166,20 @@ function buildTelegramReceptionsFilter(options?: ListTelegramReceptionsOptions):
       conditions.push('t.document_url = ?');
       params.push(options.documentUrl);
     }
-    if (options.adoptionResult !== undefined) {
-      conditions.push('t.adoption_result = ?');
+    if (options.adoptionVenueId !== undefined && options.adoptionResult !== undefined) {
+      conditions.push(
+        'EXISTS (SELECT 1 FROM telegram_reception_adoption a WHERE a.reception_id = t.id AND a.venue_id = ? AND a.adoption_result = ?)',
+      );
+      params.push(options.adoptionVenueId, options.adoptionResult);
+    } else if (options.adoptionVenueId !== undefined) {
+      conditions.push(
+        'EXISTS (SELECT 1 FROM telegram_reception_adoption a WHERE a.reception_id = t.id AND a.venue_id = ?)',
+      );
+      params.push(options.adoptionVenueId);
+    } else if (options.adoptionResult !== undefined) {
+      conditions.push(
+        'EXISTS (SELECT 1 FROM telegram_reception_adoption a WHERE a.reception_id = t.id AND a.adoption_result = ?)',
+      );
       params.push(options.adoptionResult);
     }
     if (options.receivedAtFrom !== undefined) {
@@ -167,6 +208,18 @@ function buildTelegramReceptionsFilter(options?: ListTelegramReceptionsOptions):
   return { whereClause, params };
 }
 
+function fetchAdoptions(
+  connection: DatabaseConnection,
+  receptionId: number,
+): readonly TelegramReceptionAdoption[] {
+  const rows = connection
+    .prepare(
+      'SELECT * FROM telegram_reception_adoption WHERE reception_id = ? ORDER BY venue_id ASC',
+    )
+    .all(receptionId) as TelegramReceptionAdoptionRow[];
+  return rows.map(mapAdoptionRow);
+}
+
 export function recordTelegramReception(
   connection: DatabaseConnection,
   input: TelegramReceptionInput,
@@ -179,9 +232,8 @@ export function recordTelegramReception(
         fetch_attempt_id, feed_kind, feed_entry_id, document_url,
         telegram_type, title, control_status, info_type, event_id,
         serial, control_datetime, report_datetime, target_datetime,
-        received_at, adoption_result, adoption_reason, adoption_decided_at,
-        raw_body, body_bytes, content_hash
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        received_at, raw_body, body_bytes, content_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING id
     `);
 
@@ -200,9 +252,6 @@ export function recordTelegramReception(
       input.reportDateTime,
       input.targetDateTime,
       input.receivedAt,
-      input.adoptionResult,
-      input.adoptionReason,
-      input.adoptionDecidedAt,
       input.rawBody,
       input.bodyBytes,
       input.contentHash,
@@ -234,6 +283,24 @@ export function recordTelegramReception(
       };
     });
 
+    const insertAdoptionStmt = connection.prepare(`
+      INSERT INTO telegram_reception_adoption (
+        reception_id, venue_id, adoption_result, adoption_reason, adoption_decided_at
+      ) VALUES (?, ?, ?, ?, ?)
+    `);
+
+    for (const adoption of input.adoptions) {
+      insertAdoptionStmt.run(
+        receptionId,
+        adoption.venueId,
+        adoption.adoptionResult,
+        adoption.adoptionReason,
+        adoption.adoptionDecidedAt,
+      );
+    }
+
+    const adoptions = fetchAdoptions(connection, receptionId);
+
     return {
       id: receptionId,
       fetchAttemptId: input.fetchAttemptId,
@@ -250,14 +317,12 @@ export function recordTelegramReception(
       reportDateTime: input.reportDateTime,
       targetDateTime: input.targetDateTime,
       receivedAt: input.receivedAt,
-      adoptionResult: input.adoptionResult,
-      adoptionReason: input.adoptionReason,
-      adoptionDecidedAt: input.adoptionDecidedAt,
       rawBody: input.rawBody,
       hasRawBody: input.rawBody !== null,
       bodyBytes: input.bodyBytes,
       contentHash: input.contentHash,
       areas,
+      adoptions,
     };
   });
 
@@ -282,6 +347,7 @@ export function findTelegramReceptionById(
     .all(row.id) as TelegramReceptionAreaRow[];
 
   const areas = areaRows.map(mapAreaRow);
+  const adoptions = fetchAdoptions(connection, row.id);
 
   return {
     id: row.id,
@@ -299,14 +365,12 @@ export function findTelegramReceptionById(
     reportDateTime: row.report_datetime,
     targetDateTime: row.target_datetime,
     receivedAt: row.received_at,
-    adoptionResult: row.adoption_result,
-    adoptionReason: row.adoption_reason,
-    adoptionDecidedAt: row.adoption_decided_at,
     rawBody: row.raw_body ?? null,
     hasRawBody: row.raw_body !== null,
     bodyBytes: row.body_bytes,
     contentHash: row.content_hash,
     areas,
+    adoptions,
   };
 }
 
@@ -338,7 +402,7 @@ export function listTelegramReceptions(
       t.id, t.fetch_attempt_id, t.feed_kind, t.feed_entry_id, t.document_url,
       t.telegram_type, t.title, t.control_status, t.info_type, t.event_id,
       t.serial, t.control_datetime, t.report_datetime, t.target_datetime,
-      t.received_at, t.adoption_result, t.adoption_reason, t.adoption_decided_at,
+      t.received_at,
       (t.raw_body IS NOT NULL) AS has_raw_body,
       t.body_bytes, t.content_hash
     FROM telegram_reception t
@@ -356,6 +420,7 @@ export function listTelegramReceptions(
   return rows.map((row) => {
     const areaRows = areaStmt.all(row.id) as TelegramReceptionAreaRow[];
     const areas = areaRows.map(mapAreaRow);
+    const adoptions = fetchAdoptions(connection, row.id);
 
     return {
       id: row.id,
@@ -373,13 +438,11 @@ export function listTelegramReceptions(
       reportDateTime: row.report_datetime,
       targetDateTime: row.target_datetime,
       receivedAt: row.received_at,
-      adoptionResult: row.adoption_result,
-      adoptionReason: row.adoption_reason,
-      adoptionDecidedAt: row.adoption_decided_at,
       hasRawBody: row.has_raw_body === 1,
       bodyBytes: row.body_bytes,
       contentHash: row.content_hash,
       areas,
+      adoptions,
     };
   });
 }
@@ -407,11 +470,15 @@ const WARNING_TELEGRAM_TYPES = [
 
 export function listPendingWarningTelegramReceptions(
   connection: DatabaseConnection,
+  venueId: VenueId,
   options?: {
     readonly after?: { readonly receivedAt: string; readonly id: number };
     readonly limit?: number;
   },
 ): PendingWarningTelegramPage {
+  if (!isVenueId(venueId)) {
+    throw new Error(`venueId must be a known VenueId: ${String(venueId)}`);
+  }
   const limit = options?.limit ?? 100;
   if (!Number.isInteger(limit) || limit <= 0 || limit > 100) {
     throw new Error(`limit must be an integer between 1 and 100: ${limit}`);
@@ -428,14 +495,17 @@ export function listPendingWarningTelegramReceptions(
     : [];
   const rows = connection
     .prepare(
-      `SELECT id FROM telegram_reception
+      `SELECT id FROM telegram_reception t
        WHERE telegram_type IN (${typePlaceholders})
-         AND adoption_decided_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM telegram_reception_adoption a
+           WHERE a.reception_id = t.id AND a.venue_id = ? AND a.adoption_decided_at IS NOT NULL
+         )
          ${cursorClause}
        ORDER BY received_at ASC, id ASC
        LIMIT ?`,
     )
-    .all(...WARNING_TELEGRAM_TYPES, ...cursorParams, limit) as { id: number }[];
+    .all(...WARNING_TELEGRAM_TYPES, venueId, ...cursorParams, limit) as { id: number }[];
   const receptions = rows.map((row) => {
     const reception = findTelegramReceptionById(connection, row.id);
     if (!reception) throw new Error(`telegram_reception が見つかりません: ${row.id}`);
@@ -519,35 +589,70 @@ export function listWarningTelegramReceptionsForRebuild(
   };
 }
 
-export function updateTelegramReceptionAdoption(
+export function upsertTelegramReceptionAdoption(
   connection: DatabaseConnection,
-  id: number,
+  receptionId: number,
   input: TelegramReceptionAdoptionInput,
-): TelegramReception | null {
-  validateUtcIso8601StringOrNull(input.adoptionDecidedAt, 'adoptionDecidedAt');
+): TelegramReceptionAdoption {
+  validateTelegramReceptionAdoptionInput(input);
 
-  if (input.adoptionResult !== null && input.adoptionResult.trim().length === 0) {
-    throw new Error('adoptionResult must be a non-empty string or null');
-  }
-
-  const result = connection
+  const row = connection
     .prepare(
       `
-      UPDATE telegram_reception
-      SET
-        adoption_result = ?,
-        adoption_reason = ?,
-        adoption_decided_at = ?
-      WHERE id = ?
+      INSERT INTO telegram_reception_adoption (
+        reception_id, venue_id, adoption_result, adoption_reason, adoption_decided_at
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (reception_id, venue_id) DO UPDATE SET
+        adoption_result = excluded.adoption_result,
+        adoption_reason = excluded.adoption_reason,
+        adoption_decided_at = excluded.adoption_decided_at
+      RETURNING reception_id, venue_id, adoption_result, adoption_reason, adoption_decided_at
     `,
     )
-    .run(input.adoptionResult, input.adoptionReason, input.adoptionDecidedAt, id);
+    .get(
+      receptionId,
+      input.venueId,
+      input.adoptionResult,
+      input.adoptionReason,
+      input.adoptionDecidedAt,
+    ) as TelegramReceptionAdoptionRow;
 
-  if (result.changes === 0) {
-    return null;
+  return mapAdoptionRow(row);
+}
+
+/** 会場によって対象が変わらない判定を、全 VenueId の行として複製して記録する（§3.3.1）。 */
+export function upsertTelegramReceptionAdoptionForAllVenues(
+  connection: DatabaseConnection,
+  receptionId: number,
+  input: Omit<TelegramReceptionAdoptionInput, 'venueId'>,
+): readonly TelegramReceptionAdoption[] {
+  const tx = connection.transaction(() => {
+    return VENUE_IDS.map((venueId) =>
+      upsertTelegramReceptionAdoption(connection, receptionId, { ...input, venueId }),
+    );
+  });
+  return tx();
+}
+
+export function findTelegramReceptionAdoption(
+  connection: DatabaseConnection,
+  receptionId: number,
+  venueId: VenueId,
+): TelegramReceptionAdoption | null {
+  if (!isVenueId(venueId)) {
+    throw new Error(`venueId must be a known VenueId: ${String(venueId)}`);
   }
+  const row = connection
+    .prepare('SELECT * FROM telegram_reception_adoption WHERE reception_id = ? AND venue_id = ?')
+    .get(receptionId, venueId) as TelegramReceptionAdoptionRow | undefined;
+  return row ? mapAdoptionRow(row) : null;
+}
 
-  return findTelegramReceptionById(connection, id);
+export function listTelegramReceptionAdoptions(
+  connection: DatabaseConnection,
+  receptionId: number,
+): readonly TelegramReceptionAdoption[] {
+  return fetchAdoptions(connection, receptionId);
 }
 
 export function deleteTelegramReception(connection: DatabaseConnection, id: number): boolean {

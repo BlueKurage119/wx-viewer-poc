@@ -1,4 +1,9 @@
-import type { Availability, BosaiBulletinAreaCode, UtcIso8601String } from '@wx-viewer-poc/shared';
+import type {
+  Availability,
+  BosaiBulletinAreaCode,
+  UtcIso8601String,
+  VenueId,
+} from '@wx-viewer-poc/shared';
 
 export type ControlStatus = 'normal' | 'training' | 'test';
 
@@ -686,23 +691,24 @@ export interface TelegramReceptionInput {
   readonly reportDateTime: UtcIso8601String | null;
   readonly targetDateTime: UtcIso8601String | null;
   readonly receivedAt: UtcIso8601String;
-  readonly adoptionResult: string | null;
-  readonly adoptionReason: string | null;
-  readonly adoptionDecidedAt: UtcIso8601String | null;
   readonly rawBody: string | null;
   readonly bodyBytes: number | null;
   readonly contentHash: string | null;
   readonly areas: readonly TelegramReceptionAreaInput[];
+  /** 会場別の採用判定。通常は空配列（採用は各 processor が別途 upsert する）。 */
+  readonly adoptions: readonly TelegramReceptionAdoptionInput[];
 }
 
 /** 一覧用。原文（rawBody）を含まない。 */
 export interface TelegramReceptionSummary extends Omit<
   TelegramReceptionInput,
-  'rawBody' | 'areas'
+  'rawBody' | 'areas' | 'adoptions'
 > {
   readonly id: number;
   readonly hasRawBody: boolean;
   readonly areas: readonly TelegramReceptionArea[];
+  /** venueId 昇順。 */
+  readonly adoptions: readonly TelegramReceptionAdoption[];
 }
 
 /** 詳細用。原文を含む。 */
@@ -718,6 +724,8 @@ export interface ListTelegramReceptionsOptions {
   readonly areaCode?: string;
   readonly documentUrl?: string;
   readonly adoptionResult?: string;
+  /** 指定した会場の判定行が存在する受信だけを返す。adoptionResult と併用するとその会場かつその結果に絞る。 */
+  readonly adoptionVenueId?: VenueId;
   readonly receivedAtFrom?: UtcIso8601String;
   readonly receivedAtTo?: UtcIso8601String;
   readonly reportDateTimeFrom?: UtcIso8601String;
@@ -726,7 +734,18 @@ export interface ListTelegramReceptionsOptions {
   readonly offset?: number;
 }
 
+/** 1 会場分の採用判定。 */
+export interface TelegramReceptionAdoption {
+  readonly receptionId: number;
+  readonly venueId: VenueId;
+  readonly adoptionResult: string | null;
+  readonly adoptionReason: string | null;
+  readonly adoptionDecidedAt: UtcIso8601String | null;
+}
+
+/** 1 会場分の採用判定の入力。 */
 export interface TelegramReceptionAdoptionInput {
+  readonly venueId: VenueId;
   readonly adoptionResult: string | null;
   readonly adoptionReason: string | null;
   readonly adoptionDecidedAt: UtcIso8601String | null;

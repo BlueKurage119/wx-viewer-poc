@@ -240,9 +240,7 @@ function createSampleReception(
     reportDateTime: options.reportDateTime ?? '2009-08-09T22:38:00.000Z',
     targetDateTime: '2009-08-09T22:38:00.000Z',
     receivedAt: options.receivedAt ?? '2009-08-09T22:39:00.000Z',
-    adoptionResult: null,
-    adoptionReason: null,
-    adoptionDecidedAt: null,
+    adoptions: [],
     rawBody: options.rawBody,
     bodyBytes: Buffer.byteLength(options.rawBody, 'utf-8'),
     contentHash: 'hash-1',
@@ -275,9 +273,22 @@ test('受け入れ条件 (processor・保存・メタデータ): 19_01_01_091210
     // reception の adoption 更新確認
     const updatedReception = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(updatedReception);
-    assert.equal(updatedReception.adoptionResult, '気象防災速報として解析済み');
-    assert.equal(updatedReception.adoptionReason, null);
-    assert.equal(updatedReception.adoptionDecidedAt, processedAt);
+    assert.deepEqual(updatedReception.adoptions, [
+      {
+        receptionId: reception.id,
+        venueId: 'east',
+        adoptionResult: '気象防災速報として解析済み',
+        adoptionReason: null,
+        adoptionDecidedAt: processedAt,
+      },
+      {
+        receptionId: reception.id,
+        venueId: 'trc',
+        adoptionResult: '気象防災速報として解析済み',
+        adoptionReason: null,
+        adoptionDecidedAt: processedAt,
+      },
+    ]);
 
     // DB 保存行の確認
     const bulletin = findBosaiBulletin(context.connection, 'VPHW50:130010', 'normal');
@@ -348,7 +359,10 @@ test('受け入れ条件 (processor・更新): 同一発表細分区域・同一
     processVphwReception(context.connection, recSame, '2009-08-09T22:41:00.000Z');
 
     const updatedRecSame = findTelegramReceptionById(context.connection, recSame.id);
-    assert.equal(updatedRecSame?.adoptionResult, '重複または旧版');
+    assert.deepEqual(
+      updatedRecSame?.adoptions.map((a) => a.adoptionResult),
+      ['重複または旧版', '重複または旧版'],
+    );
 
     // 3. Control/DateTime が古い電文投入 -> スキップ (重複または旧版)
     const xmlOld = buildVphwXml({
@@ -367,7 +381,10 @@ test('受け入れ条件 (processor・更新): 同一発表細分区域・同一
     processVphwReception(context.connection, recOld, '2009-08-09T22:42:00.000Z');
 
     const updatedRecOld = findTelegramReceptionById(context.connection, recOld.id);
-    assert.equal(updatedRecOld?.adoptionResult, '重複または旧版');
+    assert.deepEqual(
+      updatedRecOld?.adoptions.map((a) => a.adoptionResult),
+      ['重複または旧版', '重複または旧版'],
+    );
 
     // 4. 新しい Control/DateTime・新しい ReportDateTime の続報 (第2報)
     const xml2 = buildVphwXml({
@@ -650,8 +667,7 @@ test('受け入れ条件 (processor・原子性): saveBosaiBulletin 失敗時に
 
     const rec = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(rec);
-    assert.equal(rec.adoptionResult, null);
-    assert.equal(rec.adoptionDecidedAt, null);
+    assert.equal(rec.adoptions.length, 0);
   } finally {
     cleanup();
   }
@@ -677,7 +693,10 @@ test('受け入れ条件 (processor・原文なし): rawBody=null の場合は�
     }
 
     const updated = findTelegramReceptionById(context.connection, reception.id);
-    assert.equal(updated?.adoptionResult, '未対応構造');
+    assert.deepEqual(
+      updated?.adoptions.map((a) => a.adoptionResult),
+      ['未対応構造', '未対応構造'],
+    );
   } finally {
     cleanup();
   }

@@ -175,9 +175,7 @@ function createSampleReception(
     reportDateTime: options.reportDateTime ?? '2026-09-10T08:00:00.000Z',
     targetDateTime: '2026-09-10T08:00:00.000Z',
     receivedAt: options.receivedAt ?? '2026-09-10T07:50:00.000Z',
-    adoptionResult: null,
-    adoptionReason: null,
-    adoptionDecidedAt: null,
+    adoptions: [],
     rawBody: options.rawBody,
     bodyBytes: Buffer.byteLength(options.rawBody, 'utf-8'),
     contentHash: 'hash-1',
@@ -213,9 +211,22 @@ test('受け入れ条件19: 正常系保存とメタデータ (valid_to が null
     // reception の adoption 更新確認
     const updatedReception = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(updatedReception);
-    assert.equal(updatedReception.adoptionResult, '気象防災速報として解析済み');
-    assert.equal(updatedReception.adoptionReason, null);
-    assert.equal(updatedReception.adoptionDecidedAt, processedAt);
+    assert.deepEqual(updatedReception.adoptions, [
+      {
+        receptionId: reception.id,
+        venueId: 'east',
+        adoptionResult: '気象防災速報として解析済み',
+        adoptionReason: null,
+        adoptionDecidedAt: processedAt,
+      },
+      {
+        receptionId: reception.id,
+        venueId: 'trc',
+        adoptionResult: '気象防災速報として解析済み',
+        adoptionReason: null,
+        adoptionDecidedAt: processedAt,
+      },
+    ]);
 
     // DB 保存行の確認
     const bulletin = findBosaiBulletin(context.connection, 'EVENT_20260910_01', 'normal');
@@ -338,7 +349,10 @@ test('受け入れ条件7, 8: 更新判定 (Control/DateTime の比較、同一/
     processVpbs50Reception(context.connection, recSame, '2026-09-10T07:06:00.000Z');
 
     const updatedRecSame = findTelegramReceptionById(context.connection, recSame.id);
-    assert.equal(updatedRecSame?.adoptionResult, '重複または旧版');
+    assert.deepEqual(
+      updatedRecSame?.adoptions.map((a) => a.adoptionResult),
+      ['重複または旧版', '重複または旧版'],
+    );
 
     // 3. Control/DateTime が古い電文の投入 -> スキップ (重複または旧版)
     const xmlOld = buildXml({
@@ -356,7 +370,10 @@ test('受け入れ条件7, 8: 更新判定 (Control/DateTime の比較、同一/
     processVpbs50Reception(context.connection, recOld, '2026-09-10T07:07:00.000Z');
 
     const updatedRecOld = findTelegramReceptionById(context.connection, recOld.id);
-    assert.equal(updatedRecOld?.adoptionResult, '重複または旧版');
+    assert.deepEqual(
+      updatedRecOld?.adoptions.map((a) => a.adoptionResult),
+      ['重複または旧版', '重複または旧版'],
+    );
 
     // 既存行が変わっていないことを確認
     const bAfterOld = findBosaiBulletin(context.connection, eventId, 'normal');
@@ -382,7 +399,10 @@ test('受け入れ条件7, 8: 更新判定 (Control/DateTime の比較、同一/
     processVpbs50Reception(context.connection, recNew, '2026-09-10T07:16:00.000Z');
 
     const updatedRecNew = findTelegramReceptionById(context.connection, recNew.id);
-    assert.equal(updatedRecNew?.adoptionResult, '気象防災速報として解析済み');
+    assert.deepEqual(
+      updatedRecNew?.adoptions.map((a) => a.adoptionResult),
+      ['気象防災速報として解析済み', '気象防災速報として解析済み'],
+    );
 
     const bUpdated = findBosaiBulletin(context.connection, eventId, 'normal');
     assert.ok(bUpdated);
@@ -423,7 +443,10 @@ test('受け入れ条件3: 負例実データ (20260905220832_0_VPBS50_130000.xm
     }
 
     const updatedReception = findTelegramReceptionById(context.connection, reception.id);
-    assert.equal(updatedReception?.adoptionResult, '対象地域外');
+    assert.deepEqual(
+      updatedReception?.adoptions.map((a) => a.adoptionResult),
+      ['対象地域外', '対象地域外'],
+    );
 
     // bosai_bulletin に行が1件も作られないこと
     const all = listBosaiBulletins(context.connection, { controlStatus: 'normal' });
@@ -649,8 +672,7 @@ test('受け入れ条件20: saveBosaiBulletin 失敗時に adoption も更新さ
     // adoption が更新されていないこと（null のまま）
     const rec = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(rec);
-    assert.equal(rec.adoptionResult, null);
-    assert.equal(rec.adoptionDecidedAt, null);
+    assert.equal(rec.adoptions.length, 0);
   } finally {
     cleanup();
   }
@@ -677,7 +699,10 @@ test('原文なし (rawBody=null) の場合は未対応構造として adoption 
     }
 
     const updated = findTelegramReceptionById(context.connection, reception.id);
-    assert.equal(updated?.adoptionResult, '未対応構造');
+    assert.deepEqual(
+      updated?.adoptions.map((a) => a.adoptionResult),
+      ['未対応構造', '未対応構造'],
+    );
   } finally {
     cleanup();
   }

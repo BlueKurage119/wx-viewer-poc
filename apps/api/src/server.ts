@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
 
+import { VENUE_IDS } from '@wx-viewer-poc/shared';
 import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
 import {
@@ -19,15 +20,9 @@ import {
   type NowcastService,
   type KikikuruService,
 } from './polling/index.js';
-import {
-  DEFAULT_WARNING_CURRENT_TARGET_AREA,
-  rebuildWarningCurrentFromReceptions,
-} from './polling/jmaWarningCurrentProcessor.js';
-import {
-  DEFAULT_WARNING_TARGET_AREA,
-  reprocessPendingWarningTelegramReceptions,
-} from './polling/jmaWarningTelegramProcessor.js';
-import type { WarningCurrentTargetArea } from './repositories/types.js';
+import { rebuildWarningCurrentFromReceptions } from './polling/jmaWarningCurrentProcessor.js';
+import { reprocessPendingWarningTelegramReceptions } from './polling/jmaWarningTelegramProcessor.js';
+import { resolveVenueWarningContext } from './venueForecastTargets.js';
 
 export interface StartedServer {
   readonly port: number;
@@ -150,22 +145,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             return;
           }
 
-          const rawTargetArea =
-            options.pollingServiceOptions?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA;
-          const currentTargetArea: WarningCurrentTargetArea =
-            'prefectureCode' in rawTargetArea && typeof rawTargetArea.prefectureCode === 'string'
-              ? (rawTargetArea as WarningCurrentTargetArea)
-              : {
-                  ...rawTargetArea,
-                  prefectureCode: DEFAULT_WARNING_CURRENT_TARGET_AREA.prefectureCode,
-                };
-
-          await reprocessPendingWarningTelegramReceptions(
-            database.connection,
-            currentTargetArea,
-            options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
-          );
-          rebuildWarningCurrentFromReceptions(database.connection, currentTargetArea);
+          for (const venueId of VENUE_IDS) {
+            const venue = resolveVenueWarningContext(venueId);
+            await reprocessPendingWarningTelegramReceptions(
+              database.connection,
+              venue,
+              options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
+            );
+            rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
+          }
 
           pollingService =
             options.pollingService ??
@@ -322,15 +310,13 @@ async function main(): Promise<void> {
             return;
           }
 
-          await reprocessPendingWarningTelegramReceptions(
-            database.connection,
-            DEFAULT_WARNING_CURRENT_TARGET_AREA,
-            () => new Date().toISOString(),
-          );
-          rebuildWarningCurrentFromReceptions(
-            database.connection,
-            DEFAULT_WARNING_CURRENT_TARGET_AREA,
-          );
+          for (const venueId of VENUE_IDS) {
+            const venue = resolveVenueWarningContext(venueId);
+            await reprocessPendingWarningTelegramReceptions(database.connection, venue, () =>
+              new Date().toISOString(),
+            );
+            rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
+          }
 
           pollingService = new JmaXmlPollingService(database.connection, {
             freshnessPolicy: schedule.freshness.xml,

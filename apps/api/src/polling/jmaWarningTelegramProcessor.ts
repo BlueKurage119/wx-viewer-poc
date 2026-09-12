@@ -1,35 +1,32 @@
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import { VENUE_IDS, type UtcIso8601String, type VenueId } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   listPendingWarningTelegramReceptions,
-  updateTelegramReceptionAdoption,
+  upsertTelegramReceptionAdoption,
 } from '../repositories/telegramReceptionRepository.js';
-import {
-  applyWarningCurrentReception,
-  DEFAULT_WARNING_CURRENT_TARGET_AREA,
-} from './jmaWarningCurrentProcessor.js';
+import { applyWarningCurrentReception } from './jmaWarningCurrentProcessor.js';
 import type {
   TelegramReception,
   WarningCurrentApplyResult,
-  WarningCurrentTargetArea,
   WarningTelegramParseResult,
-  WarningTargetArea,
 } from '../repositories/types.js';
 import { parseWarningTelegram } from './jmaWarningTelegramParser.js';
-import { resolveWarningTargetArea } from '../venueForecastTargets.js';
-
-export const DEFAULT_WARNING_TARGET_AREA: WarningTargetArea = resolveWarningTargetArea('east');
+import { resolveVenueWarningContext, type VenueWarningContext } from '../venueForecastTargets.js';
 
 export interface WarningTelegramProcessResult {
   readonly parseResult: WarningTelegramParseResult;
   readonly currentResult: WarningCurrentApplyResult | null;
 }
 
+/**
+ * 1 会場分の警報・注意報電文を採用判定する。パース結果は会場に依存するため
+ * （C2 は targetArea.municipalCode で Item を絞る）、会場ごとに parse をやり直す。
+ */
 export function processWarningTelegramReception(
   connection: DatabaseConnection,
   reception: TelegramReception,
   decidedAt: UtcIso8601String,
-  targetArea: WarningTargetArea | WarningCurrentTargetArea = DEFAULT_WARNING_TARGET_AREA,
+  venue: VenueWarningContext,
 ): WarningTelegramParseResult {
   const result =
     reception.rawBody === null
@@ -38,25 +35,17 @@ export function processWarningTelegramReception(
           disposition: '未対応構造' as const,
           reason: '原文（raw_body）がありません',
         }
-      : parseWarningTelegram(reception.rawBody, reception, targetArea);
+      : parseWarningTelegram(reception.rawBody, reception, venue.targetArea);
   let adoptionResult = result.ok ? '警報・注意報として解析済み' : result.disposition;
   let adoptionReason = result.ok ? null : result.reason;
 
   if (result.ok) {
-    const currentTargetArea: WarningCurrentTargetArea =
-      'prefectureCode' in targetArea && typeof targetArea.prefectureCode === 'string'
-        ? targetArea
-        : {
-            ...targetArea,
-            prefectureCode: DEFAULT_WARNING_CURRENT_TARGET_AREA.prefectureCode,
-          };
-
     try {
       const currentResult = applyWarningCurrentReception(
         connection,
         reception,
         result.value,
-        currentTargetArea,
+        venue.targetArea,
       );
       if (!currentResult.applied && currentResult.reason === 'unsupported_code') {
         adoptionResult = '未対応コード';
@@ -69,7 +58,8 @@ export function processWarningTelegramReception(
   }
 
   const transaction = connection.transaction(() => {
-    updateTelegramReceptionAdoption(connection, reception.id, {
+    upsertTelegramReceptionAdoption(connection, reception.id, {
+      venueId: venue.venueId,
       adoptionResult,
       adoptionReason,
       adoptionDecidedAt: decidedAt,
@@ -80,17 +70,34 @@ export function processWarningTelegramReception(
   return result;
 }
 
+/** VENUE_IDS を毎回ループする。ポーリング本線はこちらを呼ぶ（確定事項3）。 */
+export function processWarningTelegramReceptionForAllVenues(
+  connection: DatabaseConnection,
+  reception: TelegramReception,
+  decidedAt: UtcIso8601String,
+): ReadonlyMap<VenueId, WarningTelegramParseResult> {
+  const results = new Map<VenueId, WarningTelegramParseResult>();
+  for (const venueId of VENUE_IDS) {
+    const venue = resolveVenueWarningContext(venueId);
+    results.set(venueId, processWarningTelegramReception(connection, reception, decidedAt, venue));
+  }
+  return results;
+}
+
 export async function reprocessPendingWarningTelegramReceptions(
   connection: DatabaseConnection,
-  targetArea: WarningTargetArea,
+  venue: VenueWarningContext,
   clock: () => UtcIso8601String,
 ): Promise<{ readonly processedCount: number }> {
   let after: { readonly receivedAt: UtcIso8601String; readonly id: number } | undefined;
   let processedCount = 0;
   do {
-    const page = listPendingWarningTelegramReceptions(connection, { after, limit: 100 });
+    const page = listPendingWarningTelegramReceptions(connection, venue.venueId, {
+      after,
+      limit: 100,
+    });
     for (const reception of page.receptions) {
-      processWarningTelegramReception(connection, reception, clock(), targetArea);
+      processWarningTelegramReception(connection, reception, clock(), venue);
       processedCount += 1;
     }
     after = page.nextCursor ?? undefined;

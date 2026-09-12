@@ -177,9 +177,7 @@ function createReceptionRecord(
     reportDateTime: overrides.reportDateTime ?? '2026-09-10T08:00:00.000Z',
     targetDateTime: null,
     receivedAt: '2026-09-10T08:00:01.000Z',
-    adoptionResult: null,
-    adoptionReason: null,
-    adoptionDecidedAt: null,
+    adoptions: [],
     rawBody,
     bodyBytes: rawBody ? Buffer.byteLength(rawBody, 'utf-8') : 0,
     contentHash: 'hash-xml',
@@ -221,9 +219,22 @@ test('processVpfd51Reception: 正常パース時に snapshot 保存と adoption 
     // adoption の確認
     const updatedReception = findTelegramReceptionById(db.context.connection, reception.id);
     assert.ok(updatedReception);
-    assert.equal(updatedReception.adoptionResult, '地域時系列予報として解析済み');
-    assert.equal(updatedReception.adoptionReason, null);
-    assert.equal(updatedReception.adoptionDecidedAt, processedAt);
+    assert.deepEqual(updatedReception.adoptions, [
+      {
+        receptionId: reception.id,
+        venueId: 'east',
+        adoptionResult: '地域時系列予報として解析済み',
+        adoptionReason: null,
+        adoptionDecidedAt: processedAt,
+      },
+      {
+        receptionId: reception.id,
+        venueId: 'trc',
+        adoptionResult: '地域時系列予報として解析済み',
+        adoptionReason: null,
+        adoptionDecidedAt: processedAt,
+      },
+    ]);
   } finally {
     db.cleanup();
   }
@@ -258,7 +269,10 @@ test('processVpfd51Reception: 公式サンプルファイルでの統合テス�
     assert.equal(pointTds.length, 11);
 
     const updatedReception = findTelegramReceptionById(db.context.connection, reception.id);
-    assert.equal(updatedReception?.adoptionResult, '地域時系列予報として解析済み');
+    assert.deepEqual(
+      updatedReception?.adoptions.map((a) => a.adoptionResult),
+      ['地域時系列予報として解析済み', '地域時系列予報として解析済み'],
+    );
   } finally {
     db.cleanup();
   }
@@ -279,8 +293,14 @@ test('processVpfd51Reception: rawBody が null の場合は「未対応構造」
     assert.equal(snapshot, null);
 
     const updatedReception = findTelegramReceptionById(db.context.connection, reception.id);
-    assert.equal(updatedReception?.adoptionResult, '未対応構造');
-    assert.equal(updatedReception?.adoptionReason, '原文（raw_body）がありません');
+    assert.deepEqual(
+      updatedReception?.adoptions.map((a) => a.adoptionResult),
+      ['未対応構造', '未対応構造'],
+    );
+    assert.deepEqual(
+      updatedReception?.adoptions.map((a) => a.adoptionReason),
+      ['原文（raw_body）がありません', '原文（raw_body）がありません'],
+    );
   } finally {
     db.cleanup();
   }
@@ -327,7 +347,10 @@ test('processVpfd51Reception: 対象地域外の場合は既存 snapshot を変�
     assert.deepEqual(afterSnapshot, initialSnapshot);
 
     const updatedReception = findTelegramReceptionById(db.context.connection, reception2.id);
-    assert.equal(updatedReception?.adoptionResult, '対象地域外');
+    assert.deepEqual(
+      updatedReception?.adoptions.map((a) => a.adoptionResult),
+      ['対象地域外', '対象地域外'],
+    );
   } finally {
     db.cleanup();
   }
@@ -373,7 +396,10 @@ test('processVpfd51Reception: 未対応構造の場合は既存 snapshot を変�
     assert.deepEqual(afterSnapshot, initialSnapshot);
 
     const updatedReception = findTelegramReceptionById(db.context.connection, reception2.id);
-    assert.equal(updatedReception?.adoptionResult, '未対応構造');
+    assert.deepEqual(
+      updatedReception?.adoptions.map((a) => a.adoptionResult),
+      ['未対応構造', '未対応構造'],
+    );
   } finally {
     db.cleanup();
   }
