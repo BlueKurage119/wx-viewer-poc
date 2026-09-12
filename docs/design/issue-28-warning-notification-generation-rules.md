@@ -178,19 +178,66 @@
 
 **【確定・Q1】** 取消電文を「該当現象の解除相当」として通常経路に乗せる。
 
-#### 4.6.1 C3 側の変更（`jmaWarningCurrentProcessor.ts`）
+#### 4.6.1 C3 側の変更（`jmaWarningCurrentProcessor.ts` / `jmaWarningCurrentReducer.ts`）
 
-現行の「即 `{applied:false, reason:'cancelled'}` で返す」を次に置き換える。
+> **【訂正 2026-09-13】** 本節の初版は「個別電文の取消は `individualMap` から当該種別を除けば寄与が空になる」と書いていたが、これは**実装不可能な誤りだった**。実物調査の結果（下記「誤りの内容」）に基づき、メカニズムを書き直す。§4.6 の業務判断（取消＝該当現象の解除相当。H1/Q1）は変更しない。
 
-- 取消電文の**本文 Kind を一切解釈しない**。取消電文の本文構造は実挙動未確認（§2.2-5）であり、`extractActiveKindsByPhenomenon` も呼ばない。
-- 版比較（`stale` / `duplicate` / `same_version_conflict`）は**通常どおり行う**。同じ版の取消電文の再取得は `duplicate` で弾かれる（Issue 本文「同じ版の再取得は重複処理しない」）。
-- 版比較を通過したら、**当該電文種別のストリーム寄与を「空」として**現況を再合成する。
-  - 個別電文（`VPWW55`〜`VPWW61`）の取消: ストリームポインターは当該取消電文で更新し、現況合成時は `individualMap` から当該種別を除く。結果として当該種別の現象は現況から消え、`diffWarningCurrent` が `released` を返す。
-  - `VPWS50`（府県警報等状況）の取消: 現況全体の基盤が失われる。**設計案として、当該 `controlStatus` の現況を `items: []` のスナップショットへ更新し、全現象を取消対象とする。**（→ §9 要ヒアリング事項 H1）
-- 再合成時に他ストリームのポインター受信を再パースする既存処理でも、**`infoType === '取消'` のストリームは寄与なしとして除外する**（取消ポインターを残したまま次の受信で内容が復活しないようにする）。`rebuildWarningCurrentFromReceptions` も同じ扱いに変更する（現行の `continue` スキップでは復旧後に取消前の内容が復活してしまう）。
-- 戻り値は `{ applied: true, origin, snapshot, changes, infoType: '取消' }` とする。D4 が InfoType を知る必要があるため、`WarningCurrentApplyResult` の `applied:true` 分岐に `readonly infoType: '発表' | '訂正' | '取消'` を追加する（`null` の InfoType は `'発表'` に正規化）。
+**誤りの内容（実物確認済み）**
+
+`jmaWarningCurrentReducer.ts` の `reduceWarningCurrent` は、`INDIVIDUAL_WARNING_TELEGRAM_TYPES` を 1 ストリームずつ走査し、`individuals` に当該種別が**無い**場合は `else` 分岐（「集約側の状態を採用」、現行 L300 付近）へ落ちて、**VPWS50 が保持している当該ストリーム所属の現象を無条件に `finalActiveMap` へ入れる**。したがって `individualMap` から外すことは「寄与が空」ではなく「集約側の値へフォールバックする」を意味する。VPWS50 が当該現象を発表中として保持しているのは府県警報等状況の定常状態であり、例外ではない。検収での実測: VPWS50 が `03`（大雨警報）＋`14`（雷注意報）を保持した状態で VPWW55 の取消を投入すると、取消後の現況に `03` が残存し `cancelled` 通知は 0 件（無音の no-op）になった。
+
+**訂正後のメカニズム（案 A: 合成そのものに「取消ストリーム」の概念を持ち込む）**
+
+「当該ストリームの寄与を除く」ではなく、**「当該ストリームに属する現象キーを、集約側の採用経路も含めて最終マップから成立させない」**という操作として設計し直す。後処理での差し引き（案 B）ではなく合成器側に入れる理由は、同じ規則が `applyWarningCurrentReception` と `rebuildWarningCurrentFromReceptions` の 2 経路で必要であり、後処理では両方に同じ減算ロジックを複製することになるため。
+
+1. **`reduceWarningCurrent` に第 3 引数（任意）を追加する。**
+
+   ```ts
+   export function reduceWarningCurrent(
+     aggregate: ParsedWarningTelegram,
+     individuals: ReadonlyMap<IndividualWarningTelegramType, ParsedWarningTelegram>,
+     /** InfoType=取消 のポインターを持つ個別ストリーム。既定は空。`individuals` とは排他。 */
+     cancelledStreams?: ReadonlyMap<IndividualWarningTelegramType, ParsedWarningTelegram>,
+   ): WarningCurrentReductionResult;
+   ```
+
+   - **任意引数**にするのは、既存の 2 引数呼び出し（`apps/api/tests/jmaWarningCurrentReducer.test.ts`、`jmaWarningCurrentProcessor.ts` の通常経路）を無改修で通すため。既存テストへの破壊的影響はない。
+   - 呼び出し元は `jmaWarningCurrentProcessor.ts` の 2 箇所のみ（`applyWarningCurrentReception` / `rebuildWarningCurrentFromReceptions`）。
+   - `WARNING_CODE_TABLE` は**変更しない**。
+
+2. **ストリーム走査ループの先頭に取消判定を置く**（`individuals` / `individual && reportDateTime > baseline` などの既存分岐より**前**）。
+
+   ```
+   const cancel = cancelledStreams?.get(streamType);
+   if (cancel && cancel.reportDateTime >= aggregateBaselines.get(streamType)!) {
+     contributingTypes.add(streamType);   // 取消電文は現況の根拠として記録する
+     continue;                            // 集約側フォールバックへ落とさない = 当該ストリームの現象キーは一切採用しない
+   }
+   ```
+
+   - `continue` により、当該ストリームに属する現象キーは `finalActiveMap` に入らない。集約側が保持していても復活しない。これが今回の修正の本体である。
+   - **baseline 比較を残す理由**: 取消より後に発表された新しい VPWS50 が当該現象を再び発表している場合（取消 → 府県一括で再発表）、取消で永久に潰してはならない。`cancel.reportDateTime < baseline`（＝集約のほうが新しい）のときは取消判定を行わず、既存の集約採用経路に進む。
+   - **等時刻（`>=`）で取消を優先する理由**: 取消電文は本文 Kind を解釈しないため、既存の同時刻整合チェック（`WarningCurrentConflictError`）に載せられない。同時刻で集約側が当該現象を保持していた場合に「取消が無かったことになる」のを避け、安全側（現象を消す側）に倒す。
+   - `individuals` と `cancelledStreams` は呼び出し元で排他に構築するため、同一種別が両方に入ることはない（不変条件としてコメントに明記する）。
+
+3. **`contributingTelegramTypes` に取消ストリームを含める。** 取消電文は現況の導出根拠であり、その `contentHash` が `computeSourceVersion` に入ることで、取消の前後でスナップショットの `sourceVersion` が必ず変化する。既存の「`contributingTypes.size === 0` なら集約を入れる」フォールバックはそのまま残す。
+
+4. **処理側（`jmaWarningCurrentProcessor.ts`）は `individualMap` と対になる `cancelledMap` を構築する。** 現行は取消ストリームを単に `individualMap` へ入れないだけなので、これを「除外しつつ `cancelledMap` に入れる」へ変える。対象は 2 経路とも同じ:
+   - 今回の受信自身が個別電文の取消なら、`cancelledMap.set(parsed.telegramType, parsed)`。
+   - 他ストリームのポインター受信を再パースした結果が `infoType === '取消'` なら、同じく `cancelledMap` へ入れる（取消ポインターを残したまま次の受信で内容が復活しないようにする。`rebuildWarningCurrentFromReceptions` でも同一の扱いにする）。
+   - メタ情報構成ループ（`reduction.contributingTelegramTypes` を回して `contributingStreams` を組む箇所）で、電文本体の参照先に `cancelledMap` をフォールバックとして加える。これにより取消ストリームの `infoType` が `'取消'` として記録され、`primaryMeta` 経由でスナップショットの `telegram.infoType` にも反映される（現行のままだと `undefined` → `null` → `'発表'` に化ける）。
+
+5. **取消電文の本文 Kind は依然として一切解釈しない。** 取消電文の本文構造は実挙動未確認（§2.2-5）であり、`extractActiveKindsByPhenomenon` を呼ばない。`cancelledStreams` の値から参照してよいのは `reportDateTime` / `contentHash` / `infoType` / `eventId` などのヘッダ情報のみ。
+
+6. 版比較（`stale` / `duplicate` / `same_version_conflict`）は**通常どおり行う**。同じ版の取消電文の再取得は `duplicate` で弾かれる（Issue 本文「同じ版の再取得は重複処理しない」）。
+
+7. `VPWS50`（府県警報等状況）の取消: 現況全体の基盤が失われる。**当該 `controlStatus` の現況を `items: []` のスナップショットへ更新し、全現象を取消対象とする**（H1 で確定済み）。この経路は `reduceWarningCurrent` を呼ばないため今回の修正の対象外であり、現行実装のままでよい。
+
+8. 戻り値は `{ applied: true, origin, snapshot, changes, infoType: '取消' }` とする。D4 が InfoType を知る必要があるため、`WarningCurrentApplyResult` の `applied:true` 分岐に `readonly infoType: '発表' | '訂正' | '取消'` を追加する（`null` の InfoType は `'発表'` に正規化）。
 
 > `reason: 'cancelled'` は「未知の InfoType」の場合にのみ残る。既存の `reason` 列挙値は削除しない（B 系の履歴・テストが参照するため）。
+
+**実挙動未確認**: 「取消の後に、同じ現象を含む新しい VPWS50 が届く」実データは確認できていない。2 の baseline 比較はこの順序でも現況が正しく再構成されるようにするための設計上の保険であり、実電文での確認はしていない。
 
 #### 4.6.2 D4 側のルール
 
@@ -200,6 +247,13 @@
 - `detail` は `before.kindName`（取消される直前のアイテム。Q1 の「対象は取消される直前の `before` から決める」）。
 - 定義 ID は `weather-warning-cancelled`（§4.9）。
 - 取消電文由来の差分に `new` / `strengthened` / `weakened` が現れることは、本文を解釈しない以上ありえない。万一現れた場合は生成せず `skipped` に `reason: 'unexpected_change_on_cancel'` で記録する（暗黙に通知へ変換しない）。
+- **取消が現況を変化させなかった場合（no-op）の扱い**: §4.6.1 の修正により「集約側に残っていたため消えなかった」は発生しなくなるが、次の 2 経路では取消が `applied:true` のまま 0 件通知になりうる。
+  1. 取消されたストリームがそもそも発表中の現象を 1 件も持っていなかった（現況に当該ストリーム所属の現象キーが無かった）。
+  2. 取消電文より新しい VPWS50 が当該現象を発表中として保持しており、§4.6.1-2 の baseline 比較で取消判定が適用されなかった。
+
+  この場合、`trigger.kind === 'reception' && trigger.infoType === '取消'` かつ生成通知が 0 件なら、`skipped` に 1 件
+  `{ phenomenonKey: null, changeType: 'cancelled', reason: 'cancel_without_effect', detail: <電文種別と受信 ID> }`
+  を記録する（`WarningNotificationSkipReason` に `'cancel_without_effect'` を追加。§5.1）。**通知は生成しない**（§4.5-3 の訂正のような「必ず 1 件」の救済は取消には適用しない。取消で何も消えていない以上、利用者へ知らせるべき状態変化が存在しないため）。`skipped` は §4.11 のとおり戻り値に含め `console.warn` で 1 行出す。取消が無音で消える現行の挙動（記録すら残らない）は、これで解消する。
 
 > **§7.6 の「通常経路で処理することは取消済み内容を現行の警報として有効化する意味ではない」を守るため、取消電文の本文 Kind を現況へ取り込む実装は禁止する。**
 
@@ -317,6 +371,7 @@ export type WarningNotificationSkipReason =
   | 'state_change_decision_failed'
   | 'message_resolution_failed'
   | 'unexpected_change_on_cancel'
+  | 'cancel_without_effect'
   | 'control_status_not_notifiable';
 
 export interface WarningNotificationSkip {
@@ -479,7 +534,7 @@ npm run lint && npm run typecheck && npm run format:check && npm run test -w app
 
 ### AC6 取消は解除相当として通知される
 
-VPWW55 で `03` を発表済みの状態から、同 VPWW55 の `InfoType=取消` 電文（`reportDateTime` は前進）を投入する。
+**AC6-1（基本ケース）**: VPWW55 で `03` を発表済みの状態から、同 VPWW55 の `InfoType=取消` 電文（`reportDateTime` は前進）を投入する。
 
 合格条件:
 - 適用結果が `applied:true`（`reason:'cancelled'` で弾かれない）。
@@ -489,6 +544,28 @@ VPWW55 で `03` を発表済みの状態から、同 VPWW55 の `InfoType=取消
 - **取消電文の本文に含まれる Kind が現況へ取り込まれていない**（取消電文にダミーの Kind を入れたフィクスチャで、現況アイテムがそれを含まないことを確認する）。
 - 同一版の取消電文を再投入すると `duplicate` となり通知が増えない。
 - 取消後にプロセス再起動相当（新 tracker + `rebuildWarningCurrentFromReceptions`）を行っても、取消前の内容が現況に復活しない。
+
+**AC6-2（集約側フォールバック経路 — 今回の欠陥の回帰テスト。必須）**: §4.6.1 の「誤りの内容」で実測された経路を、そのままテストケースにする。
+
+手順:
+1. VPWS50 で `03`（大雨警報, VPWW55 所属）と `14`（雷注意報, VPWW61 所属）を発表する。
+2. 個別 VPWW55 で同じ `03` を継続発表する（`reportDateTime` は VPWS50 より前進）。
+3. 同 VPWW55 の `InfoType=取消` 電文（`reportDateTime` はさらに前進）を投入する。
+
+合格条件:
+- 適用結果が `applied:true`。
+- **取消後の現況スナップショットに `heavy_rain`（`kindCode='03'`）が含まれない**。VPWS50 が `03` を保持したままでも復活しないこと。これが不合格なら §4.6.1 の修正が効いていない。
+- 取消後の現況に `14`（`thunder`）は**残っている**（取消は VPWW55 所属の現象キーのみを落とし、他ストリームの現象を巻き込まない）。
+- `change_type='cancelled'` の通知が 1 件生成され、`category='warning'`、`ack_required=0`、`message_definition_id='weather-warning-cancelled'`、`summary` に `03` の `kindName` が含まれる。
+- スナップショットの `metadata.sourceVersion` が取消前後で変化している（§4.6.1-3）。
+- 続けて `rebuildWarningCurrentFromReceptions` を実行しても `heavy_rain` が復活せず、`thunder` は残る。
+
+**AC6-3（no-op の記録）**: VPWS50 が `14` のみを発表中で、VPWW55 の現象が現況に 1 件も無い状態から、VPWW55 の `InfoType=取消` を投入する。
+
+合格条件:
+- `applied:true` かつ生成通知 0 件。
+- 返却される `skipped` に `reason: 'cancel_without_effect'`、`phenomenonKey: null` の記録が 1 件含まれる（§4.6.2）。
+- `notification_output_history` に当該受信由来のレコードが増えていない。
 
 ### AC7 D2 区分表と定義 ID 表の整合（総当たり）
 
