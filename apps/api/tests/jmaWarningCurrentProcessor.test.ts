@@ -15,7 +15,6 @@ import {
 } from '../src/repositories/index.js';
 import {
   applyWarningCurrentReception,
-  DEFAULT_WARNING_CURRENT_TARGET_AREA,
   rebuildWarningCurrentFromReceptions,
 } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { parseWarningTelegram } from '../src/polling/jmaWarningTelegramParser.js';
@@ -23,6 +22,7 @@ import { resolveWarningCurrentTargetArea } from '../src/venueForecastTargets.js'
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
+const DEFAULT_WARNING_CURRENT_TARGET_AREA = resolveWarningCurrentTargetArea('east');
 
 function createTempDb(): {
   connection: ReturnType<typeof initializeDatabase>['connection'];
@@ -143,9 +143,7 @@ function saveAndProcessReception(
     reportDateTime: isoReport,
     targetDateTime: isoReport,
     receivedAt: isoReceived,
-    adoptionResult: null,
-    adoptionReason: null,
-    adoptionDecidedAt: null,
+    adoptions: [],
     rawBody: rawXml,
     bodyBytes: Buffer.byteLength(rawXml, 'utf-8'),
     contentHash,

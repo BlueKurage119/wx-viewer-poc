@@ -101,12 +101,17 @@ const sampleTelegramInput: TelegramReceptionInput = {
   reportDateTime: '2000-01-01T00:00:00Z',
   targetDateTime: '2000-01-01T00:00:00Z',
   receivedAt: '2000-01-01T00:00:02Z',
-  adoptionResult: '採用',
-  adoptionReason: '最新の発表',
-  adoptionDecidedAt: '2000-01-01T00:00:03Z',
   rawBody: '<Report>...</Report>',
   bodyBytes: 20,
   contentHash: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
+  adoptions: [
+    {
+      venueId: 'east',
+      adoptionResult: '採用',
+      adoptionReason: '最新の発表',
+      adoptionDecidedAt: '2000-01-01T00:00:03Z',
+    },
+  ],
   areas: [
     {
       areaCode: '1310800',

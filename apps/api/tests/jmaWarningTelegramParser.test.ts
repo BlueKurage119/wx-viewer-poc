@@ -12,15 +12,19 @@ import {
 import type { TelegramReceptionInput } from '../src/repositories/types.js';
 import { parseWarningTelegram } from '../src/polling/jmaWarningTelegramParser.js';
 import {
-  DEFAULT_WARNING_TARGET_AREA,
   processWarningTelegramReception,
   reprocessPendingWarningTelegramReceptions,
 } from '../src/polling/jmaWarningTelegramProcessor.js';
-import { resolveWarningTargetArea } from '../src/venueForecastTargets.js';
+import {
+  resolveVenueWarningContext,
+  resolveWarningTargetArea,
+} from '../src/venueForecastTargets.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 const reportDateTime = '2026-09-09T00:00:00.000Z';
+const DEFAULT_WARNING_TARGET_AREA = resolveWarningTargetArea('east');
+const EAST_VENUE = resolveVenueWarningContext('east');
 
 function telegramXml(
   options: {
@@ -347,9 +351,7 @@ function receptionInput(index: number): TelegramReceptionInput {
     reportDateTime,
     targetDateTime: null,
     receivedAt: `2026-09-09T00:00:${String(index % 60).padStart(2, '0')}.000Z`,
-    adoptionResult: null,
-    adoptionReason: null,
-    adoptionDecidedAt: null,
+    adoptions: [],
     rawBody: telegramXml(),
     bodyBytes: 1,
     contentHash: null,
@@ -369,7 +371,7 @@ test('未判定の対象原文を keyset で一度だけ処理し、履歴だけ
     );
     const outcome = await reprocessPendingWarningTelegramReceptions(
       database.connection,
-      DEFAULT_WARNING_TARGET_AREA,
+      EAST_VENUE,
       () => '2026-09-09T02:00:00.000Z',
     );
     assert.deepEqual(outcome, { processedCount: 101 });
@@ -378,13 +380,14 @@ test('未判定の対象原文を keyset で一度だけ処理し、履歴だけ
       .get() as { count: number };
     assert.equal(snapshotCount.count, 0);
     assert.equal(
-      findTelegramReceptionById(database.connection, receptions[100]!.id)?.adoptionResult,
+      findTelegramReceptionById(database.connection, receptions[100]!.id)?.adoptions[0]
+        ?.adoptionResult,
       '警報・注意報として解析済み',
     );
     assert.deepEqual(
       await reprocessPendingWarningTelegramReceptions(
         database.connection,
-        DEFAULT_WARNING_TARGET_AREA,
+        EAST_VENUE,
         () => '2026-09-09T03:00:00.000Z',
       ),
       { processedCount: 0 },
@@ -394,10 +397,10 @@ test('未判定の対象原文を keyset で一度だけ処理し、履歴だけ
       database.connection,
       one,
       '2026-09-09T04:00:00.000Z',
-      DEFAULT_WARNING_TARGET_AREA,
+      EAST_VENUE,
     );
     assert.equal(
-      findTelegramReceptionById(database.connection, one.id)?.adoptionDecidedAt,
+      findTelegramReceptionById(database.connection, one.id)?.adoptions[0]?.adoptionDecidedAt,
       '2026-09-09T04:00:00.000Z',
     );
   } finally {
@@ -424,12 +427,12 @@ test('現況適用で未対応コードとなった電文を未対応コード�
       database.connection,
       reception,
       '2026-09-09T02:00:00.000Z',
-      DEFAULT_WARNING_TARGET_AREA,
+      EAST_VENUE,
     );
 
     const recorded = findTelegramReceptionById(database.connection, reception.id);
-    assert.equal(recorded?.adoptionResult, '未対応コード');
-    assert.match(recorded?.adoptionReason ?? '', /未対応の警報等コードです: 99/);
+    assert.equal(recorded?.adoptions[0]?.adoptionResult, '未対応コード');
+    assert.match(recorded?.adoptions[0]?.adoptionReason ?? '', /未対応の警報等コードです: 99/);
   } finally {
     database.close();
     rmSync(directory, { recursive: true, force: true });

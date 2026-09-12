@@ -1,20 +1,20 @@
 import crypto from 'node:crypto';
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import { VENUE_IDS, type UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import { recordFetchAttempt } from '../repositories/fetchAttemptRepository.js';
 import {
   hasTelegramReception,
   recordTelegramReception,
 } from '../repositories/telegramReceptionRepository.js';
-import type { FetchAttemptInput, TelegramReceptionInput } from '../repositories/types.js';
+import type {
+  FetchAttemptInput,
+  TelegramReceptionAdoptionInput,
+  TelegramReceptionInput,
+} from '../repositories/types.js';
 import type { FeedPollResult, JmaXmlFeedDefinition, JmaXmlPollTrigger } from './jmaXmlFeeds.js';
 import { parseAtomFeed, parseTelegramXml, type ParseAtomFeedOptions } from './jmaXmlFeedParser.js';
-import {
-  DEFAULT_WARNING_TARGET_AREA,
-  processWarningTelegramReception,
-} from './jmaWarningTelegramProcessor.js';
-import { DEFAULT_VPWP50_TARGET_AREA } from './jmaVpwp50Parser.js';
-import { processVpwp50Reception } from './jmaVpwp50Processor.js';
+import { processWarningTelegramReceptionForAllVenues } from './jmaWarningTelegramProcessor.js';
+import { processVpwp50ReceptionForAllVenues } from './jmaVpwp50Processor.js';
 import { DEFAULT_EARLY_WARNING_TARGET_AREA } from './jmaEarlyWarningParser.js';
 import { processEarlyWarningReception } from './jmaEarlyWarningProcessor.js';
 import { DEFAULT_AREA_TIMESERIES_FORECAST_TARGET } from './jmaVpfd51Parser.js';
@@ -34,17 +34,12 @@ import {
   type AreaTimeseriesForecastTarget,
   type BosaiBulletinTarget,
   type EarlyWarningTargetArea,
-  type WarningCurrentTargetArea,
-  type WarningTargetArea,
-  type WarningTimeseriesTargetArea,
 } from '../repositories/types.js';
 
 export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
   readonly timeoutMs?: number;
-  readonly warningTargetArea?: WarningTargetArea | WarningCurrentTargetArea;
-  readonly warningTimeseriesTargetArea?: WarningTimeseriesTargetArea;
   readonly earlyWarningTargetArea?: EarlyWarningTargetArea;
   readonly areaTimeseriesForecastTarget?: AreaTimeseriesForecastTarget;
   readonly bosaiBulletinTarget?: BosaiBulletinTarget;
@@ -263,6 +258,17 @@ export async function pollSingleFeed(
     // 共通エンベロープの解析
     const parsed = parseTelegramXml(docHttpResult.bodyText, docUrl);
 
+    // エンベロープ不正は会場に依存しないため、全 VenueId 分の採用行として記録する（§3.3.1）。
+    const envelopeInvalidAdoptions: readonly TelegramReceptionAdoptionInput[] =
+      parsed.isValidEnvelope
+        ? []
+        : VENUE_IDS.map((venueId) => ({
+            venueId,
+            adoptionResult: '未対応形式',
+            adoptionReason: parsed.validationErrorReason,
+            adoptionDecidedAt: null,
+          }));
+
     // telegram_reception への保存
     const receptionInput: TelegramReceptionInput = {
       fetchAttemptId: docAttempt.id,
@@ -279,13 +285,11 @@ export async function pollSingleFeed(
       reportDateTime: parsed.reportDateTime,
       targetDateTime: parsed.targetDateTime,
       receivedAt: docFinishedAt,
-      adoptionResult: parsed.isValidEnvelope ? null : '未対応形式',
-      adoptionReason: parsed.isValidEnvelope ? null : parsed.validationErrorReason,
-      adoptionDecidedAt: null,
       rawBody: docHttpResult.bodyText,
       bodyBytes: docHttpResult.responseBytes,
       contentHash: docHash,
       areas: parsed.areas,
+      adoptions: envelopeInvalidAdoptions,
     };
 
     const reception = recordTelegramReception(connection, receptionInput);
@@ -293,19 +297,9 @@ export async function pollSingleFeed(
       reception.telegramType &&
       (WARNING_TELEGRAM_TYPES as readonly string[]).includes(reception.telegramType)
     ) {
-      processWarningTelegramReception(
-        connection,
-        reception,
-        docFinishedAt,
-        options?.warningTargetArea ?? DEFAULT_WARNING_TARGET_AREA,
-      );
+      processWarningTelegramReceptionForAllVenues(connection, reception, docFinishedAt);
     } else if (reception.telegramType === VPWP50_TELEGRAM_TYPE) {
-      processVpwp50Reception(
-        connection,
-        reception,
-        docFinishedAt,
-        options?.warningTimeseriesTargetArea ?? DEFAULT_VPWP50_TARGET_AREA,
-      );
+      processVpwp50ReceptionForAllVenues(connection, reception, docFinishedAt);
     } else if (
       reception.telegramType === VPFD61_TELEGRAM_TYPE ||
       reception.telegramType === VPFW60_TELEGRAM_TYPE

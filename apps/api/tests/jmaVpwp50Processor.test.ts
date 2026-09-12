@@ -12,7 +12,10 @@ import {
 } from '../src/repositories/telegramReceptionRepository.js';
 import { findWarningTimeseriesSnapshot } from '../src/repositories/warningTimeseriesRepository.js';
 import { processVpwp50Reception } from '../src/polling/jmaVpwp50Processor.js';
+import { resolveVenueWarningTimeseriesContext } from '../src/venueForecastTargets.js';
 import type { TelegramReceptionInput } from '../src/repositories/types.js';
+
+const EAST_VENUE = resolveVenueWarningTimeseriesContext('east');
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -75,9 +78,7 @@ function createSampleReception(
     reportDateTime: options.reportDateTime ?? '2026-09-09T00:00:00.000Z',
     targetDateTime: null,
     receivedAt: '2026-09-09T00:00:01.000Z',
-    adoptionResult: null,
-    adoptionReason: null,
-    adoptionDecidedAt: null,
+    adoptions: [],
     rawBody: options.rawXml !== undefined ? options.rawXml : buildSampleVpwp50Xml(options),
     bodyBytes: 1024,
     contentHash: 'hash-1234',
@@ -185,15 +186,21 @@ test('processVpwp50Reception: 正常系 - スナップショット保存と採�
     const reception = createSampleReception(context);
     const processedAt = '2026-09-09T00:00:02.000Z';
 
-    const result = processVpwp50Reception(context.connection, reception, processedAt);
+    const result = processVpwp50Reception(context.connection, reception, processedAt, EAST_VENUE);
     assert.equal(result.ok, true);
 
     // reception の adoption 結果が更新されていること
     const updatedReception = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(updatedReception);
-    assert.equal(updatedReception.adoptionResult, '警報等時系列として解析済み');
-    assert.equal(updatedReception.adoptionReason, null);
-    assert.equal(updatedReception.adoptionDecidedAt, processedAt);
+    assert.deepEqual(updatedReception.adoptions, [
+      {
+        receptionId: reception.id,
+        venueId: 'east',
+        adoptionResult: '警報等時系列として解析済み',
+        adoptionReason: null,
+        adoptionDecidedAt: processedAt,
+      },
+    ]);
 
     // warning_timeseries_snapshot が保存されていること
     const snapshot = findWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
@@ -226,7 +233,7 @@ test('processVpwp50Reception: 予測の独立性 - 現況警報・ストリー�
     const processedAt = '2026-09-09T00:00:02.000Z';
 
     // 処理実行
-    const result = processVpwp50Reception(context.connection, reception, processedAt);
+    const result = processVpwp50Reception(context.connection, reception, processedAt, EAST_VENUE);
     assert.equal(result.ok, true);
 
     // 現況警報テーブルの行数が 0 件であることを確認
@@ -262,7 +269,12 @@ test('processVpwp50Reception: 訓練データの分離 - controlStatus=training 
       controlStatus: 'normal',
       documentUrl: 'https://example.com/normal.xml',
     });
-    processVpwp50Reception(context.connection, normalReception, '2026-09-09T00:00:02.000Z');
+    processVpwp50Reception(
+      context.connection,
+      normalReception,
+      '2026-09-09T00:00:02.000Z',
+      EAST_VENUE,
+    );
 
     const normalBefore = findWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
     assert.ok(normalBefore);
@@ -277,6 +289,7 @@ test('processVpwp50Reception: 訓練データの分離 - controlStatus=training 
       context.connection,
       trainingReception,
       '2026-09-09T00:00:03.000Z',
+      EAST_VENUE,
     );
     assert.equal(trainingResult.ok, true);
 
@@ -306,7 +319,12 @@ test('processVpwp50Reception: 異常系 - 未対応構造時はスナップシ�
     const validReception = createSampleReception(context, {
       documentUrl: 'https://example.com/valid.xml',
     });
-    processVpwp50Reception(context.connection, validReception, '2026-09-09T00:00:02.000Z');
+    processVpwp50Reception(
+      context.connection,
+      validReception,
+      '2026-09-09T00:00:02.000Z',
+      EAST_VENUE,
+    );
     const beforeSnapshot = findWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
     assert.ok(beforeSnapshot);
 
@@ -320,6 +338,7 @@ test('processVpwp50Reception: 異常系 - 未対応構造時はスナップシ�
       context.connection,
       invalidReception,
       '2026-09-09T00:00:03.000Z',
+      EAST_VENUE,
     );
     assert.equal(result.ok, false);
     if (result.ok) return;
@@ -328,9 +347,10 @@ test('processVpwp50Reception: 異常系 - 未対応構造時はスナップシ�
     // reception に記録されていること
     const updated = findTelegramReceptionById(context.connection, invalidReception.id);
     assert.ok(updated);
-    assert.equal(updated.adoptionResult, '未対応構造');
-    assert.ok(updated.adoptionReason);
-    assert.equal(updated.adoptionDecidedAt, '2026-09-09T00:00:03.000Z');
+    assert.equal(updated.adoptions[0]?.venueId, 'east');
+    assert.equal(updated.adoptions[0]?.adoptionResult, '未対応構造');
+    assert.ok(updated.adoptions[0]?.adoptionReason);
+    assert.equal(updated.adoptions[0]?.adoptionDecidedAt, '2026-09-09T00:00:03.000Z');
 
     // 既存スナップショットが一切変更されていないこと
     const afterSnapshot = findWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
@@ -354,6 +374,7 @@ test('processVpwp50Reception: 対象地域外 - スナップショットを変�
       context.connection,
       reception,
       '2026-09-09T00:00:02.000Z',
+      EAST_VENUE,
     );
     assert.equal(result.ok, false);
     if (result.ok) return;
@@ -361,8 +382,9 @@ test('processVpwp50Reception: 対象地域外 - スナップショットを変�
 
     const updated = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(updated);
-    assert.equal(updated.adoptionResult, '対象地域外');
-    assert.equal(updated.adoptionDecidedAt, '2026-09-09T00:00:02.000Z');
+    assert.equal(updated.adoptions[0]?.venueId, 'east');
+    assert.equal(updated.adoptions[0]?.adoptionResult, '対象地域外');
+    assert.equal(updated.adoptions[0]?.adoptionDecidedAt, '2026-09-09T00:00:02.000Z');
 
     // スナップショットは作成されないこと
     const snapshot = findWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
@@ -409,9 +431,7 @@ test('processVpwp50Reception: rawBody が null の場合は未対応構造', () 
       reportDateTime: '2026-09-09T00:00:00.000Z',
       targetDateTime: null,
       receivedAt: '2026-09-09T00:00:01.000Z',
-      adoptionResult: null,
-      adoptionReason: null,
-      adoptionDecidedAt: null,
+      adoptions: [],
       rawBody: null,
       bodyBytes: null,
       contentHash: 'hash-null',
@@ -422,6 +442,7 @@ test('processVpwp50Reception: rawBody が null の場合は未対応構造', () 
       context.connection,
       reception,
       '2026-09-09T00:00:02.000Z',
+      EAST_VENUE,
     );
     assert.equal(result.ok, false);
     if (result.ok) return;
@@ -430,8 +451,9 @@ test('processVpwp50Reception: rawBody が null の場合は未対応構造', () 
 
     const updated = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(updated);
-    assert.equal(updated.adoptionResult, '未対応構造');
-    assert.equal(updated.adoptionReason, '原文（raw_body）がありません');
+    assert.equal(updated.adoptions[0]?.venueId, 'east');
+    assert.equal(updated.adoptions[0]?.adoptionResult, '未対応構造');
+    assert.equal(updated.adoptions[0]?.adoptionReason, '原文（raw_body）がありません');
   } finally {
     cleanup();
   }

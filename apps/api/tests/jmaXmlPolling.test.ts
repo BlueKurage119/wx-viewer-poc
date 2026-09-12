@@ -651,9 +651,15 @@ test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が
     assert.equal(reception.controlDateTime, '2026-09-09T00:00:00.000Z');
     assert.equal(reception.reportDateTime, '2026-09-09T01:00:00.000Z');
     assert.equal(reception.targetDateTime, '2026-09-09T01:00:00.000Z');
-    assert.equal(reception.adoptionResult, '未対応構造');
-    assert.ok(reception.adoptionReason && reception.adoptionReason.length > 0);
-    assert.equal(reception.adoptionDecidedAt, '2026-09-09T01:00:00Z');
+    // 会場に依存しない構造不正のため east/trc 両方に同じ判定が記録される
+    assert.deepEqual(
+      reception.adoptions.map((a) => a.adoptionResult),
+      ['未対応構造', '未対応構造'],
+    );
+    for (const adoption of reception.adoptions) {
+      assert.ok(adoption.adoptionReason && adoption.adoptionReason.length > 0);
+      assert.equal(adoption.adoptionDecidedAt, '2026-09-09T01:00:00Z');
+    }
     assert.equal(reception.contentHash, expectedHash);
     assert.equal(reception.rawBody, telegramXml);
 
@@ -755,23 +761,34 @@ test('6. title だけが対象らしく見えても、本文の名前空間・�
     const receptions = listTelegramReceptions(db.connection);
     assert.equal(receptions.length, 3);
 
-    // 3件とも C2 の種別固有検証で未対応構造として記録されていること
+    // 3件とも C2 の種別固有検証で未対応構造として記録されていること（会場に依存しない構造不正のため east/trc 両方）
     for (const rSummary of receptions) {
-      assert.equal(rSummary.adoptionResult, '未対応構造');
-      assert.ok(rSummary.adoptionReason && rSummary.adoptionReason.length > 0);
+      assert.deepEqual(
+        rSummary.adoptions.map((a) => a.adoptionResult),
+        ['未対応構造', '未対応構造'],
+      );
+      for (const adoption of rSummary.adoptions) {
+        assert.ok(adoption.adoptionReason && adoption.adoptionReason.length > 0);
+      }
       const detail = findTelegramReceptionById(db.connection, rSummary.id);
       assert.ok(detail?.rawBody); // 原文が保持されていること
     }
 
-    // それぞれの失敗理由の確認
+    // それぞれの失敗理由の確認（east 側で代表確認）
     const r1 = receptions.find((r) => r.documentUrl.includes('invalid_ns'));
-    assert.match(r1?.adoptionReason ?? '', /ルート要素|名前空間/);
+    assert.match(
+      r1?.adoptions.find((a) => a.venueId === 'east')?.adoptionReason ?? '',
+      /ルート要素|名前空間/,
+    );
 
     const r2 = receptions.find((r) => r.documentUrl.includes('no_control'));
-    assert.match(r2?.adoptionReason ?? '', /Control/);
+    assert.match(r2?.adoptions.find((a) => a.venueId === 'east')?.adoptionReason ?? '', /Control/);
 
     const r3 = receptions.find((r) => r.documentUrl.includes('no_area'));
-    assert.match(r3?.adoptionReason ?? '', /Warning|地域/);
+    assert.match(
+      r3?.adoptions.find((a) => a.venueId === 'east')?.adoptionReason ?? '',
+      /Warning|地域/,
+    );
   } finally {
     await server.close();
     cleanup();
@@ -1285,11 +1302,17 @@ test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき�
 
     const vpwwReception = receptions.find((r) => r.telegramType === 'VPWW55');
     assert.ok(vpwwReception);
-    assert.equal(vpwwReception.adoptionResult, '警報・注意報として解析済み');
+    assert.equal(
+      vpwwReception.adoptions.find((a) => a.venueId === 'east')?.adoptionResult,
+      '警報・注意報として解析済み',
+    );
 
     const vpwpReception = receptions.find((r) => r.telegramType === 'VPWP50');
     assert.ok(vpwpReception);
-    assert.equal(vpwpReception.adoptionResult, '警報等時系列として解析済み');
+    assert.equal(
+      vpwpReception.adoptions.find((a) => a.venueId === 'east')?.adoptionResult,
+      '警報等時系列として解析済み',
+    );
 
     // 警報ストリームが保存されていること（個別報のため未初期化ストリームとして保存）
     const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
@@ -1467,19 +1490,31 @@ test('16. 混在フィードで VPFD61/VPFW60 は早期注意 processor にだ�
 
     const vpwwReception = receptions.find((r) => r.telegramType === 'VPWW55');
     assert.ok(vpwwReception);
-    assert.equal(vpwwReception.adoptionResult, '警報・注意報として解析済み');
+    assert.equal(
+      vpwwReception.adoptions.find((a) => a.venueId === 'east')?.adoptionResult,
+      '警報・注意報として解析済み',
+    );
 
     const vpwpReception = receptions.find((r) => r.telegramType === 'VPWP50');
     assert.ok(vpwpReception);
-    assert.equal(vpwpReception.adoptionResult, '警報等時系列として解析済み');
+    assert.equal(
+      vpwpReception.adoptions.find((a) => a.venueId === 'east')?.adoptionResult,
+      '警報等時系列として解析済み',
+    );
 
     const vpfdReception = receptions.find((r) => r.telegramType === 'VPFD61');
     assert.ok(vpfdReception);
-    assert.equal(vpfdReception.adoptionResult, '早期注意情報として解析済み');
+    assert.deepEqual(
+      vpfdReception.adoptions.map((a) => a.adoptionResult),
+      ['早期注意情報として解析済み', '早期注意情報として解析済み'],
+    );
 
     const vpfwReception = receptions.find((r) => r.telegramType === 'VPFW60');
     assert.ok(vpfwReception);
-    assert.equal(vpfwReception.adoptionResult, '早期注意情報として解析済み');
+    assert.deepEqual(
+      vpfwReception.adoptions.map((a) => a.adoptionResult),
+      ['早期注意情報として解析済み', '早期注意情報として解析済み'],
+    );
 
     // 早期注意スナップショット (near) が保存されていること
     const nearSnap = findEarlyWarningSnapshot(db.connection, '130010', 'near', 'normal');
@@ -1708,7 +1743,10 @@ test('17. 混在フィードで VPFD51 は地域時系列予報 processor にだ
 
     const vpfd51Reception = receptions.find((r) => r.telegramType === 'VPFD51');
     assert.ok(vpfd51Reception);
-    assert.equal(vpfd51Reception.adoptionResult, '地域時系列予報として解析済み');
+    assert.deepEqual(
+      vpfd51Reception.adoptions.map((a) => a.adoptionResult),
+      ['地域時系列予報として解析済み', '地域時系列予報として解析済み'],
+    );
 
     // 地域時系列予報スナップショットが保存されていること
     const areaSnap = findAreaTimeseriesSnapshot(db.connection, '130010', '44132', 'normal');
@@ -1936,7 +1974,10 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
 
     const vpbs50Reception = receptions.find((r) => r.telegramType === 'VPBS50');
     assert.ok(vpbs50Reception);
-    assert.equal(vpbs50Reception.adoptionResult, '気象防災速報として解析済み');
+    assert.deepEqual(
+      vpbs50Reception.adoptions.map((a) => a.adoptionResult),
+      ['気象防災速報として解析済み', '気象防災速報として解析済み'],
+    );
 
     // bosai_bulletin が保存されていること
     const bulletin = findBosaiBulletin(db.connection, 'JPTE202609090001_202609090001', 'normal');
@@ -2261,15 +2302,24 @@ test('8. 混在フィード（regular + extra）ポーリングで VPHW50/51（�
 
     const vphw50Reception = receptions.find((r) => r.telegramType === 'VPHW50');
     assert.ok(vphw50Reception);
-    assert.equal(vphw50Reception.adoptionResult, '気象防災速報として解析済み');
+    assert.deepEqual(
+      vphw50Reception.adoptions.map((a) => a.adoptionResult),
+      ['気象防災速報として解析済み', '気象防災速報として解析済み'],
+    );
 
     const vphw51Reception = receptions.find((r) => r.telegramType === 'VPHW51');
     assert.ok(vphw51Reception);
-    assert.equal(vphw51Reception.adoptionResult, '気象防災速報として解析済み');
+    assert.deepEqual(
+      vphw51Reception.adoptions.map((a) => a.adoptionResult),
+      ['気象防災速報として解析済み', '気象防災速報として解析済み'],
+    );
 
     const vpbs50Reception = receptions.find((r) => r.telegramType === 'VPBS50');
     assert.ok(vpbs50Reception);
-    assert.equal(vpbs50Reception.adoptionResult, '気象防災速報として解析済み');
+    assert.deepEqual(
+      vpbs50Reception.adoptions.map((a) => a.adoptionResult),
+      ['気象防災速報として解析済み', '気象防災速報として解析済み'],
+    );
 
     // bosai_bulletin に VPHW50, VPHW51, VPBS50 の3件が保存されていること
     const allBulletins = listBosaiBulletins(db.connection, { controlStatus: 'normal' });
@@ -3145,14 +3195,6 @@ test('22-10. 保存済み履歴の C3 再構成後に初期サイクルが未受
 
   try {
     const db = initializeDatabase({ databasePath, migrationsDirectory });
-    const targetArea = {
-      municipalCode: '1310800',
-      displayName: '江東区',
-      prefectureCode: '130000',
-      areaCode: '1310800',
-      areaName: '江東区',
-    };
-
     // 初期サイクルで届く新しい電文
     const docPath = '/data/20260909000000_0_VPWW55_130000.xml';
     const docUrl = `${server.baseUrl}${docPath}`;
@@ -3227,7 +3269,6 @@ test('22-10. 保存済み履歴の C3 再構成後に初期サイクルが未受
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
-      warningTargetArea: targetArea,
       clock: () => '2026-09-09T01:00:00.000Z',
     });
 
@@ -3648,10 +3689,6 @@ test('23-4. フィード取得失敗およびAtom構造不正時に既存の正�
     const db = initializeDatabase({ databasePath, migrationsDirectory });
     const docPath = '/data/20260909000000_0_VPWW55_130000.xml';
     const docUrl = `${server.baseUrl}${docPath}`;
-    const targetArea = {
-      municipalCode: '1310800',
-      displayName: '江東区',
-    };
     const telegramXml = `<?xml version="1.0" encoding="UTF-8"?>
 <Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
 <Control><Title>気象警報・注意報（市町村等）</Title><DateTime>2026-09-09T00:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control>
@@ -3703,7 +3740,6 @@ test('23-4. フィード取得失敗およびAtom構造不正時に既存の正�
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
-      warningTargetArea: targetArea,
       clock: () => currentTime,
     });
 
@@ -3837,7 +3873,10 @@ test('23-5. 個別電文のHTTP失敗・未対応構造・未対応コードは�
     // 未対応形式は telegram_reception に記録
     const receptions = listTelegramReceptions(db.connection);
     assert.equal(receptions.length, 1);
-    assert.equal(receptions[0].adoptionResult, '未対応形式');
+    assert.deepEqual(
+      receptions[0].adoptions.map((a) => a.adoptionResult),
+      ['未対応形式', '未対応形式'],
+    );
   } finally {
     if (service) {
       await service.stop();

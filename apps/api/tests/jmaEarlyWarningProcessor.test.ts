@@ -183,9 +183,7 @@ function createSampleReception(
     reportDateTime: options.reportDateTime ?? '2026-09-09T00:00:00.000Z',
     targetDateTime: null,
     receivedAt: '2026-09-09T00:00:01.000Z',
-    adoptionResult: null,
-    adoptionReason: null,
-    adoptionDecidedAt: null,
+    adoptions: [],
     rawBody,
     bodyBytes: rawBody ? Buffer.byteLength(rawBody, 'utf-8') : 0,
     contentHash: 'hash-1234',
@@ -213,9 +211,23 @@ test('processEarlyWarningReception: VPFD61 を near として保存し、recepti
     // reception の adoption が更新されていること
     const updatedReception = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(updatedReception);
-    assert.equal(updatedReception.adoptionResult, '早期注意情報として解析済み');
-    assert.equal(updatedReception.adoptionReason, null);
-    assert.equal(updatedReception.adoptionDecidedAt, processedAt);
+    // 会場によって対象が変わらない判定のため、全 VenueId 分の行として複製される（§3.3.1）。
+    assert.deepEqual(updatedReception.adoptions, [
+      {
+        receptionId: reception.id,
+        venueId: 'east',
+        adoptionResult: '早期注意情報として解析済み',
+        adoptionReason: null,
+        adoptionDecidedAt: processedAt,
+      },
+      {
+        receptionId: reception.id,
+        venueId: 'trc',
+        adoptionResult: '早期注意情報として解析済み',
+        adoptionReason: null,
+        adoptionDecidedAt: processedAt,
+      },
+    ]);
 
     // snapshot が near として保存されていること
     const snapshot = findEarlyWarningSnapshot(context.connection, '130010', 'near', 'normal');
