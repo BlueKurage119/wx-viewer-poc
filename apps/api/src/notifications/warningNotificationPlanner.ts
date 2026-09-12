@@ -239,11 +239,13 @@ export function planWarningNotifications(
         // 通常ルールで通知
         planSingleStandardChange(change, context, tryCreateNotification, skipped);
       } else if (change.changeType === 'continued') {
-        // 訂正後スナップショットで sourceTelegram が当該電文種別と一致するアイテムを探す
+        // 訂正後スナップショットで sourceTelegram が当該電文種別と一致するアイテムを探す（§4.5-2）。
+        // VPWS50 由来の訂正であっても、より新しい個別電文が採用されている現象まで
+        // 訂正対象に含めない（実際に訂正されていない現象への偽の corrected 通知を防ぐ）。
         const matchingItem = context.currentItems.find(
           (item) =>
             WARNING_CODE_TABLE[item.kindCode]?.phenomenonKey === change.phenomenonKey &&
-            (trigger.telegramType === 'VPWS50' || item.sourceTelegram === trigger.telegramType),
+            item.sourceTelegram === trigger.telegramType,
         );
 
         if (matchingItem) {

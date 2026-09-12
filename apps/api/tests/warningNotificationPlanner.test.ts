@@ -199,6 +199,47 @@ test('planWarningNotifications: 訂正電文で現況が空（発表なし）の
   assert.equal(p.output.display.content, null);
 });
 
+test('planWarningNotifications: VPWS50訂正でも、より新しい個別電文に上書きされた現象は訂正対象にしない（回帰: #137 Codexレビュー指摘）', () => {
+  // heavy_rain は継続だが、現況アイテムの sourceTelegram は VPWW55（個別電文由来）。
+  // VPWS50 の訂正はこの現象を実際には touch していないため、corrected 通知を生成してはならない。
+  const item = createDummyItem({
+    kindCode: '03',
+    kindName: 'レベル３大雨警報',
+    sourceTelegram: 'VPWW55',
+  });
+  const change: WarningCurrentChange = {
+    phenomenonKey: 'heavy_rain',
+    changeType: 'continued',
+    before: item,
+    after: item,
+  };
+
+  const plan = planWarningNotifications({
+    trigger: {
+      kind: 'reception',
+      infoType: '訂正',
+      telegramType: 'VPWS50',
+      receptionId: 106,
+    },
+    changes: [change],
+    context: createDummyContext({ currentItems: [item] }),
+    detectionContext: 'normal',
+    notificationIdFactory: () => 'notif-corr-vpws50-mismatch-001',
+  });
+
+  // どの現象も VPWS50 訂正の対象ではないため、通常の corrected は 0 件。
+  // §4.5-3 の「1件も生成されなかった場合」の地域単位フォールバックだけが 1 件出る。
+  assert.equal(plan.notifications.length, 1);
+  const p = plan.notifications[0]!;
+  assert.equal(p.notification.changeType, 'corrected');
+  assert.equal(p.output.display.content, null, '無関係な現象の kindName を含んではならない');
+  assert.equal(
+    plan.skipped.some((s) => s.phenomenonKey === 'heavy_rain' && s.reason === 'continued'),
+    true,
+    'sourceTelegram が一致しない現象は continued として skip されること',
+  );
+});
+
 test('planWarningNotifications: 取消電文で released が cancelled として通知される (category: warning固定)', () => {
   const item = createDummyItem({ kindCode: '03', kindName: 'レベル３大雨警報' }); // 03 は通常 question だが取消は warning 固定
   const change: WarningCurrentChange = {
