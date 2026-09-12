@@ -509,7 +509,7 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
       pointFetchPolicy,
     });
 
-    if (pointFetchPolicy === 'always' || result.pointData.skipReason === null) {
+    if (result.pointData.attempted) {
       this.lastPointFetchStartedAtMs = currentNowMs;
     }
   }

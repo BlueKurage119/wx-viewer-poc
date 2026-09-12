@@ -899,12 +899,15 @@ test('9. アメダス 10分再確認と時刻更新時の地点データ取得 (
     let latestTimeRequestCount = 0;
     let pointDataRequestCount = 0;
     let currentLatestTime = '2026-09-12T01:00:00.000Z';
+    let latestTimeStatus = 200;
 
     const customFetch: typeof fetch = async (input) => {
       const urlStr = String(input);
       if (urlStr.includes('latest_time.txt')) {
         latestTimeRequestCount++;
-        return new Response(currentLatestTime, { status: 200 });
+        return new Response(latestTimeStatus === 200 ? currentLatestTime : 'Service Unavailable', {
+          status: latestTimeStatus,
+        });
       }
       if (urlStr.includes('.json')) {
         pointDataRequestCount++;
@@ -932,18 +935,26 @@ test('9. アメダス 10分再確認と時刻更新時の地点データ取得 (
       assert.equal(pointDataRequestCount, 1, `${m}分後: 地点データはスキップされたまま`);
     }
 
-    // 11回目 (t=10分 = 600秒経過): 時刻不変でも 10分経過したので always 再確認
+    // 11回目 (t=10分 = 600秒経過): latest_time が失敗したため地点データは未試行。
     currentMockTimeMs += 60_000;
+    latestTimeStatus = 503;
     await adapter.runScheduled();
     assert.equal(latestTimeRequestCount, 11, '10分後: latest_time 取得');
-    assert.equal(pointDataRequestCount, 2, '10分後: 地点データを always 再確認');
+    assert.equal(pointDataRequestCount, 1, '10分後: latest_time 失敗時は地点データを試行しない');
 
-    // 12回目 (t=11分): 時刻が更新された場合
+    // 12回目 (t=11分): latest_time が回復しても、地点データの最後の試行はt=0分のため再確認する。
+    currentMockTimeMs += 60_000;
+    latestTimeStatus = 200;
+    await adapter.runScheduled();
+    assert.equal(latestTimeRequestCount, 12, '11分後: latest_time 取得');
+    assert.equal(pointDataRequestCount, 2, '11分後: 未試行回を挟んでも地点データを再確認');
+
+    // 13回目 (t=12分): 時刻が更新された場合
     currentMockTimeMs += 60_000;
     currentLatestTime = '2026-09-12T01:10:00.000Z';
     await adapter.runScheduled();
-    assert.equal(latestTimeRequestCount, 12, '11分後: latest_time 取得');
-    assert.equal(pointDataRequestCount, 3, '11分後: 時刻更新により地点データ取得');
+    assert.equal(latestTimeRequestCount, 13, '12分後: latest_time 取得');
+    assert.equal(pointDataRequestCount, 3, '12分後: 時刻更新により地点データ取得');
 
     database.close();
   } finally {
