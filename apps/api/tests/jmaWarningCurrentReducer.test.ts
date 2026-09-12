@@ -727,3 +727,59 @@ test('AC4: 7 現象の強化・緩和 - 隣接 17 組の往復および最上段
     ]);
   }
 });
+
+test('reduceWarningCurrent: cancelledStreams が指定された場合、集約側が保持していても当該ストリームの現象は採用されない', () => {
+  // VPWS50: 大雨警報(03, VPWW55), 雷注意報(14, VPWW61)
+  const baseKinds = `
+    <Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status><DateTime>2026-09-09T01:00:00Z</DateTime></Kind>
+    <Kind><Name>雷注意報</Name><Code>14</Code><Status>発表</Status><DateTime>2026-09-09T01:00:00Z</DateTime></Kind>
+  `;
+  const vpws50 = createWarningXml('VPWS50', '2026-09-09T01:00:00Z', baseKinds);
+
+  // VPWW55 の取消電文（ダミー Kind を含む。本文は解釈されない）
+  const vpww55CancelKinds = `
+    <Kind><Name>ダミー大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>
+  `;
+  const vpww55Cancel = createWarningXml('VPWW55', '2026-09-09T02:00:00Z', vpww55CancelKinds);
+
+  const individuals = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>();
+  const cancelledStreams = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>([
+    ['VPWW55', vpww55Cancel],
+  ]);
+
+  const reduced = reduceWarningCurrent(vpws50, individuals, cancelledStreams);
+
+  // 大雨警報 (03) は消え、雷注意報 (14) のみが残る
+  assert.equal(reduced.items.length, 1);
+  assert.equal(reduced.items[0]!.kindCode, '14');
+  assert.equal(reduced.items[0]!.sourceTelegram, 'VPWS50');
+
+  // contributingTelegramTypes に取消電文 (VPWW55) と集約 (VPWS50) の双方が含まれる
+  assert.deepEqual(new Set(reduced.contributingTelegramTypes), new Set(['VPWW55', 'VPWS50']));
+});
+
+test('reduceWarningCurrent: 取消電文より新しい VPWS50 が届いた場合は集約側が採用される', () => {
+  // VPWS50: 大雨警報(03, VPWW55) (03:00)
+  const baseKinds = `
+    <Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status><DateTime>2026-09-09T03:00:00Z</DateTime></Kind>
+  `;
+  const vpws50 = createWarningXml('VPWS50', '2026-09-09T03:00:00Z', baseKinds);
+
+  // 古い VPWW55 の取消電文 (02:00)（ダミー Kind を含む。本文は解釈されない）
+  const vpww55CancelKinds = `
+    <Kind><Name>ダミー大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>
+  `;
+  const vpww55Cancel = createWarningXml('VPWW55', '2026-09-09T02:00:00Z', vpww55CancelKinds);
+
+  const individuals = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>();
+  const cancelledStreams = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>([
+    ['VPWW55', vpww55Cancel],
+  ]);
+
+  const reduced = reduceWarningCurrent(vpws50, individuals, cancelledStreams);
+
+  // 取消より新しい VPWS50 の大雨警報が採用される
+  assert.equal(reduced.items.length, 1);
+  assert.equal(reduced.items[0]!.kindCode, '03');
+  assert.equal(reduced.items[0]!.sourceTelegram, 'VPWS50');
+});

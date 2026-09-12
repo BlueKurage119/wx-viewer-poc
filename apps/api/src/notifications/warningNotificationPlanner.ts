@@ -61,6 +61,7 @@ export type WarningNotificationSkipReason =
   | 'state_change_decision_failed'
   | 'message_resolution_failed'
   | 'unexpected_change_on_cancel'
+  | 'cancel_without_effect'
   | 'control_status_not_notifiable';
 
 export interface WarningNotificationSkip {
@@ -213,6 +214,16 @@ export function planWarningNotifications(
         });
       }
     }
+
+    if (notifications.length === 0) {
+      skipped.push({
+        phenomenonKey: null,
+        changeType: 'cancelled',
+        reason: 'cancel_without_effect',
+        detail: `${trigger.telegramType} reception ${trigger.receptionId} cancelled without effect`,
+      });
+    }
+
     return { notifications, skipped };
   }
 

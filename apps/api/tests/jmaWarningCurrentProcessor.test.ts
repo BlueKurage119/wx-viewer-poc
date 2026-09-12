@@ -529,7 +529,7 @@ test('7. normal, training, test が分離され、相互に上書きしない', 
   }
 });
 
-test('8. パース失敗、対象地域外、未知コード、InfoType=取消 で正常現況が空に縮退しない', () => {
+test('8. パース失敗、対象地域外、未知コード、未知 InfoType で正常現況が空に縮退しない', () => {
   const { connection, cleanup } = createTempDb();
   try {
     // 正常な初期化
@@ -547,9 +547,9 @@ test('8. パース失敗、対象地域外、未知コード、InfoType=取消 �
     const invalidCodeXml = `<Kind><Name>未知</Name><Code>99</Code><Status>発表</Status><DateTime>2026-09-09T02:00:00Z</DateTime></Kind>`;
     saveAndProcessReception(connection, 'VPWW55', '2026-09-09T02:00:00Z', invalidCodeXml);
 
-    // 3. InfoType=取消
+    // 3. 未知 InfoType
     saveAndProcessReception(connection, 'VPWW55', '2026-09-09T02:00:00Z', xml, {
-      infoType: '取消',
+      infoType: '未知',
     });
 
     // 現況が維持されていること

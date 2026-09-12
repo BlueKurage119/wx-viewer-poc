@@ -13,12 +13,17 @@ import {
   recordTelegramReception,
   type TelegramReception,
 } from '../src/repositories/index.js';
-import { rebuildWarningCurrentFromReceptions } from '../src/polling/jmaWarningCurrentProcessor.js';
+import {
+  applyWarningCurrentReception,
+  rebuildWarningCurrentFromReceptions,
+} from '../src/polling/jmaWarningCurrentProcessor.js';
+import { parseWarningTelegram } from '../src/polling/jmaWarningTelegramParser.js';
 import { processWarningTelegramReception } from '../src/polling/jmaWarningTelegramProcessor.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 import {
   InitialWarningNotificationTracker,
   emitInitialWarningNotifications,
+  emitWarningNotificationsForReception,
   type WarningNotificationEmitDeps,
 } from '../src/notifications/index.js';
 
@@ -444,7 +449,7 @@ test('AC5: 訂正は常に通知される', () => {
   }
 });
 
-test('AC6: 取消は解除相当として通知される', () => {
+test('AC6-1: 取消は解除相当として通知される（基本ケース）', () => {
   const { connection, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
@@ -560,6 +565,202 @@ test('AC6: 取消は解除相当として通知される', () => {
       undefined,
       '復旧後も取消前の内容は復活しない',
     );
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC6-2: 集約側フォールバック経路（今回の欠陥の回帰テスト）', () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    const tracker = new InitialWarningNotificationTracker();
+    const emitDeps: WarningNotificationEmitDeps = {
+      tracker,
+      now: () => '2026-09-12T00:00:01Z',
+    };
+
+    // 1. VPWS50 で 03 (大雨警報) と 14 (雷注意報) を発表
+    const recVpws = createReception(
+      connection,
+      'VPWS50',
+      '2026-09-12T00:00:00Z',
+      '<Kind><Name>レベル３大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>' +
+        '<Kind><Name>雷注意報</Name><Code>14</Code><Status>発表</Status></Kind>',
+      { receivedAt: '2026-09-12T00:00:01Z' },
+    );
+    processWarningTelegramReception(
+      connection,
+      recVpws,
+      '2026-09-12T00:00:01Z',
+      EAST_VENUE,
+      emitDeps,
+    );
+
+    // 2. 個別 VPWW55 で同じ 03 を継続発表 (reportDateTime 前進)
+    const recVpww = createReception(
+      connection,
+      'VPWW55',
+      '2026-09-12T00:10:00Z',
+      '<Kind><Name>レベル３大雨警報</Name><Code>03</Code><Status>継続</Status></Kind>',
+      { receivedAt: '2026-09-12T00:10:01Z' },
+    );
+    processWarningTelegramReception(
+      connection,
+      recVpww,
+      '2026-09-12T00:10:01Z',
+      EAST_VENUE,
+      emitDeps,
+    );
+
+    const snapshotBeforeCancel = findWarningCurrentSnapshot(
+      connection,
+      EAST_VENUE.targetArea.municipalCode,
+      'normal',
+    )!;
+    const historyBeforeCancel = listNotificationOutputHistory(connection);
+
+    // 3. 同 VPWW55 の InfoType=取消 電文 (reportDateTime さらに前進)
+    const recCancel = createReception(
+      connection,
+      'VPWW55',
+      '2026-09-12T00:20:00Z',
+      '<Kind><Name>ダミー大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>',
+      { infoType: '取消', receivedAt: '2026-09-12T00:20:01Z' },
+    );
+    const resultCancel = processWarningTelegramReception(
+      connection,
+      recCancel,
+      '2026-09-12T00:20:01Z',
+      EAST_VENUE,
+      emitDeps,
+    );
+
+    assert.equal(resultCancel.ok, true);
+
+    // 取消後の現況スナップショットに heavy_rain (03) が含まれない（VPWS50 が 03 を保持していても復活しない）
+    const snapshotAfterCancel = findWarningCurrentSnapshot(
+      connection,
+      EAST_VENUE.targetArea.municipalCode,
+      'normal',
+    );
+    assert.ok(snapshotAfterCancel);
+    assert.equal(
+      snapshotAfterCancel.items.find((i) => i.kindCode === '03'),
+      undefined,
+      'VPWS50 が保持していても取消により 03 は消える',
+    );
+
+    // 取消後の現況に 14 (thunder) は残っている
+    assert.equal(snapshotAfterCancel.items.length, 1);
+    assert.equal(snapshotAfterCancel.items[0]!.kindCode, '14');
+
+    // changeType='cancelled' の通知が 1 件生成
+    const historyAfterCancel = listNotificationOutputHistory(connection);
+    assert.equal(historyAfterCancel.length, historyBeforeCancel.length + 1);
+
+    const cancelNotif = historyAfterCancel[0]!;
+    assert.equal(cancelNotif.changeType, 'cancelled');
+    assert.equal(cancelNotif.category, 'warning');
+    assert.equal(cancelNotif.ackRequired, false);
+    assert.equal(cancelNotif.messageDefinitionId, 'weather-warning-cancelled');
+    assert.ok(cancelNotif.summary.includes('レベル３大雨警報'));
+
+    // sourceVersion が取消前後で変化している
+    assert.notEqual(
+      snapshotAfterCancel.metadata.sourceVersion,
+      snapshotBeforeCancel.metadata.sourceVersion,
+      'sourceVersion が変化していること',
+    );
+
+    // 続けて rebuildWarningCurrentFromReceptions を実行しても heavy_rain が復活せず thunder は残る
+    rebuildWarningCurrentFromReceptions(connection, EAST_VENUE.targetArea);
+    const snapshotAfterRebuild = findWarningCurrentSnapshot(
+      connection,
+      EAST_VENUE.targetArea.municipalCode,
+      'normal',
+    );
+    assert.ok(snapshotAfterRebuild);
+    assert.equal(
+      snapshotAfterRebuild.items.find((i) => i.kindCode === '03'),
+      undefined,
+      'rebuild 後も heavy_rain は復活しない',
+    );
+    assert.equal(
+      snapshotAfterRebuild.items.find((i) => i.kindCode === '14')?.kindCode,
+      '14',
+      'rebuild 後も thunder は残る',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC6-3: 取消が現況を変化させない場合 (no-op) は cancel_without_effect が記録される', () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    const tracker = new InitialWarningNotificationTracker();
+    const emitDeps: WarningNotificationEmitDeps = {
+      tracker,
+      now: () => '2026-09-12T00:00:01Z',
+    };
+
+    // 1. VPWS50 で 14 (雷注意報) のみを発表
+    const recVpws = createReception(
+      connection,
+      'VPWS50',
+      '2026-09-12T00:00:00Z',
+      '<Kind><Name>雷注意報</Name><Code>14</Code><Status>発表</Status></Kind>',
+      { receivedAt: '2026-09-12T00:00:01Z' },
+    );
+    processWarningTelegramReception(
+      connection,
+      recVpws,
+      '2026-09-12T00:00:01Z',
+      EAST_VENUE,
+      emitDeps,
+    );
+
+    const historyBeforeCancel = listNotificationOutputHistory(connection);
+
+    // 2. VPWW55 の現象が現況にない状態から、VPWW55 の InfoType=取消 を投入
+    const recCancel = createReception(
+      connection,
+      'VPWW55',
+      '2026-09-12T00:10:00Z',
+      '<Kind><Name>ダミー大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>',
+      { infoType: '取消', receivedAt: '2026-09-12T00:10:01Z' },
+    );
+
+    const parseResult = parseWarningTelegram(recCancel.rawBody!, recCancel, EAST_VENUE.targetArea);
+    assert.equal(parseResult.ok, true);
+    if (!parseResult.ok) return;
+
+    const applyResult = applyWarningCurrentReception(
+      connection,
+      recCancel,
+      parseResult.value,
+      EAST_VENUE.targetArea,
+    );
+    assert.equal(applyResult.applied, true);
+    if (!applyResult.applied) return;
+
+    const emitResult = emitWarningNotificationsForReception(
+      connection,
+      recCancel,
+      applyResult,
+      parseResult.value,
+      emitDeps,
+    );
+
+    assert.equal(emitResult.recordedCount, 0);
+    const cancelSkip = emitResult.skipped.find((s) => s.reason === 'cancel_without_effect');
+    assert.ok(cancelSkip, 'cancel_without_effect の skipped 記録が含まれること');
+    assert.equal(cancelSkip.phenomenonKey, null);
+    assert.equal(cancelSkip.changeType, 'cancelled');
+
+    // 通知件数が増えていないこと
+    const historyAfterCancel = listNotificationOutputHistory(connection);
+    assert.equal(historyAfterCancel.length, historyBeforeCancel.length);
   } finally {
     cleanup();
   }

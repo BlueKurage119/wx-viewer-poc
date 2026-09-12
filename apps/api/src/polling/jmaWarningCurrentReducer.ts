@@ -242,6 +242,8 @@ export function calculateAggregateBaselines(
 export function reduceWarningCurrent(
   aggregate: ParsedWarningTelegram,
   individuals: ReadonlyMap<IndividualWarningTelegramType, ParsedWarningTelegram>,
+  /** InfoType=取消 のポインターを持つ個別ストリーム。既定は空。`individuals` とは排他。 */
+  cancelledStreams?: ReadonlyMap<IndividualWarningTelegramType, ParsedWarningTelegram>,
 ): WarningCurrentReductionResult {
   if (aggregate.telegramType !== 'VPWS50') {
     throw new Error(`aggregate は VPWS50 である必要があります: ${aggregate.telegramType}`);
@@ -260,6 +262,12 @@ export function reduceWarningCurrent(
 
   // ストリームごとに集約か個別かを判定
   for (const streamType of INDIVIDUAL_WARNING_TELEGRAM_TYPES) {
+    const cancel = cancelledStreams?.get(streamType);
+    if (cancel && cancel.reportDateTime >= aggregateBaselines.get(streamType)!) {
+      contributingTypes.add(streamType); // 取消電文は現況の根拠として記録する
+      continue; // 集約側フォールバックへ落とさない = 当該ストリームの現象キーは一切採用しない
+    }
+
     const individual = individuals.get(streamType);
     const baseline = aggregateBaselines.get(streamType)!;
 

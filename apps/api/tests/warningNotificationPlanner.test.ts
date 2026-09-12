@@ -256,3 +256,26 @@ test('planWarningNotifications: test controlStatus は通知を生成しない',
   assert.equal(plan.skipped.length, 1);
   assert.equal(plan.skipped[0]!.reason, 'control_status_not_notifiable');
 });
+
+test('planWarningNotifications: 取消電文が現況を変化させない場合 (no-op) は cancel_without_effect が記録される', () => {
+  const plan = planWarningNotifications({
+    trigger: {
+      kind: 'reception',
+      infoType: '取消',
+      telegramType: 'VPWW55',
+      receptionId: 108,
+    },
+    changes: [],
+    context: createDummyContext({ currentItems: [] }),
+    detectionContext: 'normal',
+    notificationIdFactory: () => 'notif-cancel-noop-001',
+  });
+
+  assert.equal(plan.notifications.length, 0);
+  assert.equal(plan.skipped.length, 1);
+  assert.equal(plan.skipped[0]!.phenomenonKey, null);
+  assert.equal(plan.skipped[0]!.changeType, 'cancelled');
+  assert.equal(plan.skipped[0]!.reason, 'cancel_without_effect');
+  assert.ok(plan.skipped[0]!.detail.includes('VPWW55'));
+  assert.ok(plan.skipped[0]!.detail.includes('108'));
+});

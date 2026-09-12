@@ -202,11 +202,14 @@ export function applyWarningCurrentReception(
     }
 
     const individualMap = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>();
+    const cancelledMap = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>();
 
     for (const [type, s] of streamMap) {
       if (type !== 'VPWS50') {
         if (type === parsed.telegramType) {
-          if (parsed.infoType !== '取消') {
+          if (parsed.infoType === '取消') {
+            cancelledMap.set(type as IndividualWarningTelegramType, parsed);
+          } else {
             individualMap.set(type as IndividualWarningTelegramType, parsed);
           }
         } else {
@@ -217,8 +220,12 @@ export function applyWarningCurrentReception(
               indReception,
               targetArea,
             );
-            if (indParseResult.ok && indParseResult.value.infoType !== '取消') {
-              individualMap.set(type as IndividualWarningTelegramType, indParseResult.value);
+            if (indParseResult.ok) {
+              if (indParseResult.value.infoType === '取消') {
+                cancelledMap.set(type as IndividualWarningTelegramType, indParseResult.value);
+              } else {
+                individualMap.set(type as IndividualWarningTelegramType, indParseResult.value);
+              }
             }
           }
         }
@@ -235,7 +242,7 @@ export function applyWarningCurrentReception(
       };
     } else {
       try {
-        reduction = reduceWarningCurrent(vpws50Parsed, individualMap);
+        reduction = reduceWarningCurrent(vpws50Parsed, individualMap, cancelledMap);
       } catch (err) {
         if (err instanceof WarningCurrentConflictError) {
           return { applied: false, reason: 'same_version_conflict', detail: err.message };
@@ -297,7 +304,8 @@ export function applyWarningCurrentReception(
         const telegramParsed =
           type === 'VPWS50'
             ? vpws50Parsed
-            : individualMap.get(type as IndividualWarningTelegramType);
+            : (individualMap.get(type as IndividualWarningTelegramType) ??
+              cancelledMap.get(type as IndividualWarningTelegramType));
         contributingStreams.push({
           telegramType: type,
           reportDateTime: s.reportDateTime,
@@ -529,13 +537,18 @@ export function rebuildWarningCurrentFromReceptions(
 
       // 個別ストリームを再パース
       const individualMap = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>();
+      const cancelledMap = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>();
       for (const [type, s] of statusMap) {
         if (type !== 'VPWS50') {
           const indReception = findTelegramReceptionById(connection, s.receptionId);
           if (indReception?.rawBody) {
             const indParse = parseWarningTelegram(indReception.rawBody, indReception, targetArea);
-            if (indParse.ok && indParse.value.infoType !== '取消') {
-              individualMap.set(type as IndividualWarningTelegramType, indParse.value);
+            if (indParse.ok) {
+              if (indParse.value.infoType === '取消') {
+                cancelledMap.set(type as IndividualWarningTelegramType, indParse.value);
+              } else {
+                individualMap.set(type as IndividualWarningTelegramType, indParse.value);
+              }
             }
           }
         }
@@ -550,7 +563,7 @@ export function rebuildWarningCurrentFromReceptions(
           contributingTelegramTypes: ['VPWS50'],
         };
       } else {
-        reduction = reduceWarningCurrent(vpws50Parsed, individualMap);
+        reduction = reduceWarningCurrent(vpws50Parsed, individualMap, cancelledMap);
       }
 
       // メタ情報構成
@@ -570,7 +583,8 @@ export function rebuildWarningCurrentFromReceptions(
           const telegramParsed =
             type === 'VPWS50'
               ? vpws50Parsed
-              : individualMap.get(type as IndividualWarningTelegramType);
+              : (individualMap.get(type as IndividualWarningTelegramType) ??
+                cancelledMap.get(type as IndividualWarningTelegramType));
           contributingStreams.push({
             telegramType: type,
             reportDateTime: s.reportDateTime,
