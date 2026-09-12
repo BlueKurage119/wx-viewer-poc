@@ -20,43 +20,43 @@ export interface PhenomenonDefinition {
   readonly level: 1 | 2 | 3 | 4; // 注意報=1, 警報=2, 危険警報=3, 特別警報=4
 }
 
-// 設計書 §3.3 および §3.6 に基づく明示コード表
+// 設計書 §3.3 および §3.6 に基づく明示コード表（Issue #26 により段階逆転を是正）
 export const WARNING_CODE_TABLE: Readonly<Record<string, PhenomenonDefinition>> = {
   // VPWW55: heavy_rain
-  '10': { phenomenonKey: 'heavy_rain', telegramType: 'VPWW55', level: 4 }, // 大雨特別警報
-  '43': { phenomenonKey: 'heavy_rain', telegramType: 'VPWW55', level: 3 }, // 大雨危険警報
+  '10': { phenomenonKey: 'heavy_rain', telegramType: 'VPWW55', level: 1 }, // 大雨注意報
   '03': { phenomenonKey: 'heavy_rain', telegramType: 'VPWW55', level: 2 }, // 大雨警報
-  '33': { phenomenonKey: 'heavy_rain', telegramType: 'VPWW55', level: 1 }, // 大雨注意報
+  '43': { phenomenonKey: 'heavy_rain', telegramType: 'VPWW55', level: 3 }, // 大雨危険警報
+  '33': { phenomenonKey: 'heavy_rain', telegramType: 'VPWW55', level: 4 }, // 大雨特別警報
 
   // VPWW56: landslide
-  '29': { phenomenonKey: 'landslide', telegramType: 'VPWW56', level: 4 }, // 大雨特別警報(土砂災害)
-  '49': { phenomenonKey: 'landslide', telegramType: 'VPWW56', level: 3 }, // 危険警報
-  '09': { phenomenonKey: 'landslide', telegramType: 'VPWW56', level: 2 }, // 洪水警報
-  '39': { phenomenonKey: 'landslide', telegramType: 'VPWW56', level: 1 }, // 洪水注意報
+  '29': { phenomenonKey: 'landslide', telegramType: 'VPWW56', level: 1 }, // 土砂災害注意報
+  '09': { phenomenonKey: 'landslide', telegramType: 'VPWW56', level: 2 }, // 土砂災害警報
+  '49': { phenomenonKey: 'landslide', telegramType: 'VPWW56', level: 3 }, // 土砂災害危険警報
+  '39': { phenomenonKey: 'landslide', telegramType: 'VPWW56', level: 4 }, // 土砂災害特別警報
 
   // VPWW57: storm_surge
-  '19': { phenomenonKey: 'storm_surge', telegramType: 'VPWW57', level: 4 }, // 高潮特別警報
-  '48': { phenomenonKey: 'storm_surge', telegramType: 'VPWW57', level: 3 }, // 高潮危険警報
+  '19': { phenomenonKey: 'storm_surge', telegramType: 'VPWW57', level: 1 }, // 高潮注意報
   '08': { phenomenonKey: 'storm_surge', telegramType: 'VPWW57', level: 2 }, // 高潮警報
-  '38': { phenomenonKey: 'storm_surge', telegramType: 'VPWW57', level: 1 }, // 高潮注意報
+  '48': { phenomenonKey: 'storm_surge', telegramType: 'VPWW57', level: 3 }, // 高潮危険警報
+  '38': { phenomenonKey: 'storm_surge', telegramType: 'VPWW57', level: 4 }, // 高潮特別警報
 
   // VPWW58: snowstorm / storm
-  '13': { phenomenonKey: 'snowstorm', telegramType: 'VPWW58', level: 4 }, // 暴風雪特別警報
+  '13': { phenomenonKey: 'snowstorm', telegramType: 'VPWW58', level: 1 }, // 風雪注意報
   '02': { phenomenonKey: 'snowstorm', telegramType: 'VPWW58', level: 2 }, // 暴風雪警報
-  '32': { phenomenonKey: 'snowstorm', telegramType: 'VPWW58', level: 1 }, // 風雪注意報
-  '15': { phenomenonKey: 'storm', telegramType: 'VPWW58', level: 4 }, // 暴風特別警報
+  '32': { phenomenonKey: 'snowstorm', telegramType: 'VPWW58', level: 4 }, // 暴風雪特別警報
+  '15': { phenomenonKey: 'storm', telegramType: 'VPWW58', level: 1 }, // 強風注意報
   '05': { phenomenonKey: 'storm', telegramType: 'VPWW58', level: 2 }, // 暴風警報
-  '35': { phenomenonKey: 'storm', telegramType: 'VPWW58', level: 1 }, // 強風注意報
+  '35': { phenomenonKey: 'storm', telegramType: 'VPWW58', level: 4 }, // 暴風特別警報
 
   // VPWW59: waves
-  '16': { phenomenonKey: 'waves', telegramType: 'VPWW59', level: 4 }, // 波浪特別警報
+  '16': { phenomenonKey: 'waves', telegramType: 'VPWW59', level: 1 }, // 波浪注意報
   '07': { phenomenonKey: 'waves', telegramType: 'VPWW59', level: 2 }, // 波浪警報
-  '37': { phenomenonKey: 'waves', telegramType: 'VPWW59', level: 1 }, // 波浪注意報
+  '37': { phenomenonKey: 'waves', telegramType: 'VPWW59', level: 4 }, // 波浪特別警報
 
   // VPWW60: heavy_snow
-  '12': { phenomenonKey: 'heavy_snow', telegramType: 'VPWW60', level: 4 }, // 大雪特別警報
+  '12': { phenomenonKey: 'heavy_snow', telegramType: 'VPWW60', level: 1 }, // 大雪注意報
   '06': { phenomenonKey: 'heavy_snow', telegramType: 'VPWW60', level: 2 }, // 大雪警報
-  '36': { phenomenonKey: 'heavy_snow', telegramType: 'VPWW60', level: 1 }, // 大雪注意報
+  '36': { phenomenonKey: 'heavy_snow', telegramType: 'VPWW60', level: 4 }, // 大雪特別警報
 
   // VPWW61: 独立現象
   '14': { phenomenonKey: 'thunder', telegramType: 'VPWW61', level: 1 }, // 雷注意報
