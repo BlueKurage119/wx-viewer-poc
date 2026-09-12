@@ -343,12 +343,12 @@ Node.js側で取得を一元化する。Reactが全端末からXMLを取りに�
 
 ### ローカル資料
 
-- [L1] [jmaxml_guide_20130412.pdf](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_guide_20130412.pdf>)：冊子pp.4–7／PDF pp.7–10（版管理・独立情報単位・訂正取消）。
-- [L2] [jmaxml_guide_20260430_head_control_list.pdf](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_guide_20260430_head_control_list.pdf>)：管理部・ヘッダ部整理表p.1。[jmaxml_20221209_format_v1_3.pdf](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20221209_format_v1_3.pdf>)、辞書・XSD一式は共通仕様の参照先。
-- [L3] [気象警報・注意報（Ｒ０６）_解説資料.pdf](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260826_Manual(pdf)/気象警報・注意報（Ｒ０６）_解説資料.pdf>)：pp.2–12、24、26–27（現象別・集約・状態・高潮・経過措置）。
-- [L4] [20251225_AreaInformationCity-AreaForecastLocalM.xlsx](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260826_Code/20251225_AreaInformationCity-AreaForecastLocalM.xlsx>)：AreaInformationCity!A715:E715、A730:E730、関係表「警報・注意報」129行。
-- [L5] [20260326_PointAmedas.xlsx](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260826_Code/20260326_PointAmedas.xlsx>)：ame_master 539行、B539=44136、D539=江戸川臨海。
-- [L6] [気象警報・注意報時系列情報（Ｒ０６）_解説資料.pdf](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260826_Manual(pdf)/気象警報・注意報時系列情報（Ｒ０６）_解説資料.pdf>)：pp.2–14。
+- [L1] [jmaxml_guide_20130412.pdf](<../../docs/260907_weather-data/jmaxml_guide_20130412.pdf>)：冊子pp.4–7／PDF pp.7–10（版管理・独立情報単位・訂正取消）。
+- [L2] [jmaxml_guide_20260430_head_control_list.pdf](<../../docs/260907_weather-data/jmaxml_guide_20260430_head_control_list.pdf>)：管理部・ヘッダ部整理表p.1。[jmaxml_20221209_format_v1_3.pdf](<../../docs/260907_weather-data/jmaxml_20221209_format_v1_3.pdf>)、辞書・XSD一式は共通仕様の参照先。
+- [L3] [気象警報・注意報（Ｒ０６）_解説資料.pdf](<../../docs/260907_weather-data/jmaxml_20260826_Manual(pdf)/気象警報・注意報（Ｒ０６）_解説資料.pdf>)：pp.2–12、24、26–27（現象別・集約・状態・高潮・経過措置）。
+- [L4] [20251225_AreaInformationCity-AreaForecastLocalM.xlsx](<../../docs/260907_weather-data/jmaxml_20260826_Code/20251225_AreaInformationCity-AreaForecastLocalM.xlsx>)：AreaInformationCity!A715:E715、A730:E730、関係表「警報・注意報」129行。
+- [L5] [20260326_PointAmedas.xlsx](<../../docs/260907_weather-data/jmaxml_20260826_Code/20260326_PointAmedas.xlsx>)：ame_master 539行、B539=44136、D539=江戸川臨海。
+- [L6] [気象警報・注意報時系列情報（Ｒ０６）_解説資料.pdf](<../../docs/260907_weather-data/jmaxml_20260826_Manual(pdf)/気象警報・注意報時系列情報（Ｒ０６）_解説資料.pdf>)：pp.2–14。
 - [L7] 最新Manual内「警報級の可能性（明日まで）早期注意情報（明後日まで）_解説資料」：pp.1–6、29–32。
 - [L8] 最新Manual内「警報級の可能性（明後日以降）早期注意情報（明々後日以降）_解説資料」：pp.1–10。
 - [L9] 最新Manual内「府県天気予報，地域時系列予報（Ｒ１）_解説資料」：pp.5–17、32–34。
@@ -380,7 +380,7 @@ L2以降の相対資料名はすべて`docs/260907_weather-data`を基準とす�
 
 ### 追加調査の根拠
 
-- [L10] [気象解説情報形式_解説資料.pdf](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260826_Manual(pdf)/気象解説情報形式_解説資料.pdf>) pp.2–6、29–30、35。[634.pdf](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/634.pdf>) pp.4–7。
+- [L10] [気象解説情報形式_解説資料.pdf](<../../docs/260907_weather-data/jmaxml_20260826_Manual(pdf)/気象解説情報形式_解説資料.pdf>) pp.2–6、29–30、35。[634.pdf](<../../docs/260907_weather-data/634.pdf>) pp.4–7。
 - 速報サンプル：`82_01_01_260324_VPBS50.xml`（線状降水帯発生）、`82_03_01_260324_VPBS50.xml`等（直前予測）、`82_01_02_250630_VPBS50.xml`（記録的短時間大雨）、`82_01_03_241031_VPBS50.xml`（短時間大雪）。Samplesフォルダを参照。
 - [W6] [気象庁情報カタログ・危険度分布](https://www.data.jma.go.jp/suishin/cgi-bin/catalogue/make_product_page.cgi?id=Kikendo)
 - [W7] [2026年の新たな防災気象情報](https://www.jma.go.jp/jma/kishou/books/hakusho/2026/index3.html)

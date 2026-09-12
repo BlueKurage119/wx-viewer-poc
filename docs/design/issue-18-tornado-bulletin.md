@@ -30,7 +30,7 @@ VPHW50/51 は VPBS50 と**電文形式が根本的に異なる**（basic-design.
   - L337「次の実装で必要な作業7」: 竜巻速報の別スキーマ対応範囲を確定する
 - `docs/design/issue-17-bosai-bulletin.md`（parser/processor/poller のパターン、NULL 許容方針、disposition 判定方式の規範）
 - 既存実装: `apps/api/src/polling/jmaVpbs50Parser.ts` / `jmaVpbs50Processor.ts` / `jmaXmlPoller.ts` / `jmaXmlFeedParser.ts`、`apps/api/src/repositories/bosaiBulletinRepository.ts` / `types.ts`、`apps/api/src/database/migrations.ts`、`apps/api/migrations/0008_create_bosai_bulletin.sql`・`0015_relax_bosai_bulletin_nullable.sql`、`packages/shared/src/venueForecastTargets.ts`
-- 気象庁提供サンプル `/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples/` の **`19_*_VPHW50*.xml` / `19_*_VPHW51*.xml` 全15件（kana 版 txt を除く XML の実数は15件。プロンプト記載の16件は kana 版を含む概数）を本設計のために実読した。**
+- 気象庁提供サンプル `../../../docs/260907_weather-data/jmaxml_20260723_Samples/` の **`19_*_VPHW50*.xml` / `19_*_VPHW51*.xml` 全15件（kana 版 txt を除く XML の実数は15件。プロンプト記載の16件は kana 版を含む概数）を本設計のために実読した。**
 
 ### 2.2 統括担当から渡された確定事項
 

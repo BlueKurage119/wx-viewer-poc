@@ -28,7 +28,7 @@
 | [Issue 化ドラフト](../issues-draft.md) D2、Issue #26 | Kind/Code による通知区分判定。未定義コードを低区分へ自動割当しない |
 | [基本設計](../basic-design.md) §7.4、§7.5、§7.6、§9.3 | §7.4 の確定コード表が D2 の唯一の業務上の区分対応。状態変化による通知要否は別責務 |
 | [取得方法レポート](../data-acquisition-report.md) §警報・注意報、L3・提供サンプル | Kind/Code と Significancy/Code は別辞書。個別 VPWW55〜61 と集約 VPWS50 の現況処理 |
-| [公式コード表](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260826_code.xlsx>)「警報等情報要素コード管理表」E24:F64 | 統括の照合結果を引継ぎ。§7.4 の 36 コードと一致。10 は大雨注意報、33 は大雨特別警報等 |
+| [公式コード表](<../../../docs/260907_weather-data/jmaxml_20260826_code.xlsx>)「警報等情報要素コード管理表」E24:F64 | 統括の照合結果を引継ぎ。§7.4 の 36 コードと一致。10 は大雨注意報、33 は大雨特別警報等 |
 | 同レポート参照の提供 XML | 統括の実 XML 照合結果を引継ぎ。10＝大雨注意報、29＝土砂災害注意報、15＝強風注意報を確認済み |
 | [C3 設計](issue-13-warning-current-state.md) §3.3・§3.6・復旧処理 | 現象別所属と段階比較の責務。通知は生成しない |
 | [#114 設計](issue-114-venue-scoped-adoption-history.md)、PR #129 のマージ差分 | 会場別採用履歴、必須 targetArea 引数、全会場の起動時再処理・再構築。実装を §5 と照合済み |
