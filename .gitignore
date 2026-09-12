@@ -5,3 +5,6 @@ dist/
 .env
 .env.local
 apps/api/data/
+
+# Personal Claude Code settings (machine-specific paths)
+.claude/settings.local.json
