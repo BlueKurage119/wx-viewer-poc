@@ -19,7 +19,7 @@ function createTempDbPath(): { databasePath: string; cleanup: () => void } {
   };
 }
 
-test('1. 本番 migration をすべて適用すると notification_output_history が存在し、適用件数が 12 件と一致する', () => {
+test('1. 本番 migration をすべて適用すると notification_output_history が存在し、適用件数が 20 件と一致する', () => {
   const { databasePath, cleanup } = createTempDbPath();
   try {
     const context = initializeDatabase({
@@ -31,8 +31,8 @@ test('1. 本番 migration をすべて適用すると notification_output_histor
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 19);
-    assert.equal(context.migrationSummary.appliedVersions.length, 19);
+    assert.equal(expectedSqlFiles.length, 20);
+    assert.equal(context.migrationSummary.appliedVersions.length, 20);
 
     const tables = (
       context.connection

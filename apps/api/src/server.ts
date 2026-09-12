@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
+import crypto from 'node:crypto';
 
 import { VENUE_IDS } from '@wx-viewer-poc/shared';
 import { createApp } from './app.js';
@@ -25,6 +26,8 @@ import { reprocessPendingWarningTelegramReceptions } from './polling/jmaWarningT
 import { resolveVenueWarningContext } from './venueForecastTargets.js';
 import {
   InitialWarningNotificationTracker,
+  createStartupNotificationService,
+  StartupNotificationInitialization,
   emitInitialWarningNotifications,
   type WarningNotificationEmitDeps,
 } from './notifications/index.js';
@@ -54,6 +57,39 @@ export interface StartServerOptions {
 }
 
 const DEFAULT_PORT = 3001;
+
+function createStartupNotificationRuntime(
+  connection: ReturnType<typeof initializeDatabase>['connection'],
+  clock: () => string,
+) {
+  const initialization = new StartupNotificationInitialization();
+  const warningEmitDeps: WarningNotificationEmitDeps = {
+    tracker: new InitialWarningNotificationTracker(),
+    now: clock,
+  };
+  const startupNotifications = createStartupNotificationService({
+    connection,
+    initialization,
+    serverGenerationId: crypto.randomUUID(),
+    now: clock,
+  });
+  const evaluateVenues = async () => {
+    for (const venueId of VENUE_IDS) {
+      const venue = resolveVenueWarningContext(venueId);
+      await reprocessPendingWarningTelegramReceptions(connection, venue, clock, warningEmitDeps);
+      rebuildWarningCurrentFromReceptions(connection, venue.targetArea);
+      emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps);
+      initialization.markVenueEvaluated(venueId);
+    }
+  };
+  const connectPolling = (pollingService: JmaXmlPollingService) => {
+    pollingService.onInitialFetchPhaseChange((phase) => {
+      initialization.setInitialFetchPhase(phase);
+    });
+    pollingService.onInitialFetchCompleted(evaluateVenues);
+  };
+  return { startupNotifications, warningEmitDeps, connectPolling, evaluateVenues };
+}
 
 function closeServer(server: Server): Promise<void> {
   if (!server.listening) {
@@ -111,7 +147,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   );
 
   const database = initializeDatabase(options.config);
-  const app = createApp();
+  const clock = options.pollingServiceOptions?.clock ?? (() => new Date().toISOString());
+  const startupRuntime = createStartupNotificationRuntime(database.connection, clock);
+  const app = createApp({ startupNotifications: startupRuntime.startupNotifications });
   const actualServer = app.listen(options.port ?? DEFAULT_PORT);
 
   const serverListeningPromise = waitForServerListening(actualServer);
@@ -150,31 +188,31 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             return;
           }
 
-          const warningTracker = new InitialWarningNotificationTracker();
-          const warningEmitDeps: WarningNotificationEmitDeps = {
-            tracker: warningTracker,
-            now: options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
-          };
-
           for (const venueId of VENUE_IDS) {
             const venue = resolveVenueWarningContext(venueId);
             await reprocessPendingWarningTelegramReceptions(
               database.connection,
               venue,
-              options.pollingServiceOptions?.clock ?? (() => new Date().toISOString()),
-              warningEmitDeps,
+              clock,
+              startupRuntime.warningEmitDeps,
             );
             rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
-            emitInitialWarningNotifications(database.connection, venue.targetArea, warningEmitDeps);
+            emitInitialWarningNotifications(
+              database.connection,
+              venue.targetArea,
+              startupRuntime.warningEmitDeps,
+            );
           }
 
           pollingService =
             options.pollingService ??
             new JmaXmlPollingService(database.connection, {
               freshnessPolicy: schedule.freshness.xml,
-              warningNotificationEmitDeps: warningEmitDeps,
+              warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
               ...options.pollingServiceOptions,
             });
+
+          startupRuntime.connectPolling(pollingService);
 
           const adapters =
             options.schedulerOptions?.adapters ??
@@ -279,7 +317,9 @@ async function main(): Promise<void> {
 
   const port = process.env.PORT ? Number(process.env.PORT) : DEFAULT_PORT;
   const database = initializeDatabase();
-  const app = createApp();
+  const clock = () => new Date().toISOString();
+  const startupRuntime = createStartupNotificationRuntime(database.connection, clock);
+  const app = createApp({ startupNotifications: startupRuntime.startupNotifications });
   const server = app.listen(port);
   let pollingService: JmaXmlPollingService | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
@@ -324,28 +364,28 @@ async function main(): Promise<void> {
             return;
           }
 
-          const warningTracker = new InitialWarningNotificationTracker();
-          const warningEmitDeps: WarningNotificationEmitDeps = {
-            tracker: warningTracker,
-            now: () => new Date().toISOString(),
-          };
-
           for (const venueId of VENUE_IDS) {
             const venue = resolveVenueWarningContext(venueId);
             await reprocessPendingWarningTelegramReceptions(
               database.connection,
               venue,
-              () => new Date().toISOString(),
-              warningEmitDeps,
+              clock,
+              startupRuntime.warningEmitDeps,
             );
             rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
-            emitInitialWarningNotifications(database.connection, venue.targetArea, warningEmitDeps);
+            emitInitialWarningNotifications(
+              database.connection,
+              venue.targetArea,
+              startupRuntime.warningEmitDeps,
+            );
           }
 
           pollingService = new JmaXmlPollingService(database.connection, {
             freshnessPolicy: schedule.freshness.xml,
-            warningNotificationEmitDeps: warningEmitDeps,
+            warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
           });
+
+          startupRuntime.connectPolling(pollingService);
 
           const adapters = createScheduledAdapters({
             connection: database.connection,

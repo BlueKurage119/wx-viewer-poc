@@ -3354,6 +3354,45 @@ class ManualTimerScheduler implements PollingTimerScheduler {
   }
 }
 
+test('初期取得完了 listener が失敗した場合、completed を維持したまま次周期で再試行する', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const db = initializeDatabase({ databasePath, migrationsDirectory });
+  const initialTimeMs = new Date('2026-09-09T01:00:00.000Z').getTime();
+  const scheduler = new ManualTimerScheduler(initialTimeMs);
+  const emptyFeedXml = createSampleAtomFeed([]);
+  const service = new JmaXmlPollingService(db.connection, {
+    freshnessPolicy: defaultXmlFreshnessPolicy,
+    fetchFn: async () => new Response(emptyFeedXml, { status: 200 }),
+    timerScheduler: scheduler,
+    intervalMs: 60_000,
+    clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
+  });
+  let listenerCalls = 0;
+
+  service.onInitialFetchCompleted(() => {
+    listenerCalls += 1;
+    if (listenerCalls === 1) {
+      throw new Error('simulated venue evaluation failure');
+    }
+  });
+
+  try {
+    const initialResult = await service.start();
+    assert.equal(initialResult.completed, true);
+    assert.equal(service.getStatus().initialFetch.phase, 'completed');
+    assert.equal(listenerCalls, 1);
+
+    await scheduler.advanceTime(60_000);
+
+    assert.equal(listenerCalls, 2);
+    assert.equal(service.getStatus().initialFetch.phase, 'completed');
+  } finally {
+    await service.stop();
+    db.close();
+    cleanup();
+  }
+});
+
 // -------------------------------------------------------------------------------------------------
 // 23-1. performHttpGet の 10 秒 timeout と通信失敗分類（timeout/network/http_status）、URLサニタイズ
 // -------------------------------------------------------------------------------------------------
