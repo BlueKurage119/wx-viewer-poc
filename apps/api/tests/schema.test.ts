@@ -36,8 +36,8 @@ test('1. 本番 migration をすべて適用すると全テーブルが存在し
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 18);
-    assert.equal(context.migrationSummary.appliedVersions.length, 18);
+    assert.equal(expectedSqlFiles.length, 19);
+    assert.equal(context.migrationSummary.appliedVersions.length, 19);
 
     const tables = (
       context.connection
@@ -358,7 +358,7 @@ test('8. migration を2回適用しても再実行されない', () => {
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 18);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 19);
     context1.close();
 
     const connection = openDatabase(databasePath);
@@ -377,7 +377,7 @@ test('8. migration を2回適用しても再実行されない', () => {
 test('9. migration ファイル内に BEGIN / COMMIT / ROLLBACK が含まれない', () => {
   const sqlFiles = readdirSync(migrationsDirectory).filter((file) => file.endsWith('.sql'));
 
-  assert.equal(sqlFiles.length, 18, '18 migration files should exist');
+  assert.equal(sqlFiles.length, 19, '19 migration files should exist');
 
   const forbiddenPattern = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/im;
   for (const file of sqlFiles) {
