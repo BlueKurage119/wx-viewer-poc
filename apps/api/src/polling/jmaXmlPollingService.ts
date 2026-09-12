@@ -135,6 +135,8 @@ export class JmaXmlPollingService {
   private nextScheduledPollAtMs: number | null = null;
   private scheduledPollDueOnNextRun = false;
   private nextCycleNotBeforeMs: number | null = null;
+  private readonly initialFetchPhaseListeners: Array<(phase: InitialFetchPhase) => void> = [];
+  private readonly initialFetchCompletedListeners: Array<() => void | Promise<void>> = [];
 
   constructor(connection: DatabaseConnection, options: JmaXmlPollingServiceOptions) {
     if (!options || !options.freshnessPolicy) {
@@ -170,6 +172,36 @@ export class JmaXmlPollingService {
 
   getScheduledIntervalSeconds(): number | null {
     return Math.round(this.intervalMs / 1000);
+  }
+
+  /** 起動通知など、初期取得のプロセス内状態にだけ依存する処理を接続する。 */
+  onInitialFetchPhaseChange(listener: (phase: InitialFetchPhase) => void): void {
+    this.initialFetchPhaseListeners.push(listener);
+  }
+
+  /** completed 遷移ごとに一度呼ぶ。listener の失敗は取得状態を巻き戻さない。 */
+  onInitialFetchCompleted(listener: () => void | Promise<void>): void {
+    this.initialFetchCompletedListeners.push(listener);
+  }
+
+  private notifyInitialFetchPhaseChange(): void {
+    for (const listener of this.initialFetchPhaseListeners) {
+      try {
+        listener(this.initialFetchPhase);
+      } catch (error) {
+        console.error('[JmaXmlPollingService] 初期取得状態 listener が失敗しました:', error);
+      }
+    }
+  }
+
+  private async notifyInitialFetchCompleted(): Promise<void> {
+    for (const listener of this.initialFetchCompletedListeners) {
+      try {
+        await listener();
+      } catch (error) {
+        console.error('[JmaXmlPollingService] 初期取得完了 listener が失敗しました:', error);
+      }
+    }
   }
 
   isExecuting(): boolean {
@@ -400,6 +432,7 @@ export class JmaXmlPollingService {
     const startedAt = nowFn();
     this.initialFetchPhase = 'running';
     this.initialFetchResult = null;
+    this.notifyInitialFetchPhaseChange();
 
     const startPromise = (async () => {
       try {
@@ -428,6 +461,10 @@ export class JmaXmlPollingService {
 
         this.initialFetchPhase = completed ? 'completed' : 'failed';
         this.initialFetchResult = initialResult;
+        this.notifyInitialFetchPhaseChange();
+        if (completed) {
+          await this.notifyInitialFetchCompleted();
+        }
 
         if (this.isRunning) {
           this.scheduleNextCycle();
@@ -447,6 +484,7 @@ export class JmaXmlPollingService {
         };
         this.initialFetchPhase = 'failed';
         this.initialFetchResult = failedResult;
+        this.notifyInitialFetchPhaseChange();
         throw error;
       } finally {
         this.inFlightStartPromise = null;
@@ -561,6 +599,8 @@ export class JmaXmlPollingService {
               cycleResult,
               errorReason: null,
             };
+            this.notifyInitialFetchPhaseChange();
+            await this.notifyInitialFetchCompleted();
           } else {
             this.initialFetchResult = {
               completed: false,

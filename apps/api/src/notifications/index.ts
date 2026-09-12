@@ -5,3 +5,5 @@ export * from './warningNotificationDefinitionSelector.js';
 export * from './initialWarningNotificationTracker.js';
 export * from './warningNotificationPlanner.js';
 export * from './warningNotificationEmitter.js';
+export * from './startupCurrentNotificationProjector.js';
+export * from './startupNotificationService.js';

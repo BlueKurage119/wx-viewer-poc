@@ -14,3 +14,4 @@ export * from './telegramReceptionRepository.js';
 export * from './notificationOutputHistoryRepository.js';
 export * from './operationHistoryRepository.js';
 export * from './terminalSessionRepository.js';
+export * from './startupNotificationRepository.js';
