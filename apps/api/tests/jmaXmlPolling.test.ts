@@ -3120,7 +3120,6 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
       });
       const crashingService = new JmaXmlPollingService(freshDb.connection, {
         freshnessPolicy: defaultXmlFreshnessPolicy,
-        freshnessPolicy: defaultXmlFreshnessPolicy,
       });
       crashingService.start = async () => {
         throw new Error('Database/Internal fatal invariant violation');
