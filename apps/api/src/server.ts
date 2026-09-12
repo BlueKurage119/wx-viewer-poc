@@ -3,7 +3,11 @@ import type { Server } from 'node:http';
 
 import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
-import { loadPollingScheduleConfig, type PollingScheduleConfig } from './config/index.js';
+import {
+  loadPollingScheduleConfig,
+  validatePollingScheduleConfig,
+  type PollingScheduleConfig,
+} from './config/index.js';
 import {
   JmaXmlPollingService,
   TimeBasedPollingScheduler,
@@ -102,7 +106,9 @@ function monitorServerErrors(server: Server): {
 
 export async function startServer(options: StartServerOptions = {}): Promise<StartedServer> {
   // DB初期化・HTTP待受より前に設定を読み込み検証する（失敗時はDBや待受を起動しない）
-  const schedule = options.pollingSchedule ?? loadPollingScheduleConfig(options.configUrl);
+  const schedule = validatePollingScheduleConfig(
+    options.pollingSchedule ?? loadPollingScheduleConfig(options.configUrl),
+  );
 
   const database = initializeDatabase(options.config);
   const app = createApp();

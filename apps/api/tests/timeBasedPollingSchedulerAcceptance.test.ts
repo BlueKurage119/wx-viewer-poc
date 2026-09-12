@@ -218,6 +218,38 @@ test('受け入れ条件 4: XML周期・索引周期の独立変更、夜間数�
   assert.equal(nextCustom?.toISOString(), new Date('2026-09-08T03:00:00+09:00').toISOString());
 });
 
+test('注入された不正な設定は DB 初期化・HTTP 待受より前に拒否する', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'startserver-invalid-schedule-'));
+  const databasePath = path.join(tmpDir, 'test.sqlite3');
+  const baseSchedule = loadPollingScheduleConfig();
+  const invalidSchedule = {
+    ...baseSchedule,
+    freshness: {
+      ...baseSchedule.freshness,
+      legacyPolicy: { staleAfterSeconds: 300 },
+    },
+  } as unknown as PollingScheduleConfig;
+
+  try {
+    await assert.rejects(
+      () =>
+        startServer({
+          config: {
+            databasePath,
+            migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
+          },
+          port: 0,
+          enablePolling: false,
+          pollingSchedule: invalidSchedule,
+        }),
+      /未知の freshness 設定キーです: legacyPolicy/,
+    );
+    assert.equal(fs.existsSync(databasePath), false, 'DB 初期化前に失敗する');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('受け入れ条件 9: 閲覧readCatalog複数回呼出で索引HTTP不変、共用インスタンスによる保存フレーム画像取得', async () => {
   const { tmpDir, database, cleanup } = setupTestDb();
   try {

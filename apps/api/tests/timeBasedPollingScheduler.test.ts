@@ -389,6 +389,31 @@ test('1. JST 時間帯判定と周期値・画像許可の完全一致 (受け�
   );
 });
 
+test('明示再開時は XML 通常取得を即時投入する', async () => {
+  const timer = new FakeTimerScheduler('2026-09-12T01:00:00.000Z');
+  const xmlService = new FakeXmlPollingService(timer);
+  const scheduler = new TimeBasedPollingScheduler({
+    schedule: defaultSchedule,
+    adapters: [
+      new FakeScheduledAdapter('nowcast'),
+      new FakeScheduledAdapter('kikikuru'),
+      new FakeScheduledAdapter('amedas'),
+    ],
+    xmlPollingService: xmlService as unknown as JmaXmlPollingService,
+    now: timer.now,
+    setTimer: timer.setTimer,
+    clearTimer: timer.clearTimer,
+  });
+
+  await scheduler.start();
+  await scheduler.stop();
+  await scheduler.start();
+
+  assert.equal(xmlService.initialFetchCount, 1, '初回だけ初期取得する');
+  assert.equal(xmlService.scheduledFetchCount, 1, '再開時に通常取得を即時投入する');
+  await scheduler.stop();
+});
+
 // ---------------------------------------------------------------------------
 // 受け入れ条件 2:
 // 既定設定の運用時間中に各 non-XML adapter を起動直後1回呼び、early / busy / late で

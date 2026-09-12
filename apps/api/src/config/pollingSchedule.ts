@@ -242,6 +242,12 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
     throw new TypeError('freshness はオブジェクトである必要があります');
   }
   const f = c.freshness as Record<string, unknown>;
+  const expectedFreshnessKeys = new Set(['xml', 'imageCatalog']);
+  for (const key of Object.keys(f)) {
+    if (!expectedFreshnessKeys.has(key)) {
+      throw new Error(`未知の freshness 設定キーです: ${key}`);
+    }
+  }
   if (!('xml' in f) || !('imageCatalog' in f)) {
     throw new Error('freshness に xml または imageCatalog が不足しています');
   }
@@ -251,6 +257,10 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
       throw new TypeError(`freshness.${fKey} はオブジェクトである必要があります`);
     }
     const p = policy as Record<string, unknown>;
+    const policyKeys = Object.keys(p);
+    if (policyKeys.length !== 1 || policyKeys[0] !== 'staleAfterSeconds') {
+      throw new Error(`freshness.${fKey} は staleAfterSeconds だけを指定する必要があります`);
+    }
     if (
       typeof p.staleAfterSeconds !== 'number' ||
       !Number.isSafeInteger(p.staleAfterSeconds) ||

@@ -109,6 +109,35 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
       /staleAfterSeconds は正の有限整数/,
     );
 
+    assert.throws(
+      () =>
+        validatePollingScheduleConfig({
+          timezone: 'Asia/Tokyo',
+          amedasPointRecheckSeconds: 600,
+          freshness: {
+            xml: { staleAfterSeconds: 300, staleAfterSecond: 300 },
+            imageCatalog: { staleAfterSeconds: 300 },
+          },
+          periods: [],
+        }),
+      /staleAfterSeconds だけを指定する必要があります/,
+    );
+
+    assert.throws(
+      () =>
+        validatePollingScheduleConfig({
+          timezone: 'Asia/Tokyo',
+          amedasPointRecheckSeconds: 600,
+          freshness: {
+            xml: { staleAfterSeconds: 300 },
+            imageCatalog: { staleAfterSeconds: 300 },
+            legacyPolicy: { staleAfterSeconds: 300 },
+          },
+          periods: [],
+        }),
+      /未知の freshness 設定キーです: legacyPolicy/,
+    );
+
     // start === end (曖昧な全日指定)
     assert.throws(
       () =>

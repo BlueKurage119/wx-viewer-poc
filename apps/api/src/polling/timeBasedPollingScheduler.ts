@@ -253,8 +253,9 @@ export class TimeBasedPollingScheduler {
     // XML
     if (period.xmlSeconds !== null) {
       this.xmlPollingService.setScheduledIntervalSeconds(period.xmlSeconds);
+      const hadStartedXml = this.xmlInitialStarted;
       this.xmlInitialStarted = true;
-      await this.xmlPollingService.start();
+      await this.xmlPollingService.start(hadStartedXml ? { immediateScheduled: true } : undefined);
     } else {
       this.xmlPollingService.setScheduledIntervalSeconds(null);
     }
