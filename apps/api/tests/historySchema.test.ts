@@ -31,8 +31,8 @@ test('1. 本番 migration をすべて適用すると fetch_attempt / telegram_r
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 17);
-    assert.equal(context.migrationSummary.appliedVersions.length, 17);
+    assert.equal(expectedSqlFiles.length, 18);
+    assert.equal(context.migrationSummary.appliedVersions.length, 18);
 
     const tables = (
       context.connection
@@ -117,9 +117,6 @@ test('2. 3 表の PRAGMA table_info が設計書 §4 の列名・型・NOT NULL 
       { name: 'report_datetime', type: 'TEXT', notnull: 0 },
       { name: 'target_datetime', type: 'TEXT', notnull: 0 },
       { name: 'received_at', type: 'TEXT', notnull: 1 },
-      { name: 'adoption_result', type: 'TEXT', notnull: 0 },
-      { name: 'adoption_reason', type: 'TEXT', notnull: 0 },
-      { name: 'adoption_decided_at', type: 'TEXT', notnull: 0 },
       { name: 'raw_body', type: 'TEXT', notnull: 0 },
       { name: 'body_bytes', type: 'INTEGER', notnull: 0 },
       { name: 'content_hash', type: 'TEXT', notnull: 0 },
@@ -350,7 +347,7 @@ test('4b. fetch_attempt の item_count / failed_item_count に、両方 NULL・(
   }
 });
 
-test('5. adoption_result に任意の文字列を保存できる。PRAGMA table_info と DDL に IN ( 制約が存在しない', () => {
+test('5. telegram_reception_adoption.adoption_result に任意の文字列を保存できる。DDL に IN ( 制約が存在しない（Issue #114 §3.1）', () => {
   const { databasePath, cleanup } = createTempDbPath();
   try {
     const context = initializeDatabase({
@@ -358,20 +355,31 @@ test('5. adoption_result に任意の文字列を保存できる。PRAGMA table_
       migrationsDirectory,
     });
 
+    const receptionId = (
+      context.connection
+        .prepare(
+          "INSERT INTO telegram_reception (document_url, received_at) VALUES ('https://example.com/doc.xml', '2026-09-09T00:00:00Z') RETURNING id",
+        )
+        .get() as { id: number }
+    ).id;
+
     const insertSql = `
-      INSERT INTO telegram_reception (
-        document_url, received_at, adoption_result
+      INSERT INTO telegram_reception_adoption (
+        reception_id, venue_id, adoption_result
       ) VALUES (?, ?, ?)
     `;
 
-    for (const result of ['採用', '未対応形式', 'adopted-by-aggregate']) {
-      context.connection
-        .prepare(insertSql)
-        .run('https://example.com/doc.xml', '2026-09-09T00:00:00Z', result);
+    for (const [venueId, result] of [
+      ['east', '採用'],
+      ['trc', '未対応形式'],
+    ] as const) {
+      context.connection.prepare(insertSql).run(receptionId, venueId, result);
     }
 
     const ddlRow = context.connection
-      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'telegram_reception'")
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'telegram_reception_adoption'",
+      )
       .get() as { sql: string };
     assert.ok(!ddlRow.sql.includes('adoption_result IN ('));
 
@@ -571,7 +579,7 @@ test('12. migration を 2 回適用しても再実行されない（appliedVersi
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 17);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 18);
     context1.close();
 
     const connection = openDatabase(databasePath);
