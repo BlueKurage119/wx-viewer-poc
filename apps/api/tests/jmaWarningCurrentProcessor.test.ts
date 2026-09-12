@@ -792,14 +792,12 @@ test('AC8: 復旧と同一版 - 2 回の復旧で最終現況・sourceVersion・
 });
 
 test('AC9: #114 統合境界 - 2会場×3 controlStatus の更新・保持・再構築回帰', async () => {
-  const { connection, cleanup } = createTempDb();
-  try {
-    const controlStatuses: ControlStatus[] = ['normal', 'training', 'test'];
+  const controlStatuses: ControlStatus[] = ['normal', 'training', 'test'];
 
-    // 1. 両市町村（江東区 1310800, 大田区 1311100）を含む合成 VPWS50 を作成
-    function buildMultiAreaVpws50(cs: ControlStatus): string {
-      const csXml = cs === 'normal' ? '通常' : cs === 'training' ? '訓練' : '試験';
-      return `<?xml version="1.0" encoding="UTF-8"?>
+  // 両市町村（江東区 1310800, 大田区 1311100）を含む合成 VPWS50 を作成
+  function buildMultiAreaVpws50(cs: ControlStatus): string {
+    const csXml = cs === 'normal' ? '通常' : cs === 'training' ? '訓練' : '試験';
+    return `<?xml version="1.0" encoding="UTF-8"?>
 <Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
   <Control>
     <Title>気象警報・注意報</Title>
@@ -838,221 +836,252 @@ test('AC9: #114 統合境界 - 2会場×3 controlStatus の更新・保持・再
     </Warning>
   </Body>
 </Report>`;
-    }
+  }
 
-    // 2. 3 controlStatus で VPWS50 を受信・全会場へ適用し 6 組を初期化
-    for (const cs of controlStatuses) {
-      const xml = buildMultiAreaVpws50(cs);
-      const hash = crypto.createHash('sha256').update(xml, 'utf8').digest('hex');
-      const docUrl = `https://example.com/vpws50_${cs}.xml`;
-      const reception = recordTelegramReception(connection, {
+  const targetCombinations: Array<{ venueId: VenueId; controlStatus: ControlStatus }> = [
+    { venueId: 'east', controlStatus: 'normal' },
+    { venueId: 'east', controlStatus: 'training' },
+    { venueId: 'east', controlStatus: 'test' },
+    { venueId: 'trc', controlStatus: 'normal' },
+    { venueId: 'trc', controlStatus: 'training' },
+    { venueId: 'trc', controlStatus: 'test' },
+  ];
+
+  const verifiedCombinations = new Set<string>();
+
+  for (const { venueId: targetVenueId, controlStatus: targetCs } of targetCombinations) {
+    const { connection, cleanup } = createTempDb();
+    try {
+      // 1. 3 controlStatus で VPWS50 を受信・全会場へ適用し 6 組を初期化
+      for (const cs of controlStatuses) {
+        const xml = buildMultiAreaVpws50(cs);
+        const hash = crypto.createHash('sha256').update(xml, 'utf8').digest('hex');
+        const docUrl = `https://example.com/vpws50_${cs}.xml`;
+        const reception = recordTelegramReception(connection, {
+          fetchAttemptId: null,
+          feedKind: 'extra',
+          feedEntryId: `entry-${hash.slice(0, 8)}`,
+          documentUrl: docUrl,
+          telegramType: 'VPWS50',
+          title: '東京都気象警報・注意報',
+          controlStatus: cs,
+          infoType: '発表',
+          eventId: `EVENT_${cs}`,
+          serial: '1',
+          controlDateTime: '2026-09-09T01:00:00.000Z',
+          reportDateTime: '2026-09-09T01:00:00.000Z',
+          targetDateTime: '2026-09-09T01:00:00.000Z',
+          receivedAt: '2026-09-09T01:00:05.000Z',
+          adoptions: [],
+          rawBody: xml,
+          bodyBytes: Buffer.byteLength(xml, 'utf-8'),
+          contentHash: hash,
+          areas: [
+            {
+              areaCode: '1310800',
+              areaName: '江東区',
+              codeType: '気象警報・注意報（市町村等）',
+              sequence: 1,
+            },
+            {
+              areaCode: '1311100',
+              areaName: '大田区',
+              codeType: '気象警報・注意報（市町村等）',
+              sequence: 2,
+            },
+          ],
+        });
+
+        // processWarningTelegramReceptionForAllVenues で両会場にパース・適用・採用記録
+        processWarningTelegramReceptionForAllVenues(connection, reception, '2026-09-09T01:00:10Z');
+      }
+
+      // 6 組すべてが初期化され、大雨注意報(10) を持っていることを getVenueWarningCurrent で明示確認
+      const initialSnapshots: Record<string, ReturnType<typeof getVenueWarningCurrent>> = {};
+      for (const vId of VENUE_IDS) {
+        for (const cs of controlStatuses) {
+          const key = `${vId}_${cs}`;
+          const snap = getVenueWarningCurrent(connection, vId, cs);
+          assert.ok(snap, `Snapshot must exist for ${key}`);
+          assert.equal(snap.items.length, 1);
+          assert.equal(snap.items[0]!.kindCode, '10');
+          assert.equal(snap.items[0]!.kindName, '大雨注意報');
+          initialSnapshots[key] = snap;
+        }
+      }
+
+      // 2. 対象組 (targetVenueId, targetCs) を対象にした公式 Code 10→03 の新しい VPWW55 を作成・適用
+      const targetVenueContext = resolveVenueWarningContext(targetVenueId);
+      const otherVenueId = targetVenueId === 'east' ? 'trc' : 'east';
+      const otherVenueContext = resolveVenueWarningContext(otherVenueId);
+
+      const targetAreaCode = targetVenueContext.targetArea.municipalCode;
+      const targetAreaName = targetVenueContext.targetArea.displayName;
+      const targetCsXml =
+        targetCs === 'normal' ? '通常' : targetCs === 'training' ? '訓練' : '試験';
+
+      const updateXml = buildXml(
+        'VPWW55',
+        '2026-09-09T02:00:00Z',
+        `<Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status><DateTime>2026-09-09T02:00:00Z</DateTime><LastKind><Name>大雨注意報</Name><Code>10</Code></LastKind></Kind>`,
+        { areaCode: targetAreaCode, areaName: targetAreaName, controlStatus: targetCsXml },
+      );
+      const updateHash = crypto.createHash('sha256').update(updateXml, 'utf8').digest('hex');
+      const updateReception = recordTelegramReception(connection, {
         fetchAttemptId: null,
         feedKind: 'extra',
-        feedEntryId: `entry-${hash.slice(0, 8)}`,
-        documentUrl: docUrl,
-        telegramType: 'VPWS50',
+        feedEntryId: `entry-${updateHash.slice(0, 8)}`,
+        documentUrl: `https://example.com/vpww55_${targetVenueId}_${targetCs}.xml`,
+        telegramType: 'VPWW55',
         title: '東京都気象警報・注意報',
-        controlStatus: cs,
+        controlStatus: targetCs,
         infoType: '発表',
-        eventId: `EVENT_${cs}`,
+        eventId: `EVENT_${targetVenueId}_${targetCs}`,
         serial: '1',
-        controlDateTime: '2026-09-09T01:00:00.000Z',
-        reportDateTime: '2026-09-09T01:00:00.000Z',
-        targetDateTime: '2026-09-09T01:00:00.000Z',
-        receivedAt: '2026-09-09T01:00:05.000Z',
+        controlDateTime: '2026-09-09T02:00:00.000Z',
+        reportDateTime: '2026-09-09T02:00:00.000Z',
+        targetDateTime: '2026-09-09T02:00:00.000Z',
+        receivedAt: '2026-09-09T02:00:05.000Z',
         adoptions: [],
-        rawBody: xml,
-        bodyBytes: Buffer.byteLength(xml, 'utf-8'),
-        contentHash: hash,
+        rawBody: updateXml,
+        bodyBytes: Buffer.byteLength(updateXml, 'utf-8'),
+        contentHash: updateHash,
         areas: [
           {
-            areaCode: '1310800',
-            areaName: '江東区',
+            areaCode: targetAreaCode,
+            areaName: targetAreaName,
             codeType: '気象警報・注意報（市町村等）',
             sequence: 1,
-          },
-          {
-            areaCode: '1311100',
-            areaName: '大田区',
-            codeType: '気象警報・注意報（市町村等）',
-            sequence: 2,
           },
         ],
       });
 
-      // processWarningTelegramReceptionForAllVenues で両会場にパース・適用・採用記録
-      processWarningTelegramReceptionForAllVenues(connection, reception, '2026-09-09T01:00:10Z');
-    }
+      // 会場別にパース結果を検証
+      const targetParsed = parseWarningTelegram(
+        updateReception.rawBody!,
+        updateReception,
+        targetVenueContext.targetArea,
+      );
+      const otherParsed = parseWarningTelegram(
+        updateReception.rawBody!,
+        updateReception,
+        otherVenueContext.targetArea,
+      );
 
-    // 6 組すべてが初期化され、大雨注意報(10) を持っていることを getVenueWarningCurrent で明示確認
-    const initialSnapshots: Record<string, ReturnType<typeof getVenueWarningCurrent>> = {};
-    for (const venueId of VENUE_IDS) {
-      for (const cs of controlStatuses) {
-        const key = `${venueId}_${cs}`;
-        const snap = getVenueWarningCurrent(connection, venueId, cs);
-        assert.ok(snap, `Snapshot must exist for ${key}`);
-        assert.equal(snap.items.length, 1);
-        assert.equal(snap.items[0]!.kindCode, '10');
-        assert.equal(snap.items[0]!.kindName, '大雨注意報');
-        initialSnapshots[key] = snap;
-      }
-    }
+      assert.equal(targetParsed.ok, true);
+      assert.equal(otherParsed.ok, false);
+      assert.equal(otherParsed.disposition, '対象地域外');
 
-    // 3. east / normal を対象にした公式 Code 10→03 の新しい VPWW55 (江東区のみ) を作成・適用
-    const eastVpww55Xml = buildXml(
-      'VPWW55',
-      '2026-09-09T02:00:00Z',
-      `<Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status><DateTime>2026-09-09T02:00:00Z</DateTime><LastKind><Name>大雨注意報</Name><Code>10</Code></LastKind></Kind>`,
-      { areaCode: '1310800', areaName: '江東区', controlStatus: '通常' },
-    );
-    const eastHash = crypto.createHash('sha256').update(eastVpww55Xml, 'utf8').digest('hex');
-    const eastReception = recordTelegramReception(connection, {
-      fetchAttemptId: null,
-      feedKind: 'extra',
-      feedEntryId: `entry-${eastHash.slice(0, 8)}`,
-      documentUrl: 'https://example.com/vpww55_east.xml',
-      telegramType: 'VPWW55',
-      title: '東京都気象警報・注意報',
-      controlStatus: 'normal',
-      infoType: '発表',
-      eventId: 'EVENT_EAST',
-      serial: '1',
-      controlDateTime: '2026-09-09T02:00:00.000Z',
-      reportDateTime: '2026-09-09T02:00:00.000Z',
-      targetDateTime: '2026-09-09T02:00:00.000Z',
-      receivedAt: '2026-09-09T02:00:05.000Z',
-      adoptions: [],
-      rawBody: eastVpww55Xml,
-      bodyBytes: Buffer.byteLength(eastVpww55Xml, 'utf-8'),
-      contentHash: eastHash,
-      areas: [
-        {
-          areaCode: '1310800',
-          areaName: '江東区',
-          codeType: '気象警報・注意報（市町村等）',
-          sequence: 1,
-        },
-      ],
-    });
+      // 対象組への適用差分が strengthened であることを完全一致で確認
+      const applyResult = applyWarningCurrentReception(
+        connection,
+        updateReception,
+        targetParsed.value,
+        targetVenueContext.targetArea,
+      );
+      assert.equal(applyResult.applied, true);
+      assert.equal(applyResult.changes.length, 1);
+      assert.equal(applyResult.changes[0]!.changeType, 'strengthened');
+      assert.equal(applyResult.changes[0]!.phenomenonKey, 'heavy_rain');
+      assert.equal(applyResult.changes[0]!.before?.kindCode, '10');
+      assert.equal(applyResult.changes[0]!.before?.kindName, '大雨注意報');
+      assert.equal(applyResult.changes[0]!.after?.kindCode, '03');
+      assert.equal(applyResult.changes[0]!.after?.kindName, '大雨警報');
 
-    // 会場別にパースと差分適用を検証
-    const eastVenue = resolveVenueWarningContext('east');
-    const trcVenue = resolveVenueWarningContext('trc');
-    const eastParsed = parseWarningTelegram(
-      eastReception.rawBody!,
-      eastReception,
-      eastVenue.targetArea,
-    );
-    const trcParsed = parseWarningTelegram(
-      eastReception.rawBody!,
-      eastReception,
-      trcVenue.targetArea,
-    );
+      // 全会場処理の採用結果を確認（adoption 記録を最新化）
+      const parseResultsAll = processWarningTelegramReceptionForAllVenues(
+        connection,
+        updateReception,
+        '2026-09-09T02:00:10Z',
+      );
+      assert.equal(parseResultsAll.get(targetVenueId)!.ok, true);
+      assert.equal(parseResultsAll.get(otherVenueId)!.ok, false);
+      assert.equal(parseResultsAll.get(otherVenueId)!.disposition, '対象地域外');
 
-    assert.equal(eastParsed.ok, true);
-    assert.equal(trcParsed.ok, false);
-    assert.equal(trcParsed.disposition, '対象地域外');
+      // 対象組のスナップショットが更新され、残り 5 組が事前値と完全一致することを確認
+      const updatedTarget = getVenueWarningCurrent(connection, targetVenueId, targetCs)!;
+      assert.ok(updatedTarget);
+      assert.equal(updatedTarget.items[0]!.kindCode, '03');
+      assert.equal(updatedTarget.items[0]!.kindName, '大雨警報');
 
-    // east / normal への適用差分が strengthened であることを確認
-    const applyEast = applyWarningCurrentReception(
-      connection,
-      eastReception,
-      eastParsed.value,
-      eastVenue.targetArea,
-    );
-    assert.equal(applyEast.applied, true);
-    assert.equal(applyEast.changes.length, 1);
-    assert.equal(applyEast.changes[0]!.changeType, 'strengthened');
-    assert.equal(applyEast.changes[0]!.before?.kindCode, '10');
-    assert.equal(applyEast.changes[0]!.after?.kindCode, '03');
-
-    // 全会場処理の採用結果を確認（adoption 記録を最新化）
-    const parseResultsEast = processWarningTelegramReceptionForAllVenues(
-      connection,
-      eastReception,
-      '2026-09-09T02:00:10Z',
-    );
-    assert.equal(parseResultsEast.get('east')!.ok, true);
-    assert.equal(parseResultsEast.get('trc')!.ok, false);
-    assert.equal(parseResultsEast.get('trc')!.disposition, '対象地域外');
-
-    // 対象の east / normal が更新され、残り 5 組が事前値と完全一致することを確認
-    const updatedEastNormal = getVenueWarningCurrent(connection, 'east', 'normal')!;
-    assert.equal(updatedEastNormal.items[0]!.kindCode, '03');
-
-    for (const venueId of VENUE_IDS) {
-      for (const cs of controlStatuses) {
-        if (venueId === 'east' && cs === 'normal') continue;
-        const key = `${venueId}_${cs}`;
-        const current = getVenueWarningCurrent(connection, venueId, cs);
-        assert.deepEqual(
-          current,
-          initialSnapshots[key],
-          `Remaining snapshot ${key} must match initial`,
-        );
-      }
-    }
-
-    // 4. 起動と同じ再処理・再構築を 2 回実行し、冪等性を検証
-    const clock = () => '2026-09-09T02:30:00Z' as UtcIso8601String;
-
-    const runStartupRebuild = async () => {
-      for (const venueId of VENUE_IDS) {
-        const venue = resolveVenueWarningContext(venueId);
-        await reprocessPendingWarningTelegramReceptions(connection, venue, clock);
-        rebuildWarningCurrentFromReceptions(connection, venue.targetArea);
-      }
-    };
-
-    // 1 回目
-    await runStartupRebuild();
-
-    const getAdoptionCount = () =>
-      (
-        connection.prepare('SELECT COUNT(*) as cnt FROM telegram_reception_adoption').get() as {
-          cnt: number;
+      for (const vId of VENUE_IDS) {
+        for (const cs of controlStatuses) {
+          if (vId === targetVenueId && cs === targetCs) continue;
+          const key = `${vId}_${cs}`;
+          const current = getVenueWarningCurrent(connection, vId, cs);
+          assert.deepEqual(
+            current,
+            initialSnapshots[key],
+            `Remaining snapshot ${key} must match initial when updating ${targetVenueId}_${targetCs}`,
+          );
         }
-      ).cnt;
-    const getReceptionRows = () =>
-      connection
-        .prepare(
-          'SELECT id, telegram_type, report_datetime, content_hash FROM telegram_reception ORDER BY id',
-        )
-        .all();
-    const getNotificationRows = () =>
-      connection.prepare('SELECT * FROM notification_output_history ORDER BY id').all();
-
-    const snapshotsAfter1st: Record<string, ReturnType<typeof getVenueWarningCurrent>> = {};
-    for (const venueId of VENUE_IDS) {
-      for (const cs of controlStatuses) {
-        snapshotsAfter1st[`${venueId}_${cs}`] = getVenueWarningCurrent(connection, venueId, cs);
       }
-    }
-    const adoptionCount1 = getAdoptionCount();
-    const receptionRows1 = getReceptionRows();
-    const notificationRows1 = getNotificationRows();
 
-    // 2 回目
-    await runStartupRebuild();
+      // 3. 起動と同じ再処理・再構築を 2 回実行し、冪等性を検証
+      const clock = () => '2026-09-09T02:30:00Z' as UtcIso8601String;
 
-    const snapshotsAfter2nd: Record<string, ReturnType<typeof getVenueWarningCurrent>> = {};
-    for (const venueId of VENUE_IDS) {
-      for (const cs of controlStatuses) {
-        snapshotsAfter2nd[`${venueId}_${cs}`] = getVenueWarningCurrent(connection, venueId, cs);
+      const runStartupRebuild = async () => {
+        for (const vId of VENUE_IDS) {
+          const venue = resolveVenueWarningContext(vId);
+          await reprocessPendingWarningTelegramReceptions(connection, venue, clock);
+          rebuildWarningCurrentFromReceptions(connection, venue.targetArea);
+        }
+      };
+
+      // 1 回目
+      await runStartupRebuild();
+
+      const getAdoptionCount = () =>
+        (
+          connection.prepare('SELECT COUNT(*) as cnt FROM telegram_reception_adoption').get() as {
+            cnt: number;
+          }
+        ).cnt;
+      const getReceptionRows = () =>
+        connection
+          .prepare(
+            'SELECT id, telegram_type, report_datetime, content_hash FROM telegram_reception ORDER BY id',
+          )
+          .all();
+      const getNotificationRows = () =>
+        connection.prepare('SELECT * FROM notification_output_history ORDER BY id').all();
+
+      const snapshotsAfter1st: Record<string, ReturnType<typeof getVenueWarningCurrent>> = {};
+      for (const vId of VENUE_IDS) {
+        for (const cs of controlStatuses) {
+          snapshotsAfter1st[`${vId}_${cs}`] = getVenueWarningCurrent(connection, vId, cs);
+        }
       }
-    }
-    const adoptionCount2 = getAdoptionCount();
-    const receptionRows2 = getReceptionRows();
-    const notificationRows2 = getNotificationRows();
+      const adoptionCount1 = getAdoptionCount();
+      const receptionRows1 = getReceptionRows();
+      const notificationRows1 = getNotificationRows();
 
-    // 6 組の最終現況・sourceVersion が完全一致
-    assert.deepEqual(snapshotsAfter1st, snapshotsAfter2nd);
-    // 原文・通知履歴が完全一致
-    assert.deepEqual(receptionRows1, receptionRows2);
-    assert.deepEqual(notificationRows1, notificationRows2);
-    // 初回補完後の採用行が完全一致
-    assert.equal(adoptionCount1, adoptionCount2);
-  } finally {
-    cleanup();
+      // 2 回目
+      await runStartupRebuild();
+
+      const snapshotsAfter2nd: Record<string, ReturnType<typeof getVenueWarningCurrent>> = {};
+      for (const vId of VENUE_IDS) {
+        for (const cs of controlStatuses) {
+          snapshotsAfter2nd[`${vId}_${cs}`] = getVenueWarningCurrent(connection, vId, cs);
+        }
+      }
+      const adoptionCount2 = getAdoptionCount();
+      const receptionRows2 = getReceptionRows();
+      const notificationRows2 = getNotificationRows();
+
+      // 6 組の最終現況・sourceVersion が完全一致
+      assert.deepEqual(snapshotsAfter1st, snapshotsAfter2nd);
+      // 原文・通知履歴が完全一致
+      assert.deepEqual(receptionRows1, receptionRows2);
+      assert.deepEqual(notificationRows1, notificationRows2);
+      // 初回補完後の採用行が完全一致
+      assert.equal(adoptionCount1, adoptionCount2);
+
+      verifiedCombinations.add(`${targetVenueId}_${targetCs}`);
+    } finally {
+      cleanup();
+    }
   }
+
+  assert.equal(verifiedCombinations.size, 6);
 });
