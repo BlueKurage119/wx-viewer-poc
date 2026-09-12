@@ -319,6 +319,18 @@ export class TimeBasedPollingScheduler {
           this.timerIds.delete(source);
         }
 
+        const inFlight = this.inFlightPromises.get(source);
+        if (inFlight) {
+          // 境界前世代の完了処理は再予約せずに終了する。完了後に現在世代で
+          // 新しいモードの周期を予約しないと、この source が次の境界まで停止する。
+          void inFlight.then(() => {
+            if (this.isRunning && this.generation === nextGen) {
+              this.onPollCompleted(source, nextGen);
+            }
+          });
+          continue;
+        }
+
         const lastCompletedAt = this.lastCompletedAtMap.get(source);
         const intervalSec = this.schedule.intervalsSeconds[newMode][source];
 

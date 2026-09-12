@@ -569,6 +569,49 @@ test('5. 同一 tick 競合時の排他と世代照合 (受け入れ条件 5)', 
   await scheduler.stop();
 });
 
+test('5b. 運用時間帯境界をまたぐ実行中取得は完了後に新周期で再予約する', async () => {
+  // 04:59:30 JST -> 2026-09-11T19:59:30Z。nowcast だけは 60秒後に完了する。
+  const timer = new FakeTimerScheduler('2026-09-11T19:59:30.000Z');
+  const slowNowcast = new FakeScheduledAdapter('nowcast', {
+    executionDurationMs: 60_000,
+    timerScheduler: timer,
+  });
+  const kikikuruAdapter = new FakeScheduledAdapter('kikikuru');
+  const amedasAdapter = new FakeScheduledAdapter('amedas');
+  const xmlService = new FakeXmlPollingService(timer);
+  const scheduler = new TimeBasedPollingScheduler({
+    schedule: DEFAULT_POLLING_SCHEDULE,
+    adapters: [slowNowcast, kikikuruAdapter, amedasAdapter],
+    xmlPollingService: xmlService as unknown as JmaXmlPollingService,
+    now: timer.now,
+    setTimer: timer.setTimer,
+    clearTimer: timer.clearTimer,
+  });
+
+  await scheduler.start();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(slowNowcast.inFlight, true);
+
+  // 05:00 の early -> busy 境界を通過しても、実行中の取得は共有して完了を待つ。
+  await timer.advanceTime(30_000);
+  assert.equal(slowNowcast.callCount, 1);
+  assert.equal(slowNowcast.inFlight, true);
+
+  // 05:00:30 に完了したら、busy の60秒周期で次回が必ず予約される。
+  await timer.advanceTime(30_000);
+  assert.equal(slowNowcast.inFlight, false);
+  const status = scheduler.getStatus();
+  assert.equal(status.mode, 'busy');
+  assert.equal(status.sources.nowcast.state, 'waiting');
+  assert.equal(status.sources.nowcast.nextRunAt, '2026-09-11T20:01:30.000Z');
+
+  await timer.advanceTime(60_000);
+  assert.equal(slowNowcast.callCount, 2, '新周期の次回取得が実行される');
+
+  await timer.advanceTime(60_000);
+  await scheduler.stop();
+});
+
 // ---------------------------------------------------------------------------
 // 受け入れ条件 6:
 // 実行時間が周期を超える adapter を使っても、完了前に同一 source を再投入しない。
