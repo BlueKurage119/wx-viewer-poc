@@ -37,7 +37,7 @@ Issue #12（C2）が 1 電文単位で構造化した `VPWS50` と `VPWW55`〜`V
 - `docs/design/issue-12-warning-xml-parser.md`（C2 の型・構造検証・対象地域・再処理境界）
 - 気象庁「気象警報・注意報（Ｒ０６）_解説資料」pp.2、8〜13、20〜24
 - Issue #12 で照合済みの公式提供サンプル `15_16_03_241226_VPWW55.xml` 〜 `15_16_07_250825_VPWW61.xml`、`15_17_01_251222_VPWW55.xml`、`15_18_01_250630_VPWS50.xml`
-- `/Users/yuta/claudeworks/cmk-gsx/docs/260812_高潮サンプル電文/` の実電文 2 件（高潮危険警報への強化と、その解除）。リポジトリへ原文を複製しない
+- `../../../docs/260812_高潮サンプル電文/` の実電文 2 件（高潮危険警報への強化と、その解除）。リポジトリへ原文を複製しない
 - ユーザー共有の [高潮個別電文 VPWW57（香川県）](https://agora.ex.nii.ac.jp/cgi-bin/cps/report_xml.pl?id=20260812041022_0_VPWW57_370000) と [対応する集約電文 VPWS50](https://agora.ex.nii.ac.jp/cgi-bin/cps/report_xml.pl?id=20260812153057_0_VPWS50_010000)
 - 実装済みの `apps/api/src/polling/jmaWarningTelegramParser.ts`、`jmaWarningTelegramProcessor.ts`、`jmaXmlPoller.ts`、`apps/api/src/repositories/warningCurrentRepository.ts`、`telegramReceptionRepository.ts`
 

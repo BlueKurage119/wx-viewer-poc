@@ -27,7 +27,7 @@
 - `docs/design/issue-11-xml-feed-polling.md`（C1 の受信・共通エンベロープ検証・採用結果更新の境界）
 - `docs/design/issue-6-info-type-schema.md` §4.1（将来の現況スナップショット項目の意味）
 - Issue #2 コメント「気象取得・地図・情報パネル」への申し送り（会場別設定への拡張）
-- `/Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260723_Samples/` の公式提供サンプル（`15_16_03_241226_VPWW55.xml`、`15_16_01_241031_VPWW56.xml`、`15_16_02_251222_VPWW57.xml`、`15_16_04_251222_VPWW58.xml`、`15_16_05_241226_VPWW59.xml`、`15_16_06_241226_VPWW60.xml`、`15_16_07_250825_VPWW61.xml`、`15_18_01_250630_VPWS50.xml`）
+- `../../../docs/260907_weather-data/jmaxml_20260723_Samples/` の公式提供サンプル（`15_16_03_241226_VPWW55.xml`、`15_16_01_241031_VPWW56.xml`、`15_16_02_251222_VPWW57.xml`、`15_16_04_251222_VPWW58.xml`、`15_16_05_241226_VPWW59.xml`、`15_16_06_241226_VPWW60.xml`、`15_16_07_250825_VPWW61.xml`、`15_18_01_250630_VPWS50.xml`）
 - 実装済みの `apps/api/src/polling/jmaXmlFeedParser.ts`、`jmaXmlPoller.ts`、`apps/api/src/repositories/telegramReceptionRepository.ts`、`apps/api/src/repositories/types.ts`、`warningCurrentRepository.ts`
 
 取得方法レポートで、現象別電文と集約電文の対象現象、`Body/Warning` の型選択、市町村等 `Item`、`Kind` の保持対象が確認済みである。また、`Kind/Code` と `Significancy/Code` は別辞書であり、コードの数値大小や名称の部分一致から段階・通知区分を推測してはならない。D2 が §7.4 の確定済み対応表を使って通知区分を担うため、C2 はコードを文字列のまま保持し、分類しない。

@@ -29,7 +29,7 @@ Issue #109（C15）は、会場ごとに固定する気象情報の対象を一�
 
 | 対象 | 根拠 | 確認内容 |
 |---|---|---|
-| 江東区、23区東部、東京地方、東京都 | `docs/data-acquisition-report.md` §2、[20251225_AreaInformationCity-AreaForecastLocalM.xlsx](</Users/yuta/claudeworks/cmk-gsx/docs/260907_weather-data/jmaxml_20260826_Code/20251225_AreaInformationCity-AreaForecastLocalM.xlsx>) | `1310800 → 130012 → 130010 → 130000`。既存レポートの実 XML 検証（VPWW55/VPWS50/VPWP50）も江東区コードを確認済み。 |
+| 江東区、23区東部、東京地方、東京都 | `docs/data-acquisition-report.md` §2、[20251225_AreaInformationCity-AreaForecastLocalM.xlsx](<../../../docs/260907_weather-data/jmaxml_20260826_Code/20251225_AreaInformationCity-AreaForecastLocalM.xlsx>) | `1310800 → 130012 → 130010 → 130000`。既存レポートの実 XML 検証（VPWW55/VPWS50/VPWP50）も江東区コードを確認済み。 |
 | 大田区、23区西部、東京地方、東京都 | 同コード表（AreaInformationCity および地域関係表） | 大田区 `1311100`、その市町村等をまとめた地域 `130011`（23区西部）、上位 `130010`（東京地方）、府県予報区 `130000`（東京都）。気象庁の[警報・注意報（東京地方）](https://www.data.jma.go.jp/multi/warn/warn_detail.html?code=130010&lang=jp)でも大田区が東京地方の対象として列挙される。 |
 | 東京地方の広域予報・東京地点 | `docs/data-acquisition-report.md` §2・§9、実 VPFD51 | 東京地方 `130010` の天気・風と、Station 東京 `44132` の気温を区別する既存確認。実 VPFD51 で本土向けの温度 Station は東京 `44132`（ほかは大島・八丈島・父島）であり、羽田 Station は存在しない。よってTRCもこの広域予報点を使用する。 |
 | 江戸川臨海 | [気象庁現行アメダス地点表 JSON](https://www.jma.go.jp/bosai/amedas/const/amedastable.json)、`20260326_PointAmedas.xlsx` | `44136`、緯度35°38.3′、経度139°51.8′、`elems="11112010"`。 |

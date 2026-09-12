@@ -155,7 +155,7 @@ apps/api/tests/fixtures/
 
 ## 6. 受け入れ条件
 
-- [ ] `rg -n '/Users/yuta/claudeworks/cmk-gsx/docs/|jmaxml_20260723_Samples' apps/api/tests/jmaVpfd51Parser.test.ts apps/api/tests/jmaVpfd51Processor.test.ts apps/api/tests/jmaVpwp50Parser.test.ts apps/api/tests/jmaEarlyWarningParser.test.ts apps/api/tests/jmaVpbs50Parser.test.ts apps/api/tests/jmaVpbs50Processor.test.ts apps/api/tests/jmaVphwParser.test.ts apps/api/tests/jmaVphwProcessor.test.ts` を実行し、対象8テストファイルから外部絶対パスおよび外部サンプルディレクトリ参照が0件であることを確認する。
+- [ ] `rg -n '/Users/[^/]+/claudeworks/cmk-gsx/docs/|jmaxml_20260723_Samples' apps/api/tests/jmaVpfd51Parser.test.ts apps/api/tests/jmaVpfd51Processor.test.ts apps/api/tests/jmaVpwp50Parser.test.ts apps/api/tests/jmaEarlyWarningParser.test.ts apps/api/tests/jmaVpbs50Parser.test.ts apps/api/tests/jmaVpbs50Processor.test.ts apps/api/tests/jmaVphwParser.test.ts apps/api/tests/jmaVphwProcessor.test.ts` を実行し、対象8テストファイルから外部絶対パスおよび外部サンプルディレクトリ参照が0件であることを確認する。
 - [ ] `apps/api/tests/fixtures/jma/` に表の18 XMLと既存VPBS50負例、`manifest.json` が存在することを確認する。
 - [ ] `manifest.json` が有効なJSONであり、19件すべてに `path`、`kind`、`sourceUrl`、`sourceSha256`、`fixtureSha256`、`retrievedAt`、`purpose` があることを確認する。`derived` の既存VPBS50負例には `transform` と `editor` があることを確認する。
 - [ ] 18件の `original` fixtureについて、`shasum -a 256` の出力がマニフェストの `sourceSha256` と `fixtureSha256` の両方に一致することを確認する。`derived` fixtureはマニフェストの `fixtureSha256` と一致し、原文との差異が `transform` に説明されていることを確認する。
