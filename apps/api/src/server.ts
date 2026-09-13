@@ -31,11 +31,13 @@ import {
   emitInitialWarningNotifications,
   type WarningNotificationEmitDeps,
 } from './notifications/index.js';
+import { FetchHealthMonitorService } from './monitoring/index.js';
 
 export interface StartedServer {
   readonly port: number;
   readonly pollingService?: JmaXmlPollingService;
   readonly scheduler?: TimeBasedPollingScheduler;
+  readonly fetchHealthMonitorService?: FetchHealthMonitorService;
   readonly imageServices?: {
     readonly nowcast: NowcastService;
     readonly kikikuru: KikikuruService;
@@ -157,6 +159,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let pollingService: JmaXmlPollingService | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
+  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
   let imageServices: ImageServices | undefined;
 
   try {
@@ -235,14 +238,30 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
               clearTimer: options.schedulerOptions?.clearTimer,
             });
 
-          // XML開始責務は scheduler に集約し、二重起動を防止する
-          await scheduler.start();
+          fetchHealthMonitorService = new FetchHealthMonitorService({
+            connection: database.connection,
+            statusProvider: scheduler,
+            config: schedule.fetchHealth,
+          });
+
+          // 順序が重要(PRレビュー指摘 #141): scheduler.start() は isRunning=true を
+          // 設定した直後、最初の await(XML初期取得)まで同期的に進む。await せず呼び出して
+          // から fetchHealthMonitorService.start() を呼ぶことで、isRunning=true の状態で
+          // 初回健全性評価が走る。先に await すると初回XML取得完了(実測17分超)まで健全性
+          // 判定が始まらず(D7 AC12回帰)、逆に isRunning=false のまま初回評価すると
+          // 全取得元が suspended と誤記録され、再起動時の検知が initial ではなくなる。
+          const schedulerStartPromise = scheduler.start(); // XML開始責務は scheduler に集約し、二重起動を防止する
+          fetchHealthMonitorService.start();
+          await schedulerStartPromise;
         })(),
       ]);
     } finally {
       serverErrorMonitor.dispose();
     }
   } catch (error) {
+    if (fetchHealthMonitorService) {
+      fetchHealthMonitorService.stop();
+    }
     if (scheduler) {
       await scheduler.stop();
     }
@@ -259,6 +278,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
   const address = actualServer.address();
   if (address === null || typeof address === 'string') {
+    if (fetchHealthMonitorService) {
+      fetchHealthMonitorService.stop();
+    }
     if (scheduler) {
       await scheduler.stop();
     }
@@ -277,6 +299,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const close = async () => {
     if (!closed) {
       closed = true;
+      if (fetchHealthMonitorService) {
+        fetchHealthMonitorService.stop();
+      }
       if (scheduler) {
         await scheduler.stop();
       }
@@ -301,6 +326,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     port: address.port,
     pollingService,
     scheduler,
+    fetchHealthMonitorService,
     imageServices: imageServices
       ? {
           nowcast: imageServices.nowcast,
@@ -323,6 +349,7 @@ async function main(): Promise<void> {
   const server = app.listen(port);
   let pollingService: JmaXmlPollingService | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
+  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
   let imageServices: ImageServices | undefined;
 
   let closed = false;
@@ -331,6 +358,9 @@ async function main(): Promise<void> {
       return;
     }
     closed = true;
+    if (fetchHealthMonitorService) {
+      fetchHealthMonitorService.stop();
+    }
     if (scheduler) {
       await scheduler.stop();
     }
@@ -400,7 +430,21 @@ async function main(): Promise<void> {
             xmlPollingService: pollingService,
           });
 
-          await scheduler.start();
+          fetchHealthMonitorService = new FetchHealthMonitorService({
+            connection: database.connection,
+            statusProvider: scheduler,
+            config: schedule.fetchHealth,
+          });
+
+          // 順序が重要(PRレビュー指摘 #141): scheduler.start() は isRunning=true を
+          // 設定した直後、最初の await(XML初期取得)まで同期的に進む。await せず呼び出して
+          // から fetchHealthMonitorService.start() を呼ぶことで、isRunning=true の状態で
+          // 初回健全性評価が走る。先に await すると初回XML取得完了(実測17分超)まで健全性
+          // 判定が始まらず(D7 AC12回帰)、逆に isRunning=false のまま初回評価すると
+          // 全取得元が suspended と誤記録され、再起動時の検知が initial ではなくなる。
+          const schedulerStartPromise = scheduler.start();
+          fetchHealthMonitorService.start();
+          await schedulerStartPromise;
         })(),
       ]);
     } finally {

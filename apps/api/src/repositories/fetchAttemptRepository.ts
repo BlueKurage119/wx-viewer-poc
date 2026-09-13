@@ -1,9 +1,11 @@
+import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import { validateNonEmptyString, validateUtcIso8601String } from './snapshot.js';
 import type {
   FetchAttempt,
   FetchAttemptInput,
   FetchOutcome,
+  FetchStreamHealthSummary,
   ListFetchAttemptsOptions,
 } from './types.js';
 
@@ -248,4 +250,103 @@ export function countFetchAttempts(
 export function deleteFetchAttempt(connection: DatabaseConnection, id: number): boolean {
   const result = connection.prepare('DELETE FROM fetch_attempt WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export function summarizeFetchStreamHealth(
+  connection: DatabaseConnection,
+  sourceKind: string,
+  maxScanAttempts: number,
+): FetchStreamHealthSummary {
+  validateNonEmptyString(sourceKind, 'sourceKind');
+  if (!Number.isSafeInteger(maxScanAttempts) || maxScanAttempts <= 0) {
+    throw new Error(`maxScanAttempts must be a positive integer: ${maxScanAttempts}`);
+  }
+
+  const sql = `
+    SELECT id, started_at, outcome
+    FROM fetch_attempt
+    WHERE source_kind = ?
+    ORDER BY started_at DESC, id DESC
+    LIMIT ?
+  `;
+
+  interface WindowRow {
+    readonly id: number;
+    readonly started_at: string;
+    readonly outcome: string;
+  }
+
+  const rows = connection.prepare(sql).all(sourceKind, maxScanAttempts) as WindowRow[];
+
+  if (rows.length === 0) {
+    return {
+      sourceKind,
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      consecutiveFailures: 0,
+      consecutiveFailuresCapped: false,
+    };
+  }
+
+  // ミリ秒の有無等で SQL の辞書順と実時刻順がずれる可能性があるため JS 側で Date.parse 降順ソート
+  const sorted = [...rows].sort((a, b) => {
+    const timeA = Date.parse(a.started_at);
+    const timeB = Date.parse(b.started_at);
+    if (timeA !== timeB) {
+      return timeB - timeA;
+    }
+    return b.id - a.id;
+  });
+
+  const firstRow = sorted[0];
+  if (!firstRow) {
+    return {
+      sourceKind,
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      consecutiveFailures: 0,
+      consecutiveFailuresCapped: false,
+    };
+  }
+  const lastAttemptAt = firstRow.started_at as UtcIso8601String;
+
+  let consecutiveFailures = 0;
+  for (const row of sorted) {
+    if (row.outcome === 'failure') {
+      consecutiveFailures++;
+    } else {
+      break;
+    }
+  }
+
+  const consecutiveFailuresCapped =
+    sorted.length === maxScanAttempts && consecutiveFailures === maxScanAttempts;
+
+  let lastSuccessAt: UtcIso8601String | null = null;
+  const firstSuccess = sorted.find((r) => r.outcome === 'success');
+  if (firstSuccess) {
+    lastSuccessAt = firstSuccess.started_at as UtcIso8601String;
+  } else {
+    // 窓内に成功がない場合、窓外の過去の成功を取得
+    const outsideSuccessSql = `
+      SELECT started_at
+      FROM fetch_attempt
+      WHERE source_kind = ? AND outcome = 'success'
+      ORDER BY started_at DESC, id DESC
+      LIMIT 1
+    `;
+    const outsideRow = connection.prepare(outsideSuccessSql).get(sourceKind) as
+      { started_at: string } | undefined;
+    if (outsideRow) {
+      lastSuccessAt = outsideRow.started_at as UtcIso8601String;
+    }
+  }
+
+  return {
+    sourceKind,
+    lastAttemptAt,
+    lastSuccessAt,
+    consecutiveFailures,
+    consecutiveFailuresCapped,
+  };
 }
