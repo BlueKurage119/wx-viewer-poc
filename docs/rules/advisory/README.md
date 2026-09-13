@@ -35,6 +35,7 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
 - [G-09-bundle-budget-underestimate.md](G-09-bundle-budget-underestimate.md) — バンドルサイズの見積り不足と目安(設計)
 - [C-01-browser-pane-visibility-limit.md](C-01-browser-pane-visibility-limit.md) — Claude Codeのブラウザペイン固有の制約(検収、ブラウザでのUI確認を行うとき)
 - [C-02-ui-verification-backorder.md](C-02-ui-verification-backorder.md) — 機械で検証できないUI項目の逆発注の実務(検収)
+- [C-03-worktree-outside-repo.md](C-03-worktree-outside-repo.md) — worktreeをリポジトリ内に作ると起きる問題と対処(全フェーズ)
 
 製造・検収の権限境界(設計書からの逸脱時の対応・スコープ・受け入れ条件の合否判定)や気象データの必須制約は、現時点では業務標準([docs/rules/](../README.md))だけに書かれており、対応する指導文書はまだ無い(ノウハウが蓄積した時点で追加する)。
 
