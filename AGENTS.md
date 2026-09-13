@@ -104,7 +104,7 @@ npm run test -w apps/web    # 対象workspaceのテスト(package.jsonのtestス
 
 ## 7. ブランチ・コミット・PR
 
-- ブランチ名は `<プレフィックス>/issue-<番号>-<短い説明>` (例: `feature/issue-2-common-shell`)とする。
+- ブランチ名は `<プレフィックス>/issue-<番号>-<短い説明>` (例: `feature/issue-2-common-shell`)とする。Issueによらない作業は、その都度統括担当が決める。
 - PR作成時はbaseが `main` であることを確認する。
 - **製造担当(`wxviewer-builder`)の作業はコミットまでとし、push・PRの作成・本文の記述は検収担当(`wxviewer-inspector`)が行う**
 - コミット・PR・コメントの署名の必須事項・フォーマット、コミット粒度、PR本文構成は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md) を参照
