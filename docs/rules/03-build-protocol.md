@@ -24,3 +24,14 @@ products: [Claude, Codex, Antigravity]
 
 - 統括担当が指定した既存ブランチ上で作業する。新しいブランチを切らない。
 - **push・PR作成をしない。**(検収担当の仕事)
+
+## 完了条件(必須)
+
+```
+npm run build
+npm run typecheck
+npm run lint
+npm run format:check
+```
+
+対象workspaceにtestスクリプトがあれば実行する。すべてexit code 0。依存関係を変更した場合は `npm ci` が通ることも確認する。

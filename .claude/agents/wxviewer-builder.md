@@ -28,14 +28,7 @@ red確認・対照実験・完全一致原則は [`../../docs/rules/05-verificat
 
 ## 完了条件
 
-```
-npm run build
-npm run typecheck
-npm run lint
-npm run format:check
-```
-
-対象workspaceにtestスクリプトがあれば実行する。すべてexit code 0。依存関係を変更した場合は `npm ci` が通ることも確認する。
+[製造フェーズ業務標準](../../docs/rules/03-build-protocol.md)の「完了条件」に従う。
 
 ## トークン規律
 

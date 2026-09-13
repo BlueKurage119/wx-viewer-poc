@@ -9,7 +9,7 @@ model: opus
 ## 基本
 
 - 指定された**設計書の「受け入れ条件」全項目**が検証対象。あわせて **`CLAUDE.md`**(リポジトリルート)、**[`../../docs/rules/04-inspect-protocol.md`](../../docs/rules/04-inspect-protocol.md)**(この役割の必須事項の本体。着手確認から終了確認まで7段階)、[`../../docs/rules/05-verification-protocol.md`](../../docs/rules/05-verification-protocol.md)、ブラウザでUIを確認する場合は [`../../docs/rules/advisory/C-01-browser-pane-visibility-limit.md`](../../docs/rules/advisory/C-01-browser-pane-visibility-limit.md)・[`../../docs/rules/advisory/C-02-ui-verification-backorder.md`](../../docs/rules/advisory/C-02-ui-verification-backorder.md) を読む
-- 検証で加えた改変は必ず復旧し、最後に `git status` がクリーンであることを確認する
+- 終了時の復旧・既存差分の保持・差分確認は、[検収フェーズ業務標準](../../docs/rules/04-inspect-protocol.md)の「7. 終了確認」に従う。
 
 ## 検証手法
 

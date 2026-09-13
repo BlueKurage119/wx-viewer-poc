@@ -87,3 +87,10 @@ Co-Authored-By: Codex (GPT 5.6 Terra) <noreply@openai.com>
 | Claude | `🤖 Generated with [Claude Code](https://claude.com/claude-code)` |
 | Codex | `🤖 Generated with Codex` |
 | Antigravity | `🤖 Generated with Antigravity` |
+
+## 外部レビュー対応の権限(必須)
+
+- 外部レビューの指摘は、統括担当がトリアージ(要対応・先送り・無視)してからユーザーへ提示する。
+- レビューへの回答・解決済みマークは統括担当が行う。
+- 再レビューの要求はユーザーが行う。統括担当は必要性や再レビュー不要の判断を提案してよいが、自ら再レビューを要求しない。
+- 判断の背景と運用例は[G-03-external-review.md](advisory/G-03-external-review.md)を参照。
