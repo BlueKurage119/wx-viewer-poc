@@ -21,6 +21,9 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
 
 ## 一覧
 
+- [A-01-codex-worktree-context.md](A-01-codex-worktree-context.md) — Codexの作業場所・ブランチ・既存差分と実行権限の確認例(全フェーズ)
+- [A-02-codex-subagent-shared-work.md](A-02-codex-subagent-shared-work.md) — Codexの委任・共有作業場所・成果受領の確認例(全フェーズ)
+
 - [G-01-hearing-first-design.md](G-01-hearing-first-design.md) — ヒアリング前提の設計になっている理由、設計書の書式の手本(ヒアリング・設計)
 - [G-02-dev-server-etiquette.md](G-02-dev-server-etiquette.md) — devサーバー作法の背景(製造・検収)
 - [G-03-external-review.md](G-03-external-review.md) — 外部レビューのトリアージ・起動条件・活用実績(検収)
