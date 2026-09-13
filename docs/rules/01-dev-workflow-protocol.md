@@ -7,7 +7,7 @@ products: [Claude, Codex, Antigravity]
 
 # 開発フロー業務標準
 
-対象: 統括担当、および各フェーズの担当。ノウハウ・背景は[01-dev-workflow.md](../advisory/01-dev-workflow.md)を参照。
+対象: 統括担当、および各フェーズの担当。ノウハウ・背景は[G-01-dev-workflow.md](advisory/G-01-dev-workflow.md)を参照。
 
 ## 必須の実施順序
 
@@ -54,4 +54,4 @@ AGYの最終報告に必須の記載事項:
 
 ### 署名(必須)
 
-エージェントが書いた文章(コミットメッセージ・PR本文・コメント等)には、それを生成したアプリケーション・モデル名を必ず本文中に明記する。`gh`コマンドでの投稿は人間のアカウント名義になるため、本文中の明記で代える。フォーマットは[01-dev-workflow.md](../advisory/01-dev-workflow.md)の署名一覧を使う。Antigravityへ製造を委託した場合のコミット署名は、委託元(Claude/Codex)自身の名義ではなくAntigravity専用名義を使う。
+エージェントが書いた文章(コミットメッセージ・PR本文・コメント等)には、それを生成したアプリケーション・モデル名を必ず本文中に明記する。`gh`コマンドでの投稿は人間のアカウント名義になるため、本文中の明記で代える。フォーマットは[G-01-dev-workflow.md](advisory/G-01-dev-workflow.md)の署名一覧を使う。Antigravityへ製造を委託した場合のコミット署名は、委託元(Claude/Codex)自身の名義ではなくAntigravity専用名義を使う。

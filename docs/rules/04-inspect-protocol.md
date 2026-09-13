@@ -7,7 +7,7 @@ products: [Claude, Codex]
 
 # 検収フェーズ業務標準
 
-対象: 検収担当。気象データの必須制約は[07-wx-data-protocol.md](07-wx-data-protocol.md)、ノウハウ・背景は[05-verification-discipline.md](../advisory/05-verification-discipline.md)・[04-browser-ui-verification.md](../advisory/04-browser-ui-verification.md)を参照。上から順に進める構成にしてある。
+対象: 検収担当。気象データの必須制約は[07-wx-data-protocol.md](07-wx-data-protocol.md)、ノウハウ・背景は[G-03-verification-discipline.md](advisory/G-03-verification-discipline.md)・[C-01-browser-ui-verification.md](advisory/C-01-browser-ui-verification.md)を参照。上から順に進める構成にしてある。
 
 ## 1. 着手確認(必須)
 

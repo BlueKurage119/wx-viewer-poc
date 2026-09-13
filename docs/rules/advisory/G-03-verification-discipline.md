@@ -8,7 +8,7 @@ notes: 設計フェーズ(担当が誰であれ)は受け入れ条件を書く�
 
 # 検証のノウハウ
 
-対象: 主に製造担当・検収担当。**必須の手順・順序は[05-verification-protocol.md](../protocol/05-verification-protocol.md)を参照。** ここには「なぜそうするか」「どう見分けるか」だけを置く。
+対象: 主に製造担当・検収担当。**必須の手順・順序は[05-verification-protocol.md](../05-verification-protocol.md)を参照。** ここには「なぜそうするか」「どう見分けるか」だけを置く。
 
 ## 基本原則
 
@@ -56,10 +56,10 @@ notes: 設計フェーズ(担当が誰であれ)は受け入れ条件を書く�
 
 修正方針は「複製」より「深く不変にする(deep freeze等)」を優先する。キャッシュヒットは頻繁なので毎回複製は無駄が大きく、TypeScript/ESモジュールは常にstrict modeなので凍結オブジェクトへの書き込みは`TypeError`で即座に落ちる。**静かな破損をうるさい失敗に変換できる**のが本質的な利点。ただし`Object.freeze`は`Date`の内部スロットを保護しない(`setFullYear()`は通る)点に注意し、公開型に`Date`を含める場合は数値(エポックms)に寄せるか限界を明示する。
 
-wx-viewer-pocでは気象データのキャッシュ・availability状態(`packages/shared/src/availability.ts`)がこの種の共有可変状態に該当しやすい。関連: [07-wx-data-protocol.md](../protocol/07-wx-data-protocol.md)
+wx-viewer-pocでは気象データのキャッシュ・availability状態(`packages/shared/src/availability.ts`)がこの種の共有可変状態に該当しやすい。関連: [07-wx-data-protocol.md](../07-wx-data-protocol.md)
 
 ## 外部レビューの活用
 
 - 外部ツールによるコードレビューの指摘は、必ず実際のコードで裏取りしてからユーザー・統括担当へ説明する(鵜呑みにも却下にもしない)。
 - 外部レビューは、設計・製造・検収の当事者が同じ設計書・同じテストの枠組みを共有しているために見えなくなる「枠組み自体の穴」を検出できることがある。ミューテーションテストで全件KILLEDを達成した直後でも、部分一致アサーション・並行実行・共有可変インスタンスのエイリアシングなど、原理的にミューテーションでは検出できない欠陥が外部レビューで見つかった実績がある(`mj-stats-viewer`)。
-- 外部レビューの起動条件・運用は[01-dev-workflow.md](01-dev-workflow.md)を参照。
+- 外部レビューの起動条件・運用は[G-01-dev-workflow.md](G-01-dev-workflow.md)を参照。

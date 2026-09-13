@@ -7,7 +7,7 @@ products: [Claude, Codex, Antigravity]
 
 # UI寸法計測・バンドル見積りのノウハウ
 
-対象: `apps/web`のカード・ダッシュボード系レイアウトを実装・検収するとき。**必須の技術制約(sideEffects・パッケージ固定等)は[06-ui-md3-protocol.md](../protocol/06-ui-md3-protocol.md)を参照。**
+対象: `apps/web`のカード・ダッシュボード系レイアウトを実装・検収するとき。**必須の技術制約(sideEffects・パッケージ固定等)は[06-ui-md3-protocol.md](../06-ui-md3-protocol.md)を参照。**
 
 ## UI寸法の実測に関する注意
 
@@ -18,7 +18,7 @@ products: [Claude, Codex, Antigravity]
 3. `@container`ブロックは基本ルールより後ろに置く。詳細度が同じ場合、基本ルールが後ろにあると後勝ちでコンテナクエリが打ち消される。
 4. 状態間(loading/ready/error等)の高さ一致は共有変数(例: CSSカスタムプロパティ)で担保する。どちらかの状態の実測値を焼き付ける方式は構成変更のたびにズレる。
 
-これらはすべて「エラーも警告も出ず、数値が静かにズレる」種類の失敗であり、通常のテストでは捕まらない。設計書の受け入れ条件に計測手順(待機・ビューポート幅・スクロールバーの有無)まで書くこと。ブラウザ環境固有の検証制約は[04-browser-ui-verification.md](04-browser-ui-verification.md)を参照。
+これらはすべて「エラーも警告も出ず、数値が静かにズレる」種類の失敗であり、通常のテストでは捕まらない。設計書の受け入れ条件に計測手順(待機・ビューポート幅・スクロールバーの有無)まで書くこと。ブラウザ環境固有の検証制約は[C-01-browser-ui-verification.md](C-01-browser-ui-verification.md)を参照。
 
 ## バンドルサイズの見積もり(バンドル予算を設ける場合)
 

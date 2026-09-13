@@ -7,7 +7,7 @@ products: [Claude, Codex]
 
 # 設計フェーズ業務標準
 
-対象: 設計担当。ノウハウ・背景は[02-design-phase.md](../advisory/02-design-phase.md)を参照。
+対象: 設計担当。ノウハウ・背景は[G-02-design-phase.md](advisory/G-02-design-phase.md)を参照。
 
 ## 権限境界(必須)
 

@@ -7,7 +7,7 @@ products: [Claude, Codex, Antigravity]
 
 # UI・Material Web/MD3業務標準
 
-対象: `apps/web`を触るすべてのフェーズ。エラーも警告も出ずに壊れるものだけをここに集約している。**`apps/web`に変更を加える前に必ず読むこと。** 計測の罠等のノウハウは[06-ui-md3-rules.md](../advisory/06-ui-md3-rules.md)を参照。
+対象: `apps/web`を触るすべてのフェーズ。エラーも警告も出ずに壊れるものだけをここに集約している。**`apps/web`に変更を加える前に必ず読むこと。** 計測の罠等のノウハウは[G-04-ui-md3-rules.md](advisory/G-04-ui-md3-rules.md)を参照。
 
 ## 必須の制約
 
