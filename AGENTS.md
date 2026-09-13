@@ -88,7 +88,7 @@ Issue開発フローの詳細は、必ず守る手順(業務標準)と、それ�
 
 - React 19 + TypeScript + Vite(フロント) / Express 5 + TypeScript(バックエンド) / npm workspacesモノレポ
 - ESLint(`eslint.config.js`、`--max-warnings 0`) + Prettier。詳細な規約は各設定ファイルを正とする
-- Material Web + `@material/material-color-utilities` によるMD3準拠テーマ。色トークン規約と「破ると静かに壊れる制約」(必須)は [docs/rules/06-ui-md3-protocol.md](docs/rules/06-ui-md3-protocol.md)、UI寸法計測・バンドル見積りのノウハウは [docs/rules/advisory/G-04-ui-md3-rules.md](docs/rules/advisory/G-04-ui-md3-rules.md) を参照
+- Material Web + `@material/material-color-utilities` によるMD3準拠テーマ。色トークン規約と「破ると静かに壊れる制約」(必須)は [docs/rules/06-ui-md3-protocol.md](docs/rules/06-ui-md3-protocol.md)、UI寸法計測・バンドル見積りのノウハウは [docs/rules/advisory/](docs/rules/advisory/README.md) を参照
 - UI文言は日本語
 
 ## 6. 主要コマンド

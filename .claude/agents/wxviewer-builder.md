@@ -20,7 +20,7 @@ model: sonnet
 
 ## テストの規律
 
-red確認・対照実験・完全一致原則は [`../../docs/rules/05-verification-protocol.md`](../../docs/rules/05-verification-protocol.md) の必須手順に従う。共有可変状態の系統調査は [`../../docs/rules/advisory/G-03-verification-discipline.md`](../../docs/rules/advisory/G-03-verification-discipline.md) を参照。「新しく追加したテストは、対応する実装を意図的に壊して実際に落ちることを確認してから完成とする」の確認手順と結果は必ず最終返答に書く。
+red確認・対照実験・完全一致原則は [`../../docs/rules/05-verification-protocol.md`](../../docs/rules/05-verification-protocol.md) の必須手順に従う。共有可変状態の系統調査は [`../../docs/rules/advisory/G-07-shared-mutable-state-fixes.md`](../../docs/rules/advisory/G-07-shared-mutable-state-fixes.md) を参照。「新しく追加したテストは、対応する実装を意図的に壊して実際に落ちることを確認してから完成とする」の確認手順と結果は必ず最終返答に書く。
 
 ## 気象データ固有の注意
 

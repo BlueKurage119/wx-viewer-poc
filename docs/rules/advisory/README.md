@@ -21,17 +21,23 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
 
 ## 一覧
 
-- [G-01-dev-workflow.md](G-01-dev-workflow.md) — ヒアリング前提の設計になっている理由、devサーバー作法の背景、外部レビューの起動条件(統括・全フェーズ共通)
-- [G-02-design-phase.md](G-02-design-phase.md) — ヒアリング前提の設計の背景、設計書の書式の手本(設計)
-- [G-03-verification-discipline.md](G-03-verification-discipline.md) — 対照実験がなぜ必要か・循環アサーションの罠・回帰テストの向き・共有可変状態の系統調査・外部レビューの活用(製造・検収)
-- [G-04-ui-md3-rules.md](G-04-ui-md3-rules.md) — UI寸法計測の罠、バンドル見積りの目安(`apps/web`のカード・ダッシュボード系レイアウトを触るとき)
-- [C-01-browser-ui-verification.md](C-01-browser-ui-verification.md) — Claude Codeのブラウザペイン固有の制約、逆発注の実務(検収、ブラウザでのUI確認を行うとき)
+- [G-01-hearing-first-design.md](G-01-hearing-first-design.md) — ヒアリング前提の設計になっている理由、設計書の書式の手本(ヒアリング・設計)
+- [G-02-dev-server-etiquette.md](G-02-dev-server-etiquette.md) — devサーバー作法の背景(製造・検収)
+- [G-03-external-review.md](G-03-external-review.md) — 外部レビューのトリアージ・起動条件・活用実績(検収)
+- [G-04-verification-basics.md](G-04-verification-basics.md) — 検証の基本原則(実物確認・実測・反復テストの絞り込み)(設計・製造・検収)
+- [G-05-test-effectiveness-verification.md](G-05-test-effectiveness-verification.md) — 対照実験がなぜ必要か、ミューテーションテストの限界(製造・検収)
+- [G-06-regression-test-pitfalls.md](G-06-regression-test-pitfalls.md) — 循環アサーション、回帰テストが逆向きに固定してしまう罠(製造・検収)
+- [G-07-shared-mutable-state-fixes.md](G-07-shared-mutable-state-fixes.md) — 共有可変状態の修正が半分で終わりやすい理由と対処(製造・検収)
+- [G-08-ui-measurement-pitfalls.md](G-08-ui-measurement-pitfalls.md) — UI寸法計測の罠(`apps/web`のカード・ダッシュボード系レイアウトを触るとき)
+- [G-09-bundle-budget-underestimate.md](G-09-bundle-budget-underestimate.md) — バンドルサイズの見積り不足と目安(設計)
+- [C-01-browser-pane-visibility-limit.md](C-01-browser-pane-visibility-limit.md) — Claude Codeのブラウザペイン固有の制約(検収、ブラウザでのUI確認を行うとき)
+- [C-02-ui-verification-backorder.md](C-02-ui-verification-backorder.md) — 機械で検証できないUI項目の逆発注の実務(検収)
 
 製造・検収の権限境界(設計書からの逸脱時の対応・スコープ・受け入れ条件の合否判定)や気象データの必須制約は、現時点では業務標準([docs/rules/](../README.md))だけに書かれており、対応する指導文書はまだ無い(ノウハウが蓄積した時点で追加する)。
 
 ## 出典
 
-`G-03-verification-discipline.md`・`C-01-browser-ui-verification.md`・`G-04-ui-md3-rules.md`の一部項目は、このリポジトリでの発生事例だけでなく、技術スタックが近い他プロジェクト(`mj-stats-viewer`ほか)での実際の差し戻し事例から転用している。各項目に出典を明記する。
+`G-05〜G-09`・`C-01`・`C-02`の一部項目は、このリポジトリでの発生事例だけでなく、技術スタックが近い他プロジェクト(`mj-stats-viewer`ほか)での実際の差し戻し事例から転用している。各項目に出典を明記する。
 
 ## 命名・番号体系
 
@@ -43,9 +49,9 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
   - `A`: Codex・Antigravity対象(内容がCodex/Antigravity固有のツール・挙動に依存する)
   - `C`: Claude対象(内容がClaude Code固有のツール・挙動に依存する)
   - `G`: 製品非依存の共通知識
-  - frontmatterの`products`(「今どの製品がこのフェーズを担当するか」)とは別軸。「内容そのものが特定製品に依存するか」で判定する。例: `G-02-design-phase.md`は`products: [Claude, Codex]`だが、内容自体はどちらのツールにも依存しないため`G`。
-- **番号はプレフィックスごとに独立した連番**(A/C/Gそれぞれ1から数える。Gが4件でもCの次の番号はC-02から)。既存番号は不変。途中への追加は枝番、末尾への追加は続番、削除は欠番とする(`docs/design/issue-N-*.md`の運用を踏襲)。
-- 業務標準側の対応ファイルとは、可能な限り同じ数字部分を揃える(例: `G-03-verification-discipline.md`⇔`docs/rules/05-verification-protocol.md`は現状ズレているが、今後の追加時は揃える方針とする)。
+  - frontmatterの`products`(「今どの製品がこのフェーズを担当するか」)とは別軸。「内容そのものが特定製品に依存するか」で判定する。例: `G-01-hearing-first-design.md`は`products: [Claude, Codex]`だが、内容自体はどちらのツールにも依存しないため`G`。
+- **番号はプレフィックスごとに独立した連番**(A/C/Gそれぞれ1から数える。Gが9件でもCの次の番号はC-01から)。既存番号は不変。途中への追加は枝番、末尾への追加は続番、削除は欠番とする(`docs/design/issue-N-*.md`の運用を踏襲)。
+- 業務標準側の対応ファイルとは、可能な限り同じ数字部分を揃える(現状は1対多の関係になっているものが多く厳密には揃っていない。今後1対1で追加する場合は揃える方針とする)。
 
 ## frontmatter
 

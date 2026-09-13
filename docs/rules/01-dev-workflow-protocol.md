@@ -7,7 +7,7 @@ products: [Claude, Codex, Antigravity]
 
 # 開発フロー業務標準
 
-対象: 統括担当、および各フェーズの担当。ノウハウ・背景は[G-01-dev-workflow.md](advisory/G-01-dev-workflow.md)を参照。
+対象: 統括担当、および各フェーズの担当。ノウハウ・背景は[G-01-hearing-first-design.md](advisory/G-01-hearing-first-design.md)・[G-02-dev-server-etiquette.md](advisory/G-02-dev-server-etiquette.md)・[G-03-external-review.md](advisory/G-03-external-review.md)を参照。
 
 ## 必須の実施順序
 

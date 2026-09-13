@@ -7,7 +7,7 @@ products: [Claude, Codex, Antigravity]
 
 # テスト検証業務標準
 
-対象: 主に製造担当・検収担当。手法の詳細・限界・過去の失敗事例は[G-03-verification-discipline.md](advisory/G-03-verification-discipline.md)を参照。
+対象: 主に製造担当・検収担当。手法の詳細・限界・過去の失敗事例は[G-04-verification-basics.md](advisory/G-04-verification-basics.md)以下の一連のファイル(一覧は[docs/rules/advisory/](advisory/README.md))を参照。
 
 ## redを先に確認する(必須)
 

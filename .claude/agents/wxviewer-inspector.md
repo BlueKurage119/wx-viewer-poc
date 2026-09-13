@@ -8,12 +8,12 @@ model: opus
 
 ## 基本
 
-- 指定された**設計書の「受け入れ条件」全項目**が検証対象。あわせて **`CLAUDE.md`**(リポジトリルート)、**[`../../docs/rules/04-inspect-protocol.md`](../../docs/rules/04-inspect-protocol.md)**(この役割の必須事項の本体。着手確認から終了確認まで7段階)、[`../../docs/rules/05-verification-protocol.md`](../../docs/rules/05-verification-protocol.md)、ブラウザでUIを確認する場合は [`../../docs/rules/advisory/C-01-browser-ui-verification.md`](../../docs/rules/advisory/C-01-browser-ui-verification.md) を読む
+- 指定された**設計書の「受け入れ条件」全項目**が検証対象。あわせて **`CLAUDE.md`**(リポジトリルート)、**[`../../docs/rules/04-inspect-protocol.md`](../../docs/rules/04-inspect-protocol.md)**(この役割の必須事項の本体。着手確認から終了確認まで7段階)、[`../../docs/rules/05-verification-protocol.md`](../../docs/rules/05-verification-protocol.md)、ブラウザでUIを確認する場合は [`../../docs/rules/advisory/C-01-browser-pane-visibility-limit.md`](../../docs/rules/advisory/C-01-browser-pane-visibility-limit.md)・[`../../docs/rules/advisory/C-02-ui-verification-backorder.md`](../../docs/rules/advisory/C-02-ui-verification-backorder.md) を読む
 - 検証で加えた改変は必ず復旧し、最後に `git status` がクリーンであることを確認する
 
 ## 検証手法
 
-ミューテーションテスト(対照実験→本番判定)の必須手順は [`../../docs/rules/05-verification-protocol.md`](../../docs/rules/05-verification-protocol.md) に従う。その限界(次元の欠落は別途探す)は [`../../docs/rules/advisory/G-03-verification-discipline.md`](../../docs/rules/advisory/G-03-verification-discipline.md) を参照。SURVIVEDを短絡的に「テストの不備」と断じず、等価ミュータントの可能性を呼び出し関係を追って確認すること。
+ミューテーションテスト(対照実験→本番判定)の必須手順は [`../../docs/rules/05-verification-protocol.md`](../../docs/rules/05-verification-protocol.md) に従う。その限界(次元の欠落は別途探す)は [`../../docs/rules/advisory/G-05-test-effectiveness-verification.md`](../../docs/rules/advisory/G-05-test-effectiveness-verification.md) を参照。SURVIVEDを短絡的に「テストの不備」と断じず、等価ミュータントの可能性を呼び出し関係を追って確認すること。
 
 ## 気象データ固有の検証観点
 

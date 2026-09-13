@@ -25,4 +25,4 @@ availability(`available`/`stale`/`unavailable`、basic-design.md §6.3)の3状�
 
 ## 修正時の確認範囲(必須)
 
-気象データのキャッシュ・availability状態はモジュールレベルの共有可変状態になりやすい。[05-verification-protocol.md](05-verification-protocol.md)・[G-03-verification-discipline.md](advisory/G-03-verification-discipline.md)の「共有可変状態の修正は系統的に洗い出す」に従い、一部の経路だけ`isTraining`やavailabilityの縮退を直しても、他の経路(通知・履歴・表示のいずれか)に同じ欠陥が残っていないかを、修正のたびに全経路で確認すること。
+気象データのキャッシュ・availability状態はモジュールレベルの共有可変状態になりやすい。[05-verification-protocol.md](05-verification-protocol.md)・[G-07-shared-mutable-state-fixes.md](advisory/G-07-shared-mutable-state-fixes.md)に従い、一部の経路だけ`isTraining`やavailabilityの縮退を直しても、他の経路(通知・履歴・表示のいずれか)に同じ欠陥が残っていないかを、修正のたびに全経路で確認すること。
