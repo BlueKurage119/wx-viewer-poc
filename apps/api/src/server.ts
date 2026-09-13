@@ -23,13 +23,17 @@ import {
 } from './polling/index.js';
 import { rebuildWarningCurrentFromReceptions } from './polling/jmaWarningCurrentProcessor.js';
 import { reprocessPendingWarningTelegramReceptions } from './polling/jmaWarningTelegramProcessor.js';
+import { recoverLegacyVphwBulletinAreas } from './polling/jmaVphwProcessor.js';
 import { resolveVenueWarningContext } from './venueForecastTargets.js';
 import {
   InitialWarningNotificationTracker,
+  InitialBosaiNotificationTracker,
   createStartupNotificationService,
   StartupNotificationInitialization,
   emitInitialWarningNotifications,
+  emitInitialBosaiBulletinNotifications,
   type WarningNotificationEmitDeps,
+  type BosaiNotificationEmitDeps,
 } from './notifications/index.js';
 import { FetchHealthMonitorService } from './monitoring/index.js';
 
@@ -63,10 +67,15 @@ const DEFAULT_PORT = 3001;
 function createStartupNotificationRuntime(
   connection: ReturnType<typeof initializeDatabase>['connection'],
   clock: () => string,
+  getFetchHealth?: () => ReturnType<FetchHealthMonitorService['getLastAggregate']>,
 ) {
   const initialization = new StartupNotificationInitialization();
   const warningEmitDeps: WarningNotificationEmitDeps = {
     tracker: new InitialWarningNotificationTracker(),
+    now: clock,
+  };
+  const bosaiEmitDeps: BosaiNotificationEmitDeps = {
+    initialState: new InitialBosaiNotificationTracker(),
     now: clock,
   };
   const startupNotifications = createStartupNotificationService({
@@ -74,13 +83,16 @@ function createStartupNotificationRuntime(
     initialization,
     serverGenerationId: crypto.randomUUID(),
     now: clock,
+    getFetchHealth,
   });
   const evaluateVenues = async () => {
+    recoverLegacyVphwBulletinAreas(connection);
     for (const venueId of VENUE_IDS) {
       const venue = resolveVenueWarningContext(venueId);
       await reprocessPendingWarningTelegramReceptions(connection, venue, clock, warningEmitDeps);
       rebuildWarningCurrentFromReceptions(connection, venue.targetArea);
       emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps);
+      emitInitialBosaiBulletinNotifications(connection, venueId, bosaiEmitDeps);
       initialization.markVenueEvaluated(venueId);
     }
   };
@@ -90,7 +102,7 @@ function createStartupNotificationRuntime(
     });
     pollingService.onInitialFetchCompleted(evaluateVenues);
   };
-  return { startupNotifications, warningEmitDeps, connectPolling, evaluateVenues };
+  return { startupNotifications, warningEmitDeps, bosaiEmitDeps, connectPolling, evaluateVenues };
 }
 
 function closeServer(server: Server): Promise<void> {
@@ -150,7 +162,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
   const database = initializeDatabase(options.config);
   const clock = options.pollingServiceOptions?.clock ?? (() => new Date().toISOString());
-  const startupRuntime = createStartupNotificationRuntime(database.connection, clock);
+  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
+  const startupRuntime = createStartupNotificationRuntime(
+    database.connection,
+    clock,
+    () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+  );
   const app = createApp({ startupNotifications: startupRuntime.startupNotifications });
   const actualServer = app.listen(options.port ?? DEFAULT_PORT);
 
@@ -159,7 +176,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let pollingService: JmaXmlPollingService | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
-  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
   let imageServices: ImageServices | undefined;
 
   try {
@@ -191,6 +207,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             return;
           }
 
+          recoverLegacyVphwBulletinAreas(database.connection);
           for (const venueId of VENUE_IDS) {
             const venue = resolveVenueWarningContext(venueId);
             await reprocessPendingWarningTelegramReceptions(
@@ -212,6 +229,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             new JmaXmlPollingService(database.connection, {
               freshnessPolicy: schedule.freshness.xml,
               warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
+              bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
               ...options.pollingServiceOptions,
             });
 
@@ -344,12 +362,16 @@ async function main(): Promise<void> {
   const port = process.env.PORT ? Number(process.env.PORT) : DEFAULT_PORT;
   const database = initializeDatabase();
   const clock = () => new Date().toISOString();
-  const startupRuntime = createStartupNotificationRuntime(database.connection, clock);
+  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
+  const startupRuntime = createStartupNotificationRuntime(
+    database.connection,
+    clock,
+    () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+  );
   const app = createApp({ startupNotifications: startupRuntime.startupNotifications });
   const server = app.listen(port);
   let pollingService: JmaXmlPollingService | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
-  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
   let imageServices: ImageServices | undefined;
 
   let closed = false;
@@ -394,6 +416,7 @@ async function main(): Promise<void> {
             return;
           }
 
+          recoverLegacyVphwBulletinAreas(database.connection);
           for (const venueId of VENUE_IDS) {
             const venue = resolveVenueWarningContext(venueId);
             await reprocessPendingWarningTelegramReceptions(
@@ -413,6 +436,7 @@ async function main(): Promise<void> {
           pollingService = new JmaXmlPollingService(database.connection, {
             freshnessPolicy: schedule.freshness.xml,
             warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
+            bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
           });
 
           startupRuntime.connectPolling(pollingService);

@@ -31,8 +31,8 @@ test('1. 本番 migration をすべて適用すると fetch_attempt / telegram_r
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 20);
-    assert.equal(context.migrationSummary.appliedVersions.length, 20);
+    assert.equal(expectedSqlFiles.length, 21);
+    assert.equal(context.migrationSummary.appliedVersions.length, 21);
 
     const tables = (
       context.connection
@@ -579,7 +579,7 @@ test('12. migration を 2 回適用しても再実行されない（appliedVersi
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 20);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 21);
     context1.close();
 
     const connection = openDatabase(databasePath);

@@ -3,10 +3,15 @@ import type { DatabaseConnection } from '../database/index.js';
 import { findBosaiBulletin, saveBosaiBulletin } from '../repositories/bosaiBulletinRepository.js';
 import { upsertTelegramReceptionAdoptionForAllVenues } from '../repositories/telegramReceptionRepository.js';
 import type {
+  BosaiBulletin,
   BosaiBulletinTarget,
   TelegramReception,
   Vpbs50ParseResult,
 } from '../repositories/types.js';
+import {
+  emitBosaiBulletinNotificationsForReception,
+  type BosaiNotificationEmitDeps,
+} from '../notifications/bosaiBulletinNotificationEmitter.js';
 import { DEFAULT_BOSAI_BULLETIN_TARGET, parseVpbs50 } from './jmaVpbs50Parser.js';
 
 export { DEFAULT_BOSAI_BULLETIN_TARGET };
@@ -16,6 +21,7 @@ export function processVpbs50Reception(
   reception: TelegramReception,
   processedAt: UtcIso8601String,
   target: BosaiBulletinTarget = DEFAULT_BOSAI_BULLETIN_TARGET,
+  deps?: BosaiNotificationEmitDeps,
 ): Vpbs50ParseResult {
   if (!reception.rawBody) {
     const errorResult: Vpbs50ParseResult = {
@@ -36,6 +42,10 @@ export function processVpbs50Reception(
 
   const parseResult = parseVpbs50(reception.rawBody, reception, target);
 
+  let applied = false;
+  let previousBulletin: BosaiBulletin | null = null;
+  let savedBulletin: BosaiBulletin | null = null;
+
   const tx = connection.transaction(() => {
     if (parseResult.ok) {
       const parsed = parseResult.value;
@@ -55,7 +65,8 @@ export function processVpbs50Reception(
         }
       }
 
-      saveBosaiBulletin(connection, {
+      previousBulletin = existing;
+      savedBulletin = saveBosaiBulletin(connection, {
         eventId: parsed.eventId,
         controlStatus: parsed.controlStatus,
         infoType: parsed.infoType,
@@ -85,6 +96,7 @@ export function processVpbs50Reception(
         adoptionReason: null,
         adoptionDecidedAt: processedAt,
       });
+      applied = true;
     } else {
       upsertTelegramReceptionAdoptionForAllVenues(connection, reception.id, {
         adoptionResult: parseResult.disposition,
@@ -95,5 +107,16 @@ export function processVpbs50Reception(
   });
 
   tx();
+
+  if (applied && savedBulletin && deps) {
+    emitBosaiBulletinNotificationsForReception(
+      connection,
+      reception,
+      previousBulletin,
+      savedBulletin,
+      deps,
+    );
+  }
+
   return parseResult;
 }

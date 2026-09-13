@@ -230,18 +230,21 @@ test('受け入れ条件1: 公式サンプル 82_01_01_260324_VPBS50.xml (線状
       areaName: '北西部',
       codeType: '気象情報／府県予報区・細分区域等',
       sequence: 0,
+      informationType: null,
     },
     {
       areaCode: '120020',
       areaName: '北東部',
       codeType: '気象情報／府県予報区・細分区域等',
       sequence: 1,
+      informationType: null,
     },
     {
       areaCode: '120030',
       areaName: '南部',
       codeType: '気象情報／府県予報区・細分区域等',
       sequence: 2,
+      informationType: null,
     },
   ]);
 
@@ -285,12 +288,14 @@ test('受け入れ条件2: 公式サンプル 82_01_02_250630_VPBS50.xml (記録
       areaName: '網走地方',
       codeType: '気象情報／府県予報区・細分区域等',
       sequence: 0,
+      informationType: null,
     },
     {
       areaCode: '0154300',
       areaName: '美幌町',
       codeType: '気象・地震・火山情報／市町村等',
       sequence: 1,
+      informationType: null,
     },
   ]);
 });
@@ -599,12 +604,14 @@ test('区域重複除去: Headline と Body で同じ (areaCode, codeType) が�
       areaName: '東京地方',
       codeType: '気象情報／府県予報区・細分区域等',
       sequence: 0,
+      informationType: null,
     },
     {
       areaCode: '1310800',
       areaName: '江東区',
       codeType: '気象・地震・火山情報／市町村等',
       sequence: 1,
+      informationType: null,
     },
   ]);
 });

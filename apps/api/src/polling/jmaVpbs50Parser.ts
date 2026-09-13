@@ -459,6 +459,7 @@ export function parseVpbs50(
         areaName: raw.areaName,
         codeType: raw.codeType,
         sequence: areas.length,
+        informationType: null,
       });
     }
   }

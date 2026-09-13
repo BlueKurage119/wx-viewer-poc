@@ -483,10 +483,16 @@ export function parseVphw(
   }
 
   // 区域抽出（§3.5: Headline のみから抽出、Body は絶対に走査しない）
-  type RawArea = { areaCode: string; areaName: string; codeType: string };
+  type RawArea = {
+    areaCode: string;
+    areaName: string;
+    codeType: string;
+    informationType: string | null;
+  };
   const rawAreas: RawArea[] = [];
 
   for (const infoElem of allInfoElements) {
+    const informationType = infoElem.getAttribute('type')?.trim() ?? null;
     const items = directChildren(infoElem, JMA_INFORMATION_NAMESPACE, 'Item');
     for (const item of items) {
       const kindElems = directChildren(item, JMA_INFORMATION_NAMESPACE, 'Kind');
@@ -524,18 +530,18 @@ export function parseVphw(
               reason: 'Information/Item/Areas/Area の Name または Code が欠落しています',
             };
           }
-          rawAreas.push({ areaCode: code, areaName: name, codeType });
+          rawAreas.push({ areaCode: code, areaName: name, codeType, informationType });
         }
       }
     }
   }
 
-  // 重複除去（(areaCode, codeType) の組で重複除去、sequence は 0 起点連番）
+  // 重複除去（(areaCode, codeType, informationType) の組で重複除去、sequence は 0 起点連番）
   const seenAreaKeys = new Set<string>();
   const areas: BosaiBulletinAreaInput[] = [];
 
   for (const raw of rawAreas) {
-    const key = `${raw.areaCode}:${raw.codeType}`;
+    const key = `${raw.areaCode}:${raw.codeType}:${raw.informationType}`;
     if (!seenAreaKeys.has(key)) {
       seenAreaKeys.add(key);
       areas.push({
@@ -543,6 +549,7 @@ export function parseVphw(
         areaName: raw.areaName,
         codeType: raw.codeType,
         sequence: areas.length,
+        informationType: raw.informationType,
       });
     }
   }

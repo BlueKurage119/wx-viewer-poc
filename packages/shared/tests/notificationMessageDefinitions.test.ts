@@ -887,3 +887,75 @@ test('weather-warning-cancelled: 取消電文用の定義が正しく解決さ�
     },
   });
 });
+
+test('weather-bosai-bulletin-corrected: 速報訂正用の定義が正しく解決される (question, action=acknowledge, ackRequired=true)', () => {
+  const notif = createWeatherNotification({
+    category: 'question',
+    changeType: 'corrected',
+    sourceType: 'bosai_bulletin',
+    targets: [
+      {
+        kind: 'area',
+        codeType: 'venue',
+        code: 'east',
+        name: '東地区',
+      },
+    ],
+  });
+
+  const resolved = resolveNotificationMessage(notif, {
+    definitionId: 'weather-bosai-bulletin-corrected',
+    detail: '線状降水帯発生',
+  });
+
+  assert.deepEqual(resolved, {
+    display: {
+      title: '気象防災速報訂正',
+      target: '東地区',
+      content: '線状降水帯発生',
+    },
+    action: { kind: 'acknowledge', label: '確認' },
+    ackRequired: true,
+    summary: '気象防災速報訂正\n東地区\n線状降水帯発生',
+    messageDefinition: {
+      id: 'weather-bosai-bulletin-corrected',
+      version: '1',
+    },
+  });
+});
+
+test('weather-bosai-bulletin-cancelled: 速報取消用の定義が正しく解決される (warning, action=none, ackRequired=false)', () => {
+  const notif = createWeatherNotification({
+    category: 'warning',
+    changeType: 'cancelled',
+    sourceType: 'bosai_bulletin',
+    targets: [
+      {
+        kind: 'area',
+        codeType: 'venue',
+        code: 'east',
+        name: '東地区',
+      },
+    ],
+  });
+
+  const resolved = resolveNotificationMessage(notif, {
+    definitionId: 'weather-bosai-bulletin-cancelled',
+    detail: '線状降水帯発生',
+  });
+
+  assert.deepEqual(resolved, {
+    display: {
+      title: '気象防災速報取消',
+      target: '東地区',
+      content: '線状降水帯発生',
+    },
+    action: null,
+    ackRequired: false,
+    summary: '気象防災速報取消\n東地区\n線状降水帯発生',
+    messageDefinition: {
+      id: 'weather-bosai-bulletin-cancelled',
+      version: '1',
+    },
+  });
+});
