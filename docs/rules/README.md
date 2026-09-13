@@ -35,7 +35,7 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
 - [02-design-protocol.md](02-design-protocol.md) — 設計担当の権限境界(自分で決めてよい範囲)、設計書に必ず含める項目
 - [03-build-protocol.md](03-build-protocol.md) — 製造担当の権限境界(設計書からの逸脱時の対応)、スコープ制約
 - [04-inspect-protocol.md](04-inspect-protocol.md) — 検収担当が着手確認から終了確認まで必ず通る7段階の手順と合否条件
-- [05-verification-protocol.md](05-verification-protocol.md) — テスト追加時・検証時に必須の手順順序(red確認→対照実験)と発見の分類義務
+- [05-verification-protocol.md](05-verification-protocol.md) — テスト追加時・検証時に必須の手順順序(red確認→対照実験)とアサーションの原則(発見の分類義務は[04-inspect-protocol.md](04-inspect-protocol.md)を参照)
 - [06-ui-md3-protocol.md](06-ui-md3-protocol.md) — apps/webで必ず守る技術制約(sideEffects・パッケージ固定・生タグ禁止・localStorageキー同期)
 - [07-wx-data-protocol.md](07-wx-data-protocol.md) — 気象庁XML電文の確定/未確定の扱い、isTrainingの伝播範囲、availability 3状態の縮退禁止
 
