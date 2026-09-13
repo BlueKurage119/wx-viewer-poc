@@ -276,7 +276,7 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
     }
   }
 
-  validateFetchHealthConfig(c.fetchHealth);
+  const fetchHealth = validateFetchHealthConfig(c.fetchHealth);
 
   if (!Array.isArray(c.periods) || c.periods.length === 0) {
     throw new Error('periods は空でない配列である必要があります');
@@ -365,5 +365,8 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
     );
   }
 
-  return config as PollingScheduleConfig;
+  return {
+    ...(config as PollingScheduleConfig),
+    fetchHealth,
+  };
 }

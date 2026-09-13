@@ -913,3 +913,143 @@ test('AC8: fetchHealth の閾値を変えると判定が変わる', () => {
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// AC5 回帰テスト: 停止から長時間経過後の復帰で activeSinceAt が正しく即時更新され誤判定しない
+// ---------------------------------------------------------------------------
+test('AC5 回帰テスト: 稼働中 -> 8時間停止 -> 稼働再開の初回評価で経過時間による異常判定にならず normal と判定される', () => {
+  const { databasePath, cleanup } = createTempDb();
+  try {
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const statusProvider = new FakeSchedulerStatusProvider();
+    const store = new FetchHealthStateStore();
+    let currentNow = '2026-09-09T00:00:00.000Z';
+    const nowFn = () => currentNow as UtcIso8601String;
+
+    const service = new FetchHealthMonitorService({
+      connection: database.connection,
+      statusProvider,
+      config: standardConfig,
+      store,
+      now: nowFn,
+    });
+
+    // 1. 稼働中に評価 (00:00:00) - 成功実績あり
+    insertAttempt(database.connection, 'xml_feed_regular', 'success', '2026-09-09T00:00:00.000Z');
+    insertAttempt(database.connection, 'xml_feed_extra', 'success', '2026-09-09T00:00:00.000Z');
+    insertAttempt(database.connection, 'radar_times_N1', 'success', '2026-09-09T00:00:00.000Z');
+    insertAttempt(database.connection, 'risk_target_times', 'success', '2026-09-09T00:00:00.000Z');
+    insertAttempt(database.connection, 'amedas_latest_time', 'success', '2026-09-09T00:00:00.000Z');
+    insertAttempt(database.connection, 'amedas_point', 'success', '2026-09-09T00:00:00.000Z');
+
+    const resRunning = service.runOnce();
+    assert.equal(resRunning.aggregate.status, 'normal');
+    assert.equal(resRunning.emit.recorded.length, 0);
+
+    // 2. 停止に切替 (01:00:00)
+    for (const k of ['xml', 'nowcast', 'kikikuru', 'amedas'] as const) {
+      statusProvider.sourcesState[k] = 'scheduled_stopped';
+      statusProvider.sourcesInterval[k] = null;
+    }
+    currentNow = '2026-09-09T01:00:00.000Z';
+    const resStopped1 = service.runOnce();
+    assert.equal(resStopped1.aggregate.status, 'suspended');
+    assert.equal(resStopped1.emit.recorded.length, 0);
+
+    // 停止中に時刻を進めて複数回評価 (04:00:00, 08:00:00)
+    currentNow = '2026-09-09T04:00:00.000Z';
+    const resStopped2 = service.runOnce();
+    assert.equal(resStopped2.aggregate.status, 'suspended');
+
+    currentNow = '2026-09-09T08:00:00.000Z';
+    const resStopped3 = service.runOnce();
+    assert.equal(resStopped3.aggregate.status, 'suspended');
+
+    // 3. 稼働再開 (08:00:00)
+    for (const k of ['xml', 'nowcast', 'kikikuru', 'amedas'] as const) {
+      statusProvider.sourcesState[k] = 'waiting';
+      statusProvider.sourcesInterval[k] = 60;
+    }
+    const resResumed = service.runOnce();
+    assert.equal(
+      resResumed.aggregate.status,
+      'normal',
+      '復帰直後は経過時間条件で abnormal にならず normal',
+    );
+    assert.equal(resResumed.emit.recorded.length, 0, '通知は 0 件');
+
+    database.close();
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AC12 回帰テスト: start() / stop() のライフサイクルとスケジューラ初期化に依存しない即時開始
+// ---------------------------------------------------------------------------
+test('AC12 回帰テスト: start() 呼び出しで即時に初回評価が走り、タイマーで定期実行され、stop() で停止する', () => {
+  const { databasePath, cleanup } = createTempDb();
+  try {
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const statusProvider = new FakeSchedulerStatusProvider();
+    const store = new FetchHealthStateStore();
+    let currentNow = '2026-09-09T00:00:00.000Z';
+    const nowFn = () => currentNow as UtcIso8601String;
+
+    let timerCallback: (() => void) | null = null;
+    let timerDelay: number | null = null;
+    let clearedTimerId: unknown = null;
+    let timerHandle = 1;
+
+    const setTimer = (cb: () => void, ms: number) => {
+      timerCallback = cb;
+      timerDelay = ms;
+      return timerHandle++;
+    };
+    const clearTimer = (id: unknown) => {
+      clearedTimerId = id;
+      timerCallback = null;
+    };
+
+    const service = new FetchHealthMonitorService({
+      connection: database.connection,
+      statusProvider,
+      config: standardConfig,
+      store,
+      now: nowFn,
+      setTimer,
+      clearTimer,
+    });
+
+    // 初期状態: lastAggregate は null
+    assert.equal(service.getLastAggregate(), null);
+
+    // 1. start() 呼び出し: 同期的に初回評価が走り、lastAggregate がセットされ、次回タイマーが登録される
+    service.start();
+    assert.notEqual(service.getLastAggregate(), null);
+    assert.equal(service.getLastAggregate()?.status, 'normal');
+    assert.equal(timerDelay, 30000);
+    assert.ok(timerCallback !== null);
+
+    // 2. 失敗を投入してタイマー発火
+    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:10.000Z');
+    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:20.000Z');
+    currentNow = '2026-09-09T00:00:30.000Z';
+
+    const fireTimer = timerCallback!;
+    fireTimer();
+
+    assert.equal(service.getLastAggregate()?.status, 'delayed');
+    const history = listNotificationOutputHistory(database.connection, { origin: 'system' });
+    assert.equal(history.length, 1);
+    assert.equal(history[0].messageDefinitionId, 'system-data-fetch-delayed');
+
+    // 3. stop() 呼び出しでタイマーが解除される
+    service.stop();
+    assert.equal(clearedTimerId, 2);
+
+    database.close();
+  } finally {
+    cleanup();
+  }
+});

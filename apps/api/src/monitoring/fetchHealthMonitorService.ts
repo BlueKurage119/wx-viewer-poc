@@ -64,7 +64,7 @@ export class FetchHealthMonitorService {
 
       const suspended = scheduledStatus.state === 'scheduled_stopped';
       const intervalSeconds = scheduledStatus.intervalSeconds;
-      const activeSinceAt = this.store.getActiveSinceAt(sourceDef.id) ?? now;
+      const activeSinceAt = this.store.resolveActiveSinceAt(sourceDef.id, now, suspended);
 
       const streams = sourceDef.sourceKinds.map((sourceKind) =>
         summarizeFetchStreamHealth(

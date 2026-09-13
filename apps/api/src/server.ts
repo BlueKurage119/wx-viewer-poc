@@ -244,9 +244,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             config: schedule.fetchHealth,
           });
 
+          fetchHealthMonitorService.start();
           // XML開始責務は scheduler に集約し、二重起動を防止する
           await scheduler.start();
-          fetchHealthMonitorService.start();
         })(),
       ]);
     } finally {
@@ -430,8 +430,8 @@ async function main(): Promise<void> {
             config: schedule.fetchHealth,
           });
 
-          await scheduler.start();
           fetchHealthMonitorService.start();
+          await scheduler.start();
         })(),
       ]);
     } finally {

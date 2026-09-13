@@ -31,23 +31,39 @@ export class FetchHealthStateStore {
     return this.activeSinceAt.get(sourceId) ?? null;
   }
 
+  /**
+   * §4.3: 評価時またはコミット時における activeSinceAt を解決する。
+   * 前回評価が suspended で今回が非 suspended の場合、今回の評価時刻（now）を返す。
+   */
+  resolveActiveSinceAt(
+    sourceId: MonitoredFetchSourceId,
+    now: UtcIso8601String,
+    currentSuspended: boolean,
+  ): UtcIso8601String {
+    const prevActive = this.activeSinceAt.get(sourceId) ?? null;
+    const prevStatus = this.previousStatus.get(sourceId) ?? null;
+
+    if (prevActive === null) {
+      // 初回評価
+      return now;
+    }
+    if (prevStatus === 'suspended' && !currentSuspended) {
+      // 停止中から稼働へ復帰
+      return now;
+    }
+    // 前回値保持
+    return prevActive;
+  }
+
   commit(aggregate: FetchHealthAggregate): void {
     for (const sourceResult of aggregate.sources) {
       const sourceId = sourceResult.sourceId;
-      const prevStatus = this.previousStatus.get(sourceId) ?? null;
-      const prevActive = this.activeSinceAt.get(sourceId) ?? null;
-
-      let newActiveSinceAt: UtcIso8601String;
-      if (prevActive === null) {
-        // 初回評価
-        newActiveSinceAt = aggregate.evaluatedAt;
-      } else if (prevStatus === 'suspended' && sourceResult.status !== 'suspended') {
-        // 停止中から稼働へ復帰
-        newActiveSinceAt = aggregate.evaluatedAt;
-      } else {
-        // 前回値保持
-        newActiveSinceAt = prevActive;
-      }
+      const isSuspended = sourceResult.status === 'suspended';
+      const newActiveSinceAt = this.resolveActiveSinceAt(
+        sourceId,
+        aggregate.evaluatedAt,
+        isSuspended,
+      );
 
       this.activeSinceAt.set(sourceId, newActiveSinceAt);
       this.previousStatus.set(sourceId, sourceResult.status);
