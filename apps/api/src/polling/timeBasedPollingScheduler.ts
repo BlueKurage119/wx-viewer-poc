@@ -1,4 +1,9 @@
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import {
+  VENUE_IDS,
+  type AmedasTarget,
+  type UtcIso8601String,
+  type VenueId,
+} from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   getNextEnabledAt,
@@ -17,7 +22,7 @@ import {
   runAmedasFetchCycle,
   type AmedasFetchOptions,
 } from './amedasFetchService.js';
-import type { VenueId } from '@wx-viewer-poc/shared';
+import { resolveAmedasTarget } from '../venueForecastTargets.js';
 
 export interface ScheduledPollAdapter {
   readonly source: ScheduledSource;
@@ -542,8 +547,10 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
 
   async runScheduled(): Promise<void> {
     const currentNowMs = this.nowFn();
+    const consecutiveFailures = this.state.getStreamStatus('pointData').consecutiveFailures;
     const isRecheckDue =
       this.lastPointFetchStartedAtMs === null ||
+      consecutiveFailures >= 1 ||
       currentNowMs - this.lastPointFetchStartedAtMs >= this.recheckIntervalMs;
 
     const pointFetchPolicy = isRecheckDue ? 'always' : 'onLatestTimeChange';
@@ -551,6 +558,7 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
     const result = await runAmedasFetchCycle(this.connection, this.state, {
       ...this.fetchOptions,
       triggerKind: 'scheduled',
+      backfillBlocks: 0,
       pointFetchPolicy,
     });
 
@@ -558,6 +566,58 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
       this.lastPointFetchStartedAtMs = currentNowMs;
     }
   }
+}
+
+export class MultiVenueAmedasScheduledAdapter implements ScheduledPollAdapter {
+  readonly source: ScheduledSource = 'amedas';
+  constructor(private readonly adapters: readonly AmedasScheduledAdapter[]) {}
+
+  async runScheduled(): Promise<void> {
+    const results = await Promise.allSettled(
+      this.adapters.map((adapter) => adapter.runScheduled()),
+    );
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (rejected.length > 0) {
+      if (rejected.length === 1) {
+        throw rejected[0]!.reason;
+      }
+      throw new AggregateError(
+        rejected.map((r) => r.reason),
+        `${rejected.length} 件のアメダスアダプター実行で例外が発生しました`,
+      );
+    }
+  }
+}
+
+export function resolveUniqueAmedasVenues(
+  venueIds: readonly VenueId[],
+  resolveTarget?: (venueId: VenueId) => AmedasTarget,
+): readonly VenueId[] {
+  const resolver = resolveTarget ?? resolveAmedasTarget;
+  const seenStationCodes = new Map<string, { venueId: VenueId; target: AmedasTarget }>();
+  const uniqueVenues: VenueId[] = [];
+
+  for (const venueId of venueIds) {
+    const target = resolver(venueId);
+    const existing = seenStationCodes.get(target.stationCode);
+    if (existing) {
+      if (
+        existing.target.displayName !== target.displayName ||
+        existing.target.elements !== target.elements
+      ) {
+        throw new Error(
+          `同一地点 (${target.stationCode}) に対する会場定義が一致しません: ` +
+            `[${existing.venueId}: displayName=${existing.target.displayName}, elements=${existing.target.elements}] vs ` +
+            `[${venueId}: displayName=${target.displayName}, elements=${target.elements}]`,
+        );
+      }
+    } else {
+      seenStationCodes.set(target.stationCode, { venueId, target });
+      uniqueVenues.push(venueId);
+    }
+  }
+
+  return uniqueVenues;
 }
 
 export interface CreateScheduledAdaptersOptions {
@@ -581,21 +641,40 @@ export function createScheduledAdapters(
     );
   }
 
-  const amedasVenueId = options.amedasVenueId ?? 'east';
-  const amedasState = options.amedasState ?? new AmedasFetchState(amedasVenueId);
-  const amedas = new AmedasScheduledAdapter(
-    options.connection,
-    amedasState,
-    options.amedasPointRecheckSeconds ?? 600,
-    {
-      fetchOptions: options.amedasFetchOptions,
-      now: options.now,
-    },
-  );
+  let amedasAdapter: ScheduledPollAdapter;
+
+  if (options.amedasState !== undefined || options.amedasVenueId !== undefined) {
+    const amedasVenueId = options.amedasVenueId ?? 'east';
+    const amedasState = options.amedasState ?? new AmedasFetchState(amedasVenueId);
+    amedasAdapter = new AmedasScheduledAdapter(
+      options.connection,
+      amedasState,
+      options.amedasPointRecheckSeconds ?? 600,
+      {
+        fetchOptions: options.amedasFetchOptions,
+        now: options.now,
+      },
+    );
+  } else {
+    const uniqueVenues = resolveUniqueAmedasVenues(VENUE_IDS);
+    const adapters = uniqueVenues.map((venueId) => {
+      const state = new AmedasFetchState(venueId);
+      return new AmedasScheduledAdapter(
+        options.connection,
+        state,
+        options.amedasPointRecheckSeconds ?? 600,
+        {
+          fetchOptions: options.amedasFetchOptions,
+          now: options.now,
+        },
+      );
+    });
+    amedasAdapter = new MultiVenueAmedasScheduledAdapter(adapters);
+  }
 
   return [
     new NowcastScheduledAdapter(options.nowcastService),
     new KikikuruScheduledAdapter(options.kikikuruService),
-    amedas,
+    amedasAdapter,
   ];
 }

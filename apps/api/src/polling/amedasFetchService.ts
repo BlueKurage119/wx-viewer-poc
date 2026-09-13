@@ -178,7 +178,7 @@ export async function runAmedasFetchCycle(
     state.recordFailure('latestTime');
     const attemptInput: FetchAttemptInput = {
       sourceKind: AMEDAS_LATEST_TIME_SOURCE_KIND,
-      targetRef: null,
+      targetRef: target.stationCode,
       requestUrl: sanitizedLatestUrl,
       triggerKind,
       attemptNo: 1,
@@ -294,7 +294,7 @@ export async function runAmedasFetchCycle(
     .digest('hex');
   const latestAttemptSuccessInput: FetchAttemptInput = {
     sourceKind: AMEDAS_LATEST_TIME_SOURCE_KIND,
-    targetRef: null,
+    targetRef: target.stationCode,
     requestUrl: sanitizedLatestUrl,
     triggerKind,
     attemptNo: 1,
