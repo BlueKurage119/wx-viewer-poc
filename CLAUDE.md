@@ -38,7 +38,8 @@
 - コードベースに変更を加えるときは、計画または設計の承認を受けてから着手すること
 - コミット前に `npm run lint` / `npm run typecheck` / `npm run format:check` および対象workspaceのテストを実行し、エラーがないことを確かめること(ただし、変更が`docs/**`配下の`*.md`のみであり、依存関係により確認ができない場合は省略できる)
 - マージ後は、`git merge-base --is-ancestor <マージコミット> origin/main` が真であることを確かめること
-- UIデザイン・気象データそれぞれの詳細規律は [docs/advisory/ui-md3-rules.md](docs/advisory/ui-md3-rules.md)・[docs/advisory/wx-data-rules.md](docs/advisory/wx-data-rules.md) を参照
+- 色はHEX値をハードコードせず、Material-colorのトークンを使用すること。見ればわかる説明書き・ラベルは省略すること(詳細・背景は [docs/advisory/ui-md3-rules.md](docs/advisory/ui-md3-rules.md) を参照)
+- 気象庁XML電文の提供仕様は、実データ・公式資料・[取得方法レポート](docs/data-acquisition-report.md)と照合できたものだけを、設計上の「確定」事実として扱うこと(詳細・背景は [docs/advisory/wx-data-rules.md](docs/advisory/wx-data-rules.md) を参照)
 
 ## 4. 開発の進め方
 
