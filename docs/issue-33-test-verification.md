@@ -96,7 +96,7 @@
 
 すべての意図的改変を原状復帰し、プロダクションコードに変更がないこと（テストおよび記録ドキュメントのみの変更であること）を確認した。
 
-- `git diff --stat` による変更ファイル: `apps/api/tests/issue33WarningRestApis.test.ts` のみ
+- `git diff --stat` による変更ファイル: `apps/api/tests/issue33WarningRestApis.test.ts` と本検証記録
 - `npx tsx --test apps/api/tests/issue33WarningRestApis.test.ts`: **PASS** (exit 0, 16/16 passed)
 
 ### 6.4 全検証コマンドの再実行結果
@@ -113,4 +113,3 @@
 ## 7. 未解決事項
 
 - なし。PR #155 のレビュー指摘3件（受入条件 A6・A7・A11）に対するテスト補強、対照実験、red確認、復旧確認、全検証コマンドがすべて完了した。
-
