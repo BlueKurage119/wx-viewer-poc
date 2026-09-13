@@ -45,7 +45,7 @@ AGYの最終報告に必須の記載事項:
 
 ## ブランチ・コミット・PRの必須要件
 
-- ブランチ名は `feature/issue-<番号>-<短い説明>` とする。
+- ブランチ名は `<種別プレフィックス>/issue-<番号>-<短い説明>` とする。Issueによらない作業は、その都度統括担当が決める。
 - **製造担当の作業はコミット・プッシュまでとし、PRの作成・本文の記述は検収担当が行う。**
 - PR作成時、baseが`main`であることを確認する。
 - PR本文に「Closes #<Issue番号>」を含める。
@@ -54,10 +54,19 @@ AGYの最終報告に必須の記載事項:
 
 ### 署名(必須)
 
-エージェントが書いた文章(コミットメッセージ・PR本文・コメント等)には、それを生成したアプリケーション・モデル名を必ず本文中に明記する。`gh`コマンドでの投稿は人間のアカウント名義になるため、本文中の明記で代える。フォーマットは次のとおりとし、これ以外の形式を使わない。
+エージェントが書いた文章(コミットメッセージ・PR本文・コメント等)には、それを生成したアプリケーション・モデル名を必ず本文中に明記する。`gh`コマンドでの投稿は人間のアカウント名義になるため、本文中の明記で代える。フォーマットは次の例による。
 
-- **Claude** — コミット末尾: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` / PR本文・コメント末尾: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
-- **Codex** — コミット末尾: `Co-Authored-By: Codex (GPT <model> <推奨モデル名>) <noreply@openai.com>` / PR本文・コメント末尾: `🤖 Generated with Codex`
-- **Antigravity(委託先として製造した場合)** — コミット末尾: `Co-Authored-By: Antigravity <gemini-code-assist@users.noreply.github.com>` / PR本文・コメント末尾: 委託元(Claude/Codex)の形式に従う
+- コミットメッセージ: `Co-Authored-By: Codex (GPT 5.6 Terra) <noreply@openai.com>`
+- PR本文末尾・コメント: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 
-Antigravityへ製造を委託した場合のコミット署名は、委託元(Claude/Codex)自身の名義ではなく上記のAntigravity専用名義を使う(作業主体を統計的に追跡するため)。
+フォーマット中のモデル表示およびメールアドレスは、以下の表による。
+
+<!-- prettier-ignore -->
+
+| 製品名 | モデル表示例 | メールアドレス |
+| --- | --- | --- |
+| Claude | `Claude (<model>)` | `<noreply@anthropic.com>` |
+| Codex | `Codex (GPT <model>) ` | `<noreply@openai.com>` |
+| Antigravity | `Antigravity (<model>)` | `<gemini-code-assist@users.noreply.github.com>` |
+
+コミット署名は、誰がコミットしたかではなく、誰が書いたかで決定すること。PR・コメントの署名は、それを書いて投稿した担当のものを使用すること。
