@@ -1904,7 +1904,7 @@ test('A15: GET 前後で DB 件数不変、安全な 500、startServer での結
 // ---------------------------------------------------------------------------
 // A17: 未対応構造失敗による stale 評価・ミリ秒境界・条件独立性・正常採用での回復
 // ---------------------------------------------------------------------------
-test('A17: hasNewerWeatherParseFailure - 時刻比較（.000Z vs Z 等値、.001Z 新規、.999Z 過去）、種別・会場・区域条件独立性と回復', () => {
+test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z vs Z 等値、.001Z 新規、.999Z 過去）、種別・会場・区域条件独立性と回復', () => {
   const { db } = createTestApp();
 
   const baseline = {
@@ -1972,7 +1972,7 @@ test('A17: hasNewerWeatherParseFailure - 時刻比較（.000Z vs Z 等値、.001
     false,
   );
 
-  // 2. 過去時刻 (.999Z) -> 新しい失敗ではない (false)
+  // 2. reportDateTime が過去 (.999Z) -> 新しい失敗ではない (false)
   insertFailure({
     telegramType: 'VPWP50',
     controlStatus: 'normal',
@@ -1992,7 +1992,62 @@ test('A17: hasNewerWeatherParseFailure - 時刻比較（.000Z vs Z 等値、.001
     false,
   );
 
-  // 3. より新しい時刻 (.001Z) -> 新しい失敗 (true)
+  // 3. reportDateTime が同値のとき、controlDateTime が直前 (.999Z) -> 新しい失敗ではない (false)
+  insertFailure({
+    telegramType: 'VPWP50',
+    controlStatus: 'normal',
+    venueId: 'east',
+    areaCode: '1310800',
+    reportDateTime: '2026-09-14T06:00:00.000Z',
+    controlDateTime: '2026-09-14T05:59:59.999Z',
+  });
+  assert.equal(
+    hasNewerWeatherParseFailure(db.connection, {
+      venueId: 'east',
+      controlStatus: 'normal',
+      telegramType: 'VPWP50',
+      areaCode: '1310800',
+      baseline,
+    }),
+    false,
+  );
+
+  // 4. reportDateTime が同値のとき、controlDateTime の .001Z は新しい失敗 (true)
+  insertFailure({
+    telegramType: 'VPWP50',
+    controlStatus: 'normal',
+    venueId: 'east',
+    areaCode: '1310800',
+    reportDateTime: '2026-09-14T06:00:00.000Z',
+    controlDateTime: '2026-09-14T06:00:00.001Z',
+  });
+  assert.equal(
+    hasNewerWeatherParseFailure(db.connection, {
+      venueId: 'east',
+      controlStatus: 'normal',
+      telegramType: 'VPWP50',
+      areaCode: '1310800',
+      baseline,
+    }),
+    true,
+  );
+
+  // 5. controlDateTime を .001Z まで進めると、同じ reportDateTime の失敗から回復する
+  assert.equal(
+    hasNewerWeatherParseFailure(db.connection, {
+      venueId: 'east',
+      controlStatus: 'normal',
+      telegramType: 'VPWP50',
+      areaCode: '1310800',
+      baseline: {
+        reportDateTime: '2026-09-14T06:00:00Z',
+        controlDateTime: '2026-09-14T06:00:00.001Z',
+      },
+    }),
+    false,
+  );
+
+  // 6. reportDateTime の .001Z は controlDateTime が古くても新しい失敗 (true)
   insertFailure({
     telegramType: 'VPWP50',
     controlStatus: 'normal',

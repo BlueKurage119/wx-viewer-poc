@@ -113,3 +113,23 @@
 ## 7. 未解決事項
 
 - なし。PR #155 のレビュー指摘3件（受入条件 A6・A7・A11）に対するテスト補強、対照実験、red確認、復旧確認、全検証コマンドがすべて完了した。
+
+---
+
+## 8. PR #155 追加レビュー指摘対応（A17 controlDateTime 境界）のテスト有効性検証記録
+
+実施日: 2026-09-14
+担当: Codex（GPT 6）
+対象: reportDateTime が同値のときの controlDateTime 境界検証
+
+### 8.1 対照実験
+
+`A17` テストへ意味を変えないコメントを追加し、`npx tsx --test --test-name-pattern='A17:' apps/api/tests/issue33WarningRestApis.test.ts` が **SURVIVED**（exit 0、1 passed）となることを確認した。
+
+### 8.2 red確認
+
+`weatherParseFailureRepository.ts` の reportDateTime 同値時における controlDateTime 比較を `AND 0` に改変し、同コマンドが **KILLED**（exit 1）となることを確認した。A17 の同値 reportDateTime・`.001Z` controlDateTime のアサーションが `false !== true` で失敗した。
+
+### 8.3 復旧確認
+
+対照実験のコメントと意図的改変を復元した。A17 は、reportDateTime 同値時の controlDateTime について `Z`／`.000Z` の等値、直前 `.999Z`、新規 `.001Z`、および `.001Z` まで進めた基準時刻での回復を検証する。
