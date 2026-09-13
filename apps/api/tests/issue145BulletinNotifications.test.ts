@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -3178,6 +3178,11 @@ test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意
     const mig0022Path = join(tempMigrationsDir, '0022_add_bosai_bulletin_area_unique_indexes.sql');
     const mig0022Sql = readFileSync(mig0022Path, 'utf8');
     rmSync(mig0022Path);
+    const mig0023Path = join(
+      tempMigrationsDir,
+      '0023_add_warning_timeseries_addition_and_scope.sql',
+    );
+    if (existsSync(mig0023Path)) rmSync(mig0023Path);
 
     const dbPath = join(tmpDir, 'test_migration.sqlite3');
     const context = initializeDatabase({
@@ -3412,6 +3417,11 @@ test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意
       );
       const mig0022RollbackSql = readFileSync(mig0022RollbackPath, 'utf8');
       rmSync(mig0022RollbackPath);
+      const mig0023RollbackPath = join(
+        rollbackMigrationsDir,
+        '0023_add_warning_timeseries_addition_and_scope.sql',
+      );
+      if (existsSync(mig0023RollbackPath)) rmSync(mig0023RollbackPath);
 
       const rollbackDbPath = join(rollbackTmpDir, 'test_rollback.sqlite3');
       const rollbackContext = initializeDatabase({
@@ -3509,7 +3519,7 @@ test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意
       const applied = newContext.connection
         .prepare('SELECT version FROM __schema_migrations ORDER BY version')
         .all() as Array<{ version: number }>;
-      assert.equal(applied.at(-1)?.version, 22, '最新 version が 22 であること');
+      assert.equal(applied.at(-1)?.version, 23, '最新 version が 23 であること');
 
       // 0021 のファイル内容確認
       const mig0021Path = join(

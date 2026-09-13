@@ -1,6 +1,7 @@
 import type {
   Availability,
   BosaiBulletinAreaCode,
+  TimeseriesScope,
   UtcIso8601String,
   VenueId,
 } from '@wx-viewer-poc/shared';
@@ -95,6 +96,7 @@ export interface WarningTimeseriesValueInput {
   readonly condition?: string | null;
   readonly areaDivision: string | null;
   readonly sequence: number;
+  readonly scope?: TimeseriesScope | null;
 }
 
 export interface WarningTimeseriesValue extends WarningTimeseriesValueInput {
@@ -103,6 +105,23 @@ export interface WarningTimeseriesValue extends WarningTimeseriesValueInput {
   readonly valueCode: string | null;
   readonly description: string | null;
   readonly condition: string | null;
+  readonly scope: TimeseriesScope | null;
+}
+
+export interface WarningTimeseriesAdditionInput {
+  readonly blockId: string;
+  readonly scope: TimeseriesScope;
+  readonly propertyType: string;
+  readonly kindStatus: string;
+  readonly kindDateTime: UtcIso8601String | null;
+  readonly areaDivision: string | null;
+  readonly additionIndex: number;
+  readonly noteIndex: number;
+  readonly text: string;
+}
+
+export interface WarningTimeseriesAddition extends WarningTimeseriesAdditionInput {
+  readonly id: number;
 }
 
 export interface WarningTimeseriesSnapshotInput {
@@ -112,6 +131,8 @@ export interface WarningTimeseriesSnapshotInput {
   readonly telegram: TelegramMetadataInput;
   readonly timeDefines: readonly WarningTimeseriesTimeDefineInput[];
   readonly values: readonly WarningTimeseriesValueInput[];
+  readonly additionsParsed?: boolean;
+  readonly additions?: readonly WarningTimeseriesAdditionInput[];
 }
 
 export interface WarningTimeseriesSnapshot {
@@ -122,6 +143,8 @@ export interface WarningTimeseriesSnapshot {
   readonly telegram: TelegramMetadataInput;
   readonly timeDefines: readonly WarningTimeseriesTimeDefine[];
   readonly values: readonly WarningTimeseriesValue[];
+  readonly additionsParsed: boolean;
+  readonly additions: readonly WarningTimeseriesAddition[] | null;
 }
 
 export const VPWP50_TELEGRAM_TYPE = 'VPWP50' as const;
@@ -157,7 +180,10 @@ export interface ParsedVpwp50Value {
   readonly condition: string | null;
   readonly areaDivision: string | null;
   readonly sequence: number;
+  readonly scope: TimeseriesScope | null;
 }
+
+export type ParsedVpwp50Addition = WarningTimeseriesAdditionInput;
 
 export interface ParsedVpwp50 {
   readonly area: { readonly code: string; readonly name: string };
@@ -169,6 +195,7 @@ export interface ParsedVpwp50 {
   readonly infoKindVersion: string | null;
   readonly timeDefines: readonly ParsedVpwp50TimeDefine[];
   readonly values: readonly ParsedVpwp50Value[];
+  readonly additions: readonly ParsedVpwp50Addition[];
 }
 
 export type Vpwp50ParseResult =

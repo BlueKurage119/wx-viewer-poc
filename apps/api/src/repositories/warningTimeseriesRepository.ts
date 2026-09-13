@@ -1,3 +1,4 @@
+import type { TimeseriesScope } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   mapMetadataRow,
@@ -12,6 +13,7 @@ import {
 } from './snapshot.js';
 import type {
   ControlStatus,
+  WarningTimeseriesAddition,
   WarningTimeseriesSnapshot,
   WarningTimeseriesSnapshotInput,
   WarningTimeseriesTimeDefine,
@@ -22,6 +24,7 @@ interface WarningTimeseriesSnapshotRow extends SnapshotMetadataRow, TelegramMeta
   readonly id: number;
   readonly area_code: string;
   readonly area_name: string;
+  readonly additions_parsed?: number;
 }
 
 interface WarningTimeseriesTimeDefineRow {
@@ -54,6 +57,73 @@ interface WarningTimeseriesValueRow {
   readonly condition: string | null;
   readonly area_division: string | null;
   readonly sequence: number;
+  readonly kind_index: number | null;
+  readonly property_index: number | null;
+  readonly part_name: string | null;
+  readonly part_index: number | null;
+  readonly base_index: number | null;
+  readonly local_index: number | null;
+}
+
+interface WarningTimeseriesAdditionRow {
+  readonly id: number;
+  readonly snapshot_id: number;
+  readonly block_id: string;
+  readonly kind_index: number;
+  readonly property_index: number;
+  readonly part_name: string;
+  readonly part_index: number;
+  readonly base_index: number;
+  readonly local_index: number | null;
+  readonly property_type: string;
+  readonly kind_status: string;
+  readonly kind_datetime: string | null;
+  readonly area_division: string | null;
+  readonly addition_index: number;
+  readonly note_index: number;
+  readonly text: string;
+}
+
+function mapValueScope(row: WarningTimeseriesValueRow): TimeseriesScope | null {
+  if (
+    row.kind_index === null ||
+    row.property_index === null ||
+    row.part_name === null ||
+    row.part_index === null ||
+    row.base_index === null
+  ) {
+    return null;
+  }
+  return {
+    kindIndex: row.kind_index,
+    propertyIndex: row.property_index,
+    partName: row.part_name,
+    partIndex: row.part_index,
+    baseIndex: row.base_index,
+    localIndex: row.local_index,
+  };
+}
+
+function mapAdditionRow(row: WarningTimeseriesAdditionRow): WarningTimeseriesAddition {
+  return {
+    id: row.id,
+    blockId: row.block_id,
+    scope: {
+      kindIndex: row.kind_index,
+      propertyIndex: row.property_index,
+      partName: row.part_name,
+      partIndex: row.part_index,
+      baseIndex: row.base_index,
+      localIndex: row.local_index,
+    },
+    propertyType: row.property_type,
+    kindStatus: row.kind_status,
+    kindDateTime: row.kind_datetime,
+    areaDivision: row.area_division,
+    additionIndex: row.addition_index,
+    noteIndex: row.note_index,
+    text: row.text,
+  };
 }
 
 export function saveWarningTimeseriesSnapshot(
@@ -74,12 +144,22 @@ export function saveWarningTimeseriesSnapshot(
     }
   }
 
+  const additionsParsedValue =
+    input.additionsParsed !== undefined
+      ? input.additionsParsed
+        ? 1
+        : 0
+      : input.additions !== undefined
+        ? 1
+        : 0;
+
   const saveTx = connection.transaction(() => {
     const upsertStmt = connection.prepare(`
       INSERT INTO warning_timeseries_snapshot (
         area_code, area_name, control_status, info_type, event_id, report_datetime, control_datetime,
-        source, issued_at, valid_at, valid_from, valid_to, fetched_at, last_success_at, availability, source_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        source, issued_at, valid_at, valid_from, valid_to, fetched_at, last_success_at, availability, source_version,
+        additions_parsed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (area_code, control_status) DO UPDATE SET
         area_name = excluded.area_name,
         info_type = excluded.info_type,
@@ -94,8 +174,12 @@ export function saveWarningTimeseriesSnapshot(
         fetched_at = excluded.fetched_at,
         last_success_at = excluded.last_success_at,
         availability = excluded.availability,
-        source_version = excluded.source_version
-      RETURNING id
+        source_version = excluded.source_version,
+        additions_parsed = CASE
+          WHEN excluded.availability = 'stale' THEN warning_timeseries_snapshot.additions_parsed
+          ELSE excluded.additions_parsed
+        END
+      RETURNING id, additions_parsed
     `);
 
     const row = upsertStmt.get(
@@ -115,12 +199,15 @@ export function saveWarningTimeseriesSnapshot(
       input.metadata.lastSuccessAt,
       input.metadata.availability,
       input.metadata.sourceVersion,
-    ) as { id: number };
+      additionsParsedValue,
+    ) as { id: number; additions_parsed: number };
 
     const snapshotId = Number(row.id);
+    const effectiveAdditionsParsed = row.additions_parsed === 1;
 
     let timeDefines: WarningTimeseriesTimeDefine[];
     let values: WarningTimeseriesValue[];
+    let additions: WarningTimeseriesAddition[] | null;
 
     if (isStale) {
       const tdRows = connection
@@ -171,9 +258,28 @@ export function saveWarningTimeseriesSnapshot(
         condition: vRow.condition,
         areaDivision: vRow.area_division,
         sequence: vRow.sequence,
+        scope: mapValueScope(vRow),
       }));
+
+      if (!effectiveAdditionsParsed) {
+        additions = null;
+      } else {
+        const additionRows = connection
+          .prepare(
+            `
+            SELECT * FROM warning_timeseries_addition
+            WHERE snapshot_id = ?
+            ORDER BY id ASC
+          `,
+          )
+          .all(snapshotId) as WarningTimeseriesAdditionRow[];
+        additions = additionRows.map(mapAdditionRow);
+      }
     } else {
-      // 明細全削除（time_define 削除で value も CASCADE されるが、明示的に削除）
+      // 明細全削除
+      connection
+        .prepare('DELETE FROM warning_timeseries_addition WHERE snapshot_id = ?')
+        .run(snapshotId);
       connection
         .prepare('DELETE FROM warning_timeseries_value WHERE snapshot_id = ?')
         .run(snapshotId);
@@ -208,12 +314,14 @@ export function saveWarningTimeseriesSnapshot(
       const insertValueStmt = connection.prepare(`
         INSERT INTO warning_timeseries_value (
           snapshot_id, block_id, ref_id, kind_code, kind_name, kind_status, kind_datetime,
-          value_category, property_type, value_type, value_code, value_text, unit, description, condition, area_division, sequence
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          value_category, property_type, value_type, value_code, value_text, unit, description, condition, area_division, sequence,
+          kind_index, property_index, part_name, part_index, base_index, local_index
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
       `);
 
       values = input.values.map((v) => {
+        const vScope = v.scope ?? null;
         const vRow = insertValueStmt.get(
           snapshotId,
           v.blockId,
@@ -232,6 +340,12 @@ export function saveWarningTimeseriesSnapshot(
           v.condition ?? null,
           v.areaDivision,
           v.sequence,
+          vScope?.kindIndex ?? null,
+          vScope?.propertyIndex ?? null,
+          vScope?.partName ?? null,
+          vScope?.partIndex ?? null,
+          vScope?.baseIndex ?? null,
+          vScope?.localIndex ?? null,
         ) as { id: number };
 
         return {
@@ -243,8 +357,46 @@ export function saveWarningTimeseriesSnapshot(
           valueCode: v.valueCode ?? null,
           description: v.description ?? null,
           condition: v.condition ?? null,
+          scope: vScope,
         };
       });
+
+      if (!effectiveAdditionsParsed) {
+        additions = null;
+      } else {
+        const insertAdditionStmt = connection.prepare(`
+          INSERT INTO warning_timeseries_addition (
+            snapshot_id, block_id, kind_index, property_index, part_name, part_index, base_index, local_index,
+            property_type, kind_status, kind_datetime, area_division, addition_index, note_index, text
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING id
+        `);
+
+        additions = (input.additions ?? []).map((add) => {
+          const aRow = insertAdditionStmt.get(
+            snapshotId,
+            add.blockId,
+            add.scope.kindIndex,
+            add.scope.propertyIndex,
+            add.scope.partName,
+            add.scope.partIndex,
+            add.scope.baseIndex,
+            add.scope.localIndex,
+            add.propertyType,
+            add.kindStatus,
+            add.kindDateTime ?? null,
+            add.areaDivision,
+            add.additionIndex,
+            add.noteIndex,
+            add.text,
+          ) as { id: number };
+
+          return {
+            ...add,
+            id: Number(aRow.id),
+          };
+        });
+      }
     }
 
     return {
@@ -255,6 +407,8 @@ export function saveWarningTimeseriesSnapshot(
       telegram: input.telegram,
       timeDefines,
       values,
+      additionsParsed: effectiveAdditionsParsed,
+      additions,
     };
   });
 
@@ -329,7 +483,23 @@ export function findWarningTimeseriesSnapshot(
     condition: row.condition,
     areaDivision: row.area_division,
     sequence: row.sequence,
+    scope: mapValueScope(row),
   }));
+
+  const additionsParsed = snapshotRow.additions_parsed === 1;
+  let additions: WarningTimeseriesAddition[] | null = null;
+  if (additionsParsed) {
+    const additionRows = connection
+      .prepare(
+        `
+        SELECT * FROM warning_timeseries_addition
+        WHERE snapshot_id = ?
+        ORDER BY id ASC
+      `,
+      )
+      .all(snapshotRow.id) as WarningTimeseriesAdditionRow[];
+    additions = additionRows.map(mapAdditionRow);
+  }
 
   return {
     id: snapshotRow.id,
@@ -339,6 +509,8 @@ export function findWarningTimeseriesSnapshot(
     telegram: mapTelegramRow(snapshotRow),
     timeDefines,
     values,
+    additionsParsed,
+    additions,
   };
 }
 

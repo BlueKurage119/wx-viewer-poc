@@ -36,6 +36,7 @@ import {
   type BosaiNotificationEmitDeps,
 } from './notifications/index.js';
 import { FetchHealthMonitorService } from './monitoring/index.js';
+import { createWeatherApiService } from './services/weatherApiService.js';
 
 export interface StartedServer {
   readonly port: number;
@@ -168,13 +169,21 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     clock,
     () => fetchHealthMonitorService?.getLastAggregate() ?? null,
   );
-  const app = createApp({ startupNotifications: startupRuntime.startupNotifications });
+  let pollingService: JmaXmlPollingService | undefined;
+  const weatherApi = createWeatherApiService({
+    connection: database.connection,
+    getPollingStatus: () => pollingService?.getStatus(),
+    now: clock,
+  });
+  const app = createApp({
+    startupNotifications: startupRuntime.startupNotifications,
+    weatherApi,
+  });
   const actualServer = app.listen(options.port ?? DEFAULT_PORT);
 
   const serverListeningPromise = waitForServerListening(actualServer);
 
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
-  let pollingService: JmaXmlPollingService | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
   let imageServices: ImageServices | undefined;
 
@@ -368,9 +377,17 @@ async function main(): Promise<void> {
     clock,
     () => fetchHealthMonitorService?.getLastAggregate() ?? null,
   );
-  const app = createApp({ startupNotifications: startupRuntime.startupNotifications });
-  const server = app.listen(port);
   let pollingService: JmaXmlPollingService | undefined;
+  const weatherApi = createWeatherApiService({
+    connection: database.connection,
+    getPollingStatus: () => pollingService?.getStatus(),
+    now: clock,
+  });
+  const app = createApp({
+    startupNotifications: startupRuntime.startupNotifications,
+    weatherApi,
+  });
+  const server = app.listen(port);
   let scheduler: TimeBasedPollingScheduler | undefined;
   let imageServices: ImageServices | undefined;
 

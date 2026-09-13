@@ -36,8 +36,8 @@ test('1. 本番 migration をすべて適用すると全テーブルが存在し
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 22);
-    assert.equal(context.migrationSummary.appliedVersions.length, 22);
+    assert.equal(expectedSqlFiles.length, 23);
+    assert.equal(context.migrationSummary.appliedVersions.length, 23);
 
     const tables = (
       context.connection
@@ -52,6 +52,7 @@ test('1. 本番 migration をすべて適用すると全テーブルが存在し
       'warning_timeseries_snapshot',
       'warning_timeseries_time_define',
       'warning_timeseries_value',
+      'warning_timeseries_addition',
       'early_warning_snapshot',
       'early_warning_time_define',
       'early_warning_cell',
@@ -358,7 +359,7 @@ test('8. migration を2回適用しても再実行されない', () => {
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 22);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 23);
     context1.close();
 
     const connection = openDatabase(databasePath);
@@ -377,7 +378,7 @@ test('8. migration を2回適用しても再実行されない', () => {
 test('9. migration ファイル内に BEGIN / COMMIT / ROLLBACK が含まれない', () => {
   const sqlFiles = readdirSync(migrationsDirectory).filter((file) => file.endsWith('.sql'));
 
-  assert.equal(sqlFiles.length, 22, '22 migration files should exist');
+  assert.equal(sqlFiles.length, 23, '23 migration files should exist');
 
   const forbiddenPattern = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/im;
   for (const file of sqlFiles) {
@@ -431,8 +432,8 @@ test('11. warning_timeseries_value の列定義が設計書 §4 と一致し、k
 
     const colMap = new Map(columns.map((c) => [c.name, c]));
 
-    // 全18列
-    assert.equal(columns.length, 18);
+    // 全24列 (0014で18列、0023でscope 6列追加)
+    assert.equal(columns.length, 24);
 
     // nullable に緩和された列
     assert.equal(colMap.get('kind_code')?.notnull, 0, 'kind_code は nullable であること');
@@ -454,6 +455,31 @@ test('11. warning_timeseries_value の列定義が設計書 §4 と一致し、k
     assert.ok(colMap.has('condition'), 'condition 列が存在すること');
     assert.equal(colMap.get('condition')?.type, 'TEXT');
     assert.equal(colMap.get('condition')?.notnull, 0);
+
+    // 0023 で追加された scope 列
+    assert.ok(colMap.has('kind_index'), 'kind_index 列が存在すること');
+    assert.equal(colMap.get('kind_index')?.type, 'INTEGER');
+    assert.equal(colMap.get('kind_index')?.notnull, 0);
+
+    assert.ok(colMap.has('property_index'), 'property_index 列が存在すること');
+    assert.equal(colMap.get('property_index')?.type, 'INTEGER');
+    assert.equal(colMap.get('property_index')?.notnull, 0);
+
+    assert.ok(colMap.has('part_name'), 'part_name 列が存在すること');
+    assert.equal(colMap.get('part_name')?.type, 'TEXT');
+    assert.equal(colMap.get('part_name')?.notnull, 0);
+
+    assert.ok(colMap.has('part_index'), 'part_index 列が存在すること');
+    assert.equal(colMap.get('part_index')?.type, 'INTEGER');
+    assert.equal(colMap.get('part_index')?.notnull, 0);
+
+    assert.ok(colMap.has('base_index'), 'base_index 列が存在すること');
+    assert.equal(colMap.get('base_index')?.type, 'INTEGER');
+    assert.equal(colMap.get('base_index')?.notnull, 0);
+
+    assert.ok(colMap.has('local_index'), 'local_index 列が存在すること');
+    assert.equal(colMap.get('local_index')?.type, 'INTEGER');
+    assert.equal(colMap.get('local_index')?.notnull, 0);
 
     context.close();
   } finally {

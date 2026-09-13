@@ -339,6 +339,16 @@
       "editor": "Antigravity (Gemini 3.8 Flash)",
       "retrievedAt": "2026-09-12T02:50:00+09:00",
       "purpose": "正常な空配列のパース検証用合成データ"
+    },
+    {
+      "path": "20260913214231_0_VPWP50_150000.xml",
+      "kind": "original",
+      "sourceUrl": "https://www.data.jma.go.jp/developer/xml/data/20260913214231_0_VPWP50_150000.xml",
+      "sourceFileName": "20260913214231_0_VPWP50_150000.xml",
+      "sourceSha256": "f3d043fa773b7adb68932230e03b8bb85f0ad4f8d07f8c93a35141be6a14daa9",
+      "fixtureSha256": "f3d043fa773b7adb68932230e03b8bb85f0ad4f8d07f8c93a35141be6a14daa9",
+      "retrievedAt": "2026-09-14T07:15:00+09:00",
+      "purpose": "VPWP50（新潟県・新潟市雷危険度付加事項）の正例・Noteパース検証"
     }
   ]
 }

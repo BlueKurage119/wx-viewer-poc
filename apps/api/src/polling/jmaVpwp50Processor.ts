@@ -67,6 +67,8 @@ export function processVpwp50Reception(
         },
         timeDefines: parsed.timeDefines,
         values: parsed.values,
+        additionsParsed: true,
+        additions: parsed.additions,
       });
 
       upsertTelegramReceptionAdoption(connection, reception.id, {
