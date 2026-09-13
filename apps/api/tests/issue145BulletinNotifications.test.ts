@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import crypto from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { initializeDatabase } from '../src/database/index.js';
+import { runMigrations } from '../src/database/migrations.js';
 import { startServer } from '../src/server.js';
 import {
   planBosaiBulletinNotifications,
@@ -23,6 +23,7 @@ import {
   createStartupNotificationService,
   StartupNotificationInitialization,
 } from '../src/notifications/startupNotificationService.js';
+import { parseVpbs50 } from '../src/polling/jmaVpbs50Parser.js';
 import { processVpbs50Reception } from '../src/polling/jmaVpbs50Processor.js';
 import {
   processVphwReception,
@@ -34,7 +35,10 @@ import {
   saveBosaiBulletin,
 } from '../src/repositories/bosaiBulletinRepository.js';
 import { listNotificationOutputHistory } from '../src/repositories/notificationOutputHistoryRepository.js';
-import { recordTelegramReception } from '../src/repositories/telegramReceptionRepository.js';
+import {
+  findTelegramReceptionById,
+  recordTelegramReception,
+} from '../src/repositories/telegramReceptionRepository.js';
 import type {
   BosaiBulletin,
   ControlStatus,
@@ -2208,6 +2212,1324 @@ test('AC14: startServer起動時、polling開始前に速報の初期通知が�
       }
     } finally {
       await server.close();
+    }
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('AC15: 合成VPBS50を通常processorに受信させ、対象区域を持つ発表→新しいControl/DateTimeの区域0件取消の順で、取消の採用・保存・B4通知まで検証する。取消が既知タグを持つ条件で、保存行が取消済み・区域0件・タグは入力値のままであること、previousの区域に該当する会場だけ取消定義・warning・確認不要の履歴が1件増えること、起動現況に旧発表も取消も返らないことを完全一致で確認する。発表の現況表示期限が切れていても対象を特定できれば同じ結果となる。', () => {
+  const { context, cleanup } = setupTestDb();
+  try {
+    const fixedNowIso = '2026-09-10T08:30:00.000Z';
+    const { deps } = createNormalEmitDeps(fixedNowIso);
+
+    // 1. 対象区域（江東区: east 会場のみ該当）を持つ発表電文の投入
+    const eventId = 'EVENT_AC15_TEST';
+    const xmlInitial = buildVpbs50Xml({
+      eventId,
+      controlDateTime: '2026-09-10T07:40:00Z',
+      reportDateTime: '2026-09-10T16:40:00+09:00', // 2026-09-10T07:40:00Z
+      condition: '線状降水帯発生',
+      headlineAreas: [{ name: '江東区', code: '1310800' }],
+    });
+    const receptionInitial = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac15_initial.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（線状降水帯発生）',
+      controlStatus: 'normal',
+      infoType: '発表',
+      eventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:40:00.000Z',
+      reportDateTime: '2026-09-10T07:40:00.000Z',
+      targetDateTime: '2026-09-10T07:40:00.000Z',
+      receivedAt: '2026-09-10T07:41:00.000Z',
+      rawBody: xmlInitial,
+      bodyBytes: Buffer.byteLength(xmlInitial),
+      contentHash: 'hash_ac15_initial',
+      areas: [],
+      adoptions: [],
+    });
+
+    const parseResultInitial = processVpbs50Reception(
+      context.connection,
+      receptionInitial,
+      '2026-09-10T07:41:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(parseResultInitial.ok, true);
+
+    // 発表による B4 履歴の確認（east のみ 1件）
+    const initialHistories = listNotificationOutputHistory(context.connection, {
+      origin: 'weather',
+    });
+    assert.equal(initialHistories.length, 1);
+    assert.equal(
+      initialHistories[0]!.messageDefinitionId,
+      'weather-bosai-bulletin-linear-rainband-observed',
+    );
+    assert.equal(initialHistories[0]!.category, 'question');
+    assert.equal(initialHistories[0]!.ackRequired, true);
+
+    // 2. 新しい Control/DateTime の区域0件取消電文（既知タグあり）の投入
+    const xmlCancel = buildVpbs50Xml({
+      eventId,
+      controlDateTime: '2026-09-10T07:50:00Z',
+      reportDateTime: '2026-09-10T16:50:00+09:00', // 2026-09-10T07:50:00Z
+      infoType: '取消',
+      headTitle: '東京都気象防災速報（取消）',
+      condition: '線状降水帯発生',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const receptionCancel = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac15_cancel.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:50:00.000Z',
+      reportDateTime: '2026-09-10T07:50:00.000Z',
+      targetDateTime: '2026-09-10T07:50:00.000Z',
+      receivedAt: '2026-09-10T07:51:00.000Z',
+      rawBody: xmlCancel,
+      bodyBytes: Buffer.byteLength(xmlCancel),
+      contentHash: 'hash_ac15_cancel',
+      areas: [],
+      adoptions: [],
+    });
+
+    const parseResultCancel = processVpbs50Reception(
+      context.connection,
+      receptionCancel,
+      '2026-09-10T07:51:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(parseResultCancel.ok, true);
+
+    // 3. 保存行の完全一致検証
+    const saved = findBosaiBulletin(context.connection, eventId, 'normal');
+    assert.ok(saved);
+    assert.equal(saved.isCancelled, true);
+    assert.equal(saved.infoType, '取消');
+    assert.equal(saved.informationTag, '線状降水帯発生', 'タグは入力値のままであること');
+    assert.equal(saved.headlineText, null);
+    assert.equal(
+      saved.areas.length,
+      0,
+      '保存行の区域は0件のままであること（previousから書き足さない）',
+    );
+
+    // 4. B4 通知履歴の検証（取消通知が east のみ 1件増え、計2件）
+    const cancelHistories = listNotificationOutputHistory(context.connection, {
+      origin: 'weather',
+    });
+    assert.equal(cancelHistories.length, 2);
+    const cancelOutput = cancelHistories.find((h) => h.changeType === 'cancelled');
+    assert.ok(cancelOutput, '取消通知履歴が存在すること');
+    assert.equal(
+      cancelOutput.messageDefinitionId,
+      'weather-bosai-bulletin-cancelled',
+      '取消定義IDであること',
+    );
+    assert.equal(cancelOutput.category, 'warning', 'category は warning であること');
+    assert.equal(cancelOutput.ackRequired, false, '確認不要 (ackRequired=false) であること');
+    assert.equal(cancelOutput.changeType, 'cancelled');
+    assert.ok(cancelOutput.summary.includes('線状降水帯'));
+    const targets = JSON.parse(cancelOutput.targetAreaJson!);
+    assert.equal(targets.length, 1);
+    assert.equal(targets[0].code, 'east');
+    assert.equal(targets[0].codeType, 'venue');
+
+    // 5. 起動現況プロジェクタで旧発表も取消も返らないことを完全一致で確認
+    const startupEast = projectStartupCurrentNotifications(context.connection, {
+      venueId: 'east',
+      now: fixedNowIso,
+      includeWarningCategory: true,
+      fetchHealth: null,
+    });
+    assert.equal(
+      startupEast.notifications.length,
+      0,
+      '起動現況に取消・旧発表が返らないこと (east)',
+    );
+
+    const startupTrc = projectStartupCurrentNotifications(context.connection, {
+      venueId: 'trc',
+      now: fixedNowIso,
+      includeWarningCategory: true,
+      fetchHealth: null,
+    });
+    assert.equal(startupTrc.notifications.length, 0, '起動現況に取消・旧発表が返らないこと (trc)');
+
+    // 6. 発表の現況表示期限が切れていても対象を特定できれば取消通知が記録されることの検証
+    const expiredEventId = 'EVENT_AC15_EXPIRED_TEST';
+    const xmlExpiredInitial = buildVpbs50Xml({
+      eventId: expiredEventId,
+      controlDateTime: '2026-09-10T01:00:00Z',
+      reportDateTime: '2026-09-10T10:00:00+09:00', // 2026-09-10T01:00:00Z (fixedNowIso の 7.5時間前)
+      condition: '記録雨',
+      headlineAreas: [{ name: '大田区', code: '1311100' }], // trc 会場該当
+    });
+    const receptionExpiredInitial = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac15_expired_initial.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（記録的短時間大雨）',
+      controlStatus: 'normal',
+      infoType: '発表',
+      eventId: expiredEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T01:00:00.000Z',
+      reportDateTime: '2026-09-10T01:00:00.000Z',
+      targetDateTime: '2026-09-10T01:00:00.000Z',
+      receivedAt: '2026-09-10T01:01:00.000Z',
+      rawBody: xmlExpiredInitial,
+      bodyBytes: Buffer.byteLength(xmlExpiredInitial),
+      contentHash: 'hash_ac15_expired_initial',
+      areas: [],
+      adoptions: [],
+    });
+    processVpbs50Reception(
+      context.connection,
+      receptionExpiredInitial,
+      '2026-09-10T01:01:00.000Z',
+      undefined,
+      deps,
+    );
+
+    const countBeforeExpiredCancel = listNotificationOutputHistory(context.connection, {
+      origin: 'weather',
+    }).length;
+
+    const xmlExpiredCancel = buildVpbs50Xml({
+      eventId: expiredEventId,
+      controlDateTime: '2026-09-10T02:00:00Z',
+      reportDateTime: '2026-09-10T11:00:00+09:00',
+      infoType: '取消',
+      headTitle: '東京都気象防災速報（取消）',
+      condition: '記録雨',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const receptionExpiredCancel = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac15_expired_cancel.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: expiredEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T02:00:00.000Z',
+      reportDateTime: '2026-09-10T02:00:00.000Z',
+      targetDateTime: '2026-09-10T02:00:00.000Z',
+      receivedAt: '2026-09-10T02:01:00.000Z',
+      rawBody: xmlExpiredCancel,
+      bodyBytes: Buffer.byteLength(xmlExpiredCancel),
+      contentHash: 'hash_ac15_expired_cancel',
+      areas: [],
+      adoptions: [],
+    });
+    const parseResultExpiredCancel = processVpbs50Reception(
+      context.connection,
+      receptionExpiredCancel,
+      '2026-09-10T02:01:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(parseResultExpiredCancel.ok, true);
+
+    const historiesAfterExpiredCancel = listNotificationOutputHistory(context.connection, {
+      origin: 'weather',
+    });
+    assert.equal(
+      historiesAfterExpiredCancel.length,
+      countBeforeExpiredCancel + 1,
+      '期限切れ発表に対する区域0件取消でも通知が1件増えること',
+    );
+    const expiredCancelOutput = historiesAfterExpiredCancel.find(
+      (h) =>
+        h.changeType === 'cancelled' &&
+        h.messageDefinitionId === 'weather-bosai-bulletin-cancelled' &&
+        h.summary.includes('記録'),
+    )!;
+    assert.ok(expiredCancelOutput, '期限切れに対する取消通知履歴が存在すること');
+    assert.equal(expiredCancelOutput.messageDefinitionId, 'weather-bosai-bulletin-cancelled');
+    assert.ok(
+      expiredCancelOutput.summary.includes('記録的短時間大雨') ||
+        expiredCancelOutput.summary.includes('記録雨'),
+    );
+    const expiredTargets = JSON.parse(expiredCancelOutput.targetAreaJson!);
+    assert.equal(expiredTargets[0].code, 'trc');
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC16: 区域0件取消について、タグと区域が双方欠落・previousなし・別EventIDのみ・別controlStatusのみ・previousが取消済み・previousの種別または区域不完全・既知タグ不一致・previousが対象地域外を独立に注入し、取消が採用されず既存現況と通知履歴が変わらないこと、受信ID・EventID・理由を追跡できることを確認する。同版・古いControl/DateTimeも保存・通知を増やさない。区域あり取消の既存採用結果と、通知の種別／区域不一致見送りを回帰検証する。一般parser呼出しがpreviousの検証なしに区域0件取消を採用しないことも確認する。', () => {
+  const { context, cleanup } = setupTestDb();
+  try {
+    const fixedNowIso = '2026-09-10T08:30:00.000Z';
+    const { deps } = createNormalEmitDeps(fixedNowIso);
+
+    // 0. 一般 parser 呼出し（明示オプションなし）が previous 検証なしに区域0件取消を採用しないこと
+    const emptyAreasCancelXml = buildVpbs50Xml({
+      eventId: 'EVENT_PARSER_DIRECT',
+      controlDateTime: '2026-09-10T07:50:00Z',
+      reportDateTime: '2026-09-10T16:50:00+09:00',
+      infoType: '取消',
+      condition: '線状降水帯発生',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const directParseResult = parseVpbs50(emptyAreasCancelXml, {
+      telegramType: 'VPBS50',
+      controlStatus: 'normal',
+      reportDateTime: '2026-09-10T07:50:00.000Z',
+      controlDateTime: '2026-09-10T07:50:00.000Z',
+    });
+    assert.equal(directParseResult.ok, false);
+    assert.equal(directParseResult.disposition, '対象地域外');
+
+    // 基準となる正常な発表行（線状降水帯発生 / 江東区: 1310800 / normal）を作成
+    const baseEventId = 'EVENT_AC16_BASE';
+    const xmlBase = buildVpbs50Xml({
+      eventId: baseEventId,
+      controlDateTime: '2026-09-10T07:00:00Z',
+      reportDateTime: '2026-09-10T16:00:00+09:00',
+      condition: '線状降水帯発生',
+      headlineAreas: [{ name: '江東区', code: '1310800' }],
+    });
+    const recBase = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_base.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（線状降水帯発生）',
+      controlStatus: 'normal',
+      infoType: '発表',
+      eventId: baseEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:00:00.000Z',
+      reportDateTime: '2026-09-10T07:00:00.000Z',
+      targetDateTime: '2026-09-10T07:00:00.000Z',
+      receivedAt: '2026-09-10T07:01:00.000Z',
+      rawBody: xmlBase,
+      bodyBytes: Buffer.byteLength(xmlBase),
+      contentHash: 'hash_ac16_base',
+      areas: [],
+      adoptions: [],
+    });
+    processVpbs50Reception(
+      context.connection,
+      recBase,
+      '2026-09-10T07:01:00.000Z',
+      undefined,
+      deps,
+    );
+
+    const historyCountBase = listNotificationOutputHistory(context.connection, {
+      origin: 'weather',
+    }).length;
+    assert.equal(historyCountBase, 1);
+
+    // 1. タグと区域が双方欠落
+    const xmlNoTagNoArea = buildVpbs50Xml({
+      eventId: baseEventId,
+      controlDateTime: '2026-09-10T07:10:00Z',
+      reportDateTime: '2026-09-10T16:10:00+09:00',
+      infoType: '取消',
+      omitInformationTag: true,
+      headlineAreas: [],
+      bodyAreas: [],
+    });
+    const recNoTagNoArea = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_no_tag.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: baseEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:10:00.000Z',
+      reportDateTime: '2026-09-10T07:10:00.000Z',
+      targetDateTime: '2026-09-10T07:10:00.000Z',
+      receivedAt: '2026-09-10T07:11:00.000Z',
+      rawBody: xmlNoTagNoArea,
+      bodyBytes: Buffer.byteLength(xmlNoTagNoArea),
+      contentHash: 'hash_ac16_no_tag',
+      areas: [],
+      adoptions: [],
+    });
+    const resNoTagNoArea = processVpbs50Reception(
+      context.connection,
+      recNoTagNoArea,
+      '2026-09-10T07:11:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(resNoTagNoArea.ok, false);
+    assert.equal(resNoTagNoArea.disposition, '未対応構造');
+    assert.equal(resNoTagNoArea.reason, '取消電文で情報タグがなく、かつ抽出区域が0件です');
+
+    // 2. previous なし
+    const xmlNoPrev = buildVpbs50Xml({
+      eventId: 'EVENT_NO_PREV',
+      controlDateTime: '2026-09-10T07:10:00Z',
+      reportDateTime: '2026-09-10T16:10:00+09:00',
+      infoType: '取消',
+      condition: '線状降水帯発生',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const recNoPrev = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_no_prev.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: 'EVENT_NO_PREV',
+      serial: null,
+      controlDateTime: '2026-09-10T07:10:00.000Z',
+      reportDateTime: '2026-09-10T07:10:00.000Z',
+      targetDateTime: '2026-09-10T07:10:00.000Z',
+      receivedAt: '2026-09-10T07:11:00.000Z',
+      rawBody: xmlNoPrev,
+      bodyBytes: Buffer.byteLength(xmlNoPrev),
+      contentHash: 'hash_ac16_no_prev',
+      areas: [],
+      adoptions: [],
+    });
+    const resNoPrev = processVpbs50Reception(
+      context.connection,
+      recNoPrev,
+      '2026-09-10T07:11:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(resNoPrev.ok, false);
+    assert.equal(resNoPrev.disposition, '未対応構造');
+    assert.ok(resNoPrev.reason.includes('unknown_cancellation_target'));
+    assert.ok(resNoPrev.reason.includes(`receptionId: ${recNoPrev.id}`));
+    assert.ok(resNoPrev.reason.includes('eventId: EVENT_NO_PREV'));
+
+    // 3. 別 EventID のみ
+    const xmlDiffEvent = buildVpbs50Xml({
+      eventId: 'EVENT_DIFF_ID',
+      controlDateTime: '2026-09-10T07:10:00Z',
+      reportDateTime: '2026-09-10T16:10:00+09:00',
+      infoType: '取消',
+      condition: '線状降水帯発生',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const recDiffEvent = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_diff_event.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: 'EVENT_DIFF_ID',
+      serial: null,
+      controlDateTime: '2026-09-10T07:10:00.000Z',
+      reportDateTime: '2026-09-10T07:10:00.000Z',
+      targetDateTime: '2026-09-10T07:10:00.000Z',
+      receivedAt: '2026-09-10T07:11:00.000Z',
+      rawBody: xmlDiffEvent,
+      bodyBytes: Buffer.byteLength(xmlDiffEvent),
+      contentHash: 'hash_ac16_diff_event',
+      areas: [],
+      adoptions: [],
+    });
+    const resDiffEvent = processVpbs50Reception(
+      context.connection,
+      recDiffEvent,
+      '2026-09-10T07:11:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(resDiffEvent.ok, false);
+    assert.equal(resDiffEvent.disposition, '未対応構造');
+    assert.ok(resDiffEvent.reason.includes('unknown_cancellation_target'));
+
+    // 4. 別 controlStatus のみ (normal 発表に対して training 取消)
+    const xmlDiffStatus = buildVpbs50Xml({
+      eventId: baseEventId,
+      controlStatus: '訓練',
+      controlDateTime: '2026-09-10T07:10:00Z',
+      reportDateTime: '2026-09-10T16:10:00+09:00',
+      infoType: '取消',
+      condition: '線状降水帯発生',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const recDiffStatus = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_diff_status.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'training',
+      infoType: '取消',
+      eventId: baseEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:10:00.000Z',
+      reportDateTime: '2026-09-10T07:10:00.000Z',
+      targetDateTime: '2026-09-10T07:10:00.000Z',
+      receivedAt: '2026-09-10T07:11:00.000Z',
+      rawBody: xmlDiffStatus,
+      bodyBytes: Buffer.byteLength(xmlDiffStatus),
+      contentHash: 'hash_ac16_diff_status',
+      areas: [],
+      adoptions: [],
+    });
+    const resDiffStatus = processVpbs50Reception(
+      context.connection,
+      recDiffStatus,
+      '2026-09-10T07:11:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(resDiffStatus.ok, false);
+    assert.equal(resDiffStatus.disposition, '未対応構造');
+    assert.ok(resDiffStatus.reason.includes('unknown_cancellation_target'));
+
+    // 5. previous が取消済み
+    const alreadyCancelledEventId = 'EVENT_ALREADY_CANCELLED';
+    const xmlInitialForCancel = buildVpbs50Xml({
+      eventId: alreadyCancelledEventId,
+      controlDateTime: '2026-09-10T07:00:00Z',
+      reportDateTime: '2026-09-10T16:00:00+09:00',
+      condition: '記録雨',
+      headlineAreas: [{ name: '江東区', code: '1310800' }],
+    });
+    const recInitialForCancel = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_already_initial.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（記録的短時間大雨）',
+      controlStatus: 'normal',
+      infoType: '発表',
+      eventId: alreadyCancelledEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:00:00.000Z',
+      reportDateTime: '2026-09-10T07:00:00.000Z',
+      targetDateTime: '2026-09-10T07:00:00.000Z',
+      receivedAt: '2026-09-10T07:01:00.000Z',
+      rawBody: xmlInitialForCancel,
+      bodyBytes: Buffer.byteLength(xmlInitialForCancel),
+      contentHash: 'hash_ac16_already_initial',
+      areas: [],
+      adoptions: [],
+    });
+    processVpbs50Reception(context.connection, recInitialForCancel, '2026-09-10T07:01:00.000Z');
+
+    const xmlFirstCancel = buildVpbs50Xml({
+      eventId: alreadyCancelledEventId,
+      controlDateTime: '2026-09-10T07:05:00Z',
+      reportDateTime: '2026-09-10T16:05:00+09:00',
+      infoType: '取消',
+      condition: '記録雨',
+      headlineAreas: [{ name: '江東区', code: '1310800' }],
+      omitHeadlineText: true,
+    });
+    const recFirstCancel = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_already_first_cancel.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: alreadyCancelledEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:05:00.000Z',
+      reportDateTime: '2026-09-10T07:05:00.000Z',
+      targetDateTime: '2026-09-10T07:05:00.000Z',
+      receivedAt: '2026-09-10T07:06:00.000Z',
+      rawBody: xmlFirstCancel,
+      bodyBytes: Buffer.byteLength(xmlFirstCancel),
+      contentHash: 'hash_ac16_already_first_cancel',
+      areas: [],
+      adoptions: [],
+    });
+    processVpbs50Reception(context.connection, recFirstCancel, '2026-09-10T07:06:00.000Z');
+
+    // 取消済みの行に対して区域0件取消を投入
+    const xmlSecondEmptyCancel = buildVpbs50Xml({
+      eventId: alreadyCancelledEventId,
+      controlDateTime: '2026-09-10T07:10:00Z',
+      reportDateTime: '2026-09-10T16:10:00+09:00',
+      infoType: '取消',
+      condition: '記録雨',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const recSecondEmptyCancel = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_already_second_cancel.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: alreadyCancelledEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:10:00.000Z',
+      reportDateTime: '2026-09-10T07:10:00.000Z',
+      targetDateTime: '2026-09-10T07:10:00.000Z',
+      receivedAt: '2026-09-10T07:11:00.000Z',
+      rawBody: xmlSecondEmptyCancel,
+      bodyBytes: Buffer.byteLength(xmlSecondEmptyCancel),
+      contentHash: 'hash_ac16_already_second_cancel',
+      areas: [],
+      adoptions: [],
+    });
+    const resSecondEmptyCancel = processVpbs50Reception(
+      context.connection,
+      recSecondEmptyCancel,
+      '2026-09-10T07:11:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(resSecondEmptyCancel.ok, false);
+    assert.equal(resSecondEmptyCancel.disposition, '未対応構造');
+    assert.ok(resSecondEmptyCancel.reason.includes('unknown_cancellation_target'));
+
+    // 6. previous の種別または区域不完全 (areas が空の previous)
+    const incompleteEventId = 'EVENT_INCOMPLETE_PREV';
+    saveBosaiBulletin(context.connection, {
+      eventId: incompleteEventId,
+      controlStatus: 'normal',
+      infoType: '発表',
+      reportDateTime: '2026-09-10T07:00:00.000Z',
+      controlDateTime: '2026-09-10T07:00:00.000Z',
+      title: '東京都気象防災速報（線状降水帯発生）',
+      headlineText: '本文',
+      informationTag: '線状降水帯発生',
+      hasSighting: null,
+      isCancelled: false,
+      metadata: {
+        source: 'http://example.com/incomplete.xml',
+        issuedAt: '2026-09-10T07:00:00.000Z',
+        validAt: null,
+        validFrom: null,
+        validTo: null,
+        fetchedAt: '2026-09-10T07:00:00.000Z',
+        lastSuccessAt: '2026-09-10T07:00:00.000Z',
+        availability: 'available',
+        sourceVersion: '1.5_0',
+      },
+      areas: [], // 区域不完全
+    });
+    const xmlIncompleteCancel = buildVpbs50Xml({
+      eventId: incompleteEventId,
+      controlDateTime: '2026-09-10T07:10:00Z',
+      reportDateTime: '2026-09-10T16:10:00+09:00',
+      infoType: '取消',
+      condition: '線状降水帯発生',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const recIncompleteCancel = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_incomplete_cancel.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: incompleteEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:10:00.000Z',
+      reportDateTime: '2026-09-10T07:10:00.000Z',
+      targetDateTime: '2026-09-10T07:10:00.000Z',
+      receivedAt: '2026-09-10T07:11:00.000Z',
+      rawBody: xmlIncompleteCancel,
+      bodyBytes: Buffer.byteLength(xmlIncompleteCancel),
+      contentHash: 'hash_ac16_incomplete_cancel',
+      areas: [],
+      adoptions: [],
+    });
+    const resIncompleteCancel = processVpbs50Reception(
+      context.connection,
+      recIncompleteCancel,
+      '2026-09-10T07:11:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(resIncompleteCancel.ok, false);
+    assert.equal(resIncompleteCancel.disposition, '未対応構造');
+    assert.ok(resIncompleteCancel.reason.includes('unknown_cancellation_target'));
+
+    // 7. 既知タグ不一致 (baseEventId は「線状降水帯発生」だが、取消が「記録雨」)
+    const xmlMismatchTag = buildVpbs50Xml({
+      eventId: baseEventId,
+      controlDateTime: '2026-09-10T07:20:00Z',
+      reportDateTime: '2026-09-10T16:20:00+09:00',
+      infoType: '取消',
+      condition: '記録雨',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const recMismatchTag = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_mismatch_tag.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: baseEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:20:00.000Z',
+      reportDateTime: '2026-09-10T07:20:00.000Z',
+      targetDateTime: '2026-09-10T07:20:00.000Z',
+      receivedAt: '2026-09-10T07:21:00.000Z',
+      rawBody: xmlMismatchTag,
+      bodyBytes: Buffer.byteLength(xmlMismatchTag),
+      contentHash: 'hash_ac16_mismatch_tag',
+      areas: [],
+      adoptions: [],
+    });
+    const resMismatchTag = processVpbs50Reception(
+      context.connection,
+      recMismatchTag,
+      '2026-09-10T07:21:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(resMismatchTag.ok, false);
+    assert.equal(resMismatchTag.disposition, '未対応構造');
+    assert.ok(resMismatchTag.reason.includes('ambiguous_cancellation_target'));
+    assert.ok(resMismatchTag.reason.includes('記録雨'));
+    assert.ok(resMismatchTag.reason.includes('線状降水帯発生'));
+    assert.ok(resMismatchTag.reason.includes(`receptionId: ${recMismatchTag.id}`));
+    assert.ok(resMismatchTag.reason.includes(`eventId: ${baseEventId}`));
+
+    // 8. previous が対象地域外 (大阪府: 270000)
+    const outsideEventId = 'EVENT_OUTSIDE_PREV';
+    saveBosaiBulletin(context.connection, {
+      eventId: outsideEventId,
+      controlStatus: 'normal',
+      infoType: '発表',
+      reportDateTime: '2026-09-10T07:00:00.000Z',
+      controlDateTime: '2026-09-10T07:00:00.000Z',
+      title: '大阪府気象防災速報（線状降水帯発生）',
+      headlineText: '大阪府本文',
+      informationTag: '線状降水帯発生',
+      hasSighting: null,
+      isCancelled: false,
+      metadata: {
+        source: 'http://example.com/outside.xml',
+        issuedAt: '2026-09-10T07:00:00.000Z',
+        validAt: null,
+        validFrom: null,
+        validTo: null,
+        fetchedAt: '2026-09-10T07:00:00.000Z',
+        lastSuccessAt: '2026-09-10T07:00:00.000Z',
+        availability: 'available',
+        sourceVersion: '1.5_0',
+      },
+      areas: [
+        {
+          areaCode: '270000',
+          areaName: '大阪府',
+          codeType: '気象情報／府県予報区・細分区域等',
+          sequence: 0,
+          informationType: null,
+        },
+      ],
+    });
+    const xmlOutsideCancel = buildVpbs50Xml({
+      eventId: outsideEventId,
+      controlDateTime: '2026-09-10T07:10:00Z',
+      reportDateTime: '2026-09-10T16:10:00+09:00',
+      infoType: '取消',
+      condition: '線状降水帯発生',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const recOutsideCancel = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_outside_cancel.xml',
+      telegramType: 'VPBS50',
+      title: '大阪府気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: outsideEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:10:00.000Z',
+      reportDateTime: '2026-09-10T07:10:00.000Z',
+      targetDateTime: '2026-09-10T07:10:00.000Z',
+      receivedAt: '2026-09-10T07:11:00.000Z',
+      rawBody: xmlOutsideCancel,
+      bodyBytes: Buffer.byteLength(xmlOutsideCancel),
+      contentHash: 'hash_ac16_outside_cancel',
+      areas: [],
+      adoptions: [],
+    });
+    const resOutsideCancel = processVpbs50Reception(
+      context.connection,
+      recOutsideCancel,
+      '2026-09-10T07:11:00.000Z',
+      undefined,
+      deps,
+    );
+    assert.equal(resOutsideCancel.ok, false);
+    assert.equal(resOutsideCancel.disposition, '対象地域外');
+    assert.ok(resOutsideCancel.reason.includes(`receptionId: ${recOutsideCancel.id}`));
+    assert.ok(resOutsideCancel.reason.includes(`eventId: ${outsideEventId}`));
+
+    // 9. 同版・古い Control/DateTime
+    const xmlOldCancel = buildVpbs50Xml({
+      eventId: baseEventId,
+      controlDateTime: '2026-09-10T07:00:00Z', // baseEventId と同じ時刻
+      reportDateTime: '2026-09-10T16:00:00+09:00',
+      infoType: '取消',
+      condition: '線状降水帯発生',
+      headlineAreas: [],
+      bodyAreas: [],
+      omitHeadlineText: true,
+    });
+    const recOldCancel = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_old_cancel.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: baseEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:00:00.000Z',
+      reportDateTime: '2026-09-10T07:00:00.000Z',
+      targetDateTime: '2026-09-10T07:00:00.000Z',
+      receivedAt: '2026-09-10T07:01:00.000Z',
+      rawBody: xmlOldCancel,
+      bodyBytes: Buffer.byteLength(xmlOldCancel),
+      contentHash: 'hash_ac16_old_cancel',
+      areas: [],
+      adoptions: [],
+    });
+    const resOldCancel = processVpbs50Reception(
+      context.connection,
+      recOldCancel,
+      '2026-09-10T07:01:00.000Z',
+      undefined,
+      deps,
+    );
+    // 従来動作: 同版・旧版スキップ時も parseResult(ok: true) を返し、adoptionResult は「重複または旧版」
+    assert.equal(resOldCancel.ok, true);
+    const oldCancelAdoption = findTelegramReceptionById(context.connection, recOldCancel.id)
+      ?.adoptions[0];
+    assert.equal(oldCancelAdoption?.adoptionResult, '重複または旧版');
+
+    // 拒否された各ケースで baseEventId の現況および通知履歴が変わっていないことの確認
+    const baseCurrent = findBosaiBulletin(context.connection, baseEventId, 'normal');
+    assert.ok(baseCurrent);
+    assert.equal(baseCurrent.isCancelled, false, 'baseEventId は取消されず維持されること');
+    assert.equal(baseCurrent.informationTag, '線状降水帯発生');
+    assert.equal(
+      listNotificationOutputHistory(context.connection, { origin: 'weather' }).length,
+      historyCountBase,
+      '通知履歴が増加していないこと',
+    );
+
+    // 10. 区域あり取消の既存採用結果と、通知の種別／区域不一致見送りの回帰検証
+    const withAreaEventId = 'EVENT_WITH_AREA_CANCEL';
+    const xmlWithAreaBase = buildVpbs50Xml({
+      eventId: withAreaEventId,
+      controlDateTime: '2026-09-10T07:00:00Z',
+      reportDateTime: '2026-09-10T16:00:00+09:00',
+      condition: '線状降水帯発生',
+      headlineAreas: [{ name: '江東区', code: '1310800' }],
+    });
+    const recWithAreaBase = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_with_area_base.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（線状降水帯発生）',
+      controlStatus: 'normal',
+      infoType: '発表',
+      eventId: withAreaEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:00:00.000Z',
+      reportDateTime: '2026-09-10T07:00:00.000Z',
+      targetDateTime: '2026-09-10T07:00:00.000Z',
+      receivedAt: '2026-09-10T07:01:00.000Z',
+      rawBody: xmlWithAreaBase,
+      bodyBytes: Buffer.byteLength(xmlWithAreaBase),
+      contentHash: 'hash_ac16_with_area_base',
+      areas: [],
+      adoptions: [],
+    });
+    processVpbs50Reception(
+      context.connection,
+      recWithAreaBase,
+      '2026-09-10T07:01:00.000Z',
+      undefined,
+      deps,
+    );
+
+    // 区域ありだが種別が異なる取消電文（線状降水帯発生に対して記録雨）
+    const xmlMismatchWithArea = buildVpbs50Xml({
+      eventId: withAreaEventId,
+      controlDateTime: '2026-09-10T07:10:00Z',
+      reportDateTime: '2026-09-10T16:10:00+09:00',
+      infoType: '取消',
+      condition: '記録雨',
+      headlineAreas: [{ name: '江東区', code: '1310800' }],
+      omitHeadlineText: true,
+    });
+    const recMismatchWithArea = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'extra',
+      feedEntryId: null,
+      documentUrl: 'http://example.com/ac16_mismatch_with_area.xml',
+      telegramType: 'VPBS50',
+      title: '東京都気象防災速報（取消）',
+      controlStatus: 'normal',
+      infoType: '取消',
+      eventId: withAreaEventId,
+      serial: null,
+      controlDateTime: '2026-09-10T07:10:00.000Z',
+      reportDateTime: '2026-09-10T07:10:00.000Z',
+      targetDateTime: '2026-09-10T07:10:00.000Z',
+      receivedAt: '2026-09-10T07:11:00.000Z',
+      rawBody: xmlMismatchWithArea,
+      bodyBytes: Buffer.byteLength(xmlMismatchWithArea),
+      contentHash: 'hash_ac16_mismatch_with_area',
+      areas: [],
+      adoptions: [],
+    });
+    const resMismatchWithArea = processVpbs50Reception(
+      context.connection,
+      recMismatchWithArea,
+      '2026-09-10T07:11:00.000Z',
+      undefined,
+      deps,
+    );
+    // 区域ありなので parser/processor では採用・保存されるが、planner 側で ambiguous_cancellation_target として通知は見送られる
+    assert.equal(resMismatchWithArea.ok, true);
+    const withAreaSaved = findBosaiBulletin(context.connection, withAreaEventId, 'normal');
+    assert.ok(withAreaSaved);
+    assert.equal(withAreaSaved.isCancelled, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意／目撃区域を保存して0022を適用し、既存行の全項目を維持することを確認する。同一bulletin・区域コード・codeTypeのNULL重複、および同一非NULL informationType重複をrepositoryの保存経路から投入すると制約違反になり、失敗前の保存状態を維持する。注意と目撃、異なるbulletin・区域コード・codeTypeの行は併存できる。既存重複を持つ0021 DBでは0022が失敗・ロールバックし、行を黙って削除しない。新規DBへの全migration適用も成功し、0021の内容は変更されていないことを確認する。', () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-ac17-test-'));
+  const tempMigrationsDir = join(tmpDir, 'migrations');
+  cpSync(migrationsDirectory, tempMigrationsDir, { recursive: true });
+
+  try {
+    // 1. 0022 を一時的に除いた 0001〜0021 までの migration ディレクトリを作成
+    const mig0022Path = join(tempMigrationsDir, '0022_add_bosai_bulletin_area_unique_indexes.sql');
+    const mig0022Sql = readFileSync(mig0022Path, 'utf8');
+    rmSync(mig0022Path);
+
+    const dbPath = join(tmpDir, 'test_migration.sqlite3');
+    const context = initializeDatabase({
+      databasePath: dbPath,
+      migrationsDirectory: tempMigrationsDir,
+    });
+
+    try {
+      // 0021 適用済み DB に VPBS50（NULL 区域）と VPHW（注意／目撃区域）を保存
+      const vpbsSaved = saveBosaiBulletin(context.connection, {
+        eventId: 'VPBS_0021_EVENT',
+        controlStatus: 'normal',
+        infoType: '発表',
+        reportDateTime: '2026-09-10T07:00:00.000Z',
+        controlDateTime: '2026-09-10T07:00:00.000Z',
+        title: '東京都気象防災速報（線状降水帯発生）',
+        headlineText: '本文',
+        informationTag: '線状降水帯発生',
+        hasSighting: null,
+        isCancelled: false,
+        metadata: {
+          source: 'http://example.com/vpbs.xml',
+          issuedAt: '2026-09-10T07:00:00.000Z',
+          validAt: null,
+          validFrom: null,
+          validTo: null,
+          fetchedAt: '2026-09-10T07:00:00.000Z',
+          lastSuccessAt: '2026-09-10T07:00:00.000Z',
+          availability: 'available',
+          sourceVersion: '1.5_0',
+        },
+        areas: [
+          {
+            areaCode: '1310800',
+            areaName: '江東区',
+            codeType: '気象・地震・火山情報／市町村等',
+            sequence: 0,
+            informationType: null,
+          },
+        ],
+      });
+
+      const vphwSaved = saveBosaiBulletin(context.connection, {
+        eventId: 'VPHW51:130010',
+        controlStatus: 'normal',
+        infoType: '発表',
+        reportDateTime: '2026-09-10T07:00:00.000Z',
+        controlDateTime: '2026-09-10T07:00:00.000Z',
+        title: '東京都竜巻注意情報',
+        headlineText: '本文',
+        informationTag: '東京地方',
+        hasSighting: true,
+        isCancelled: false,
+        metadata: {
+          source: 'http://example.com/vphw.xml',
+          issuedAt: '2026-09-10T07:00:00.000Z',
+          validAt: '2026-09-10T08:10:00.000Z',
+          validFrom: null,
+          validTo: null,
+          fetchedAt: '2026-09-10T07:00:00.000Z',
+          lastSuccessAt: '2026-09-10T07:00:00.000Z',
+          availability: 'available',
+          sourceVersion: '1.0_0',
+        },
+        areas: [
+          {
+            areaCode: '1310800',
+            areaName: '江東区',
+            codeType: '気象・地震・火山情報／市町村等',
+            sequence: 0,
+            informationType: '竜巻注意情報（市町村等）',
+          },
+          {
+            areaCode: '1310800',
+            areaName: '江東区',
+            codeType: '気象・地震・火山情報／市町村等',
+            sequence: 1,
+            informationType: '竜巻注意情報（目撃情報あり）',
+          },
+        ],
+      });
+
+      // 2. 0022 migration ファイルを復元し、runMigrations を実行して前方マイグレーション
+      writeFileSync(mig0022Path, mig0022Sql, 'utf8');
+
+      const migrationSummary = runMigrations(context.connection, tempMigrationsDir);
+      assert.deepEqual(migrationSummary.appliedVersions, [22]);
+
+      // 既存行の全項目が維持されていることを確認
+      const vpbsAfter = findBosaiBulletin(context.connection, 'VPBS_0021_EVENT', 'normal');
+      assert.ok(vpbsAfter);
+      assert.equal(vpbsAfter.areas.length, 1);
+      assert.equal(vpbsAfter.areas[0]!.areaCode, '1310800');
+      assert.equal(vpbsAfter.areas[0]!.informationType, null);
+
+      const vphwAfter = findBosaiBulletin(context.connection, 'VPHW51:130010', 'normal');
+      assert.ok(vphwAfter);
+      assert.equal(vphwAfter.areas.length, 2);
+      assert.equal(vphwAfter.areas[0]!.informationType, '竜巻注意情報（市町村等）');
+      assert.equal(vphwAfter.areas[1]!.informationType, '竜巻注意情報（目撃情報あり）');
+
+      // 3. 一意制約違反のテスト: NULL 重複
+      assert.throws(
+        () => {
+          saveBosaiBulletin(context.connection, {
+            eventId: 'VPBS_0021_EVENT',
+            controlStatus: 'normal',
+            infoType: '発表',
+            reportDateTime: '2026-09-10T07:00:00.000Z',
+            controlDateTime: '2026-09-10T07:00:00.000Z',
+            title: '東京都気象防災速報（線状降水帯発生）',
+            headlineText: '本文',
+            informationTag: '線状降水帯発生',
+            hasSighting: null,
+            isCancelled: false,
+            metadata: vpbsSaved.metadata,
+            areas: [
+              {
+                areaCode: '1310800',
+                areaName: '江東区',
+                codeType: '気象・地震・火山情報／市町村等',
+                sequence: 0,
+                informationType: null,
+              },
+              {
+                areaCode: '1310800',
+                areaName: '江東区',
+                codeType: '気象・地震・火山情報／市町村等',
+                sequence: 1,
+                informationType: null,
+              },
+            ],
+          });
+        },
+        /UNIQUE constraint failed/,
+        '同一 bulletin, area_code, code_type で information_type が NULL の重複行は制約違反になること',
+      );
+
+      // 失敗前の保存状態が維持されていること
+      const vpbsRollbackCheck = findBosaiBulletin(context.connection, 'VPBS_0021_EVENT', 'normal');
+      assert.ok(vpbsRollbackCheck);
+      assert.equal(vpbsRollbackCheck.areas.length, 1);
+
+      // 4. 一意制約違反のテスト: 同一非 NULL informationType 重複
+      assert.throws(
+        () => {
+          saveBosaiBulletin(context.connection, {
+            eventId: 'VPHW51:130010',
+            controlStatus: 'normal',
+            infoType: '発表',
+            reportDateTime: '2026-09-10T07:00:00.000Z',
+            controlDateTime: '2026-09-10T07:00:00.000Z',
+            title: '東京都竜巻注意情報',
+            headlineText: '本文',
+            informationTag: '東京地方',
+            hasSighting: true,
+            isCancelled: false,
+            metadata: vphwSaved.metadata,
+            areas: [
+              {
+                areaCode: '1310800',
+                areaName: '江東区',
+                codeType: '気象・地震・火山情報／市町村等',
+                sequence: 0,
+                informationType: '竜巻注意情報（市町村等）',
+              },
+              {
+                areaCode: '1310800',
+                areaName: '江東区',
+                codeType: '気象・地震・火山情報／市町村等',
+                sequence: 1,
+                informationType: '竜巻注意情報（市町村等）',
+              },
+            ],
+          });
+        },
+        /UNIQUE constraint failed/,
+        '同一 bulletin, area_code, code_type で同一非 NULL information_type の重複行は制約違反になること',
+      );
+
+      // 5. 注意と目撃、異なる bulletin / 区域コード / codeType の併存確認
+      const validCoexist = saveBosaiBulletin(context.connection, {
+        eventId: 'VPHW51:130010',
+        controlStatus: 'normal',
+        infoType: '発表',
+        reportDateTime: '2026-09-10T07:00:00.000Z',
+        controlDateTime: '2026-09-10T07:00:00.000Z',
+        title: '東京都竜巻注意情報',
+        headlineText: '本文',
+        informationTag: '東京地方',
+        hasSighting: true,
+        isCancelled: false,
+        metadata: vphwSaved.metadata,
+        areas: [
+          {
+            areaCode: '1310800',
+            areaName: '江東区',
+            codeType: '気象・地震・火山情報／市町村等',
+            sequence: 0,
+            informationType: '竜巻注意情報（市町村等）',
+          },
+          {
+            areaCode: '1310800',
+            areaName: '江東区',
+            codeType: '気象・地震・火山情報／市町村等',
+            sequence: 1,
+            informationType: '竜巻注意情報（目撃情報あり）',
+          },
+          {
+            areaCode: '1311100',
+            areaName: '大田区',
+            codeType: '気象・地震・火山情報／市町村等',
+            sequence: 2,
+            informationType: '竜巻注意情報（市町村等）',
+          },
+        ],
+      });
+      assert.equal(validCoexist.areas.length, 3);
+    } finally {
+      context.close();
+    }
+
+    // 6. 既存重複を持つ 0021 DB では 0022 が失敗・ロールバックし、行を黙って削除しないことの検証
+    const rollbackTmpDir = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-ac17-rollback-'));
+    const rollbackMigrationsDir = join(rollbackTmpDir, 'migrations');
+    cpSync(migrationsDirectory, rollbackMigrationsDir, { recursive: true });
+
+    try {
+      const mig0022RollbackPath = join(
+        rollbackMigrationsDir,
+        '0022_add_bosai_bulletin_area_unique_indexes.sql',
+      );
+      const mig0022RollbackSql = readFileSync(mig0022RollbackPath, 'utf8');
+      rmSync(mig0022RollbackPath);
+
+      const rollbackDbPath = join(rollbackTmpDir, 'test_rollback.sqlite3');
+      const rollbackContext = initializeDatabase({
+        databasePath: rollbackDbPath,
+        migrationsDirectory: rollbackMigrationsDir,
+      });
+
+      try {
+        // 重複行を意図的に INSERT
+        saveBosaiBulletin(rollbackContext.connection, {
+          eventId: 'DUP_EVENT',
+          controlStatus: 'normal',
+          infoType: '発表',
+          reportDateTime: '2026-09-10T07:00:00.000Z',
+          controlDateTime: '2026-09-10T07:00:00.000Z',
+          title: '東京都気象防災速報（線状降水帯発生）',
+          headlineText: '本文',
+          informationTag: '線状降水帯発生',
+          hasSighting: null,
+          isCancelled: false,
+          metadata: {
+            source: 'http://example.com/dup.xml',
+            issuedAt: '2026-09-10T07:00:00.000Z',
+            validAt: null,
+            validFrom: null,
+            validTo: null,
+            fetchedAt: '2026-09-10T07:00:00.000Z',
+            lastSuccessAt: '2026-09-10T07:00:00.000Z',
+            availability: 'available',
+            sourceVersion: '1.5_0',
+          },
+          areas: [
+            {
+              areaCode: '1310800',
+              areaName: '江東区',
+              codeType: '気象・地震・火山情報／市町村等',
+              sequence: 0,
+              informationType: null,
+            },
+          ],
+        });
+
+        // 直接 SQL で重複行を INSERT (0021 時点では一意制約がないため成功する)
+        rollbackContext.connection.exec(`
+          INSERT INTO bosai_bulletin_area (bulletin_id, area_code, area_name, code_type, sequence, information_type)
+          SELECT bulletin_id, area_code, area_name, code_type, 1, information_type
+          FROM bosai_bulletin_area LIMIT 1;
+        `);
+
+        const duplicateCountBefore = rollbackContext.connection
+          .prepare('SELECT COUNT(*) as count FROM bosai_bulletin_area')
+          .get() as { count: number };
+        assert.equal(duplicateCountBefore.count, 2);
+
+        // 0022 を復元して適用を試みる
+        writeFileSync(mig0022RollbackPath, mig0022RollbackSql, 'utf8');
+
+        assert.throws(
+          () => {
+            runMigrations(rollbackContext.connection, rollbackMigrationsDir);
+          },
+          /UNIQUE constraint failed/,
+          '既存重複がある場合は 0022 migration が失敗すること',
+        );
+
+        // ロールバックされ、データが黙って削除されていないことを確認
+        const duplicateCountAfter = rollbackContext.connection
+          .prepare('SELECT COUNT(*) as count FROM bosai_bulletin_area')
+          .get() as { count: number };
+        assert.equal(
+          duplicateCountAfter.count,
+          2,
+          'ロールバック後も重複行が削除されず保持されていること',
+        );
+
+        // __schema_migrations に 22 が記録されていないこと
+        const appliedVersions = rollbackContext.connection
+          .prepare('SELECT version FROM __schema_migrations')
+          .all() as Array<{ version: number }>;
+        assert.ok(!appliedVersions.some((v) => v.version === 22));
+      } finally {
+        rollbackContext.close();
+      }
+    } finally {
+      rmSync(rollbackTmpDir, { recursive: true, force: true });
+    }
+
+    // 7. 新規 DB への全 migration 適用および 0021 未変更の確認
+    const newDbPath = join(tmpDir, 'test_new_all.sqlite3');
+    const newContext = initializeDatabase({
+      databasePath: newDbPath,
+      migrationsDirectory,
+    });
+    try {
+      const applied = newContext.connection
+        .prepare('SELECT version FROM __schema_migrations ORDER BY version')
+        .all() as Array<{ version: number }>;
+      assert.equal(applied.at(-1)?.version, 22, '最新 version が 22 であること');
+
+      // 0021 のファイル内容確認
+      const mig0021Path = join(
+        migrationsDirectory,
+        '0021_add_bosai_bulletin_area_information_type.sql',
+      );
+      const mig0021Content = readFileSync(mig0021Path, 'utf8');
+      assert.ok(mig0021Content.includes('CREATE TABLE bosai_bulletin_area_new'));
+      assert.ok(
+        mig0021Content.includes(
+          'ALTER TABLE bosai_bulletin_area_new RENAME TO bosai_bulletin_area',
+        ),
+      );
+      assert.equal(
+        mig0021Content.split('\n').length,
+        32,
+        '0021 ファイルの行数が変更されていないこと',
+      );
+    } finally {
+      newContext.close();
     }
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });

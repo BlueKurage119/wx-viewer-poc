@@ -23,6 +23,10 @@ export {
   type Vpbs50ParseResult,
 };
 
+export interface ParseVpbs50Options {
+  readonly allowEmptyAreasForCancellation?: boolean;
+}
+
 export const JMA_REPORT_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/';
 export const JMA_INFORMATION_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/informationBasis1/';
 export const JMA_METEOROLOGY_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/body/meteorology1/';
@@ -117,6 +121,7 @@ export function parseVpbs50(
     'telegramType' | 'controlStatus' | 'reportDateTime' | 'controlDateTime'
   >,
   target: BosaiBulletinTarget = DEFAULT_BOSAI_BULLETIN_TARGET,
+  options?: ParseVpbs50Options,
 ): Vpbs50ParseResult {
   // 1. 電文種別チェック
   if (expected.telegramType !== VPBS50_TELEGRAM_TYPE) {
@@ -476,11 +481,21 @@ export function parseVpbs50(
   // 7.5 対象地域判定（§3.4）
   const hasIncludedArea = areas.some((a) => target.includedAreaCodes.includes(a.areaCode));
   if (!hasIncludedArea) {
-    return {
-      ok: false,
-      disposition: '対象地域外',
-      reason: `対象会場の区域コード（${target.includedAreaCodes.join(', ')}）に一致する区域が含まれていません`,
-    };
+    if (
+      options?.allowEmptyAreasForCancellation === true &&
+      isCancelled &&
+      informationTag !== null &&
+      areas.length === 0
+    ) {
+      // 既知タグを持つ区域0件の取消電文で明示的に許可されている場合は、
+      // processor における previous との照合判定へ進めるため通過させる（§10.1）
+    } else {
+      return {
+        ok: false,
+        disposition: '対象地域外',
+        reason: `対象会場の区域コード（${target.includedAreaCodes.join(', ')}）に一致する区域が含まれていません`,
+      };
+    }
   }
 
   return {

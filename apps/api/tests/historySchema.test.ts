@@ -19,7 +19,7 @@ function createTempDbPath(): { databasePath: string; cleanup: () => void } {
   };
 }
 
-test('1. 本番 migration をすべて適用すると fetch_attempt / telegram_reception / telegram_reception_area が存在し、適用件数が 20 件と一致する', () => {
+test('1. 本番 migration をすべて適用すると fetch_attempt / telegram_reception / telegram_reception_area が存在し、適用件数が 22 件と一致する', () => {
   const { databasePath, cleanup } = createTempDbPath();
   try {
     const context = initializeDatabase({
@@ -31,8 +31,8 @@ test('1. 本番 migration をすべて適用すると fetch_attempt / telegram_r
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 21);
-    assert.equal(context.migrationSummary.appliedVersions.length, 21);
+    assert.equal(expectedSqlFiles.length, 22);
+    assert.equal(context.migrationSummary.appliedVersions.length, 22);
 
     const tables = (
       context.connection
@@ -579,7 +579,7 @@ test('12. migration を 2 回適用しても再実行されない（appliedVersi
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 21);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 22);
     context1.close();
 
     const connection = openDatabase(databasePath);
