@@ -1,21 +1,23 @@
 # CLAUDE.md
 
+このファイルはClaude向けのプロジェクト指示である。会話・コミットメッセージ・ドキュメントは日本語で行う。
+なお、Codex・Antigravity向けにほぼ同内容の[AGENTS.md](AGENTS.md)を整備している。
+
 ## 1. 概要
 
 - 防災気象情報表示サービスのPoC。npm workspacesによるモノレポで、フロントエンド(`apps/web`)、バックエンド(`apps/api`)、共通コード(`packages/shared`)を管理する
 - 技術スタック・画面構成・ポート番号は [README.md](README.md) を参照
 - 基本設計は [docs/basic-design.md](docs/basic-design.md)(協議記録。【確定】【設計案】【未確定】のタグで確度を区別している)
 
-## 2. ディレクトリ管理
+## 2. ディレクトリと機密情報
 
-- このリポジトリの親フォルダ(`cmk-gsx/`)に、Git管理外の `docs/` がある。主なものは以下の通り。
+- このリポジトリの親フォルダ(`cmk-gsx/`)に、Git管理外の `docs/` がある。これらは、プロジェクト間で共有する・リポジトリを重くしないという理由で外に出しているだけである。主なものは以下の通り。
   - 気象庁XML資料・サンプル電文・コード表(`260907_weather-data/`)
   - 本番PoC要件定義(`260830_poc-v2-requirements/`)
 
-  これらはいずれも、プロジェクト間で共有する・リポジトリを重くしないという理由で外に出しているだけである。
-  **このリポジトリ内から参照・引用するときは、相対パスによること。**(`docs/data-acquisition-report.md`が既に行っている)が、リモート環境などでは閲覧できないため注意すること。**絶対パスで参照してはならない。**
+- **このリポジトリ内から、リポジトリ外ファイルを参照・引用するときは、相対パスによること** (`docs/data-acquisition-report.md`が既に行っている)。また、リモート環境などでは閲覧できないため注意すること。**絶対パスでの引用は絶対に禁止する。**
 
-- **例外: `cmk-gsx/docs/260908_[CONFIDENTIAL]_wx-poc-image/` 配下は取り扱いに注意が必要な画像である。ファイルの複製・埋め込みはもちろん、ファイル名・内容への言及自体も、このリポジトリ内(コード・ドキュメント・コミットメッセージ・Issue・PR・コメントのいずれも)で一切行ってはならない。**
+- **例外: `[CONFIDENTIAL]` が付されたフォルダ配下には取り扱いに注意が必要なファイルがある。ファイルの複製・埋め込みはもちろん、ファイル名・内容への言及自体も、このリポジトリ内(コード・ドキュメント・コミットメッセージ・Issue・PR・コメントのいずれも)で一切行ってはならない。**
 
 ## 3. 絶対遵守事項
 
@@ -23,7 +25,7 @@
 
 ここに書かれていることは、エージェントとオーナーとの契約である。契約の遵守はエージェントの存在意義であり、違反は絶対に許されないことを強く自覚すること。
 
-1. **`cmk-gsx/docs/260908_[CONFIDENTIAL]_wx-poc-image/` 配下の画像への言及・複製・引用をしてはならない**
+1. **`[CONFIDENTIAL]` が付されたフォルダ配下のファイルへの言及・複製・引用をしてはならない**
 2. **ホームディレクトリ名を、コードおよびドキュメントに残してはならない**
 3. **mainへ直接コミットをしてはならない**
 4. **明確な指示を受けずにPRをマージしてはならない**
@@ -33,13 +35,24 @@
 
 ### 3.2 遵守事項
 
+開発において、特に守ってほしいことを記載した。理由・具体的行動例などは、別に定めた業務標準・指導文書を参照すること。
+
+#### 開発の進め方に関する遵守事項
+
 - 仕様が曖昧・矛盾する場合、勝手に補完せず質問すること
-- 依頼範囲を遵守すること(調査・計画の提示や承認は実装開始の許可ではない)
+- 依頼範囲を遵守すること（調査・計画の提示や承認は実装開始の許可ではない）
 - コードベースに変更を加えるときは、計画または設計の承認を受けてから着手すること
-- コミット前に `npm run lint` / `npm run typecheck` / `npm run format:check` および対象workspaceのテストを実行し、エラーがないことを確かめること(ただし、変更が`docs/**`配下の`*.md`のみであり、依存関係により確認ができない場合は省略できる)
+- コミット前に `npm run lint` / `npm run typecheck` / `npm run format:check` および対象workspaceのテストを実行し、エラーがないことを確かめること（ただし、変更が`docs/**`配下の`*.md`のみであり、依存関係により確認ができない場合は省略できる）
 - マージ後は、`git merge-base --is-ancestor <マージコミット> origin/main` が真であることを確かめること
-- 色はHEX値をハードコードせず、Material-colorのトークンを使用すること。見ればわかる説明書き・ラベルは省略すること(詳細・背景は [docs/advisory/ui-md3-rules.md](docs/advisory/ui-md3-rules.md) を参照)
-- 気象庁XML電文の提供仕様は、実データ・公式資料・[取得方法レポート](docs/data-acquisition-report.md)と照合できたものだけを、設計上の「確定」事実として扱うこと(詳細・背景は [docs/advisory/wx-data-rules.md](docs/advisory/wx-data-rules.md) を参照)
+
+#### UIデザインに関する遵守事項
+
+- 色は HEX 値をハードコードせず、Material-color のトークンを使用すること
+- 見ればわかる説明書き・ラベルは省略すること
+
+#### 気象データに関する遵守事項
+
+- 気象庁XML電文の提供仕様は、実データ・公式資料・[取得方法レポート](docs/data-acquisition-report.md)と照合できたものだけを、設計上の「確定」事実として扱うこと
 
 ## 4. 開発の進め方
 
@@ -53,16 +66,18 @@
 
   役割ごとの規律は [`.claude/agents/`](.claude/agents/) の定義ファイルに集約してある(統括担当は、対象Issue・ブランチ名・設計書パスなど、その回に固有の情報だけを渡す)。
 
-- フェーズ運用の詳細(ヒアリング前提・設計から製造への承認ゲート・AGY委託・devサーバー作法・ブランチ/コミット/PR/署名・外部レビュー対応)は [docs/advisory/dev-workflow.md](docs/advisory/dev-workflow.md) を参照。
-- 検証規律(red確認・対照実験・完全一致・トリアージ・回帰テストの罠・共有可変状態の系統調査)は [docs/advisory/verification-discipline.md](docs/advisory/verification-discipline.md) を参照。
-- ブラウザでのUI検証における制約・逆発注運用は [docs/advisory/browser-ui-verification.md](docs/advisory/browser-ui-verification.md) を参照。
-- 気象データ固有の注意(isTraining・availability 3状態・電文照合)は [docs/advisory/wx-data-rules.md](docs/advisory/wx-data-rules.md) を参照。
+- フェーズ運用・検証・UI・気象データの**必須事項**は [docs/protocol/](docs/protocol/README.md) に、**背景・ノウハウ**は [docs/advisory/](docs/advisory/README.md) に分けて置く(統治原則は[docs/protocol/README.md](docs/protocol/README.md)を参照)。
+  - フェーズ運用(承認ゲート・AGY委託の必須記載・ブランチ/コミット/PR/署名・devサーバー禁止事項)は [docs/protocol/dev-workflow-protocol.md](docs/protocol/dev-workflow-protocol.md)、背景は [docs/advisory/dev-workflow.md](docs/advisory/dev-workflow.md)
+  - 設計・製造・検収それぞれの権限境界と合否条件は [docs/protocol/design-protocol.md](docs/protocol/design-protocol.md)・[docs/protocol/build-protocol.md](docs/protocol/build-protocol.md)・[docs/protocol/inspect-protocol.md](docs/protocol/inspect-protocol.md)
+  - テスト検証の必須手順(red確認・対照実験・完全一致)は [docs/protocol/verification-protocol.md](docs/protocol/verification-protocol.md)、手法の詳細・過去事例は [docs/advisory/verification-discipline.md](docs/advisory/verification-discipline.md)
+  - ブラウザでのUI検証における制約・逆発注運用は [docs/advisory/browser-ui-verification.md](docs/advisory/browser-ui-verification.md)
+  - 気象データの必須事項(isTraining・availability 3状態・電文照合)は [docs/protocol/wx-data-protocol.md](docs/protocol/wx-data-protocol.md)
 
 ## 5. 技術スタック・規約
 
 - React 19 + TypeScript + Vite(フロント) / Express 5 + TypeScript(バックエンド) / npm workspacesモノレポ
 - ESLint(`eslint.config.js`、`--max-warnings 0`) + Prettier。詳細な規約は各設定ファイルを正とする
-- Material Web + `@material/material-color-utilities` によるMD3準拠テーマ。色トークン規約と「破ると静かに壊れる制約」は [docs/advisory/ui-md3-rules.md](docs/advisory/ui-md3-rules.md) を参照
+- Material Web + `@material/material-color-utilities` によるMD3準拠テーマ。色トークン規約と「破ると静かに壊れる制約」(必須)は [docs/protocol/ui-md3-protocol.md](docs/protocol/ui-md3-protocol.md)、UI寸法計測・バンドル見積りのノウハウは [docs/advisory/ui-md3-rules.md](docs/advisory/ui-md3-rules.md) を参照
 - UI文言は日本語
 
 ## 6. 主要コマンド
@@ -80,7 +95,7 @@ npm run test -w apps/web    # 対象workspaceのテスト(package.jsonのtestス
 
 - ブランチ名: `feature/issue-<番号>-<短い説明>`(例: `feature/issue-2-common-shell`)
 - **製造担当(`wxviewer-builder`)の作業はコミット・プッシュまでとし、PRの作成・本文の記述は検収担当(`wxviewer-inspector`)が行う**
-- コミット・PR・コメントの署名フォーマット、コミット粒度、PR本文構成の詳細は [docs/advisory/dev-workflow.md](docs/advisory/dev-workflow.md) を参照
+- コミット・PR・コメントの署名の必須事項、コミット粒度、PR本文構成は [docs/protocol/dev-workflow-protocol.md](docs/protocol/dev-workflow-protocol.md) を参照。署名フォーマット一覧は [docs/advisory/dev-workflow.md](docs/advisory/dev-workflow.md) を参照
 
 ## 8. 参照文書
 
@@ -88,4 +103,5 @@ npm run test -w apps/web    # 対象workspaceのテスト(package.jsonのtestス
 - [docs/issues-draft.md](docs/issues-draft.md) — Issue下書き(Epic単位)
 - [docs/design/](docs/design/) — 各IssueのIssue単位設計書
 - [docs/data-acquisition-report.md](docs/data-acquisition-report.md) — 気象データ取得方法の検証記録
-- [docs/advisory/](docs/advisory/) — トピック別の指導文書(開発フロー・検証規律・UI規約・気象データ規律等)。一覧は[docs/advisory/README.md](docs/advisory/README.md)
+- [docs/protocol/](docs/protocol/) — 必ず通る手順と合否条件(業務標準)。一覧は[docs/protocol/README.md](docs/protocol/README.md)
+- [docs/advisory/](docs/advisory/) — 手順を実行するための知識・ノウハウ・過去事例(指導文書)。一覧は[docs/advisory/README.md](docs/advisory/README.md)

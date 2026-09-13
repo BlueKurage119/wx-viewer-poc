@@ -1,44 +1,15 @@
 ---
-title: UI・Material Web/MD3の規約
-description: 色トークン規約、破ると静かに壊れるフロントエンド制約(sideEffects・パッケージ固定・生タグ禁止・localStorageキー)、UI寸法計測の罠、バンドル見積り
+title: UI寸法計測・バンドル見積りのノウハウ
+description: UI寸法を実測するときの4つの罠、バンドルサイズ見積りが不足しやすい理由と目安。必須の技術制約は業務標準を参照
 phases: [設計, 製造, 検収]
 products: [Claude, Codex, Antigravity]
 ---
 
-# UI・Material Web/MD3の規約
+# UI寸法計測・バンドル見積りのノウハウ
 
-対象: `apps/web`を触るすべてのフェーズ(設計・製造・検収)。
+対象: `apps/web`のカード・ダッシュボード系レイアウトを実装・検収するとき。**必須の技術制約(sideEffects・パッケージ固定等)は[docs/protocol/ui-md3-protocol.md](../protocol/ui-md3-protocol.md)を参照。**
 
-## 基本規約
-
-- 色はHEX値をハードコードせず、Material-colorのトークンを使用すること。
-- 見ればわかる説明書き・ラベルは省略すること。
-
-## 破ると静かに壊れる制約
-
-エラーも警告も出ずに壊れるものだけをここに集約している。`apps/web`に変更を加える前に必ず読むこと。
-
-### `apps/web`に副作用のためだけのbare importを書かない
-
-`apps/web/package.json`に`"sideEffects": ["*.css"]`を宣言している。CSS以外の`import './foo'`形式(副作用目的のimport)は**本番ビルドで黙って除去される**。devサーバーでは動くため気づけない。カスタム要素の登録は「ラッパーのexportを使う」ことで成立させる。
-
-### `@material/material-color-utilities`は`0.3.0`固定(キャレットなし)
-
-`apps/web/package.json`で明示的に固定している。`npm update`等で勝手に上げない。0.4.x系は既知のパッケージング不具合(拡張子なしimportの解決失敗)があるため避けている(`mj-stats-viewer`での検証を踏襲)。
-
-### `<md-*>`の生タグを直書きしない
-
-Material Webのコンポーネントは必ず`apps/web/src/components/md`のバレル(`index.ts`)からexportされた型付きラッパーをimportする。未ラップのコンポーネントが必要になったら、ラッパーを追加してからバレルに載せる。
-
-### 色をハードコードしない
-
-配色は`apps/web/src/theme/`がランタイムに生成し、`--md-sys-color-*`としてCSS変数で供給する。シード色は`apps/web/src/theme/seeds.ts`の`DEFAULT_THEME_SEED`(`#1A73E8`)のみで完結させる。共通シェルはダーク固定(README参照)。警戒レベル色・通知区分色はこのMD3基盤の対象外で、別途セマンティックトークンとして定義する(basic-design.md §5.7参照、未着手)。
-
-### `index.html`と`ThemeProvider.tsx`のlocalStorageキーは一致させる
-
-いずれも`wx-viewer:color-mode`。FOUC対策で`index.html`側に先読みロジックがあるため、キー名を個別に変更すると同期が壊れる。
-
-## UI寸法の実測に関する注意(該当作業が発生した時点で参照)
+## UI寸法の実測に関する注意
 
 **出典: `mj-stats-viewer`のカード系Issueでの差し戻し事例(同種のミスを5回踏んだ実績)。** wx-viewer-pocでカード・ダッシュボード系のレイアウトを実装・検収する段になったら、次を確認する。
 

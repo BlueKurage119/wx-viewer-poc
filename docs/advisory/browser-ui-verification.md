@@ -8,7 +8,7 @@ notes: Claude Codeのブラウザペイン(mcp__Claude_Browser__*)固有の制�
 
 # ブラウザでのUI検証における制約と逆発注
 
-対象: 主に`wxviewer-inspector`(検収)。ブラウザペイン(`mcp__Claude_Browser__*`)でUIを確認する場面全般。
+対象: 主に`wxviewer-inspector`(検収)。ブラウザペイン(`mcp__Claude_Browser__*`)でUIを確認する場面全般。**「実測できなかった項目を未検証のまま申告する」は[docs/protocol/inspect-protocol.md](../protocol/inspect-protocol.md)の必須事項。** ここには環境固有の落とし穴と、逆発注の実務(手順書の書き方)を置く。
 
 **出典: `mj-stats-viewer`での差し戻し事例。** Material Web/MD3を使うUIで実際に踏んだ環境固有の落とし穴と、その対処として確立した運用。
 
