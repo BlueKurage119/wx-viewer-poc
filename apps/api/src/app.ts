@@ -1,9 +1,15 @@
 import express, { type Express } from 'express';
-import { parseStartupNotificationRequest, resolveTerminalDefinition } from '@wx-viewer-poc/shared';
+import {
+  parseStartupNotificationRequest,
+  parseWeatherApiQuery,
+  resolveTerminalDefinition,
+} from '@wx-viewer-poc/shared';
 import type { StartupNotificationService } from './notifications/index.js';
+import type { WeatherApiService } from './services/weatherApiService.js';
 
 export interface AppDependencies {
   readonly startupNotifications?: StartupNotificationService;
+  readonly weatherApi?: WeatherApiService;
 }
 
 export function createApp(dependencies: AppDependencies = {}): Express {
@@ -14,6 +20,70 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   app.get('/api/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });
+
+  if (dependencies.weatherApi) {
+    const weatherApi = dependencies.weatherApi;
+
+    app.get('/api/weather/warnings', (req, res) => {
+      const parsed = parseWeatherApiQuery(req.query);
+      if (!parsed.ok) {
+        res.status(400).json({ status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      if (terminal === null) {
+        res.status(404).json({ status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      try {
+        const result = weatherApi.getWarnings(terminal, parsed.value.controlStatus);
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(200).json(result);
+      } catch {
+        res.status(500).json({ status: 'error', code: 'weather_read_failed' });
+      }
+    });
+
+    app.get('/api/weather/warning-timeseries', (req, res) => {
+      const parsed = parseWeatherApiQuery(req.query);
+      if (!parsed.ok) {
+        res.status(400).json({ status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      if (terminal === null) {
+        res.status(404).json({ status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      try {
+        const result = weatherApi.getWarningTimeseries(terminal, parsed.value.controlStatus);
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(200).json(result);
+      } catch {
+        res.status(500).json({ status: 'error', code: 'weather_read_failed' });
+      }
+    });
+
+    app.get('/api/weather/early-warning', (req, res) => {
+      const parsed = parseWeatherApiQuery(req.query);
+      if (!parsed.ok) {
+        res.status(400).json({ status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      if (terminal === null) {
+        res.status(404).json({ status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      try {
+        const result = weatherApi.getEarlyWarning(terminal, parsed.value.controlStatus);
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(200).json(result);
+      } catch {
+        res.status(500).json({ status: 'error', code: 'weather_read_failed' });
+      }
+    });
+  }
 
   if (dependencies.startupNotifications) {
     const startupNotifications = dependencies.startupNotifications;

@@ -1,8 +1,9 @@
 import { DOMParser, type Element } from '@xmldom/xmldom';
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { TimeseriesScope, UtcIso8601String } from '@wx-viewer-poc/shared';
 import {
   VPWP50_TELEGRAM_TYPE,
   type ControlStatus,
+  type ParsedVpwp50Addition,
   type ParsedVpwp50TimeDefine,
   type ParsedVpwp50Value,
   type TelegramReception,
@@ -249,6 +250,7 @@ export function parseVpwp50(
 
   const parsedTimeDefines: ParsedVpwp50TimeDefine[] = [];
   const parsedValues: ParsedVpwp50Value[] = [];
+  const parsedAdditions: ParsedVpwp50Addition[] = [];
   let foundTargetAreaName: string | null = null;
   let targetAreaFoundInAnyBlock = false;
   let globalSequence = 1;
@@ -380,7 +382,8 @@ export function parseVpwp50(
 
     // Kind の走査
     const kindList = directChildren(targetItem, JMA_METEOROLOGY_NAMESPACE, 'Kind');
-    for (const kindElem of kindList) {
+    for (let kindIndex = 0; kindIndex < kindList.length; kindIndex += 1) {
+      const kindElem = kindList[kindIndex]!;
       const kindStatus = directText(kindElem, JMA_METEOROLOGY_NAMESPACE, 'Status');
       if (!kindStatus) {
         return {
@@ -402,7 +405,8 @@ export function parseVpwp50(
 
       // Property の走査
       const propertyList = directChildren(kindElem, JMA_METEOROLOGY_NAMESPACE, 'Property');
-      for (const propElem of propertyList) {
+      for (let propertyIndex = 0; propertyIndex < propertyList.length; propertyIndex += 1) {
+        const propElem = propertyList[propertyIndex]!;
         const propertyType = directText(propElem, JMA_METEOROLOGY_NAMESPACE, 'Type');
         if (!propertyType) {
           return {
@@ -413,11 +417,18 @@ export function parseVpwp50(
         }
 
         // Property 直下の各 Part 要素を走査（SignificancyPart, PrecipitationPart など）
+        // Type を除いた対象 Part の出現順 (partIndex)
+        let partIndex = 0;
         for (let pIdx = 0; pIdx < propElem.childNodes.length; pIdx += 1) {
           const partNode = propElem.childNodes.item(pIdx);
           if (partNode?.nodeType !== 1) continue;
           const partElem = partNode as Element;
           if (partElem.namespaceURI !== JMA_METEOROLOGY_NAMESPACE) continue;
+          if (partElem.localName === 'Type') continue;
+
+          const partName = partElem.localName ?? partElem.nodeName;
+          const currentPartIndex = partIndex;
+          partIndex += 1;
 
           // Base 要素を探す（直接 Base の場合も考慮）
           const baseElements =
@@ -425,8 +436,12 @@ export function parseVpwp50(
               ? [partElem]
               : directChildren(partElem, JMA_METEOROLOGY_NAMESPACE, 'Base');
 
-          for (const baseElem of baseElements) {
-            // Base 内を走査
+          for (let baseIndex = 0; baseIndex < baseElements.length; baseIndex += 1) {
+            const baseElem = baseElements[baseIndex]!;
+
+            let localCount = 0;
+            let baseAdditionCount = 0;
+
             for (let bIdx = 0; bIdx < baseElem.childNodes.length; bIdx += 1) {
               const bNode = baseElem.childNodes.item(bIdx);
               if (bNode?.nodeType !== 1) continue;
@@ -436,13 +451,45 @@ export function parseVpwp50(
                 bChild.namespaceURI === JMA_METEOROLOGY_NAMESPACE &&
                 bChild.localName === 'Local'
               ) {
-                // Local がある場合: AreaName を取得
+                const localIndex = localCount;
+                localCount += 1;
                 const areaDivision = directText(bChild, JMA_METEOROLOGY_NAMESPACE, 'AreaName');
+                const localScope: TimeseriesScope = {
+                  kindIndex,
+                  propertyIndex,
+                  partName,
+                  partIndex: currentPartIndex,
+                  baseIndex,
+                  localIndex,
+                };
+
+                let localAdditionCount = 0;
                 for (let lIdx = 0; lIdx < bChild.childNodes.length; lIdx += 1) {
                   const lNode = bChild.childNodes.item(lIdx);
                   if (lNode?.nodeType !== 1) continue;
                   const valueElem = lNode as Element;
                   if (valueElem.localName === 'AreaName') continue;
+
+                  if (valueElem.localName === 'Addition') {
+                    if (valueElem.namespaceURI === JMA_METEOROLOGY_NAMESPACE) {
+                      const additionRes = extractAdditionElement(
+                        valueElem,
+                        blockId,
+                        localScope,
+                        propertyType,
+                        kindStatus,
+                        kindDateTime,
+                        areaDivision,
+                        localAdditionCount,
+                      );
+                      if ('error' in additionRes) {
+                        return { ok: false, disposition: '未対応構造', reason: additionRes.error };
+                      }
+                      parsedAdditions.push(...additionRes.additions);
+                      localAdditionCount += 1;
+                    }
+                    continue;
+                  }
 
                   const parsedVal = extractValueElement(
                     valueElem,
@@ -453,6 +500,7 @@ export function parseVpwp50(
                     propertyType,
                     areaDivision,
                     globalSequence,
+                    localScope,
                   );
                   if ('error' in parsedVal) {
                     return { ok: false, disposition: '未対応構造', reason: parsedVal.error };
@@ -462,8 +510,42 @@ export function parseVpwp50(
                     globalSequence += 1;
                   }
                 }
+              } else if (bChild.localName === 'Addition') {
+                if (bChild.namespaceURI === JMA_METEOROLOGY_NAMESPACE) {
+                  const baseScope: TimeseriesScope = {
+                    kindIndex,
+                    propertyIndex,
+                    partName,
+                    partIndex: currentPartIndex,
+                    baseIndex,
+                    localIndex: null,
+                  };
+                  const additionRes = extractAdditionElement(
+                    bChild,
+                    blockId,
+                    baseScope,
+                    propertyType,
+                    kindStatus,
+                    kindDateTime,
+                    null,
+                    baseAdditionCount,
+                  );
+                  if ('error' in additionRes) {
+                    return { ok: false, disposition: '未対応構造', reason: additionRes.error };
+                  }
+                  parsedAdditions.push(...additionRes.additions);
+                  baseAdditionCount += 1;
+                }
               } else {
                 // Local がない場合: Base 直下の値要素
+                const baseScope: TimeseriesScope = {
+                  kindIndex,
+                  propertyIndex,
+                  partName,
+                  partIndex: currentPartIndex,
+                  baseIndex,
+                  localIndex: null,
+                };
                 const parsedVal = extractValueElement(
                   bChild,
                   blockId,
@@ -473,6 +555,7 @@ export function parseVpwp50(
                   propertyType,
                   null,
                   globalSequence,
+                  baseScope,
                 );
                 if ('error' in parsedVal) {
                   return { ok: false, disposition: '未対応構造', reason: parsedVal.error };
@@ -512,8 +595,65 @@ export function parseVpwp50(
       infoKindVersion,
       timeDefines: parsedTimeDefines,
       values: parsedValues,
+      additions: parsedAdditions,
     },
   };
+}
+
+function extractAdditionElement(
+  additionElem: Element,
+  blockId: string,
+  scope: TimeseriesScope,
+  propertyType: string,
+  kindStatus: string,
+  kindDateTime: UtcIso8601String | null,
+  areaDivision: string | null,
+  additionIndex: number,
+): { additions: ParsedVpwp50Addition[] } | { error: string } {
+  const additions: ParsedVpwp50Addition[] = [];
+  let noteIndex = 0;
+
+  for (let i = 0; i < additionElem.childNodes.length; i += 1) {
+    const node = additionElem.childNodes.item(i);
+    if (node?.nodeType !== 1) continue;
+    const elem = node as Element;
+
+    if (elem.namespaceURI !== JMA_METEOROLOGY_NAMESPACE || elem.localName !== 'Note') {
+      return {
+        error: `Addition 配下に未対応の要素が存在します: ${elem.nodeName}（block: ${blockId}）`,
+      };
+    }
+
+    if (elem.attributes && elem.attributes.length > 0) {
+      return {
+        error: `Note に未対応の属性が存在します: ${elem.attributes.item(0)?.name}（block: ${blockId}）`,
+      };
+    }
+
+    for (let c = 0; c < elem.childNodes.length; c += 1) {
+      if (elem.childNodes.item(c)?.nodeType === 1) {
+        return {
+          error: `Note に未対応の子要素が存在します（block: ${blockId}）`,
+        };
+      }
+    }
+
+    const text = elem.textContent?.trim() ?? '';
+    additions.push({
+      blockId,
+      scope,
+      propertyType,
+      kindStatus,
+      kindDateTime,
+      areaDivision,
+      additionIndex,
+      noteIndex,
+      text,
+    });
+    noteIndex += 1;
+  }
+
+  return { additions };
 }
 
 function extractValueElement(
@@ -525,6 +665,7 @@ function extractValueElement(
   propertyType: string,
   areaDivision: string | null,
   sequence: number,
+  scope: TimeseriesScope,
 ): { value: ParsedVpwp50Value | null } | { error: string } {
   // 1. Significancy (危険度)
   if (elem.namespaceURI === JMA_METEOROLOGY_NAMESPACE && elem.localName === 'Significancy') {
@@ -564,6 +705,7 @@ function extractValueElement(
         condition: null,
         areaDivision,
         sequence,
+        scope,
       },
     };
   }
@@ -606,6 +748,7 @@ function extractValueElement(
         condition,
         areaDivision,
         sequence,
+        scope,
       },
     };
   }
