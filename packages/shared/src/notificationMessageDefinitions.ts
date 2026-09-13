@@ -21,6 +21,8 @@ export type NotificationMessageDefinitionId =
   | 'weather-bosai-bulletin-record-short-rain'
   | 'weather-bosai-bulletin-tornado-warning'
   | 'weather-bosai-bulletin-tornado-sighting'
+  | 'weather-bosai-bulletin-corrected'
+  | 'weather-bosai-bulletin-cancelled'
   | 'system-data-fetch-delayed'
   | 'system-data-fetch-failed'
   | 'system-data-fetch-recovered'
@@ -218,6 +220,26 @@ const MESSAGE_DEFINITIONS = {
     targetMode: { kind: 'notificationTargets' },
     fixedContent: '竜巻目撃',
     actionResolution: { kind: 'acknowledge' },
+  },
+  'weather-bosai-bulletin-corrected': {
+    id: 'weather-bosai-bulletin-corrected',
+    version: '1',
+    origin: 'weather',
+    allowedCategories: ['question'],
+    requiredWeatherChangeType: 'corrected',
+    title: '気象防災速報訂正',
+    targetMode: { kind: 'notificationTargets' },
+    actionResolution: { kind: 'acknowledge' },
+  },
+  'weather-bosai-bulletin-cancelled': {
+    id: 'weather-bosai-bulletin-cancelled',
+    version: '1',
+    origin: 'weather',
+    allowedCategories: ['warning'],
+    requiredWeatherChangeType: 'cancelled',
+    title: '気象防災速報取消',
+    targetMode: { kind: 'notificationTargets' },
+    actionResolution: { kind: 'none' },
   },
 
   // --- システム通知 (10種) ---

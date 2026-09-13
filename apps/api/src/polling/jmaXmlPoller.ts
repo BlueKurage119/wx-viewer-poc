@@ -39,6 +39,7 @@ import {
 } from '../repositories/types.js';
 
 import type { WarningNotificationEmitDeps } from '../notifications/warningNotificationEmitter.js';
+import type { BosaiNotificationEmitDeps } from '../notifications/bosaiBulletinNotificationEmitter.js';
 
 export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly fetchFn?: typeof fetch;
@@ -48,6 +49,7 @@ export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly areaTimeseriesForecastTarget?: AreaTimeseriesForecastTarget;
   readonly bosaiBulletinTarget?: BosaiBulletinTarget;
   readonly warningNotificationEmitDeps?: WarningNotificationEmitDeps;
+  readonly bosaiNotificationEmitDeps?: BosaiNotificationEmitDeps;
 }
 import { performHttpGet, sanitizeErrorMessage, sanitizeUrl } from './httpGet.js';
 
@@ -333,6 +335,7 @@ export async function pollSingleFeed(
         reception,
         docFinishedAt,
         options?.bosaiBulletinTarget ?? DEFAULT_BOSAI_BULLETIN_TARGET,
+        options?.bosaiNotificationEmitDeps,
       );
     } else if (
       reception.telegramType === VPHW50_TELEGRAM_TYPE ||
@@ -343,6 +346,7 @@ export async function pollSingleFeed(
         reception,
         docFinishedAt,
         options?.bosaiBulletinTarget ?? DEFAULT_BOSAI_BULLETIN_TARGET,
+        options?.bosaiNotificationEmitDeps,
       );
     }
   }

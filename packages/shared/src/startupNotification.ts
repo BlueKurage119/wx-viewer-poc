@@ -9,25 +9,27 @@ import { isTerminalSessionId } from './terminalSession.js';
 import type { UtcIso8601String } from './types.js';
 import type { VenueId } from './venueForecastTargets.js';
 
-export type StartupCurrentSource = 'warning_current' | 'bosai_bulletin';
+export type StartupCurrentSource = 'warning_current' | 'bosai_bulletin' | 'fetch_health';
+
+export type StartupCurrentOrigin =
+  | { readonly origin: 'weather'; readonly sourceType: 'warning_current' | 'bosai_bulletin' }
+  | { readonly origin: 'system'; readonly sourceType: 'fetch_health' };
 
 export interface StartupNotificationRequest {
   readonly terminalId: string;
   readonly sessionId: TerminalSessionId;
 }
 
-export interface StartupCurrentNotification {
+export type StartupCurrentNotification = {
   readonly outputId: string;
   readonly category: NotificationCategory;
-  readonly origin: 'weather';
-  readonly sourceType: StartupCurrentSource;
   readonly sourceVersion: string | null;
   readonly targets: readonly [NotificationTarget, ...NotificationTarget[]];
   readonly occurredAt: UtcIso8601String;
   readonly relatedRefs: readonly NotificationRelatedRef[];
   readonly isTraining: boolean;
   readonly output: ResolvedNotificationOutputSnapshot;
-}
+} & StartupCurrentOrigin;
 
 export interface StartupNotificationReadyResponse {
   readonly status: 'ready';

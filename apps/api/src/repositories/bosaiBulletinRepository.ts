@@ -36,6 +36,7 @@ interface BosaiBulletinAreaRow {
   readonly area_name: string;
   readonly code_type: string;
   readonly sequence: number;
+  readonly information_type: string | null;
 }
 
 export function saveBosaiBulletin(
@@ -113,8 +114,8 @@ export function saveBosaiBulletin(
 
     const insertAreaStmt = connection.prepare(`
       INSERT INTO bosai_bulletin_area (
-        bulletin_id, area_code, area_name, code_type, sequence
-      ) VALUES (?, ?, ?, ?, ?)
+        bulletin_id, area_code, area_name, code_type, sequence, information_type
+      ) VALUES (?, ?, ?, ?, ?, ?)
       RETURNING id
     `);
 
@@ -125,6 +126,7 @@ export function saveBosaiBulletin(
         area.areaName,
         area.codeType,
         area.sequence,
+        area.informationType,
       ) as { id: number };
 
       return {
@@ -190,6 +192,7 @@ export function findBosaiBulletin(
     areaName: a.area_name,
     codeType: a.code_type,
     sequence: a.sequence,
+    informationType: a.information_type,
   }));
 
   return {
@@ -261,6 +264,7 @@ export function listBosaiBulletins(
       areaName: a.area_name,
       codeType: a.code_type,
       sequence: a.sequence,
+      informationType: a.information_type,
     }));
 
     return {

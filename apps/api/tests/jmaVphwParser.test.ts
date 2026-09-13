@@ -303,19 +303,21 @@ test('受け入れ条件 (parser・正例・実サンプル): 19_01_01_091210_VP
     assert.equal(a.sequence, idx);
   });
 
-  // (areaCode, codeType) の重複が無いこと
+  // (areaCode, codeType, informationType) の重複が無いこと
   const seen = new Set<string>();
   for (const a of parsed.areas) {
-    const key = `${a.areaCode}:${a.codeType}`;
+    const key = `${a.areaCode}:${a.codeType}:${a.informationType}`;
     assert.equal(seen.has(key), false, `重複キーが存在しないこと: ${key}`);
     seen.add(key);
   }
 
-  // 130010 は発表細分と一次細分の両方に現れるが1件だけ保存されること
+  // 130010 は発表細分と一次細分の両方に現れ、異なる informationType として2件保存されること
   const saibun130010 = parsed.areas.filter(
     (a) => a.areaCode === '130010' && a.codeType === '気象情報／府県予報区・細分区域等',
   );
-  assert.equal(saibun130010.length, 1);
+  assert.equal(saibun130010.length, 2);
+  assert.equal(saibun130010[0]!.informationType, '竜巻注意情報（発表細分）');
+  assert.equal(saibun130010[1]!.informationType, '竜巻注意情報（一次細分区域等）');
 
   // 重要: Body/Warning に Kind/Status='なし' で現れる 130020 (伊豆諸島北部) / 130030 (伊豆諸島南部) が含まれないこと
   assert.equal(

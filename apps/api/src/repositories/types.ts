@@ -493,6 +493,7 @@ export interface BosaiBulletinAreaInput {
   readonly areaName: string;
   readonly codeType: string;
   readonly sequence: number;
+  readonly informationType: string | null;
 }
 
 export interface BosaiBulletinArea extends BosaiBulletinAreaInput {

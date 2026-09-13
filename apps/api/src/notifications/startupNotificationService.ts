@@ -16,6 +16,7 @@ import {
 } from '../repositories/index.js';
 import type { DatabaseConnection } from '../database/index.js';
 import type { StartupNotificationInquiryRecord } from '../repositories/startupNotificationRepository.js';
+import type { FetchHealthAggregate } from '../monitoring/fetchHealthEvaluator.js';
 import {
   projectStartupCurrentNotifications,
   type StartupProjectionResult,
@@ -71,6 +72,7 @@ export interface CreateStartupNotificationServiceDependencies {
   readonly serverGenerationId: string;
   readonly now?: () => UtcIso8601String;
   readonly outputIdFactory?: () => string;
+  readonly getFetchHealth?: () => FetchHealthAggregate | null;
   readonly projector?: (
     connection: DatabaseConnection,
     input: Parameters<typeof projectStartupCurrentNotifications>[1],
@@ -116,12 +118,14 @@ export function createStartupNotificationService(
               claimedAt: inquiredAt,
               sessionId: input.sessionId,
             });
+          const fetchHealth = dependencies.getFetchHealth?.() ?? null;
           const projection = projector(
             dependencies.connection,
             {
               venueId: input.venueId,
               now: inquiredAt,
               includeWarningCategory: warningClaimed,
+              fetchHealth,
             },
             outputIdFactory,
           );
