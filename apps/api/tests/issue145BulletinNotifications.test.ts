@@ -24,7 +24,10 @@ import {
   StartupNotificationInitialization,
 } from '../src/notifications/startupNotificationService.js';
 import { processVpbs50Reception } from '../src/polling/jmaVpbs50Processor.js';
-import { processVphwReception } from '../src/polling/jmaVphwProcessor.js';
+import {
+  processVphwReception,
+  recoverLegacyVphwBulletinAreas,
+} from '../src/polling/jmaVphwProcessor.js';
 import { parseVphw } from '../src/polling/jmaVphwParser.js';
 import {
   findBosaiBulletin,
@@ -741,42 +744,125 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
     processVphwReception(context.connection, receptionVphwCancel, fixedNowIso, undefined, emitDeps);
     assert.equal(listNotificationOutputHistory(context.connection).length, 2); // 増えない
 
-    // 3. 対象不明取消 (§8-3: 種別/区域が特定できない取消)
-    const planUnclear = planBosaiBulletinNotifications({
-      current: {
-        id: 99,
-        eventId: 'UNKNOWN_EVENT',
-        controlStatus: 'normal',
+    // 3. 対象不明取消および食い違い取消 (§8-3) を processor 経由で投入し、受信ID・EventID・会場・理由のログ追跡性を検証
+    const warnLogs: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnLogs.push(args.map(String).join(' '));
+      origWarn(...args);
+    };
+
+    try {
+      // 3-1. 未知イベントの取消電文 (previousなし、種別なし、Body区域のみ)
+      const xmlUnknownCancel = buildVpbs50Xml({
+        eventId: 'JPTE202609109999_202609109999',
         infoType: '取消',
-        reportDateTime: '2026-09-10T07:30:00Z',
+        omitHeadlineText: true,
+        omitInformationTag: true,
         controlDateTime: '2026-09-10T07:30:00Z',
-        title: '気象防災速報取消',
-        headlineText: null,
-        informationTag: null,
-        hasSighting: null,
-        isCancelled: true,
-        metadata: {
-          source: 'test',
-          issuedAt: '2026-09-10T07:30:00Z',
-          validAt: null,
-          validFrom: null,
-          validTo: null,
-          fetchedAt: '2026-09-10T07:30:00Z',
-          lastSuccessAt: '2026-09-10T07:30:00Z',
-          availability: 'available',
-          sourceVersion: 'VPBS50:test',
-        },
-        areas: [], // 区域なし
-      },
-      previous: null,
-      venueId: 'east',
-      detectionContext: 'normal',
-      detectedAt: fixedNowIso,
-      notificationIdFactory: () => 'nid-test',
-    });
-    assert.equal(planUnclear.notifications.length, 0);
-    assert.equal(planUnclear.skipped.length, 1);
-    assert.equal(planUnclear.skipped[0]!.reason, 'unknown_cancellation_target');
+        reportDateTime: '2026-09-10T07:30:00Z',
+        bodyAreas: [
+          { name: '江東区', code: '1310800', codeType: '気象・地震・火山情報／市町村等' },
+        ],
+      });
+      const receptionUnknownCancel = saveTestReception(
+        context.connection,
+        'VPBS50',
+        '2026-09-10T07:30:00Z',
+        '2026-09-10T07:30:00Z',
+        'normal',
+        xmlUnknownCancel,
+      );
+      processVpbs50Reception(
+        context.connection,
+        receptionUnknownCancel,
+        fixedNowIso,
+        undefined,
+        emitDeps,
+      );
+
+      // 受信ID, EventID, 会場, reason をログで確認
+      const unknownLog = warnLogs.find(
+        (log) =>
+          log.includes(`receptionId=${receptionUnknownCancel.id}`) &&
+          log.includes('eventId=JPTE202609109999_202609109999') &&
+          log.includes('venueId=east') &&
+          log.includes('[unknown_cancellation_target]'),
+      );
+      assert.ok(
+        unknownLog,
+        'unknown_cancellation_targetのログに受信ID・EventID・会場・理由が含まれていること',
+      );
+
+      // 3-2. 食い違い取消電文 (previousは線状降水帯発生、取消電文は記録雨)
+      warnLogs.length = 0;
+      // 事前に発表電文を投入
+      const xmlAmbiguousBase = buildVpbs50Xml({
+        eventId: 'JPTE202609100003_202609100003',
+        condition: '線状降水帯発生',
+        controlDateTime: '2026-09-10T07:35:00Z',
+        reportDateTime: '2026-09-10T07:35:00Z',
+        headlineAreas: [
+          { name: '江東区', code: '1310800', codeType: '気象・地震・火山情報／市町村等' },
+        ],
+      });
+      const receptionAmbiguousBase = saveTestReception(
+        context.connection,
+        'VPBS50',
+        '2026-09-10T07:35:00Z',
+        '2026-09-10T07:35:00Z',
+        'normal',
+        xmlAmbiguousBase,
+      );
+      processVpbs50Reception(
+        context.connection,
+        receptionAmbiguousBase,
+        fixedNowIso,
+        undefined,
+        emitDeps,
+      );
+
+      warnLogs.length = 0;
+      const xmlAmbiguousCancel = buildVpbs50Xml({
+        eventId: 'JPTE202609100003_202609100003',
+        infoType: '取消',
+        condition: '記録雨',
+        controlDateTime: '2026-09-10T07:40:00Z',
+        reportDateTime: '2026-09-10T07:40:00Z',
+        headlineAreas: [
+          { name: '江東区', code: '1310800', codeType: '気象・地震・火山情報／市町村等' },
+        ],
+      });
+      const receptionAmbiguousCancel = saveTestReception(
+        context.connection,
+        'VPBS50',
+        '2026-09-10T07:40:00Z',
+        '2026-09-10T07:40:00Z',
+        'normal',
+        xmlAmbiguousCancel,
+      );
+      processVpbs50Reception(
+        context.connection,
+        receptionAmbiguousCancel,
+        fixedNowIso,
+        undefined,
+        emitDeps,
+      );
+
+      const ambiguousLog = warnLogs.find(
+        (log) =>
+          log.includes(`receptionId=${receptionAmbiguousCancel.id}`) &&
+          log.includes('eventId=JPTE202609100003_202609100003') &&
+          log.includes('venueId=east') &&
+          log.includes('[ambiguous_cancellation_target]'),
+      );
+      assert.ok(
+        ambiguousLog,
+        'ambiguous_cancellation_targetのログに受信ID・EventID・会場・理由が含まれていること',
+      );
+    } finally {
+      console.warn = origWarn;
+    }
   } finally {
     cleanup();
   }
@@ -1140,9 +1226,86 @@ test('AC7: 目撃有り・無し・VPHW50本文のみ目撃の公式fixtureをpa
       assert.equal(sightingAreas.length, 0);
     }
 
-    // §8-2: 旧DBで information_type が NULL かつ原文欠落の場合、通知から除外され保存現況は維持される
+    // 公式 fixture の保存原文から旧DB行の区域を復元する検証
+    // 1. telegram_reception に公式 fixture (EventID=null) を保存
+    const reception51With = saveTestReception(
+      context.connection,
+      'VPHW51',
+      '2014-02-12T04:19:00.000Z',
+      '2014-02-12T04:19:00.000Z',
+      'normal',
+      xml51With,
+    );
+    assert.equal(reception51With.eventId, null, '公式電文のHead/EventIDは空のためnull');
+
+    // 2. 旧DB相当行 (information_type IS NULL) を bosai_bulletin に作成
     saveBosaiBulletin(context.connection, {
-      eventId: 'VPHW50:LEGACY',
+      eventId: 'VPHW51:130010',
+      controlStatus: 'normal',
+      infoType: '発表',
+      reportDateTime: '2014-02-12T04:19:00.000Z',
+      controlDateTime: '2014-02-12T04:19:00.000Z',
+      title: '東京都竜巻注意情報',
+      headlineText: '東京地方に竜巻注意情報',
+      informationTag: '竜巻注意情報',
+      hasSighting: true,
+      isCancelled: false,
+      metadata: {
+        source: reception51With.documentUrl,
+        issuedAt: '2014-02-12T04:19:00.000Z',
+        validAt: '2014-02-12T05:30:00.000Z',
+        validFrom: null,
+        validTo: null,
+        fetchedAt: '2014-02-12T04:19:00.000Z',
+        lastSuccessAt: '2014-02-12T04:19:00.000Z',
+        availability: 'available',
+        sourceVersion: '1.0_0',
+      },
+      areas: [
+        {
+          areaCode: '130010',
+          areaName: '東京地方',
+          codeType: '気象情報／府県予報区・細分区域等',
+          sequence: 0,
+          informationType: null, // 旧DB相当: null
+        },
+      ],
+    });
+
+    // 復元前: informationType が null
+    const beforeRecovery = findBosaiBulletin(context.connection, 'VPHW51:130010', 'normal');
+    assert.ok(beforeRecovery);
+    assert.equal(beforeRecovery.areas[0]!.informationType, null);
+
+    // 3. recoverLegacyVphwBulletinAreas を実行
+    recoverLegacyVphwBulletinAreas(context.connection);
+
+    // 4. 再読込: areas に informationType が復元されていること
+    const afterRecovery = findBosaiBulletin(context.connection, 'VPHW51:130010', 'normal');
+    assert.ok(afterRecovery);
+    assert.ok(afterRecovery.areas.length > 0);
+    assert.ok(
+      afterRecovery.areas.every((a) => a.informationType !== null),
+      '復元後の全区域に informationType が設定されていること',
+    );
+    const sightingArea = afterRecovery.areas.find(
+      (a) => a.informationType === '竜巻注意情報（目撃情報あり）',
+    );
+    assert.ok(sightingArea, '目撃情報あり区域が復元されていること');
+
+    // 5. 復元された速報現況から通知が生成されること
+    const tracker = new InitialBosaiNotificationTracker();
+    tracker.setCollecting(false);
+    emitInitialBosaiBulletinNotifications(context.connection, 'east', {
+      now: () => '2014-02-12T04:30:00.000Z',
+      initialState: tracker,
+    });
+    const historiesAfterRecovery = listNotificationOutputHistory(context.connection);
+    assert.ok(historiesAfterRecovery.length > 0, '復元後に初期通知が生成されること');
+
+    // 6. §8-2: 原文欠落の旧DB行 (information_type IS NULL) は復元できず通知から除外され、保存現況は維持される
+    saveBosaiBulletin(context.connection, {
+      eventId: 'VPHW50:LEGACY_ORPHAN',
       controlStatus: 'normal',
       infoType: '発表',
       reportDateTime: '2026-09-10T17:00:00Z',
@@ -1153,7 +1316,7 @@ test('AC7: 目撃有り・無し・VPHW50本文のみ目撃の公式fixtureをpa
       hasSighting: null,
       isCancelled: false,
       metadata: {
-        source: 'test',
+        source: 'http://example.com/non_existent.xml',
         issuedAt: '2026-09-10T17:00:00Z',
         validAt: '2026-09-10T18:00:00Z',
         validFrom: null,
@@ -1174,17 +1337,25 @@ test('AC7: 目撃有り・無し・VPHW50本文のみ目撃の公式fixtureをpa
       ],
     });
 
+    recoverLegacyVphwBulletinAreas(context.connection);
+    const orphanBulletin = findBosaiBulletin(context.connection, 'VPHW50:LEGACY_ORPHAN', 'normal');
+    assert.ok(orphanBulletin);
+    assert.equal(orphanBulletin.areas[0]!.informationType, null);
+
     const startupNotifications = projectStartupCurrentNotifications(context.connection, {
       venueId: 'east',
       now: '2026-09-10T17:30:00.000Z',
       includeWarningCategory: true,
       fetchHealth: null,
     });
-    // information_type が null の行は通知から除外される (0件)
-    assert.equal(startupNotifications.notifications.length, 0);
+    // information_type が null の行は通知から除外される (VPHW50:LEGACY_ORPHAN の通知は含まれない)
+    assert.ok(
+      startupNotifications.notifications.every((n) =>
+        n.relatedRefs.every((r) => r.ref !== 'VPHW50:LEGACY_ORPHAN'),
+      ),
+    );
     // ただし保存現況は DB に残っている
-    const savedLegacy = findBosaiBulletin(context.connection, 'VPHW50:LEGACY', 'normal');
-    assert.ok(savedLegacy);
+    assert.ok(findBosaiBulletin(context.connection, 'VPHW50:LEGACY_ORPHAN', 'normal'));
   } finally {
     cleanup();
   }
@@ -1582,7 +1753,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
 // -----------------------------------------------------------------------------
 // AC12: 版キー・会場・種別識別の対照実験と ID 分離検証
 // -----------------------------------------------------------------------------
-test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが失敗すること、会場または通知種別を識別から落とすと件数テストが失敗することを対照実験で確認。通常notificationIdと起動outputIdが監査・履歴で混同されない。', () => {
+test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが失敗すること、会場targets・venue関連参照・通知種別関連参照の必須識別情報を完全一致で検証し、それぞれを欠落させる変異でテストが失敗することを確認。意味を変えない対照改変の通過を先に確認する。識別情報の欠落は件数だけでは検出できないため、件数検査で代用しない。通常notificationIdと起動outputIdが監査・履歴で混同されない。', () => {
   // 1. 版キー生成関数の対照実験
   const b1: BosaiBulletin = {
     id: 1,
@@ -1607,7 +1778,15 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
       availability: 'available',
       sourceVersion: null,
     },
-    areas: [],
+    areas: [
+      {
+        areaCode: '1310800',
+        areaName: '江東区',
+        codeType: '気象・地震・火山情報／市町村等',
+        sequence: 0,
+        informationType: null,
+      },
+    ],
   };
 
   const b2Corrected: BosaiBulletin = {
@@ -1621,16 +1800,97 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
   const key2 = resolveBosaiBulletinSourceVersion(b2Corrected);
   assert.notEqual(key1, key2, 'controlDateTime が異なれば版キーが異なる');
 
-  // 変異実験: もし sourceVersion を infoKindVersion だけにすると b1 と b2Corrected で同値になり訂正を識別できない
-  const mutantKey1 = '1.5_0';
-  const mutantKey2 = '1.5_0';
-  assert.equal(
-    mutantKey1,
-    mutantKey2,
-    '変異実験: infoKindVersion のみでは同値になり訂正を識別できない (KILLED)',
-  );
+  // 2. 必須識別情報（会場targets、venue関連参照、通知種別関連参照）の完全一致検証
+  const planVpbs = planBosaiBulletinNotifications({
+    current: b1,
+    previous: null,
+    venueId: 'east',
+    detectionContext: 'normal',
+    detectedAt: '2026-09-10T07:05:00Z',
+    notificationIdFactory: () => 'nid-vpbs-test',
+  });
+  assert.equal(planVpbs.notifications.length, 1);
+  const plannedVpbs = planVpbs.notifications[0]!;
+  assert.equal(plannedVpbs.kind, 'linear-rainband-observed');
 
-  // 2. ID 分離検証: 通常 notificationId (UUID) と 起動 outputId (output-...)
+  // 会場 targets の完全一致検証
+  assert.deepStrictEqual(plannedVpbs.notification.targets, [
+    {
+      kind: 'area',
+      codeType: 'venue',
+      code: 'east',
+      name: '東京ビッグサイト',
+    },
+  ]);
+
+  // relatedRefs（bosai_bulletin, venue, bosai_notification_kind）の完全一致検証
+  assert.deepStrictEqual(plannedVpbs.notification.relatedRefs, [
+    { type: 'bosai_bulletin', ref: 'EVENT_1' },
+    { type: 'venue', ref: 'east' },
+    { type: 'bosai_notification_kind', ref: 'linear-rainband-observed' },
+  ]);
+
+  // 竜巻注意・目撃の識別情報完全一致検証
+  const bTornado: BosaiBulletin = {
+    id: 2,
+    eventId: 'VPHW51:130010',
+    controlStatus: 'normal',
+    infoType: '発表',
+    reportDateTime: '2026-09-10T07:00:00Z',
+    controlDateTime: '2026-09-10T07:00:00Z',
+    title: '東京都竜巻注意情報',
+    headlineText: '本文',
+    informationTag: '竜巻注意情報',
+    hasSighting: true,
+    isCancelled: false,
+    metadata: {
+      source: 'test',
+      issuedAt: '2026-09-10T07:00:00Z',
+      validAt: '2026-09-10T08:10:00Z',
+      validFrom: null,
+      validTo: null,
+      fetchedAt: '2026-09-10T07:00:00Z',
+      lastSuccessAt: '2026-09-10T07:00:00Z',
+      availability: 'available',
+      sourceVersion: '1.0_0',
+    },
+    areas: [
+      {
+        areaCode: '130010',
+        areaName: '東京地方',
+        codeType: '気象情報／府県予報区・細分区域等',
+        sequence: 0,
+        informationType: '竜巻注意情報（目撃情報あり）',
+      },
+    ],
+  };
+
+  const planTornado = planBosaiBulletinNotifications({
+    current: bTornado,
+    previous: null,
+    venueId: 'east',
+    detectionContext: 'normal',
+    detectedAt: '2026-09-10T07:05:00Z',
+    notificationIdFactory: () => 'nid-tornado-test',
+  });
+  assert.equal(planTornado.notifications.length, 1);
+  const plannedTornado = planTornado.notifications[0]!;
+  assert.equal(plannedTornado.kind, 'tornado-sighting');
+  assert.deepStrictEqual(plannedTornado.notification.targets, [
+    {
+      kind: 'area',
+      codeType: 'venue',
+      code: 'east',
+      name: '東京ビッグサイト',
+    },
+  ]);
+  assert.deepStrictEqual(plannedTornado.notification.relatedRefs, [
+    { type: 'bosai_bulletin', ref: 'VPHW51:130010' },
+    { type: 'venue', ref: 'east' },
+    { type: 'bosai_notification_kind', ref: 'tornado-sighting' },
+  ]);
+
+  // 3. ID 分離検証: 通常 notificationId (UUID) と 起動 outputId (output-...)
   const { context, cleanup } = setupTestDb();
   try {
     const fixedNowIso = '2026-09-13T12:00:00.000Z';
@@ -1803,6 +2063,18 @@ test('AC14: startServer起動時、polling開始前に速報の初期通知が�
       seedDb.close();
     }
 
+    let feedPhase: 'initial' | 'new_bulletin' = 'initial';
+
+    const newVpbsXml = buildVpbs50Xml({
+      eventId: 'JPTE202609100002_202609100002',
+      condition: '記録雨',
+      reportDateTime: '2026-09-10T08:00:00Z',
+      controlDateTime: '2026-09-10T08:00:00Z',
+      headlineAreas: [
+        { name: '江東区', code: '1310800', codeType: '気象・地震・火山情報／市町村等' },
+      ],
+    });
+
     const emptyAtomFeed = `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>気象庁防災情報XML</title>
@@ -1810,11 +2082,37 @@ test('AC14: startServer起動時、polling開始前に速報の初期通知が�
   <id>http://example.com/feed</id>
 </feed>`;
 
-    const dummyFetch: typeof fetch = async () =>
-      new Response(emptyAtomFeed, {
+    const newBulletinDocUrl =
+      'https://www.data.jma.go.jp/developer/xml/data/20260910080000_0_VPBS50_130000.xml';
+
+    const newBulletinAtomFeed = `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>気象庁防災情報XML</title>
+  <updated>2026-09-10T08:00:00Z</updated>
+  <id>http://example.com/feed</id>
+  <entry>
+    <title>気象防災速報（記録的短時間大雨）</title>
+    <id>${newBulletinDocUrl}</id>
+    <updated>2026-09-10T08:00:00Z</updated>
+    <link rel="alternate" type="application/xml" href="${newBulletinDocUrl}" />
+    <author><name>気象庁</name></author>
+  </entry>
+</feed>`;
+
+    const dynamicFetch: typeof fetch = async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url === newBulletinDocUrl) {
+        return new Response(newVpbsXml, {
+          status: 200,
+          headers: { 'Content-Type': 'application/xml' },
+        });
+      }
+      const feedXml = feedPhase === 'initial' ? emptyAtomFeed : newBulletinAtomFeed;
+      return new Response(feedXml, {
         status: 200,
         headers: { 'Content-Type': 'application/atom+xml' },
       });
+    };
     const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
       source,
       runScheduled: async () => {},
@@ -1825,7 +2123,7 @@ test('AC14: startServer起動時、polling開始前に速報の初期通知が�
       port: 0,
       enablePolling: true,
       pollingServiceOptions: {
-        fetchFn: dummyFetch,
+        fetchFn: dynamicFetch,
         clock: () => fixedNowIso,
       },
       schedulerOptions: {
@@ -1837,7 +2135,9 @@ test('AC14: startServer起動時、polling開始前に速報の初期通知が�
     });
 
     try {
-      // startServer 完了時点（初期取得完了）で、初期評価により事前保存の最新現況が initial として記録される
+      assert.ok(server.pollingService, 'pollingService が起動していること');
+
+      // 1. startServer 完了時点（初期取得完了）で、事前保存現況が initial として記録されていること
       const verifyDb = initializeDatabase({ databasePath, migrationsDirectory });
       try {
         const histories = listNotificationOutputHistory(verifyDb.connection, { origin: 'weather' });
@@ -1846,6 +2146,50 @@ test('AC14: startServer起動時、polling開始前に速報の初期通知が�
         assert.ok(initialBulletins.every((h) => h.detectionContext === 'initial'));
       } finally {
         verifyDb.close();
+      }
+
+      interface PollingServiceWithInternalMethods {
+        pollFeeds(trigger: string, feeds: readonly string[]): Promise<unknown>;
+      }
+      const testablePoller = server.pollingService as unknown as PollingServiceWithInternalMethods;
+
+      // 2. 新着速報電文を feed に投入し、pollingService で scheduled ポーリングを実行
+      feedPhase = 'new_bulletin';
+      await testablePoller.pollFeeds('scheduled', ['extra']);
+
+      // 3. 新着速報電文の normal 検知履歴が該当会場 (江東区 -> east) に 1件追加されていることを確認
+      const verifyDb2 = initializeDatabase({ databasePath, migrationsDirectory });
+      try {
+        const histories = listNotificationOutputHistory(verifyDb2.connection, {
+          origin: 'weather',
+        });
+        const normalBulletins = histories.filter(
+          (h) => h.sourceType === 'bosai_bulletin' && h.detectionContext === 'normal',
+        );
+        assert.equal(normalBulletins.length, 1, '新着速報の normal 履歴が 1件 追加されること');
+        const normalOutput = normalBulletins[0]!;
+        assert.equal(normalOutput.messageDefinitionId, 'weather-bosai-bulletin-record-short-rain');
+        assert.equal(normalOutput.category, 'question');
+        assert.equal(normalOutput.ackRequired, true);
+        const targets = JSON.parse(normalOutput.targetAreaJson!);
+        assert.equal(targets[0].code, 'east');
+        assert.equal(targets[0].codeType, 'venue');
+
+        // 4. 同版を再度ポーリングしても通常通知履歴が増加しないこと (同版抑止)
+        await testablePoller.pollFeeds('scheduled', ['extra']);
+        const historiesSame = listNotificationOutputHistory(verifyDb2.connection, {
+          origin: 'weather',
+        });
+        const normalBulletinsSame = historiesSame.filter(
+          (h) => h.sourceType === 'bosai_bulletin' && h.detectionContext === 'normal',
+        );
+        assert.equal(
+          normalBulletinsSame.length,
+          1,
+          '同版再取得では normal 履歴が増加しないこと (0件増加)',
+        );
+      } finally {
+        verifyDb2.close();
       }
     } finally {
       await server.close();

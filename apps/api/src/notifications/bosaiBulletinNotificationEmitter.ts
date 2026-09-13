@@ -96,7 +96,7 @@ export function emitBosaiBulletinNotificationsForReception(
 
     for (const skip of plan.skipped) {
       console.warn(
-        `Bosai bulletin notification skipped for ${venueId}: [${skip.reason}] ${skip.detail}`,
+        `Bosai bulletin notification skipped for receptionId=${reception.id} eventId=${current.eventId} venueId=${venueId}: [${skip.reason}] ${skip.detail}`,
       );
     }
 

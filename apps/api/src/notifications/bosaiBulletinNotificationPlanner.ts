@@ -36,6 +36,7 @@ export interface PlannedBosaiBulletinNotification {
 export interface BosaiNotificationPlanSkip {
   readonly reason: string;
   readonly detail: string;
+  readonly eventId?: string;
 }
 
 export interface BosaiBulletinNotificationPlan {
@@ -324,7 +325,8 @@ export function planBosaiBulletinNotifications(
         skipped: [
           {
             reason: 'ambiguous_cancellation_target',
-            detail: `取消電文の種別 (${current.informationTag}) と previous の種別 (${previous!.informationTag}) が不一致です`,
+            detail: `取消電文の種別 (${current.informationTag}) と previous の種別 (${previous!.informationTag}) が不一致です (eventId: ${current.eventId})`,
+            eventId: current.eventId,
           },
         ],
       };
@@ -341,7 +343,8 @@ export function planBosaiBulletinNotifications(
           skipped: [
             {
               reason: 'ambiguous_cancellation_target',
-              detail: '取消電文の区域集合と previous の区域集合が不一致です',
+              detail: `取消電文の区域集合と previous の区域集合が不一致です (eventId: ${current.eventId})`,
+              eventId: current.eventId,
             },
           ],
         };
@@ -363,7 +366,8 @@ export function planBosaiBulletinNotifications(
         skipped: [
           {
             reason: 'unknown_cancellation_target',
-            detail: '取消対象の種別または区域を特定できません',
+            detail: `取消対象の種別または区域を特定できません (eventId: ${current.eventId})`,
+            eventId: current.eventId,
           },
         ],
       };
