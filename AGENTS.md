@@ -35,7 +35,7 @@
 - 仕様が曖昧・矛盾する場合、勝手に補完せず質問すること
 - 依頼範囲を遵守すること（調査・計画の提示や承認は実装開始の許可ではない）
 - コードベースに変更を加えるときは、計画または設計の承認を受けてから着手すること
-- コミット前に `npm run lint` / `npm run typecheck` / `npm run format:check` および対象workspaceのテストを実行し、エラーがないことを確かめること
+- コミット前に `npm run lint` / `npm run typecheck` / `npm run format:check` および対象workspaceのテストを実行し、エラーがないことを確かめること（ただし、変更が`docs/**`配下の`*.md`のみであり、依存関係により確認ができない場合は省略できる）
 - マージ後は、`git merge-base --is-ancestor <マージコミット> origin/main` が真であることを確かめること
 
 #### UIデザインに関する遵守事項
