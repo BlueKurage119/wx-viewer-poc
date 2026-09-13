@@ -7,7 +7,7 @@ products: [Claude, Codex]
 
 # 検収フェーズ業務標準
 
-対象: 検収担当。気象データの必須制約は[wx-data-protocol.md](wx-data-protocol.md)、ノウハウ・背景は[verification-discipline.md](../advisory/verification-discipline.md)・[browser-ui-verification.md](../advisory/browser-ui-verification.md)を参照。上から順に進める構成にしてある。
+対象: 検収担当。気象データの必須制約は[07-wx-data-protocol.md](07-wx-data-protocol.md)、ノウハウ・背景は[05-verification-discipline.md](../advisory/05-verification-discipline.md)・[04-browser-ui-verification.md](../advisory/04-browser-ui-verification.md)を参照。上から順に進める構成にしてある。
 
 ## 1. 着手確認(必須)
 
@@ -47,7 +47,7 @@ products: [Claude, Codex]
 - **全項目通過の場合のみ**、`git push -u origin <branch>` の上、`main`をbaseとする通常PR(Draftではない)を作成する。
   - 本文に対応するIssue番号があれば `Closes #<N>` を含める。
   - 本文の構成: 実装したもの/主要な設計判断とその根拠/受け入れ条件の検証結果/後続Issueへの申し送り。
-  - 署名フォーマットは[dev-workflow-protocol.md](dev-workflow-protocol.md)を参照。
+  - 署名フォーマットは[01-dev-workflow-protocol.md](01-dev-workflow-protocol.md)を参照。
   - **マージはしない**(統括担当が判断する)。
 - 既にPRが存在する場合(差し戻し後の再検収等)は、`git push`で更新しPRにコメントで追加分を投稿する。新規PRは作らない。
 

@@ -7,7 +7,7 @@ products: [Claude, Codex]
 
 # 設計フェーズの背景
 
-対象: 設計担当。権限境界・設計書に必ず含める項目(必須事項)は[docs/protocol/design-protocol.md](../protocol/design-protocol.md)を参照。
+対象: 設計担当。権限境界・設計書に必ず含める項目(必須事項)は[02-design-protocol.md](../protocol/02-design-protocol.md)を参照。
 
 `docs/issues-draft.md`のIssue項目は「実装タスク単位の見出し+参照する基本設計の章番号」程度のあっさりとした内容であり、実装方針を左右する論点の多くが未確定のまま残っている。そのため統括担当は、設計担当を起動する前にユーザーへヒアリングし、確定した判断(【確定】事項)をプロンプトに含めて渡す。設計担当はこれをそのまま前提として使う。
 

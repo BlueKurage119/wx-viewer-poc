@@ -7,7 +7,7 @@ products: [Claude, Codex, Antigravity]
 
 # 開発フローの背景・ノウハウ
 
-対象: 統括担当・各フェーズの担当。必須事項は[docs/protocol/dev-workflow-protocol.md](../protocol/dev-workflow-protocol.md)を参照。ここには背景・理由・具体的なフォーマットだけを置く。
+対象: 統括担当・各フェーズの担当。必須事項は[01-dev-workflow-protocol.md](../protocol/01-dev-workflow-protocol.md)を参照。ここには背景・理由・具体的なフォーマットだけを置く。
 
 ## なぜヒアリング前提なのか
 

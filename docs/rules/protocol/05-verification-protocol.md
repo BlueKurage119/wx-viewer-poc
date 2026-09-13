@@ -7,7 +7,7 @@ products: [Claude, Codex, Antigravity]
 
 # テスト検証業務標準
 
-対象: 主に製造担当・検収担当。手法の詳細・限界・過去の失敗事例は[docs/advisory/verification-discipline.md](../advisory/verification-discipline.md)を参照。
+対象: 主に製造担当・検収担当。手法の詳細・限界・過去の失敗事例は[05-verification-discipline.md](../advisory/05-verification-discipline.md)を参照。
 
 ## redを先に確認する(必須)
 
@@ -29,7 +29,7 @@ products: [Claude, Codex, Antigravity]
 
 ## この手法で保証されないもの
 
-ミューテーションテストが保証するのは「既存のテストが実装の変更を検知できること」であって「テストすべき次元が揃っていること」ではない。次の観点は別途、検証計画([inspect-protocol.md](inspect-protocol.md)の「2. 検証計画」)で扱う。
+ミューテーションテストが保証するのは「既存のテストが実装の変更を検知できること」であって「テストすべき次元が揃っていること」ではない。次の観点は別途、検証計画([04-inspect-protocol.md](04-inspect-protocol.md)の「2. 検証計画」)で扱う。
 
 - アサーションが部分一致・緩い比較になっていないか
 - 境界値・並行実行など、実装を壊しても落ちない次元がないか

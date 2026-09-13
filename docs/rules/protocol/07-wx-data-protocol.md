@@ -11,7 +11,7 @@ products: [Claude, Codex, Antigravity]
 
 ## 確定事実の扱い(必須)
 
-気象庁XML電文の提供仕様は、実データ・公式資料・[取得方法レポート](../data-acquisition-report.md)と照合できたものだけを、設計上の「確定」事実として扱うこと。電文構造やコード値を憶測で補わない。実挙動を確認できなかった箇所は「実挙動未確認」と明記する。`docs/basic-design.md`の【設計案】・【未確定】の記述を、無断で確定したものとして扱ってはならない。
+気象庁XML電文の提供仕様は、実データ・公式資料・[取得方法レポート](../../data-acquisition-report.md)と照合できたものだけを、設計上の「確定」事実として扱うこと。電文構造やコード値を憶測で補わない。実挙動を確認できなかった箇所は「実挙動未確認」と明記する。`docs/basic-design.md`の【設計案】・【未確定】の記述を、無断で確定したものとして扱ってはならない。
 
 ## 訓練データと本番相当データの混同禁止(必須)
 
@@ -25,4 +25,4 @@ availability(`available`/`stale`/`unavailable`、basic-design.md §6.3)の3状�
 
 ## 修正時の確認範囲(必須)
 
-気象データのキャッシュ・availability状態はモジュールレベルの共有可変状態になりやすい。[docs/protocol/verification-protocol.md](verification-protocol.md)・[docs/advisory/verification-discipline.md](../advisory/verification-discipline.md)の「共有可変状態の修正は系統的に洗い出す」に従い、一部の経路だけ`isTraining`やavailabilityの縮退を直しても、他の経路(通知・履歴・表示のいずれか)に同じ欠陥が残っていないかを、修正のたびに全経路で確認すること。
+気象データのキャッシュ・availability状態はモジュールレベルの共有可変状態になりやすい。[05-verification-protocol.md](05-verification-protocol.md)・[05-verification-discipline.md](../advisory/05-verification-discipline.md)の「共有可変状態の修正は系統的に洗い出す」に従い、一部の経路だけ`isTraining`やavailabilityの縮退を直しても、他の経路(通知・履歴・表示のいずれか)に同じ欠陥が残っていないかを、修正のたびに全経路で確認すること。

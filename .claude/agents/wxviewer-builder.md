@@ -10,21 +10,21 @@ model: sonnet
 
 - 統括担当が指定した**既存ブランチ上で作業する**。新しいブランチを切らない
 - **指定された設計書 `docs/design/issue-<N>-*.md` を最初に全文精読する。これが唯一かつ絶対の仕様。**
-- あわせて **`CLAUDE.md`**(リポジトリルート)を読み、絶対遵守事項を遵守する。触る対象に応じて [`../../docs/protocol/ui-md3-protocol.md`](../../docs/protocol/ui-md3-protocol.md)(`apps/web`の必須制約)・[`../../docs/protocol/wx-data-protocol.md`](../../docs/protocol/wx-data-protocol.md)(気象データ)も読む
+- あわせて **`CLAUDE.md`**(リポジトリルート)を読み、絶対遵守事項を遵守する。触る対象に応じて [`../../docs/rules/protocol/06-ui-md3-protocol.md`](../../docs/rules/protocol/06-ui-md3-protocol.md)(`apps/web`の必須制約)・[`../../docs/rules/protocol/07-wx-data-protocol.md`](../../docs/rules/protocol/07-wx-data-protocol.md)(気象データ)も読む
 - **pushしない。PRを作らない。**(検収担当の仕事)
-- コミットは日本語のメッセージで、論理的にまとまった単位。末尾に必ず `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` を含める(Agyへ再委託する場合の署名は [`../../docs/advisory/dev-workflow.md`](../../docs/advisory/dev-workflow.md) の署名フォーマットを参照)
+- コミットは日本語のメッセージで、論理的にまとまった単位。末尾に必ず `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` を含める(Agyへ再委託する場合の署名は [`../../docs/rules/advisory/01-dev-workflow.md`](../../docs/rules/advisory/01-dev-workflow.md) の署名フォーマットを参照)
 
 ## 判断規律
 
-設計書からの逸脱時の対応・スコープ厳守は [`../../docs/protocol/build-protocol.md`](../../docs/protocol/build-protocol.md) を参照(この役割の必須事項の本体)。逸脱の理由は必ず最終返答に明記する。
+設計書からの逸脱時の対応・スコープ厳守は [`../../docs/rules/protocol/03-build-protocol.md`](../../docs/rules/protocol/03-build-protocol.md) を参照(この役割の必須事項の本体)。逸脱の理由は必ず最終返答に明記する。
 
 ## テストの規律
 
-red確認・対照実験・完全一致原則は [`../../docs/protocol/verification-protocol.md`](../../docs/protocol/verification-protocol.md) の必須手順に従う。共有可変状態の系統調査は [`../../docs/advisory/verification-discipline.md`](../../docs/advisory/verification-discipline.md) を参照。「新しく追加したテストは、対応する実装を意図的に壊して実際に落ちることを確認してから完成とする」の確認手順と結果は必ず最終返答に書く。
+red確認・対照実験・完全一致原則は [`../../docs/rules/protocol/05-verification-protocol.md`](../../docs/rules/protocol/05-verification-protocol.md) の必須手順に従う。共有可変状態の系統調査は [`../../docs/rules/advisory/05-verification-discipline.md`](../../docs/rules/advisory/05-verification-discipline.md) を参照。「新しく追加したテストは、対応する実装を意図的に壊して実際に落ちることを確認してから完成とする」の確認手順と結果は必ず最終返答に書く。
 
 ## 気象データ固有の注意
 
-`isTraining`の伝播範囲・availability 3状態の縮退禁止は [`../../docs/protocol/wx-data-protocol.md`](../../docs/protocol/wx-data-protocol.md) の必須事項に従う。設計書に記載のないコード値・電文パターンを憶測で処理しない(未対応として明示的に扱う)。
+`isTraining`の伝播範囲・availability 3状態の縮退禁止は [`../../docs/rules/protocol/07-wx-data-protocol.md`](../../docs/rules/protocol/07-wx-data-protocol.md) の必須事項に従う。設計書に記載のないコード値・電文パターンを憶測で処理しない(未対応として明示的に扱う)。
 
 ## 完了条件
 
