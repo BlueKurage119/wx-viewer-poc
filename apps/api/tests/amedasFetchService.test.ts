@@ -58,7 +58,7 @@ test('1. 正常系: east の取得・保存・availability', async () => {
       .all() as Array<{ source_kind: string; target_ref: string | null; outcome: string }>;
     assert.equal(attempts.length, 2);
     assert.equal(attempts[0]?.source_kind, 'amedas_latest_time');
-    assert.equal(attempts[0]?.target_ref, null);
+    assert.equal(attempts[0]?.target_ref, '44136');
     assert.equal(attempts[0]?.outcome, 'success');
     assert.equal(attempts[1]?.source_kind, 'amedas_point');
     assert.equal(attempts[1]?.target_ref, '44136');
@@ -790,6 +790,68 @@ test('17. 観測行 0 件の backfill ブロック: 正常取得として試行�
         },
       ],
     );
+  } finally {
+    cleanup();
+  }
+});
+
+test('18. 最新時刻取得履歴の地点帰属: 成功・失敗ともに target_ref に地点コードを記録する', async () => {
+  const { connection, cleanup } = setupDb();
+  try {
+    // east 成功
+    const stateEast = new AmedasFetchState('east');
+    await runAmedasFetchCycle(connection, stateEast, {
+      fetchFn: async (url) => {
+        if (String(url).includes('latest_time.txt')) {
+          return new Response(latestTimeText, { status: 200 });
+        }
+        return new Response(point44136Json, { status: 200 });
+      },
+    });
+
+    // trc 成功
+    const stateTrc = new AmedasFetchState('trc');
+    await runAmedasFetchCycle(connection, stateTrc, {
+      fetchFn: async (url) => {
+        if (String(url).includes('latest_time.txt')) {
+          return new Response(latestTimeText, { status: 200 });
+        }
+        return new Response(point44166Json, { status: 200 });
+      },
+    });
+
+    // east 失敗
+    await runAmedasFetchCycle(connection, stateEast, {
+      fetchFn: async (url) => {
+        if (String(url).includes('latest_time.txt')) {
+          return new Response('Internal Error', { status: 500 });
+        }
+        return new Response(point44136Json, { status: 200 });
+      },
+    });
+
+    // trc 失敗
+    await runAmedasFetchCycle(connection, stateTrc, {
+      fetchFn: async (url) => {
+        if (String(url).includes('latest_time.txt')) {
+          return new Response('Internal Error', { status: 500 });
+        }
+        return new Response(point44166Json, { status: 200 });
+      },
+    });
+
+    const attempts = connection
+      .prepare(
+        "SELECT target_ref, outcome FROM fetch_attempt WHERE source_kind = 'amedas_latest_time' ORDER BY id ASC",
+      )
+      .all() as Array<{ target_ref: string | null; outcome: string }>;
+
+    assert.deepEqual(attempts, [
+      { target_ref: '44136', outcome: 'success' },
+      { target_ref: '44166', outcome: 'success' },
+      { target_ref: '44136', outcome: 'failure' },
+      { target_ref: '44166', outcome: 'failure' },
+    ]);
   } finally {
     cleanup();
   }

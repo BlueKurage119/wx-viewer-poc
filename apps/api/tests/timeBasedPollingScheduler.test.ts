@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +33,8 @@ import { AmedasFetchState } from '../src/polling/amedasFetchService.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
+const fixturesDir = join(fileURLToPath(import.meta.url), '../fixtures/jma/amedas');
+const point44136Json = readFileSync(join(fixturesDir, 'amedas_point_44136_block.json'), 'utf-8');
 
 function createTempDb(): { databasePath: string; cleanup: () => void } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-sched-test-'));
@@ -1095,7 +1097,7 @@ test('9. アメダス 10分再確認と時刻更新時の地点データ取得 (
       }
       if (urlStr.includes('.json')) {
         pointDataRequestCount++;
-        return new Response(JSON.stringify({}), { status: 200 });
+        return new Response(point44136Json, { status: 200 });
       }
       return new Response('Not found', { status: 404 });
     };
@@ -1139,6 +1141,86 @@ test('9. アメダス 10分再確認と時刻更新時の地点データ取得 (
     await adapter.runScheduled();
     assert.equal(latestTimeRequestCount, 13, '12分後: latest_time 取得');
     assert.equal(pointDataRequestCount, 3, '12分後: 時刻更新により地点データ取得');
+
+    database.close();
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 単地点 adapter の地点失敗時再試行テスト:
+// 地点データが失敗した場合は consecutiveFailures >= 1 となり、時刻不変・再確認時間未満でも
+// 次周期で pointFetchPolicy: 'always' で再試行する。回復後は通常スキップに戻る。
+// ---------------------------------------------------------------------------
+test('10. アメダス地点失敗時の次周期再試行と回復後のスキップ復帰', async () => {
+  const { databasePath, cleanup } = createTempDb();
+
+  try {
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    let currentMockTimeMs = new Date('2026-09-12T01:00:00.000Z').getTime();
+    const nowFn = () => new Date(currentMockTimeMs);
+
+    let latestTimeRequestCount = 0;
+    let pointDataRequestCount = 0;
+    let pointDataStatus = 200;
+
+    const customFetch: typeof fetch = async (input) => {
+      const urlStr = String(input);
+      if (urlStr.includes('latest_time.txt')) {
+        latestTimeRequestCount++;
+        return new Response('2026-09-12T01:00:00.000Z', { status: 200 });
+      }
+      if (urlStr.includes('.json')) {
+        pointDataRequestCount++;
+        if (pointDataStatus !== 200) {
+          return new Response('Service Unavailable', { status: pointDataStatus });
+        }
+        return new Response(point44136Json, { status: 200 });
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const amedasState = new AmedasFetchState('east');
+    const adapter = new AmedasScheduledAdapter(database.connection, amedasState, 600, {
+      fetchOptions: { fetchFn: customFetch, allowHttpForTesting: true },
+      now: nowFn,
+    });
+
+    // 1回目 (t=0分): 初回成功
+    await adapter.runScheduled();
+    assert.equal(latestTimeRequestCount, 1);
+    assert.equal(pointDataRequestCount, 1);
+    assert.equal(amedasState.getStreamStatus('pointData').consecutiveFailures, 0);
+
+    // 2回目 (t=1分): 時刻不変・正常なのでスキップ
+    currentMockTimeMs += 60_000;
+    await adapter.runScheduled();
+    assert.equal(latestTimeRequestCount, 2);
+    assert.equal(pointDataRequestCount, 1);
+
+    // 3回目 (t=2分): 時刻更新（最新時刻変化）で地点取得を試みるが、地点が 503 失敗
+    currentMockTimeMs += 60_000;
+    pointDataStatus = 503;
+    amedasState.setLatestTime('2026-09-12T00:50:00.000Z'); // 変更をトリガー
+    await adapter.runScheduled();
+    assert.equal(latestTimeRequestCount, 3);
+    assert.equal(pointDataRequestCount, 2, '時刻変化により地点取得試行');
+    assert.equal(amedasState.getStreamStatus('pointData').consecutiveFailures, 1);
+
+    // 4回目 (t=3分): 時刻不変・再確認時間未満だが、地点失敗（consecutiveFailures=1）のため次周期で再試行
+    currentMockTimeMs += 60_000;
+    pointDataStatus = 200; // 回復
+    await adapter.runScheduled();
+    assert.equal(latestTimeRequestCount, 4);
+    assert.equal(pointDataRequestCount, 3, '失敗中なので時刻不変でも再試行');
+    assert.equal(amedasState.getStreamStatus('pointData').consecutiveFailures, 0);
+
+    // 5回目 (t=4分): 回復後は時刻不変・再確認時間未満ならスキップされる
+    currentMockTimeMs += 60_000;
+    await adapter.runScheduled();
+    assert.equal(latestTimeRequestCount, 5);
+    assert.equal(pointDataRequestCount, 3, '回復後はスキップされる');
 
     database.close();
   } finally {
