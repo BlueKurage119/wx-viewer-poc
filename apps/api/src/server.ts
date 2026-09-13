@@ -244,6 +244,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             config: schedule.fetchHealth,
           });
 
+          // 順序が重要: scheduler.start() は初回XML取得が終わるまで解決しない(実測17分超)。
+          // 先に fetchHealthMonitorService.start() を呼ばないと、その間ずっと
+          // 装置異常判定が動かず、取得元が連続失敗しても通知が出ない(D7 AC12回帰)。
           fetchHealthMonitorService.start();
           // XML開始責務は scheduler に集約し、二重起動を防止する
           await scheduler.start();
@@ -430,6 +433,9 @@ async function main(): Promise<void> {
             config: schedule.fetchHealth,
           });
 
+          // 順序が重要: scheduler.start() は初回XML取得が終わるまで解決しない(実測17分超)。
+          // 先に fetchHealthMonitorService.start() を呼ばないと、その間ずっと
+          // 装置異常判定が動かず、取得元が連続失敗しても通知が出ない(D7 AC12回帰)。
           fetchHealthMonitorService.start();
           await scheduler.start();
         })(),
