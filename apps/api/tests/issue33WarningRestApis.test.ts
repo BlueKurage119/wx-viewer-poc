@@ -58,8 +58,13 @@ import {
   findWarningTimeseriesSnapshot,
 } from '../src/repositories/warningTimeseriesRepository.js';
 import { saveEarlyWarningSnapshot } from '../src/repositories/earlyWarningRepository.js';
-import { recordTelegramReception } from '../src/repositories/telegramReceptionRepository.js';
+import {
+  recordTelegramReception,
+  findTelegramReceptionById,
+} from '../src/repositories/telegramReceptionRepository.js';
 import { parseVpwp50 } from '../src/polling/jmaVpwp50Parser.js';
+import { processVpwp50Reception } from '../src/polling/jmaVpwp50Processor.js';
+import { resolveVenueWarningTimeseriesContext } from '../src/venueForecastTargets.js';
 import type { JmaXmlPollingStatus } from '../src/polling/jmaXmlPollingService.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
@@ -650,8 +655,9 @@ test('A5: #33 の allowlist と capabilities（04, 18 未対応明示、内部ID
 
 // ---------------------------------------------------------------------------
 // A6: ユーザー指定 VPWP50 実電文の fixture 化と新潟市パース検証（雷の竜巻・ひょう、出現順、時間ref捏造なし）
+//      および通常 processVpwp50Reception 処理・保存経由での API 応答検証
 // ---------------------------------------------------------------------------
-test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険度付加事項（竜巻、ひょう）の出現順パースと API 提供', async () => {
+test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険度付加事項（竜巻、ひょう）の出現順パースと通常処理・API提供の検証', async () => {
   const fixturePath = join(fixturesDir, '20260913214231_0_VPWP50_150000.xml');
   const rawXml = readFileSync(fixturePath, 'utf8');
 
@@ -667,6 +673,7 @@ test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険�
     controlDateTime: '2026-09-13T21:42:30.000Z',
   };
 
+  // 1. パーサー単体での新潟市（1510000）の検証
   const parseResult = parseVpwp50(rawXml, expected, niigataTarget);
   assert.equal(parseResult.ok, true);
   if (!parseResult.ok) return;
@@ -700,12 +707,101 @@ test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険�
     assert.notEqual(val.scope, null);
     assert.equal(val.scope?.partName, 'SignificancyPart');
   }
+
+  // 2. 公式 fixture の電文構造を保持したまま通常 processVpwp50Reception 経路で処理・保存し、
+  //    /api/weather/warning-timeseries の応答までエンドツーエンドで検証
+  const { db, app } = createTestApp();
+  const eastVenue = resolveVenueWarningTimeseriesContext('east');
+  // 会場ターゲット（江東区 1310800）に対応付けた電文
+  const venueXml = rawXml
+    .replaceAll('1510000', eastVenue.targetArea.municipalCode)
+    .replaceAll('新潟市', eastVenue.targetArea.displayName);
+
+  const reception = recordTelegramReception(db.connection, {
+    fetchAttemptId: null,
+    feedKind: null,
+    feedEntryId: null,
+    feedType: 'regular',
+    documentUrl: 'https://example.com/20260913214231_0_VPWP50_150000.xml',
+    telegramType: 'VPWP50',
+    title: '気象警報・注意報（量的予想時系列）',
+    eventId: null,
+    serial: null,
+    infoType: '発表',
+    infoKind: '気象警報・注意報時系列',
+    infoKindVersion: '1.0',
+    reportDateTime: expected.reportDateTime,
+    controlDateTime: expected.controlDateTime,
+    targetDateTime: null,
+    controlStatus: 'normal',
+    receivedAt: '2026-09-13T21:43:00.000Z',
+    rawBody: venueXml,
+    bodyBytes: null,
+    contentHash: null,
+    areas: [],
+    adoptions: [],
+  });
+
+  const processedAt = '2026-09-13T21:43:05.000Z';
+  const processResult = processVpwp50Reception(db.connection, reception, processedAt, eastVenue);
+  assert.equal(processResult.ok, true);
+
+  // 受信台帳の採用判定が「警報等時系列として解析済み」になっていること
+  const updatedReception = findTelegramReceptionById(db.connection, reception.id);
+  assert.ok(updatedReception);
+  const adoption = updatedReception.adoptions.find((a) => a.venueId === 'east');
+  assert.ok(adoption);
+  assert.equal(adoption.adoptionResult, '警報等時系列として解析済み');
+
+  // /api/weather/warning-timeseries を HTTP GET してレスポンスを検証
+  const res = await request(app).get(
+    '/api/weather/warning-timeseries?terminalId=hkeagh01&controlStatus=normal',
+  );
+  assert.equal(res.status, 200);
+  assert.equal(res.body.terminalId, 'hkeagh01');
+  assert.equal(res.body.venueId, 'east');
+  assert.equal(res.body.controlStatus, 'normal');
+  assert.equal(res.body.isTraining, false);
+  assert.equal(res.body.area.code, '1310800');
+  assert.equal(res.body.area.name, '江東区');
+  assert.equal(res.body.metadata.availability, 'available');
+  assert.ok(res.body.data);
+
+  // API 応答の additions に雷危険度の竜巻・ひょうが出現順に返却されること
+  const apiThunderAdditions = res.body.data.additions.filter(
+    (a: { propertyType: string }) => a.propertyType === '雷危険度',
+  );
+  assert.equal(apiThunderAdditions.length, 2);
+  assert.equal(apiThunderAdditions[0].text, '竜巻');
+  assert.equal(apiThunderAdditions[0].additionIndex, 0);
+  assert.equal(apiThunderAdditions[0].noteIndex, 0);
+  assert.equal(apiThunderAdditions[0].areaDivision, null);
+  assert.equal(apiThunderAdditions[0].scope.localIndex, null);
+  assert.equal('timeId' in apiThunderAdditions[0], false);
+  assert.equal('refId' in apiThunderAdditions[0], false);
+
+  assert.equal(apiThunderAdditions[1].text, 'ひょう');
+  assert.equal(apiThunderAdditions[1].additionIndex, 0);
+  assert.equal(apiThunderAdditions[1].noteIndex, 1);
+  assert.equal(apiThunderAdditions[1].areaDivision, null);
+
+  // API 応答の values に雷危険度の scope (SignificancyPart) が付与されていること
+  const apiThunderValues = res.body.data.values.filter(
+    (v: { propertyType: string }) => v.propertyType === '雷危険度',
+  );
+  assert.ok(apiThunderValues.length > 0);
+  for (const v of apiThunderValues) {
+    assert.notEqual(v.scope, null);
+    assert.equal(v.scope?.partName, 'SignificancyPart');
+  }
+
+  db.close();
 });
 
 // ---------------------------------------------------------------------------
-// A7: 合成 XML による scope 分離・Local の areaDivision 独立・重複 Note 保持
+// A7: 合成 XML による scope 分離・複数 Kind/Property/Part/Base/Local の混線防止・重複 Note 保持
 // ---------------------------------------------------------------------------
-test('A7: 境界検証 - 同一 block 内の同名 Property、複数 Local、重複 Note の保持と scope 独立', () => {
+test('A7: 境界検証 - 複数 Kind/Property/Part/Base/Local の階層構造における scope 添字独立性と重複 Note 保持', () => {
   const syntheticXml = `<?xml version="1.0" encoding="UTF-8"?>
 <Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
 <Control>
@@ -722,28 +818,85 @@ test('A7: 境界検証 - 同一 block 内の同名 Property、複数 Local、重
 <TimeSeriesInfo>
 <TimeDefines>
 <TimeDefine timeId="1"><DateTime>2026-09-14T09:00:00+09:00</DateTime><Duration>PT3H</Duration></TimeDefine>
+<TimeDefine timeId="2"><DateTime>2026-09-14T12:00:00+09:00</DateTime><Duration>PT3H</Duration></TimeDefine>
 </TimeDefines>
 <Item>
+<!-- Kind 0: 発表 -->
 <Kind>
 <Status>発表</Status>
+<!-- Property 0: 風 -->
 <Property>
 <Type>風</Type>
+<!-- Part 0: WindSpeedPart -->
 <WindSpeedPart>
+<!-- Base 0: 複数 Local (陸上, 海上) -->
 <Base>
 <Local>
 <AreaName>陸上</AreaName>
 <jmx_eb:WindSpeed refID="1" type="最大風速" unit="m/s">10</jmx_eb:WindSpeed>
 <Addition>
-<Note>突風</Note>
-<Note>突風</Note>
+<Note>陸上突風1</Note>
+<Note>陸上突風2</Note>
 </Addition>
 </Local>
 <Local>
 <AreaName>海上</AreaName>
 <jmx_eb:WindSpeed refID="1" type="最大風速" unit="m/s">15</jmx_eb:WindSpeed>
+<Addition>
+<Note>海上突風</Note>
+</Addition>
+</Local>
+</Base>
+<!-- Base 1: 複数 Local (山沿い) -->
+<Base>
+<Local>
+<AreaName>山沿い</AreaName>
+<jmx_eb:WindSpeed refID="2" type="最大風速" unit="m/s">20</jmx_eb:WindSpeed>
+<Addition>
+<Note>山沿い強風</Note>
+</Addition>
 </Local>
 </Base>
 </WindSpeedPart>
+<!-- Part 1: WindDirectionPart (Base直下 Addition) -->
+<WindDirectionPart>
+<Base>
+<jmx_eb:WindDirection refID="1" type="風向">南</jmx_eb:WindDirection>
+<Addition>
+<Note>南風優勢</Note>
+</Addition>
+</Base>
+</WindDirectionPart>
+</Property>
+<!-- Property 1: 波 -->
+<Property>
+<Type>波</Type>
+<!-- Part 0: WaveHeightPart (Base直下 Addition) -->
+<WaveHeightPart>
+<Base>
+<jmx_eb:WaveHeight refID="1" type="波高" unit="m">3.0</jmx_eb:WaveHeight>
+<Addition>
+<Note>うねりを伴う</Note>
+</Addition>
+</Base>
+</WaveHeightPart>
+</Property>
+</Kind>
+<!-- Kind 1: 解除 -->
+<Kind>
+<Status>解除</Status>
+<!-- Property 0: 雨 -->
+<Property>
+<Type>雨</Type>
+<!-- Part 0: PrecipitationPart (Base直下 Addition) -->
+<PrecipitationPart>
+<Base>
+<jmx_eb:Precipitation refID="1" type="１時間最大雨量" unit="mm">30</jmx_eb:Precipitation>
+<Addition>
+<Note>局地的大雨</Note>
+</Addition>
+</Base>
+</PrecipitationPart>
 </Property>
 </Kind>
 <Area><Name>江東区</Name><Code>1310800</Code></Area>
@@ -769,25 +922,204 @@ test('A7: 境界検証 - 同一 block 内の同名 Property、複数 Local、重
 
   const { additions, values } = result.value;
 
-  // 重複 Note 「突風」「突風」が保持される
-  assert.equal(additions.length, 2);
-  assert.equal(additions[0].text, '突風');
-  assert.equal(additions[0].noteIndex, 0);
-  assert.equal(additions[0].areaDivision, '陸上');
-  assert.equal(additions[0].scope.localIndex, 0);
+  // 全 Addition 件数は 7 件（陸上突風1, 陸上突風2, 海上突風, 山沿い強風, 南風優勢, うねりを伴う, 局地的大雨）
+  assert.equal(additions.length, 7);
 
-  assert.equal(additions[1].text, '突風');
-  assert.equal(additions[1].noteIndex, 1);
-  assert.equal(additions[1].areaDivision, '陸上');
-  assert.equal(additions[1].scope.localIndex, 0);
+  // 1. Kind 0, Property 0 (風), Part 0 (WindSpeedPart), Base 0, Local 0 (陸上)
+  // 同一 Addition 内の重複/複数 Note 保持
+  assert.deepEqual(additions[0], {
+    blockId: 'timeseries-1',
+    scope: {
+      kindIndex: 0,
+      propertyIndex: 0,
+      partName: 'WindSpeedPart',
+      partIndex: 0,
+      baseIndex: 0,
+      localIndex: 0,
+    },
+    propertyType: '風',
+    kindStatus: '発表',
+    kindDateTime: null,
+    areaDivision: '陸上',
+    additionIndex: 0,
+    noteIndex: 0,
+    text: '陸上突風1',
+  });
+  assert.deepEqual(additions[1], {
+    blockId: 'timeseries-1',
+    scope: {
+      kindIndex: 0,
+      propertyIndex: 0,
+      partName: 'WindSpeedPart',
+      partIndex: 0,
+      baseIndex: 0,
+      localIndex: 0,
+    },
+    propertyType: '風',
+    kindStatus: '発表',
+    kindDateTime: null,
+    areaDivision: '陸上',
+    additionIndex: 0,
+    noteIndex: 1,
+    text: '陸上突風2',
+  });
 
-  // 海上の value に陸上の AreaName が漏れない
-  const landVal = values.find((v) => v.areaDivision === '陸上');
-  const seaVal = values.find((v) => v.areaDivision === '海上');
-  assert.ok(landVal);
-  assert.ok(seaVal);
-  assert.equal(landVal.scope?.localIndex, 0);
-  assert.equal(seaVal.scope?.localIndex, 1);
+  // 2. Kind 0, Property 0 (風), Part 0 (WindSpeedPart), Base 0, Local 1 (海上)
+  assert.deepEqual(additions[2], {
+    blockId: 'timeseries-1',
+    scope: {
+      kindIndex: 0,
+      propertyIndex: 0,
+      partName: 'WindSpeedPart',
+      partIndex: 0,
+      baseIndex: 0,
+      localIndex: 1,
+    },
+    propertyType: '風',
+    kindStatus: '発表',
+    kindDateTime: null,
+    areaDivision: '海上',
+    additionIndex: 0,
+    noteIndex: 0,
+    text: '海上突風',
+  });
+
+  // 3. Kind 0, Property 0 (風), Part 0 (WindSpeedPart), Base 1, Local 0 (山沿い)
+  assert.deepEqual(additions[3], {
+    blockId: 'timeseries-1',
+    scope: {
+      kindIndex: 0,
+      propertyIndex: 0,
+      partName: 'WindSpeedPart',
+      partIndex: 0,
+      baseIndex: 1,
+      localIndex: 0,
+    },
+    propertyType: '風',
+    kindStatus: '発表',
+    kindDateTime: null,
+    areaDivision: '山沿い',
+    additionIndex: 0,
+    noteIndex: 0,
+    text: '山沿い強風',
+  });
+
+  // 4. Kind 0, Property 0 (風), Part 1 (WindDirectionPart), Base 0, Local null (Base 直下)
+  assert.deepEqual(additions[4], {
+    blockId: 'timeseries-1',
+    scope: {
+      kindIndex: 0,
+      propertyIndex: 0,
+      partName: 'WindDirectionPart',
+      partIndex: 1,
+      baseIndex: 0,
+      localIndex: null,
+    },
+    propertyType: '風',
+    kindStatus: '発表',
+    kindDateTime: null,
+    areaDivision: null,
+    additionIndex: 0,
+    noteIndex: 0,
+    text: '南風優勢',
+  });
+
+  // 5. Kind 0, Property 1 (波), Part 0 (WaveHeightPart), Base 0, Local null
+  assert.deepEqual(additions[5], {
+    blockId: 'timeseries-1',
+    scope: {
+      kindIndex: 0,
+      propertyIndex: 1,
+      partName: 'WaveHeightPart',
+      partIndex: 0,
+      baseIndex: 0,
+      localIndex: null,
+    },
+    propertyType: '波',
+    kindStatus: '発表',
+    kindDateTime: null,
+    areaDivision: null,
+    additionIndex: 0,
+    noteIndex: 0,
+    text: 'うねりを伴う',
+  });
+
+  // 6. Kind 1 (解除), Property 0 (雨), Part 0 (PrecipitationPart), Base 0, Local null
+  assert.deepEqual(additions[6], {
+    blockId: 'timeseries-1',
+    scope: {
+      kindIndex: 1,
+      propertyIndex: 0,
+      partName: 'PrecipitationPart',
+      partIndex: 0,
+      baseIndex: 0,
+      localIndex: null,
+    },
+    propertyType: '雨',
+    kindStatus: '解除',
+    kindDateTime: null,
+    areaDivision: null,
+    additionIndex: 0,
+    noteIndex: 0,
+    text: '局地的大雨',
+  });
+
+  // 各 Value の scope と areaDivision が独立して混線していないこと
+  const landWind = values.find((v) => v.areaDivision === '陸上');
+  const seaWind = values.find((v) => v.areaDivision === '海上');
+  const mountainWind = values.find((v) => v.areaDivision === '山沿い');
+  const waveVal = values.find((v) => v.propertyType === '波');
+  const rainVal = values.find((v) => v.propertyType === '雨');
+
+  assert.ok(landWind);
+  assert.deepEqual(landWind.scope, {
+    kindIndex: 0,
+    propertyIndex: 0,
+    partName: 'WindSpeedPart',
+    partIndex: 0,
+    baseIndex: 0,
+    localIndex: 0,
+  });
+
+  assert.ok(seaWind);
+  assert.deepEqual(seaWind.scope, {
+    kindIndex: 0,
+    propertyIndex: 0,
+    partName: 'WindSpeedPart',
+    partIndex: 0,
+    baseIndex: 0,
+    localIndex: 1,
+  });
+
+  assert.ok(mountainWind);
+  assert.deepEqual(mountainWind.scope, {
+    kindIndex: 0,
+    propertyIndex: 0,
+    partName: 'WindSpeedPart',
+    partIndex: 0,
+    baseIndex: 1,
+    localIndex: 0,
+  });
+
+  assert.ok(waveVal);
+  assert.deepEqual(waveVal.scope, {
+    kindIndex: 0,
+    propertyIndex: 1,
+    partName: 'WaveHeightPart',
+    partIndex: 0,
+    baseIndex: 0,
+    localIndex: null,
+  });
+
+  assert.ok(rainVal);
+  assert.deepEqual(rainVal.scope, {
+    kindIndex: 1,
+    propertyIndex: 0,
+    partName: 'PrecipitationPart',
+    partIndex: 0,
+    baseIndex: 0,
+    localIndex: null,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1039,26 +1371,26 @@ test('A10: 旧 schema からのマイグレーションで既存値維持 (addit
 // ---------------------------------------------------------------------------
 // A11: トランザクションロールバック原子性・stale 保存時の全明細保持
 // ---------------------------------------------------------------------------
-test('A11: 保存途中の例外で rollback され不整合が混在しない。stale 保存では明細・Note・scope 全体を保持', () => {
+test('A11: 保存トランザクション途中の例外で rollback され既存 snapshot（timeDefines/values/additions/scope）が完全に維持される。stale 保存では明細・Note・scope 全体を保持', () => {
   const { db } = createTestApp();
 
-  // 初期スナップショットを正常保存
-  saveWarningTimeseriesSnapshot(db.connection, {
+  // 1. 初期スナップショットを正常保存
+  const initialData = {
     areaCode: '1310800',
     areaName: '江東区',
     metadata: {
-      source: 'src',
+      source: 'src_initial',
       issuedAt: '2026-09-14T06:00:00.000Z',
       validAt: null,
       validFrom: null,
       validTo: null,
       fetchedAt: '2026-09-14T06:00:00.000Z',
       lastSuccessAt: '2026-09-14T06:00:00.000Z',
-      availability: 'available',
+      availability: 'available' as const,
       sourceVersion: '1.0',
     },
     telegram: {
-      controlStatus: 'normal',
+      controlStatus: 'normal' as const,
       infoType: '発表',
       eventId: null,
       reportDateTime: '2026-09-14T06:00:00.000Z',
@@ -1081,7 +1413,7 @@ test('A11: 保存途中の例外で rollback され不整合が混在しない�
         kindCode: null,
         kindName: null,
         kindStatus: '発表',
-        valueCategory: 'risk',
+        valueCategory: 'risk' as const,
         propertyType: '大雨',
         valueType: '大雨',
         valueText: '注意',
@@ -1115,61 +1447,174 @@ test('A11: 保存途中の例外で rollback され不整合が混在しない�
         areaDivision: null,
         additionIndex: 0,
         noteIndex: 0,
-        text: '補足Note',
+        text: '初期Note',
       },
     ],
-  });
+  };
 
-  // 不正値による失敗注入
-  assert.throws(() => {
-    saveWarningTimeseriesSnapshot(db.connection, {
-      areaCode: '1310800',
-      areaName: '江東区',
-      metadata: {
-        source: 'src_bad',
-        issuedAt: '2026-09-14T07:00:00.000Z',
-        validAt: null,
-        validFrom: null,
-        validTo: null,
-        fetchedAt: '2026-09-14T07:00:00.000Z',
-        lastSuccessAt: '2026-09-14T07:00:00.000Z',
-        availability: 'available',
-        sourceVersion: '1.0',
+  saveWarningTimeseriesSnapshot(db.connection, initialData);
+
+  // 初期状態を取得して確認
+  const initialSnapshot = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+  assert.ok(initialSnapshot);
+  assert.equal(initialSnapshot.metadata.source, 'src_initial');
+  assert.equal(initialSnapshot.timeDefines.length, 1);
+  assert.equal(initialSnapshot.values.length, 1);
+  assert.equal(initialSnapshot.additions?.length, 1);
+
+  // 2. 入力バリデーション通過後、保存トランザクションの途中（addition INSERT 時）で失敗する DB トリガーをテストで注入
+  db.connection.exec(`
+    CREATE TRIGGER test_injected_tx_failure
+    BEFORE INSERT ON warning_timeseries_addition
+    BEGIN
+      SELECT RAISE(ABORT, 'injected transaction failure in warning_timeseries_addition');
+    END;
+  `);
+
+  // 入力バリデーション（JS 側）は完全に正常な新規データ
+  const validNewData = {
+    areaCode: '1310800',
+    areaName: '江東区',
+    metadata: {
+      source: 'src_attempted_update',
+      issuedAt: '2026-09-14T07:00:00.000Z',
+      validAt: null,
+      validFrom: null,
+      validTo: null,
+      fetchedAt: '2026-09-14T07:00:00.000Z',
+      lastSuccessAt: '2026-09-14T07:00:00.000Z',
+      availability: 'available' as const,
+      sourceVersion: '2.0',
+    },
+    telegram: {
+      controlStatus: 'normal' as const,
+      infoType: '発表',
+      eventId: null,
+      reportDateTime: '2026-09-14T07:00:00.000Z',
+      controlDateTime: '2026-09-14T07:00:00.000Z',
+    },
+    timeDefines: [
+      {
+        blockId: 'b2',
+        timeId: '2',
+        sequence: 1,
+        timeFrom: '2026-09-14T07:00:00.000Z',
+        timeTo: '2026-09-14T10:00:00.000Z',
+        duration: 'PT3H',
       },
-      telegram: {
-        controlStatus: 'normal',
-        infoType: '発表',
-        eventId: null,
-        reportDateTime: '2026-09-14T07:00:00.000Z',
-        controlDateTime: '2026-09-14T07:00:00.000Z',
-      },
-      timeDefines: [
-        {
-          blockId: 'b1',
-          timeId: '1',
-          sequence: 1,
-          timeFrom: 'invalid-date', // ここでバリデーション例外
-          timeTo: '2026-09-14T09:00:00.000Z',
-          duration: 'PT3H',
+    ],
+    values: [
+      {
+        blockId: 'b2',
+        refId: '2',
+        kindCode: null,
+        kindName: null,
+        kindStatus: '発表',
+        valueCategory: 'risk' as const,
+        propertyType: '洪水',
+        valueType: '洪水',
+        valueText: '警戒',
+        areaDivision: null,
+        sequence: 1,
+        scope: {
+          kindIndex: 1,
+          propertyIndex: 0,
+          partName: 'SignificancyPart',
+          partIndex: 0,
+          baseIndex: 0,
+          localIndex: null,
         },
-      ],
-      values: [],
-    });
+      },
+    ],
+    additionsParsed: true,
+    additions: [
+      {
+        blockId: 'b2',
+        scope: {
+          kindIndex: 1,
+          propertyIndex: 0,
+          partName: 'SignificancyPart',
+          partIndex: 0,
+          baseIndex: 0,
+          localIndex: null,
+        },
+        propertyType: '洪水',
+        kindStatus: '発表',
+        kindDateTime: null,
+        areaDivision: null,
+        additionIndex: 0,
+        noteIndex: 0,
+        text: '更新試行Note',
+      },
+    ],
+  };
+
+  // トランザクション途中の DB トリガー例外で失敗することを確認
+  assert.throws(
+    () => {
+      saveWarningTimeseriesSnapshot(db.connection, validNewData);
+    },
+    (err: Error) => {
+      return err.message.includes('injected transaction failure in warning_timeseries_addition');
+    },
+  );
+
+  // 注入したトリガーをクリーンアップ
+  db.connection.exec('DROP TRIGGER test_injected_tx_failure;');
+
+  // 3. ロールバックにより、既存 snapshot の timeDefines, values, additions, scope が完全に維持されていることを厳密に検証
+  const snapAfterRollback = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+  assert.ok(snapAfterRollback);
+
+  // メタデータが変更されていないこと
+  assert.equal(snapAfterRollback.metadata.source, 'src_initial');
+  assert.equal(snapAfterRollback.metadata.issuedAt, '2026-09-14T06:00:00.000Z');
+  assert.equal(snapAfterRollback.metadata.sourceVersion, '1.0');
+
+  // timeDefines が完全一致
+  assert.equal(snapAfterRollback.timeDefines.length, 1);
+  assert.equal(snapAfterRollback.timeDefines[0].blockId, 'b1');
+  assert.equal(snapAfterRollback.timeDefines[0].timeId, '1');
+  assert.equal(snapAfterRollback.timeDefines[0].timeFrom, '2026-09-14T06:00:00.000Z');
+  assert.equal(snapAfterRollback.timeDefines[0].timeTo, '2026-09-14T09:00:00.000Z');
+  assert.equal(snapAfterRollback.timeDefines[0].duration, 'PT3H');
+
+  // values が完全一致（scope 含む）
+  assert.equal(snapAfterRollback.values.length, 1);
+  assert.equal(snapAfterRollback.values[0].blockId, 'b1');
+  assert.equal(snapAfterRollback.values[0].refId, '1');
+  assert.equal(snapAfterRollback.values[0].propertyType, '大雨');
+  assert.equal(snapAfterRollback.values[0].valueText, '注意');
+  assert.deepEqual(snapAfterRollback.values[0].scope, {
+    kindIndex: 0,
+    propertyIndex: 0,
+    partName: 'SignificancyPart',
+    partIndex: 0,
+    baseIndex: 0,
+    localIndex: null,
   });
 
-  // ロールバックされて前の値が維持されている
-  const snap1 = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
-  assert.ok(snap1);
-  assert.equal(snap1.metadata.source, 'src');
-  assert.equal(snap1.values.length, 1);
-  assert.equal(snap1.additions?.length, 1);
+  // additions が完全一致（scope 含む）
+  assert.equal(snapAfterRollback.additions?.length, 1);
+  assert.equal(snapAfterRollback.additions?.[0].blockId, 'b1');
+  assert.equal(snapAfterRollback.additions?.[0].text, '初期Note');
+  assert.equal(snapAfterRollback.additions?.[0].additionIndex, 0);
+  assert.equal(snapAfterRollback.additions?.[0].noteIndex, 0);
+  assert.deepEqual(snapAfterRollback.additions?.[0].scope, {
+    kindIndex: 0,
+    propertyIndex: 0,
+    partName: 'SignificancyPart',
+    partIndex: 0,
+    baseIndex: 0,
+    localIndex: null,
+  });
 
-  // stale 保存 -> 明細・Note・scope 全体を保持
+  // 4. stale 保存 -> 明細・Note・scope 全体を保持
   saveWarningTimeseriesSnapshot(db.connection, {
     areaCode: '1310800',
     areaName: '江東区',
     metadata: {
-      source: 'src',
+      source: 'src_initial',
       issuedAt: '2026-09-14T06:00:00.000Z',
       validAt: null,
       validFrom: null,
@@ -1196,7 +1641,7 @@ test('A11: 保存途中の例外で rollback され不整合が混在しない�
   assert.equal(snapStale.values.length, 1);
   assert.equal(snapStale.values[0].scope?.partName, 'SignificancyPart');
   assert.equal(snapStale.additions?.length, 1);
-  assert.equal(snapStale.additions?.[0].text, '補足Note');
+  assert.equal(snapStale.additions?.[0].text, '初期Note');
 
   db.close();
 });

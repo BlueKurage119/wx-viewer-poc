@@ -66,6 +66,51 @@
 
 ---
 
-## 5. 未解決事項
+## 6. PR #155 レビュー指摘対応（A6・A7・A11 補強）のテスト有効性検証記録
 
-- なし。すべての対照実験・red確認・復旧確認・全検証コマンドが正常に完了した。
+実施日: 2026-09-14  
+担当: Antigravity（Gemini 3.8 Flash）  
+対象: 受入条件 A6, A7, A11 のテスト補強（プロダクションコード変更なし）
+
+### 6.1 対照実験（Control Experiment）
+
+各テストケースに意味を変えないダミー改変（コメント挿入）を加え、テストが成功（SURVIVED, exit 0）することを確認した。
+
+| 対象テスト | ダミー改変内容 | 実行コマンド | 結果 |
+| --- | --- | --- | --- |
+| **A6** | `// control experiment dummy comment for A6` を追加 | `npx tsx --test --test-name-pattern="A6:" apps/api/tests/issue33WarningRestApis.test.ts` | **SURVIVED** (exit 0, 1 passed) |
+| **A7** | `// control experiment dummy comment for A7` を追加 | `npx tsx --test --test-name-pattern="A7:" apps/api/tests/issue33WarningRestApis.test.ts` | **SURVIVED** (exit 0, 1 passed) |
+| **A11** | `// control experiment dummy comment for A11` を追加 | `npx tsx --test --test-name-pattern="A11:" apps/api/tests/issue33WarningRestApis.test.ts` | **SURVIVED** (exit 0, 1 passed) |
+
+### 6.2 red確認（Mutation Testing / 意図的な実装破壊）
+
+各補強観点に対応する実装コードを意図的に壊し、テストが期待通り失敗（KILLED, exit 1）することを確認した。
+
+| 観点 / 受け入れ条件 | 意図的な実装破壊内容 | 破壊対象ファイル・箇所 | 検出したテスト（失敗箇所） | 判定結果 |
+| --- | --- | --- | --- | --- |
+| **A6** (通常処理経由のAPI応答とadditions伝播) | `additions` を `null` に改変して API 応答データに付加事項が伝播しないようにした | `apps/api/src/services/weatherApiService.ts`<br>`getWarningTimeseries` 内の `data` 生成箇所 | `A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険度付加事項（竜巻、ひょう）の出現順パースと通常処理・API提供の検証`<br>(TypeError: Cannot read properties of null (reading 'filter')) | **KILLED** (exit 1) |
+| **A7** (複数 Local/Base/Part/Property/Kind の scope 独立性) | `localIndex` の値を `999` に固定し、scope 添字計算を破壊した | `apps/api/src/polling/jmaVpwp50Parser.ts`<br>`localScope` 生成箇所 | `A7: 境界検証 - 複数 Kind/Property/Part/Base/Local の階層構造における scope 添字独立性と重複 Note 保持`<br>(AssertionError: actual localIndex 999 !== expected 0) | **KILLED** (exit 1) |
+| **A11** (トランザクションロールバック原子性と全項目保持) | トランザクション保護を解除（直接実行）し、途中失敗時にロールバックされないようにした | `apps/api/src/repositories/warningTimeseriesRepository.ts`<br>`saveWarningTimeseriesSnapshot` | `A11: 保存トランザクション途中の例外で rollback され既存 snapshot（timeDefines/values/additions/scope）が完全に維持される。stale 保存では明細・Note・scope 全体を保持`<br>(AssertionError: actual 'src_attempted_update' !== expected 'src_initial') | **KILLED** (exit 1) |
+
+### 6.3 復旧確認（Reversion & Restoration）
+
+すべての意図的改変を原状復帰し、プロダクションコードに変更がないこと（テストおよび記録ドキュメントのみの変更であること）を確認した。
+
+- `git diff --stat` による変更ファイル: `apps/api/tests/issue33WarningRestApis.test.ts` のみ
+- `npx tsx --test apps/api/tests/issue33WarningRestApis.test.ts`: **PASS** (exit 0, 16/16 passed)
+
+### 6.4 全検証コマンドの再実行結果
+
+1. `npm run lint`: **合格** (0 errors, 0 warnings, `--max-warnings 0`)
+2. `npm run typecheck`: **合格** (全 workspaces 合格)
+3. `npm run format:check`: **合格** (All matched files use Prettier code style!)
+4. `npm run test -w apps/api`: **合格** (全 555 テスト通過、0 失敗)
+5. `npm run test -w packages/shared`: **合格** (全 36 テスト通過、0 失敗)
+6. `npm run build`: **合格** (shared → api → web 正常ビルド完了)
+
+---
+
+## 7. 未解決事項
+
+- なし。PR #155 のレビュー指摘3件（受入条件 A6・A7・A11）に対するテスト補強、対照実験、red確認、復旧確認、全検証コマンドがすべて完了した。
+
