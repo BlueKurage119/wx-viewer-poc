@@ -260,9 +260,23 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
     );
     assert.equal(delayedSystemResult.recorded.length, 1);
 
-    // 3. AC3: 同一 DB・同一 notification_output_history に保存した無条件一覧がちょうど 2 件で完全一致
+    // 2-3: 別の state store で起動直後から delayed を検知（system + initial）
+    const initialSystemNotificationId = 'system-notif-initial-context';
+    const initialDelayedStateStore = new FetchHealthStateStore();
+    const initialDelayedSystemResult = emitFetchHealthNotification(
+      connection,
+      delayedAggregate,
+      initialDelayedStateStore,
+      {
+        now: () => systemNow,
+        notificationIdFactory: () => initialSystemNotificationId,
+      },
+    );
+    assert.equal(initialDelayedSystemResult.recorded.length, 1);
+
+    // 3. AC3: 同一 DB・同一 notification_output_history に保存した無条件一覧がちょうど 3 件で完全一致
     const allHistory = listNotificationOutputHistory(connection);
-    assert.equal(allHistory.length, 2);
+    assert.equal(allHistory.length, 3);
 
     const weatherHistory = allHistory.find((h) => h.notificationId === weatherNotificationId);
     assert.ok(weatherHistory, '気象通知が履歴に存在すること');
@@ -288,6 +302,19 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
     assert.equal(systemHistory.messageDefinitionVersion, '1');
     assert.equal(systemHistory.isTraining, false);
 
+    const initialSystemHistory = allHistory.find(
+      (h) => h.notificationId === initialSystemNotificationId,
+    );
+    assert.ok(initialSystemHistory, '初期評価の装置異常通知が履歴に存在すること');
+    assert.equal(initialSystemHistory.origin, 'system');
+    assert.equal(initialSystemHistory.detectionContext, 'initial');
+    assert.equal(initialSystemHistory.sourceType, 'fetch_health');
+    assert.equal(initialSystemHistory.changeType, 'fetch_delayed');
+    assert.equal(initialSystemHistory.category, 'warning');
+    assert.equal(initialSystemHistory.messageDefinitionId, 'system-data-fetch-delayed');
+    assert.equal(initialSystemHistory.messageDefinitionVersion, '1');
+    assert.equal(initialSystemHistory.isTraining, false);
+
     // 4. AC4: origin: 'weather' / 'system' の一覧検索がそれぞれ該当通知のみを返し、相互混入しない
     const weatherOnly = listNotificationOutputHistory(connection, { origin: 'weather' });
     assert.equal(weatherOnly.length, 1);
@@ -296,19 +323,21 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
     assert.equal(weatherOnly[0].detectionContext, 'initial');
 
     const systemOnly = listNotificationOutputHistory(connection, { origin: 'system' });
-    assert.equal(systemOnly.length, 1);
-    assert.equal(systemOnly[0].notificationId, systemNotificationId);
-    assert.equal(systemOnly[0].origin, 'system');
-    assert.equal(systemOnly[0].detectionContext, 'normal');
+    assert.deepEqual(
+      systemOnly.map((history) => history.notificationId).sort(),
+      [initialSystemNotificationId, systemNotificationId].sort(),
+    );
+    assert.ok(systemOnly.every((history) => history.origin === 'system'));
 
     // 5. AC5: detectionContext: 'initial' / 'normal' の一覧検索が独立した軸として機能する
     const initialOnly = listNotificationOutputHistory(connection, {
       detectionContext: 'initial',
     });
-    assert.equal(initialOnly.length, 1);
-    assert.equal(initialOnly[0].notificationId, weatherNotificationId);
-    assert.equal(initialOnly[0].origin, 'weather');
-    assert.equal(initialOnly[0].detectionContext, 'initial');
+    assert.deepEqual(
+      initialOnly.map((history) => history.notificationId).sort(),
+      [initialSystemNotificationId, weatherNotificationId].sort(),
+    );
+    assert.ok(initialOnly.every((history) => history.detectionContext === 'initial'));
 
     const normalOnly = listNotificationOutputHistory(connection, {
       detectionContext: 'normal',

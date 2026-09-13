@@ -78,7 +78,7 @@ D1（#25）の通知用データ、B4（#8）の通知出力履歴、D4（#28）
 | `detectionContext` | `normal` | 通常の取得・更新中に検知した通知 |
 | `detectionContext` | `initial` | プロセス起動時の初期評価・復旧で検知した通知 |
 
-`weather + initial` と `system + normal` を同一 DB に保存するケースを必須にする。これにより、旧 §7.3 の `origin` 項目案を誤読して `origin` を `normal` / `initial` に戻す変更や、`origin === 'system'` なら常に `detectionContext === 'initial'` といった誤った従属関係を検出できる。
+`weather + initial`、`system + normal`、`system + initial` を同一 DB に保存するケースを必須にする。同じ `origin` で `detectionContext` が異なる非相関な組合せを含めることで、旧 §7.3 の `origin` 項目案を誤読して `origin` を `normal` / `initial` に戻す変更や、検索条件を `weather`↔`initial`、`system`↔`normal` と誤って相互変換する変更を検出する。
 
 ### 3.2 本番コードを変更しない
 
@@ -131,7 +131,7 @@ listNotificationOutputHistory(
 ): NotificationOutputHistory[];
 ```
 
-気象側は D4 の初期復旧 API を使い `weather + initial` を生成する。装置側は D7 の state store を一度 `normal` で初期化した後、1取得元を `delayed` に遷移させて `system + normal` を生成する。双方の `notificationIdFactory` と clock は固定値を注入し、結果を完全一致で検証できるようにする。
+気象側は D4 の初期復旧 API を使い `weather + initial` を生成する。装置側は D7 の state store を一度 `normal` で初期化した後、1取得元を `delayed` に遷移させて `system + normal` を生成する。さらに別の state store の初回評価で同じ `delayed` を検知させ、`system + initial` を生成する。双方の `notificationIdFactory` と clock は固定値を注入し、結果を完全一致で検証できるようにする。
 
 ## 5. テスト構成
 
@@ -139,12 +139,14 @@ listNotificationOutputHistory(
 2. 検証用の VPWS50 発表電文を受信履歴へ保存し、D4 の現況構成を行う。初期通知 tracker を新規作成して `emitInitialWarningNotifications` を呼び、1件の気象通知を生成する。
 3. D7 の全取得元 `normal` 集約を emitter に渡して state store を初期化する。この評価では通知が0件であることを確認する。
 4. `xml_regular` だけを `delayed` にした集約を同じ emitter・store に渡し、1件の装置異常通知を生成する。
-5. 無条件一覧がちょうど2件であり、IDで特定した各履歴が次と完全一致することを確認する。
+5. 別の D7 state store へ `delayed` 集約を初回入力し、`system + initial` の装置異常通知を1件生成する。
+6. 無条件一覧がちょうど3件であり、IDで特定した各履歴が次と完全一致することを確認する。
    - 気象: `origin: 'weather'`、`detectionContext: 'initial'`、`sourceType: 'warning_current'`、気象系 `changeType`、気象メッセージ定義 ID。
-   - 装置: `origin: 'system'`、`detectionContext: 'normal'`、`sourceType: 'fetch_health'`、`changeType: 'fetch_delayed'`、`system-data-fetch-delayed`。
-6. `{ origin: 'weather' }` と `{ origin: 'system' }` の検索がそれぞれ該当する1件だけを返すことを、行全体または ID 配列の完全一致で確認する。
-7. `{ detectionContext: 'initial' }` が気象通知だけ、`{ detectionContext: 'normal' }` が装置通知だけを返すことを確認し、二軸が独立して保存・検索されることを固定する。
-8. DB を閉じ、一時ディレクトリを確実に削除する。
+   - 装置（通常）: `origin: 'system'`、`detectionContext: 'normal'`、`sourceType: 'fetch_health'`、`changeType: 'fetch_delayed'`、`system-data-fetch-delayed`。
+   - 装置（初回）: `origin: 'system'`、`detectionContext: 'initial'`、その他は装置（通常）と同じ。
+7. `{ origin: 'weather' }` が気象通知1件、`{ origin: 'system' }` が装置通知2件を返すことを、ID集合の完全一致で確認する。
+8. `{ detectionContext: 'initial' }` が気象通知と初回装置通知の2件、`{ detectionContext: 'normal' }` が通常装置通知1件を返すことをID集合の完全一致で確認し、二軸が独立して保存・検索されることを固定する。
+9. DB を閉じ、一時ディレクトリを確実に削除する。
 
 テスト用 XML・受信履歴作成 helper は `warningNotificationRules.acceptance.test.ts` の検証済み最小構造に合わせて当該テスト内へ置く。製品コードへの test-only API 追加や既存テスト間の helper import は行わない。期待値を実装の式から複製せず、Issue #25、#8、#28、#31 で確定した外部契約の固定値として記述する。
 
@@ -160,9 +162,9 @@ listNotificationOutputHistory(
 
 - [ ] AC1: D4 の実際の初期復旧経路で生成・保存した気象通知が `origin === 'weather'` かつ `detectionContext === 'initial'` である。
 - [ ] AC2: D7 の実際の `normal -> delayed` 経路で生成・保存した装置異常通知が `origin === 'system'` かつ `detectionContext === 'normal'` である。
-- [ ] AC3: AC1 と AC2 を同一 DB・同一 `notification_output_history` に保存した無条件一覧がちょうど2件で、各通知の ID、`origin`、`detectionContext`、`sourceType`、`changeType`、メッセージ定義 ID／版が期待値へ完全一致する。
-- [ ] AC4: `origin: 'weather'` の一覧は気象通知だけ、`origin: 'system'` の一覧は装置異常通知だけを返し、相互混入しない。
-- [ ] AC5: `detectionContext: 'initial'` の一覧は気象通知だけ、`detectionContext: 'normal'` の一覧は装置異常通知だけを返す。`origin` と `detectionContext` が独立した軸である。
+- [ ] AC3: AC1 と AC2 に加えて D7 の初回 `delayed` 評価による `system + initial` を同一 DB・同一 `notification_output_history` に保存した無条件一覧がちょうど3件で、各通知の ID、`origin`、`detectionContext`、`sourceType`、`changeType`、メッセージ定義 ID／版が期待値へ完全一致する。
+- [ ] AC4: `origin: 'weather'` の一覧は気象通知1件、`origin: 'system'` の一覧は装置異常通知2件を ID 集合の完全一致で返し、相互混入しない。
+- [ ] AC5: `detectionContext: 'initial'` の一覧は気象通知と初回装置通知の2件、`detectionContext: 'normal'` の一覧は通常装置通知1件を ID 集合の完全一致で返す。`origin` と `detectionContext` が独立した軸である。
 - [ ] AC6: `NotificationOrigin`、DB schema／migration、mapper、repository、D4、D7、フロントエンド、設定ファイルに変更がない。
 - [ ] AC7: `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run test -w packages/shared`、`npm run test -w apps/api` が通る。
 
