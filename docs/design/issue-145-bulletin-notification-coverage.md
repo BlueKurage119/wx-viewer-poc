@@ -1,6 +1,6 @@
 # Issue #145 速報の通常通知と起動時通知の対象範囲の補完
 
-設計担当: Codex（GPT 6）。状態: 2026-09-14 設計承認済み・製造着手可。
+設計担当: Codex（GPT 6）。レビュー修正設計: Codex（GPT 6）。状態: 2026-09-14 設計承認済み・製造着手可。
 
 ## 1. 目的・根拠
 
@@ -61,7 +61,7 @@
 
 発表は既存の5定義を選び、`changeType='new'`。訂正は専用定義を追加し、`changeType='corrected'`。取消は専用定義を追加し、`changeType='cancelled'`。同一内容でも新しいControl/DateTimeの発表は別版として通知する。訂正前のReportDateTimeが変わらなくても通知する。旧版を再適用・再通知しない。
 
-VPBS50取消の【確定】: `previous`は完全EventID・controlStatusが一致する更新前の非取消行に限る。種別と区域は同一情報源の組として扱い、取消電文の種別とpreviousの区域を継ぎ合わせない。取消電文だけでVPBS50の対象3種内の種別と会場区域を確定できればその組を使用し、片方が欠ける場合はpreviousの組を使用する。ただし両者の既知の種別または区域集合が食い違う場合は`ambiguous_cancellation_target`、どちらの組も完全でない場合は`unknown_cancellation_target`として通知を見送り、受信ID・EventID・理由をログへ残す。保存処理自体は従来どおりとする。この優先・見送り規則は§8で承認済み。
+VPBS50取消の【確定】: `previous`は完全EventID・controlStatusが一致する更新前の非取消行に限る。種別と区域は同一情報源の組として扱い、取消電文の種別とpreviousの区域を継ぎ合わせない。取消電文だけでVPBS50の対象3種内の種別と会場区域を確定できればその組を使用し、片方が欠ける場合はpreviousの組を使用する。ただし両者の既知の種別または区域集合が食い違う場合は`ambiguous_cancellation_target`、どちらの組も完全でない場合は`unknown_cancellation_target`として通知を見送り、受信ID・EventID・理由をログへ残す。区域を持つ取消の保存処理は従来どおりとする。区域0件の取消は§10.1の承認済み採用条件を満たす場合に限り保存し、previousによる通知判定へ接続する。この優先・見送り規則は§8、区域0件の採用拡張は§10で承認済み。
 
 会場判定は`resolveVenueForecastTargets(venueId).bosaiBulletin.includedAreaCodes`を使用する。保存の広域和集合判定と通知の会場別判定を分離する。`normal`と`training`は識別・重複抑止・履歴・起動応答のすべてで分離し、`isTraining`を伝播する。
 
@@ -106,7 +106,7 @@ function resolveBosaiBulletinExpiresAt(bulletin: BosaiBulletin): UtcIso8601Strin
 
 ### 4.2 目撃区域の保持
 
-`BosaiBulletinAreaInput` / `BosaiBulletinArea`へ`informationType: string | null`を追加し、`bosai_bulletin_area`へnullableの`information_type`列を追加するマイグレーションを作成する。VPBS50はnull。VPHWはHeadline/Information@typeを保持し、重複除去キーを区域コード・codeType・informationTypeとする。同じ区域が注意と目撃の双方に含まれる情報を失わない。
+`BosaiBulletinAreaInput` / `BosaiBulletinArea`へ`informationType: string | null`を追加し、`bosai_bulletin_area`へnullableの`information_type`列を追加するマイグレーションを作成する。VPBS50はnull。VPHWはHeadline/Information@typeを保持し、重複除去キーを区域コード・codeType・informationTypeとする。同じ区域が注意と目撃の双方に含まれる情報を失わない。DBでも同一bulletin・区域コード・codeType・informationTypeの一意性を保証する。`information_type IS NULL`用と`IS NOT NULL`用の部分一意インデックスを追加する§10.2の前方マイグレーションを使用する。
 
 目撃は`Information type='竜巻注意情報（目撃情報あり）'`かつItem/Kind/Conditionが発表の区域だけで判定する。注意は他の既知Informationの発表区域で判定する。本文文字列やBodyの非発表区域から推定しない。既存の電文単位`hasSighting`は互換用に維持する。
 
@@ -204,6 +204,10 @@ E9のcursor差分API・通知UI、受領監視、指令伝達、DB障害時の�
 - [ ] AC13: 履歴保存失敗を注入し、現況保存は維持され、成功件数を誤報せず、同版再取得による再送保証を追加していないことを確認。
 - [ ] AC14: 初期取得完了後に新着速報をfeed・poller経由で投入し、該当会場のnormal検知履歴が1件増えるserver統合テストを実行する。意味を変えない対照改変の通過後、通常受信の通知deps結線を外す変異でこのテストが失敗することを確認する。`npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run test -w apps/api`、`npm run test -w packages/shared`および起動型の利用箇所に影響があればwebテストを実行して全件成功。
 
+- [ ] AC15: 合成VPBS50を通常processorに受信させ、対象区域を持つ発表→新しいControl/DateTimeの区域0件取消の順で、取消の採用・保存・B4通知まで検証する。取消が既知タグを持つ条件で、保存行が取消済み・区域0件・タグは入力値のままであること、previousの区域に該当する会場だけ取消定義・warning・確認不要の履歴が1件増えること、起動現況に旧発表も取消も返らないことを完全一致で確認する。発表の現況表示期限が切れていても対象を特定できれば同じ結果となる。
+- [ ] AC16: 区域0件取消について、タグと区域が双方欠落・previousなし・別EventIDのみ・別controlStatusのみ・previousが取消済み・previousの種別または区域不完全・既知タグ不一致・previousが対象地域外を独立に注入し、取消が採用されず既存現況と通知履歴が変わらないこと、受信ID・EventID・理由を追跡できることを確認する。同版・古いControl/DateTimeも保存・通知を増やさない。区域あり取消の既存採用結果と、通知の種別／区域不一致見送りを回帰検証する。一般parser呼出しがpreviousの検証なしに区域0件取消を採用しないことも確認する。
+- [ ] AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意／目撃区域を保存して0022を適用し、既存行の全項目を維持することを確認する。同一bulletin・区域コード・codeTypeのNULL重複、および同一非NULL informationType重複をrepositoryの保存経路から投入すると制約違反になり、失敗前の保存状態を維持する。注意と目撃、異なるbulletin・区域コード・codeTypeの行は併存できる。既存重複を持つ0021 DBでは0022が失敗・ロールバックし、行を黙って削除しない。新規DBへの全migration適用も成功し、0021の内容は変更されていないことを確認する。
+
 ## 7. E9への引継ぎ契約
 
 | 項目 | 通常検知（B4） | 起動再提示（D5） |
@@ -230,3 +234,27 @@ E9のAPIに期限を運ぶ場合は、本節の期限関数と保存済み現況
 ## 9. 検証方法の補足（2026-09-14）
 
 初回検収で、識別情報を削っても通知件数は変わらないためAC12の件数検査では契約を検証できないこと、初期現況だけの統合テストでは通常受信の結線を確認できないことが判明した。AC12・AC14の検証方法を具体化した。ユーザー承認済みの通知挙動・対象範囲は変更していない。
+
+## 10. PR #153 レビュー修正の承認記録（2026-09-14）
+
+ユーザーから「修正の設計承認をします。提案通り実施してください。レビュー返信・解決済みマーク・PR相当コメント（再レビュー要求を含む）までお任せします。」との承認・実施指示を受領した。以下2件を要対応として採用する。製造はAGY、修正後は独立検収と既存PRの更新を行う。マージは今回の承認に含めない。
+
+### 10.1 P1: 区域欠落のVPBS50取消を受信経路から判定可能にする
+
+[レビュー指摘](https://github.com/BlueKurage119/wx-viewer-poc/pull/153#discussion_r4000686592): plannerはpreviousへのフォールバックを持つが、現行parserが区域0件を先に除外するため、通常受信経路では取消の保存・通知に到達しない。旧発表も現況に残る。§3の「保存処理自体は従来どおり」と、区域欠落時にpreviousを利用する契約との矛盾を今回の承認により解消する。
+
+【確定】変更する採用範囲は既知タグを持つ区域0件の取消だけとする。parserはDBに触れず、processorから明示的な内部オプション等で補完判定へ進める構造とし、一般のparse呼出しが区域0件取消を無条件に採用する変更はしない。更新前行を取得したprocessorで、完全EventID・controlStatusが一致する非取消のpreviousが、対象3種内の種別と対象地域に該当する完全な区域の組を持つことを検証する。取消の既知タグはpreviousと一致する必要がある。タグと区域が双方欠ける場合の既存の未対応構造拒否、および未知・未対応タグの制限は緩和しない。
+
+採用には既存のControl/DateTimeによる新版判定も必要とする。previousなし・別区分・不完全・対象外・既知情報不一致は採用を拒否し、更新前の現況を保持する。理由は既存の受信採否記録およびログから受信ID・EventIDとともに追跡できるようにする。不一致は`ambiguous_cancellation_target`、完全な対象を確定できない場合は`unknown_cancellation_target`に対応する理由を残す。同版・旧版の既存拒否規則を維持する。
+
+採用時は受信した取消の区域0件・タグをそのまま保存し、previousの値を取消スナップショットへ書き足さない。対象判定だけでpreviousを用い、保存成功後に捕捉済みpreviousと取消をemitterへ渡す。通知の会場判定・期限外取消・通常／訓練分離は既承認仕様を維持する。区域を持つ取消は従来の採用・保存結果を維持し、既知種別／区域の不一致は従来どおり通知を見送る。
+
+対案は実電文確認まで区域欠落取消を対象外に維持する方法だったが、対象を確定できる取消の欠落と旧発表の残留を解消する本案を採用した。**VPBS50の区域欠落取消の実挙動は未確認**であり、合成fixtureはアプリの防御的処理を検証するものとする。気象庁の実提供形状が確認済みであるとは扱わない。
+
+### 10.2 P2: 区域の自然キーの一意性を回復する
+
+[レビュー指摘](https://github.com/BlueKurage119/wx-viewer-poc/pull/153#discussion_r4000686597): 0021のテーブル再作成で旧一意制約が失われ、同じ区域区分の重複も保存可能になっていた。
+
+【確定】適用済みの可能性がある`0021_add_bosai_bulletin_area_information_type.sql`は変更しない。追加0022 migrationで、`information_type IS NULL`の場合は`(bulletin_id, area_code, code_type)`、`information_type IS NOT NULL`の場合は`(bulletin_id, area_code, code_type, information_type)`の部分一意インデックス2本を作成する。NULL同士も重複禁止とし、異なる注意／目撃区分の併存は維持する。API・parserの型契約は変更しない。
+
+既存重複があればmigrationは失敗・ロールバックし、重複行を自動削除しない。対案のparserの重複排除だけに依存する方法は、repositoryへの他経路の入力でDB整合性を保証できないため採用しない。
