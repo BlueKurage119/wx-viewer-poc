@@ -244,12 +244,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             config: schedule.fetchHealth,
           });
 
-          // 順序が重要: scheduler.start() は初回XML取得が終わるまで解決しない(実測17分超)。
-          // 先に fetchHealthMonitorService.start() を呼ばないと、その間ずっと
-          // 装置異常判定が動かず、取得元が連続失敗しても通知が出ない(D7 AC12回帰)。
+          // 順序が重要(PRレビュー指摘 #141): scheduler.start() は isRunning=true を
+          // 設定した直後、最初の await(XML初期取得)まで同期的に進む。await せず呼び出して
+          // から fetchHealthMonitorService.start() を呼ぶことで、isRunning=true の状態で
+          // 初回健全性評価が走る。先に await すると初回XML取得完了(実測17分超)まで健全性
+          // 判定が始まらず(D7 AC12回帰)、逆に isRunning=false のまま初回評価すると
+          // 全取得元が suspended と誤記録され、再起動時の検知が initial ではなくなる。
+          const schedulerStartPromise = scheduler.start(); // XML開始責務は scheduler に集約し、二重起動を防止する
           fetchHealthMonitorService.start();
-          // XML開始責務は scheduler に集約し、二重起動を防止する
-          await scheduler.start();
+          await schedulerStartPromise;
         })(),
       ]);
     } finally {
@@ -433,11 +436,15 @@ async function main(): Promise<void> {
             config: schedule.fetchHealth,
           });
 
-          // 順序が重要: scheduler.start() は初回XML取得が終わるまで解決しない(実測17分超)。
-          // 先に fetchHealthMonitorService.start() を呼ばないと、その間ずっと
-          // 装置異常判定が動かず、取得元が連続失敗しても通知が出ない(D7 AC12回帰)。
+          // 順序が重要(PRレビュー指摘 #141): scheduler.start() は isRunning=true を
+          // 設定した直後、最初の await(XML初期取得)まで同期的に進む。await せず呼び出して
+          // から fetchHealthMonitorService.start() を呼ぶことで、isRunning=true の状態で
+          // 初回健全性評価が走る。先に await すると初回XML取得完了(実測17分超)まで健全性
+          // 判定が始まらず(D7 AC12回帰)、逆に isRunning=false のまま初回評価すると
+          // 全取得元が suspended と誤記録され、再起動時の検知が initial ではなくなる。
+          const schedulerStartPromise = scheduler.start();
           fetchHealthMonitorService.start();
-          await scheduler.start();
+          await schedulerStartPromise;
         })(),
       ]);
     } finally {
