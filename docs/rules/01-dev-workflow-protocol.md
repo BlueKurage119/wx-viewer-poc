@@ -1,6 +1,6 @@
 ---
 title: 開発フロー業務標準
-description: Issue駆動4フェーズの必須順序、設計→製造の承認ゲート、AGY委託の必須記載事項、ブランチ・コミット・PR・署名の必須要件、devサーバーの禁止事項
+description: Issue駆動4フェーズの必須順序、設計→製造の承認ゲート、AGY委託の必須記載事項、ブランチ・コミット・PR・署名フォーマットの必須要件、devサーバーの禁止事項
 phases: [ヒアリング, 設計, 製造, 検収]
 products: [Claude, Codex, Antigravity]
 ---
@@ -54,4 +54,10 @@ AGYの最終報告に必須の記載事項:
 
 ### 署名(必須)
 
-エージェントが書いた文章(コミットメッセージ・PR本文・コメント等)には、それを生成したアプリケーション・モデル名を必ず本文中に明記する。`gh`コマンドでの投稿は人間のアカウント名義になるため、本文中の明記で代える。フォーマットは[G-01-dev-workflow.md](advisory/G-01-dev-workflow.md)の署名一覧を使う。Antigravityへ製造を委託した場合のコミット署名は、委託元(Claude/Codex)自身の名義ではなくAntigravity専用名義を使う。
+エージェントが書いた文章(コミットメッセージ・PR本文・コメント等)には、それを生成したアプリケーション・モデル名を必ず本文中に明記する。`gh`コマンドでの投稿は人間のアカウント名義になるため、本文中の明記で代える。フォーマットは次のとおりとし、これ以外の形式を使わない。
+
+- **Claude** — コミット末尾: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` / PR本文・コメント末尾: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+- **Codex** — コミット末尾: `Co-Authored-By: Codex (GPT <model> <推奨モデル名>) <noreply@openai.com>` / PR本文・コメント末尾: `🤖 Generated with Codex`
+- **Antigravity(委託先として製造した場合)** — コミット末尾: `Co-Authored-By: Antigravity <gemini-code-assist@users.noreply.github.com>` / PR本文・コメント末尾: 委託元(Claude/Codex)の形式に従う
+
+Antigravityへ製造を委託した場合のコミット署名は、委託元(Claude/Codex)自身の名義ではなく上記のAntigravity専用名義を使う(作業主体を統計的に追跡するため)。

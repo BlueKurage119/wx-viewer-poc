@@ -95,7 +95,7 @@ npm run test -w apps/web    # 対象workspaceのテスト(package.jsonのtestス
 
 - ブランチ名: `feature/issue-<番号>-<短い説明>`(例: `feature/issue-2-common-shell`)
 - **製造担当(`wxviewer-builder`)の作業はコミット・プッシュまでとし、PRの作成・本文の記述は検収担当(`wxviewer-inspector`)が行う**
-- コミット・PR・コメントの署名の必須事項、コミット粒度、PR本文構成は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md) を参照。署名フォーマット一覧は [docs/rules/advisory/G-01-dev-workflow.md](docs/rules/advisory/G-01-dev-workflow.md) を参照
+- コミット・PR・コメントの署名の必須事項・フォーマット、コミット粒度、PR本文構成は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md) を参照
 
 ## 8. 参照文書
 

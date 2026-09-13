@@ -21,7 +21,7 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
 
 ## 一覧
 
-- [G-01-dev-workflow.md](G-01-dev-workflow.md) — ヒアリング前提の設計になっている理由、署名フォーマット、devサーバー作法の背景、外部レビューの起動条件(統括・全フェーズ共通)
+- [G-01-dev-workflow.md](G-01-dev-workflow.md) — ヒアリング前提の設計になっている理由、devサーバー作法の背景、外部レビューの起動条件(統括・全フェーズ共通)
 - [G-02-design-phase.md](G-02-design-phase.md) — ヒアリング前提の設計の背景、設計書の書式の手本(設計)
 - [G-03-verification-discipline.md](G-03-verification-discipline.md) — 対照実験がなぜ必要か・循環アサーションの罠・回帰テストの向き・共有可変状態の系統調査・外部レビューの活用(製造・検収)
 - [G-04-ui-md3-rules.md](G-04-ui-md3-rules.md) — UI寸法計測の罠、バンドル見積りの目安(`apps/web`のカード・ダッシュボード系レイアウトを触るとき)

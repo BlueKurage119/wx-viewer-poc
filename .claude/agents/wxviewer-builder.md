@@ -12,7 +12,7 @@ model: sonnet
 - **指定された設計書 `docs/design/issue-<N>-*.md` を最初に全文精読する。これが唯一かつ絶対の仕様。**
 - あわせて **`CLAUDE.md`**(リポジトリルート)を読み、絶対遵守事項を遵守する。触る対象に応じて [`../../docs/rules/06-ui-md3-protocol.md`](../../docs/rules/06-ui-md3-protocol.md)(`apps/web`の必須制約)・[`../../docs/rules/07-wx-data-protocol.md`](../../docs/rules/07-wx-data-protocol.md)(気象データ)も読む
 - **pushしない。PRを作らない。**(検収担当の仕事)
-- コミットは日本語のメッセージで、論理的にまとまった単位。末尾に必ず `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` を含める(Agyへ再委託する場合の署名は [`../../docs/rules/advisory/G-01-dev-workflow.md`](../../docs/rules/advisory/G-01-dev-workflow.md) の署名フォーマットを参照)
+- コミットは日本語のメッセージで、論理的にまとまった単位。末尾に必ず `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` を含める(Agyへ再委託する場合の署名は [`../../docs/rules/01-dev-workflow-protocol.md`](../../docs/rules/01-dev-workflow-protocol.md) の署名フォーマットを参照)
 
 ## 判断規律
 

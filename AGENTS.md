@@ -108,7 +108,7 @@ npm run test -w apps/web  # test スクリプトがある対象 workspace のテ
 - ブランチ名は `feature/issue-<番号>-<短い説明>` とする。Codex が新規ブランチを作る場合もこの規約を優先する。
 - PR 作成時は base が `main` であることを確認する。
 - PR 本文には少なくとも、概要・変更内容・検証を含める。また、`Close` により、元の Issue が自動クローズされるようにする。
-- エージェントが作成するコミットメッセージ、PR 本文、コメントには、それを生成したアプリケーションおよびモデル名を本文中に明記する。CLI や API の投稿者名が人間のアカウントになる場合も同様とする。この必須事項とコミット粒度は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md)、署名フォーマット(Codex/Antigravityの例を含む)は [docs/rules/advisory/G-01-dev-workflow.md](docs/rules/advisory/G-01-dev-workflow.md) を参照。
+- エージェントが作成するコミットメッセージ、PR 本文、コメントには、それを生成したアプリケーションおよびモデル名を本文中に明記する。CLI や API の投稿者名が人間のアカウントになる場合も同様とする。この必須事項・署名フォーマット(Codex/Antigravityの例を含む)・コミット粒度は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md) を参照。
 
 ## 参照文書
 

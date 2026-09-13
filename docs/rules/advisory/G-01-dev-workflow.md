@@ -1,23 +1,17 @@
 ---
 title: 開発フローの背景・ノウハウ
-description: ヒアリング前提の設計になっている理由、署名フォーマットの参照表、devサーバー作法の背景、外部レビューの起動条件
+description: ヒアリング前提の設計になっている理由、devサーバー作法の背景、外部レビューの起動条件
 phases: [ヒアリング, 設計, 製造, 検収]
 products: [Claude, Codex, Antigravity]
 ---
 
 # 開発フローの背景・ノウハウ
 
-対象: 統括担当・各フェーズの担当。必須事項は[01-dev-workflow-protocol.md](../01-dev-workflow-protocol.md)を参照。ここには背景・理由・具体的なフォーマットだけを置く。
+対象: 統括担当・各フェーズの担当。必須事項(署名フォーマットを含む)は[01-dev-workflow-protocol.md](../01-dev-workflow-protocol.md)を参照。ここには背景・理由だけを置く。
 
 ## なぜヒアリング前提なのか
 
 `docs/issues-draft.md`のIssue項目は「実装タスク単位の見出し+参照する基本設計の章番号」程度のあっさりした内容であり、実装方針を左右する論点の多くが未確定のまま残っている。このプロジェクトが他プロジェクトの3体構成と異なり、設計着手前に統括担当によるヒアリングフェーズを挟んでいるのはこのため。`docs/design/issue-1-project-initialization.md`が設計書の書式・粒度の手本。
-
-## 署名フォーマット
-
-- **Claude** — コミット末尾: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` / PR本文・コメント末尾: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
-- **Codex** — コミット末尾: `Co-Authored-By: Codex (GPT <model> <推奨モデル名>) <noreply@openai.com>` / PR本文・コメント末尾: `🤖 Generated with Codex`
-- **Antigravity(委託先として製造した場合)** — コミット末尾: `Co-Authored-By: Antigravity <gemini-code-assist@users.noreply.github.com>` / PR本文・コメント末尾: 委託元(Claude/Codex)の形式に従う
 
 ## devサーバー作法の背景
 
