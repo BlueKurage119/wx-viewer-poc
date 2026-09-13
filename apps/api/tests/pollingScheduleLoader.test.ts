@@ -11,12 +11,22 @@ import {
 } from '../src/config/pollingSchedule.js';
 
 describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
+  const validFetchHealth = {
+    evaluationIntervalSeconds: 30,
+    delayedConsecutiveFailures: 2,
+    delayedIntervalMultiplier: 3,
+    abnormalConsecutiveFailures: 5,
+    abnormalElapsedSeconds: 600,
+    maxScanAttempts: 50,
+  };
+
   test('既定の config/polling.yaml を正しく読み込めること', () => {
     const config = loadPollingScheduleConfig();
     assert.equal(config.timezone, 'Asia/Tokyo');
     assert.equal(config.amedasPointRecheckSeconds, 600);
     assert.equal(config.freshness.xml.staleAfterSeconds, 300);
     assert.equal(config.freshness.imageCatalog.staleAfterSeconds, 300);
+    assert.deepEqual(config.fetchHealth, validFetchHealth);
     assert.equal(config.periods.length, 4);
   });
 
@@ -91,6 +101,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
+          fetchHealth: validFetchHealth,
           periods: [],
           intervalsSeconds: {},
         }),
@@ -104,6 +115,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
           freshness: { xml: { staleAfterSeconds: -10 }, imageCatalog: { staleAfterSeconds: 300 } },
+          fetchHealth: validFetchHealth,
           periods: [],
         }),
       /staleAfterSeconds は正の有限整数/,
@@ -118,6 +130,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
             xml: { staleAfterSeconds: 300, staleAfterSecond: 300 },
             imageCatalog: { staleAfterSeconds: 300 },
           },
+          fetchHealth: validFetchHealth,
           periods: [],
         }),
       /staleAfterSeconds だけを指定する必要があります/,
@@ -133,9 +146,58 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
             imageCatalog: { staleAfterSeconds: 300 },
             legacyPolicy: { staleAfterSeconds: 300 },
           },
+          fetchHealth: validFetchHealth,
           periods: [],
         }),
       /未知の freshness 設定キーです: legacyPolicy/,
+    );
+
+    // fetchHealth 欠落・不正
+    assert.throws(
+      () =>
+        validatePollingScheduleConfig({
+          timezone: 'Asia/Tokyo',
+          amedasPointRecheckSeconds: 600,
+          freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
+          periods: [],
+        }),
+      /必須ルート設定キーが不足しています: fetchHealth/,
+    );
+
+    assert.throws(
+      () =>
+        validatePollingScheduleConfig({
+          timezone: 'Asia/Tokyo',
+          amedasPointRecheckSeconds: 600,
+          freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
+          fetchHealth: { ...validFetchHealth, extraKey: 1 },
+          periods: [],
+        }),
+      /未知の fetchHealth 設定キーです/,
+    );
+
+    assert.throws(
+      () =>
+        validatePollingScheduleConfig({
+          timezone: 'Asia/Tokyo',
+          amedasPointRecheckSeconds: 600,
+          freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
+          fetchHealth: { ...validFetchHealth, delayedConsecutiveFailures: 1 },
+          periods: [],
+        }),
+      /delayedConsecutiveFailures は 2 以上/,
+    );
+
+    assert.throws(
+      () =>
+        validatePollingScheduleConfig({
+          timezone: 'Asia/Tokyo',
+          amedasPointRecheckSeconds: 600,
+          freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
+          fetchHealth: { ...validFetchHealth, maxScanAttempts: 3 },
+          periods: [],
+        }),
+      /maxScanAttempts \(3\) は abnormalConsecutiveFailures \(5\) より大きい/,
     );
 
     // start === end (曖昧な全日指定)
@@ -145,6 +207,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
+          fetchHealth: validFetchHealth,
           periods: [
             {
               start: '00:00',
@@ -167,6 +230,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
+          fetchHealth: validFetchHealth,
           periods: [
             {
               start: '00:00',
@@ -190,6 +254,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
       timezone: 'Asia/Tokyo',
       amedasPointRecheckSeconds: 600,
       freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
+      fetchHealth: validFetchHealth,
       periods: [
         {
           start: '00:00',
@@ -218,6 +283,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
       timezone: 'Asia/Tokyo',
       amedasPointRecheckSeconds: 600,
       freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
+      fetchHealth: validFetchHealth,
       periods: [
         {
           start: '12:00',

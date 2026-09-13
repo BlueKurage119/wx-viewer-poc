@@ -615,6 +615,14 @@ export type VphwParseResult =
 // --- 通信履歴 ---
 export type FetchOutcome = 'success' | 'failure';
 
+export interface FetchStreamHealthSummary {
+  readonly sourceKind: string;
+  readonly lastAttemptAt: UtcIso8601String | null;
+  readonly lastSuccessAt: UtcIso8601String | null;
+  readonly consecutiveFailures: number;
+  readonly consecutiveFailuresCapped: boolean;
+}
+
 export const KNOWN_FETCH_SOURCE_KINDS = [
   'xml_feed_regular', // https://www.data.jma.go.jp/developer/xml/feed/regular.xml
   'xml_feed_extra', // 同 extra.xml

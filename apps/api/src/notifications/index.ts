@@ -7,3 +7,5 @@ export * from './warningNotificationPlanner.js';
 export * from './warningNotificationEmitter.js';
 export * from './startupCurrentNotificationProjector.js';
 export * from './startupNotificationService.js';
+export * from './fetchHealthNotificationPlanner.js';
+export * from './fetchHealthNotificationEmitter.js';

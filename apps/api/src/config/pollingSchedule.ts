@@ -1,5 +1,9 @@
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { FreshnessPolicy } from '../polling/freshnessPolicy.js';
+import {
+  validateFetchHealthConfig,
+  type FetchHealthConfig,
+} from '../monitoring/fetchHealthConfig.js';
 
 export type ScheduledSource = 'xml' | 'nowcast' | 'kikikuru' | 'amedas';
 export type OnDemandSource = 'nowcast' | 'kikikuru';
@@ -25,6 +29,7 @@ export interface PollingScheduleConfig {
     readonly xml: FreshnessPolicy;
     readonly imageCatalog: FreshnessPolicy;
   };
+  readonly fetchHealth: FetchHealthConfig;
   readonly periods: readonly PollingPeriod[];
 }
 
@@ -205,6 +210,7 @@ const EXPECTED_ROOT_KEYS = new Set([
   'amedasPointRecheckSeconds',
   'periods',
   'freshness',
+  'fetchHealth',
 ]);
 
 export function validatePollingScheduleConfig(config: unknown): PollingScheduleConfig {
@@ -269,6 +275,8 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
       throw new Error(`freshness.${fKey}.staleAfterSeconds は正の有限整数秒である必要があります`);
     }
   }
+
+  validateFetchHealthConfig(c.fetchHealth);
 
   if (!Array.isArray(c.periods) || c.periods.length === 0) {
     throw new Error('periods は空でない配列である必要があります');

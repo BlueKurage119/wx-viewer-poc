@@ -23,6 +23,7 @@ export type NotificationMessageDefinitionId =
   | 'weather-bosai-bulletin-tornado-sighting'
   | 'system-data-fetch-delayed'
   | 'system-data-fetch-failed'
+  | 'system-data-fetch-recovered'
   | 'system-database-initialized'
   | 'system-database-initialization-failed'
   | 'system-service-stopped'
@@ -237,6 +238,15 @@ const MESSAGE_DEFINITIONS = {
     title: 'データ取得異常',
     targetMode: { kind: 'notificationTargets' },
     actionResolution: { kind: 'acknowledge' },
+  },
+  'system-data-fetch-recovered': {
+    id: 'system-data-fetch-recovered',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['warning'],
+    title: 'データ取得復帰',
+    targetMode: { kind: 'notificationTargets' },
+    actionResolution: { kind: 'none' },
   },
   'system-database-initialized': {
     id: 'system-database-initialized',

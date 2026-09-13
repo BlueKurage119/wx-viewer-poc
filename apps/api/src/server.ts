@@ -31,11 +31,13 @@ import {
   emitInitialWarningNotifications,
   type WarningNotificationEmitDeps,
 } from './notifications/index.js';
+import { FetchHealthMonitorService } from './monitoring/index.js';
 
 export interface StartedServer {
   readonly port: number;
   readonly pollingService?: JmaXmlPollingService;
   readonly scheduler?: TimeBasedPollingScheduler;
+  readonly fetchHealthMonitorService?: FetchHealthMonitorService;
   readonly imageServices?: {
     readonly nowcast: NowcastService;
     readonly kikikuru: KikikuruService;
@@ -157,6 +159,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let pollingService: JmaXmlPollingService | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
+  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
   let imageServices: ImageServices | undefined;
 
   try {
@@ -235,14 +238,24 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
               clearTimer: options.schedulerOptions?.clearTimer,
             });
 
+          fetchHealthMonitorService = new FetchHealthMonitorService({
+            connection: database.connection,
+            statusProvider: scheduler,
+            config: schedule.fetchHealth,
+          });
+
           // XML開始責務は scheduler に集約し、二重起動を防止する
           await scheduler.start();
+          fetchHealthMonitorService.start();
         })(),
       ]);
     } finally {
       serverErrorMonitor.dispose();
     }
   } catch (error) {
+    if (fetchHealthMonitorService) {
+      fetchHealthMonitorService.stop();
+    }
     if (scheduler) {
       await scheduler.stop();
     }
@@ -259,6 +272,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
   const address = actualServer.address();
   if (address === null || typeof address === 'string') {
+    if (fetchHealthMonitorService) {
+      fetchHealthMonitorService.stop();
+    }
     if (scheduler) {
       await scheduler.stop();
     }
@@ -277,6 +293,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const close = async () => {
     if (!closed) {
       closed = true;
+      if (fetchHealthMonitorService) {
+        fetchHealthMonitorService.stop();
+      }
       if (scheduler) {
         await scheduler.stop();
       }
@@ -301,6 +320,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     port: address.port,
     pollingService,
     scheduler,
+    fetchHealthMonitorService,
     imageServices: imageServices
       ? {
           nowcast: imageServices.nowcast,
@@ -323,6 +343,7 @@ async function main(): Promise<void> {
   const server = app.listen(port);
   let pollingService: JmaXmlPollingService | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
+  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
   let imageServices: ImageServices | undefined;
 
   let closed = false;
@@ -331,6 +352,9 @@ async function main(): Promise<void> {
       return;
     }
     closed = true;
+    if (fetchHealthMonitorService) {
+      fetchHealthMonitorService.stop();
+    }
     if (scheduler) {
       await scheduler.stop();
     }
@@ -400,7 +424,14 @@ async function main(): Promise<void> {
             xmlPollingService: pollingService,
           });
 
+          fetchHealthMonitorService = new FetchHealthMonitorService({
+            connection: database.connection,
+            statusProvider: scheduler,
+            config: schedule.fetchHealth,
+          });
+
           await scheduler.start();
+          fetchHealthMonitorService.start();
         })(),
       ]);
     } finally {

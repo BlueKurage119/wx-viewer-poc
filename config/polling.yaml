@@ -5,6 +5,13 @@ freshness:
     staleAfterSeconds: 300
   imageCatalog:
     staleAfterSeconds: 300
+fetchHealth:
+  evaluationIntervalSeconds: 30
+  delayedConsecutiveFailures: 2
+  delayedIntervalMultiplier: 3
+  abnormalConsecutiveFailures: 5
+  abnormalElapsedSeconds: 600
+  maxScanAttempts: 50
 periods:
   - start: '04:00'
     end: '05:00'

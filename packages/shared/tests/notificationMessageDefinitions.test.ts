@@ -324,7 +324,7 @@ test('受け入れ条件 5: weather-warning-strengthened / weather-warning-weake
   }
 });
 
-test('受け入れ条件 6: システム通知10種の表駆動テスト（title, 許容category, 操作, 確認要否, 対象方式, 定義ID/版）', () => {
+test('受け入れ条件 6: システム通知11種の表駆動テスト（title, 許容category, 操作, 確認要否, 対象方式, 定義ID/版）', () => {
   interface SystemTestCase {
     readonly definitionId: NotificationMessageDefinitionId;
     readonly category: NotificationCategory;
@@ -349,6 +349,14 @@ test('受け入れ条件 6: システム通知10種の表駆動テスト（title
       expectedTitle: 'データ取得異常',
       expectedAckRequired: true,
       expectedAction: { kind: 'acknowledge', label: '確認' },
+      targetMode: 'notificationTargets',
+    },
+    {
+      definitionId: 'system-data-fetch-recovered',
+      category: 'warning',
+      expectedTitle: 'データ取得復帰',
+      expectedAckRequired: false,
+      expectedAction: null,
       targetMode: 'notificationTargets',
     },
     {
