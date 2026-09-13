@@ -56,22 +56,33 @@
 
 ## 4. 開発の進め方
 
-- 会話・コミットメッセージ・ドキュメントは日本語で行う
-- Issue単位で、サブエージェント3体(ヒアリング→設計→製造→検収)を直列で回す。統括担当(メインセッション)はフェーズ間の判断・レビュー・マージを担い、自分では実装しない(軽微な修正を除く)
+- 会話・コミットメッセージ・ドキュメント・コード中のコメントはすべて日本語で行うこと。
+- Issue ごとに、ヒアリング、設計、製造、検収をこの順番で進める。
+- 統括担当はユーザーとの対話、フェーズ間の判断、レビュー、マージ判断を担う。統括担当（メインセッション）は原則として実装を行わず、設計・製造・検収をサブエージェントへ委任すること（軽微な修正を除く）。
 
-  - **ヒアリング**(統括担当・親エージェント): ユーザーとの対話で確定させた判断事項(designer起動時に渡す)
-  - **設計**(`wxviewer-designer`・opus): `docs/design/issue-N-<slug>.md`(受け入れ条件を含む)。コードは書かない
-  - **製造**(`wxviewer-builder`・sonnet。`agy-delegate`スキルも使用可能): 設計書だけを唯一の仕様として実装。コミット・プッシュまで(PRはしない)
-  - **検収**(`wxviewer-inspector`・opus。2回目はsonnet): 受け入れ条件を実行して検証し、通過したらpushしてPRを作成する。マージはしない
+### 4.1 フェーズごとの役割定義
 
-  役割ごとの規律は [`.claude/agents/`](.claude/agents/) の定義ファイルに集約してある(統括担当は、対象Issue・ブランチ名・設計書パスなど、その回に固有の情報だけを渡す)。
+<!-- prettier-ignore -->
+| 役割 | 担当 | 推奨モデル | 役割と成果物 |
+| --- | --- | --- | --- |
+| ヒアリング | 統括 | （メインセッション） | **実装方針を左右する未確定事項をユーザーに選択肢とメリット・デメリット等を整理した形で提示する。** 確定した判断を Issue 番号と共に次の担当へ渡す。 |
+| 設計 | `wxviewer-designer` | Opus | **`docs/design/issue-N-<slug>.md` を 1 本だけ作成する。**コード、設定、ブランチ、コミットは変更しない。 |
+| 製造 | `wxviewer-builder`・`agy-delegate`スキル | Sonnet・Gemini Flash | **指定済みブランチ上で実装・テスト・コミットまで行う。**push と PR 作成はしない。 |
+| 検収 | `wxviewer-inspector` | Opus（2回目はSonnet） | 設計書の受け入れ条件を項目ごとに実行して検証する。コードは修正しない。**全項目が通過した場合のみ PR を作成し、マージはしない。** |
 
-- フェーズ運用・検証・UI・気象データの**必須事項**は [docs/rules/](docs/rules/README.md) に、**背景・ノウハウ**は [docs/rules/advisory/](docs/rules/advisory/README.md) に分けて置く(統治原則は[docs/rules/README.md](docs/rules/README.md)を参照)。
-  - フェーズ運用(承認ゲート・AGY委託の必須記載・ブランチ/コミット/PR/署名・devサーバー禁止事項)は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md)、背景は [docs/rules/advisory/G-01-dev-workflow.md](docs/rules/advisory/G-01-dev-workflow.md)
-  - 設計・製造・検収それぞれの権限境界と合否条件は [docs/rules/02-design-protocol.md](docs/rules/02-design-protocol.md)・[docs/rules/03-build-protocol.md](docs/rules/03-build-protocol.md)・[docs/rules/04-inspect-protocol.md](docs/rules/04-inspect-protocol.md)
-  - テスト検証の必須手順(red確認・対照実験・完全一致)は [docs/rules/05-verification-protocol.md](docs/rules/05-verification-protocol.md)、手法の詳細・過去事例は [docs/rules/advisory/G-03-verification-discipline.md](docs/rules/advisory/G-03-verification-discipline.md)
-  - ブラウザでのUI検証における制約・逆発注運用は [docs/rules/advisory/C-01-browser-ui-verification.md](docs/rules/advisory/C-01-browser-ui-verification.md)
-  - 気象データの必須事項(isTraining・availability 3状態・電文照合)は [docs/rules/07-wx-data-protocol.md](docs/rules/07-wx-data-protocol.md)
+フェーズ運用の必須事項(承認ゲート・devサーバー禁止事項・ブランチ/コミット/PR/署名)は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md)を参照のこと。
+
+### 4.2 業務標準・指導文書
+
+Issue開発フローの詳細は、必ず守る手順(業務標準)と、それを上手にこなすための知識(指導文書)に分けてまとめている。
+
+- **業務標準**: 各フェーズが必ず通る手順・必須の実施項目・合否条件。必須条件の省略は認めない。[docs/rules/](docs/rules/README.md)(一覧・統治原則もここに記載)
+- **指導文書**: 業務標準の手順を上手にこなすための知識(検証コマンド、環境固有の罠、過去の失敗事例等)。業務標準が定める権限・必須工程・合否条件は追加・変更しない。[docs/rules/advisory/](docs/rules/advisory/README.md)
+
+### 4.3 Antigravity固有指示
+
+設計書があり、詳細な指示付きで製造フェーズのみの委託を受けた場合、Implementation Planの承認は省略する。
+ただし、統括担当への引き継ぎのため、非対話セッションを除きWalkthroughファイルを作成させること。最終報告に必須の記載事項は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md) の「AGYの最終報告」を参照。
 
 ## 5. 技術スタック・規約
 
@@ -93,7 +104,8 @@ npm run test -w apps/web    # 対象workspaceのテスト(package.jsonのtestス
 
 ## 7. ブランチ・コミット・PR
 
-- ブランチ名: `feature/issue-<番号>-<短い説明>`(例: `feature/issue-2-common-shell`)
+- ブランチ名は `<プレフィックス>/issue-<番号>-<短い説明>` (例: `feature/issue-2-common-shell`)とする。
+- PR 作成時は base が `main` であることを確認する。
 - **製造担当(`wxviewer-builder`)の作業はコミット・プッシュまでとし、PRの作成・本文の記述は検収担当(`wxviewer-inspector`)が行う**
 - コミット・PR・コメントの署名の必須事項・フォーマット、コミット粒度、PR本文構成は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md) を参照
 

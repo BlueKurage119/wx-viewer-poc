@@ -54,19 +54,34 @@ AGYの最終報告に必須の記載事項:
 
 ### 署名(必須)
 
-エージェントが書いた文章(コミットメッセージ・PR本文・コメント等)には、それを生成したアプリケーション・モデル名を必ず本文中に明記する。`gh`コマンドでの投稿は人間のアカウント名義になるため、本文中の明記で代える。フォーマットは次の例による。
+エージェントが書いた文章(コミットメッセージ・PR本文・コメント等)には、それを生成したアプリケーション・モデル名を必ず本文中に明記する。`gh`コマンドでの投稿は人間のアカウント名義になるため、本文中の明記で代える。
 
-- コミットメッセージ: `Co-Authored-By: Codex (GPT 5.6 Terra) <noreply@openai.com>`
-- PR本文末尾・コメント: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+#### コミットメッセージ
 
-フォーマット中のモデル表示およびメールアドレスは、以下の表による。
+以下の例による。
+
+```
+Co-Authored-By: Codex (GPT 5.6 Terra) <noreply@openai.com>
+```
+
+フォーマット中のモデル表示およびメールアドレスは、以下の表による。コミット署名は、誰がコミットしたかではなく、誰が書いたかで決定すること。
 
 <!-- prettier-ignore -->
 
 | 製品名 | モデル表示例 | メールアドレス |
 | --- | --- | --- |
 | Claude | `Claude (<model>)` | `<noreply@anthropic.com>` |
-| Codex | `Codex (GPT <model>) ` | `<noreply@openai.com>` |
+| Codex | `Codex (GPT <model>)` | `<noreply@openai.com>` |
 | Antigravity | `Antigravity (<model>)` | `<gemini-code-assist@users.noreply.github.com>` |
 
-コミット署名は、誰がコミットしたかではなく、誰が書いたかで決定すること。PR・コメントの署名は、それを書いて投稿した担当のものを使用すること。
+#### PR・コメントの署名
+
+以下の表の通りとする。PR・コメントの署名は、それを書いて投稿した担当のものを使用すること。
+
+<!-- prettier-ignore -->
+
+| 製品名 | 表示例 |
+| --- | --- |
+| Claude | `🤖 Generated with [Claude Code](https://claude.com/claude-code)` |
+| Codex | `🤖 Generated with Codex` |
+| Antigravity | `🤖 Generated with Antigravity` |
