@@ -746,6 +746,16 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
 
     // 3. 対象不明取消および食い違い取消 (§8-3) を processor 経由で投入し、受信ID・EventID・会場・理由のログ追跡性を検証
     const warnLogs: string[] = [];
+    // 自由文のdetailは比較対象外とし、追跡契約の4フィールドを境界付きで抽出して完全一致で確認する。
+    const skipLogFields = (reason: string) =>
+      warnLogs
+        .map((log) =>
+          /^Bosai bulletin notification skipped for receptionId=(\d+) eventId=(\S+) venueId=(\S+): \[([^\]]+)\] /.exec(
+            log,
+          ),
+        )
+        .filter((match) => match?.[4] === reason)
+        .map((match) => match!.slice(1));
     const origWarn = console.warn;
     console.warn = (...args: unknown[]) => {
       warnLogs.push(args.map(String).join(' '));
@@ -781,18 +791,20 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
         emitDeps,
       );
 
-      // 受信ID, EventID, 会場, reason をログで確認
-      const unknownLog = warnLogs.find(
-        (log) =>
-          log.includes(`receptionId=${receptionUnknownCancel.id}`) &&
-          log.includes('eventId=JPTE202609109999_202609109999') &&
-          log.includes('venueId=east') &&
-          log.includes('[unknown_cancellation_target]'),
-      );
-      assert.ok(
-        unknownLog,
-        'unknown_cancellation_targetのログに受信ID・EventID・会場・理由が含まれていること',
-      );
+      assert.deepEqual(skipLogFields('unknown_cancellation_target'), [
+        [
+          String(receptionUnknownCancel.id),
+          'JPTE202609109999_202609109999',
+          'east',
+          'unknown_cancellation_target',
+        ],
+        [
+          String(receptionUnknownCancel.id),
+          'JPTE202609109999_202609109999',
+          'trc',
+          'unknown_cancellation_target',
+        ],
+      ]);
 
       // 3-2. 食い違い取消電文 (previousは線状降水帯発生、取消電文は記録雨)
       warnLogs.length = 0;
@@ -849,17 +861,20 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
         emitDeps,
       );
 
-      const ambiguousLog = warnLogs.find(
-        (log) =>
-          log.includes(`receptionId=${receptionAmbiguousCancel.id}`) &&
-          log.includes('eventId=JPTE202609100003_202609100003') &&
-          log.includes('venueId=east') &&
-          log.includes('[ambiguous_cancellation_target]'),
-      );
-      assert.ok(
-        ambiguousLog,
-        'ambiguous_cancellation_targetのログに受信ID・EventID・会場・理由が含まれていること',
-      );
+      assert.deepEqual(skipLogFields('ambiguous_cancellation_target'), [
+        [
+          String(receptionAmbiguousCancel.id),
+          'JPTE202609100003_202609100003',
+          'east',
+          'ambiguous_cancellation_target',
+        ],
+        [
+          String(receptionAmbiguousCancel.id),
+          'JPTE202609100003_202609100003',
+          'trc',
+          'ambiguous_cancellation_target',
+        ],
+      ]);
     } finally {
       console.warn = origWarn;
     }
