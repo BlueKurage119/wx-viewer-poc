@@ -1,6 +1,6 @@
 # Issue化ドラフト（実装タスク単位）
 
-更新日: 2026-09-13（#139）
+更新日: 2026-09-13（#147）
 
 [基本設計](basic-design.md) と [棚卸し](audit-epic-a-d.md) の対応表。既存識別番号を維持し、未決は後続Issueの着手前判断として残す。A〜Dの部品完成とE〜Lの製品/受入完了を区別する。冬季C109向けに夏季降雨地図の優先度を下げる既決方針は維持する。
 
@@ -97,6 +97,8 @@
   棚卸し中。本棚卸し。39設計・48PR・原項目台帳、基本設計/全後続タスク改定とPR転載表。
 - **[D10. 速報の通常通知と起動時通知の対象範囲の補完](https://github.com/BlueKurage119/wx-viewer-poc/issues/145)**
   未着手。速報通常通知とsystem/竜巻起動採用の対象から設計。E9の現行配信は先行可能。
+- **[D11. CI（継続的インテグレーション）パイプラインの実装](https://github.com/BlueKurage119/wx-viewer-poc/issues/147)**
+  未着手。PR時のlint/typecheck/format:check/build/testの自動実行。着手前判断: 対象トリガー範囲、必須チェック化の要否、fixtureのCI再現性。
 
 ## Epic E: REST API
 
