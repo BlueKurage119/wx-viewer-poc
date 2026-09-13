@@ -3,24 +3,29 @@
 このファイルはエージェント向けのプロジェクト指示である。会話・コミットメッセージ・ドキュメントは日本語で行う。
 なお、[CLAUDE.md](CLAUDE.md)と矛盾する指示が書かれている場合は、CLAUDE.md を優先する。
 
-## 概要
+## 1. 概要
 
-- 防災気象情報表示サービスの PoC。npm workspaces によるモノレポで、フロントエンド（`apps/web`）、バックエンド（`apps/api`）、共通コード（`packages/shared`）を管理する。
-- 技術スタック、画面構成、ポート番号は [README.md](README.md) を参照する。
-- 基本設計は [docs/basic-design.md](docs/basic-design.md) である。協議記録内の【確定】【設計案】【未確定】は、設計上の確度を表す。
+- 防災気象情報表示サービスのPoC。npm workspacesによるモノレポで、フロントエンド(`apps/web`)、バックエンド(`apps/api`)、共通コード(`packages/shared`)を管理する
+- 技術スタック・画面構成・ポート番号は [README.md](README.md) を参照
+- 基本設計は [docs/basic-design.md](docs/basic-design.md)(協議記録。【確定】【設計案】【未確定】のタグで確度を区別している)
 
-## ディレクトリと機密情報
+## 2. ディレクトリと機密情報
 
-- リポジトリ親フォルダの Git 管理外 `docs/` には、気象庁 XML 資料・サンプル電文・コード表および本番 PoC 要件定義がある。リポジトリ内の文書から相対パスで参照・引用してよいが、リモート環境では利用できないことがある。**絶対パスでの引用は絶対に禁止する。**
-- 親フォルダ内の指定済み機密画像ディレクトリについては、複製する、埋め込む、ファイル名または内容に言及する行為を禁止する。このリポジトリ内のコード、文書、コミットメッセージ、Issue、PR、コメントにも残してはならない。
+- このリポジトリの親フォルダ(`cmk-gsx/`)に、Git管理外の `docs/` がある。これらは、プロジェクト間で共有する・リポジトリを重くしないという理由で外に出しているだけである。主なものは以下の通り。
+  - 気象庁XML資料・サンプル電文・コード表(`260907_weather-data/`)
+  - 本番PoC要件定義(`260830_poc-v2-requirements/`)
 
-## 絶対遵守事項
+- **このリポジトリ内から、リポジトリ外ファイルを参照・引用するときは、相対パスによること** (`docs/data-acquisition-report.md`が既に行っている)。また、リモート環境などでは閲覧できないため注意すること。**絶対パスでの引用は絶対に禁止する。**
 
-### 禁止事項
+- **例外: `[CONFIDENTIAL]` が付されたフォルダ配下には取り扱いに注意が必要なファイルがある。ファイルの複製・埋め込みはもちろん、ファイル名・内容への言及自体も、このリポジトリ内(コード・ドキュメント・コミットメッセージ・Issue・PR・コメントのいずれも)で一切行ってはならない。**
+
+## 3. 絶対遵守事項
+
+### 3.1 禁止事項
 
 ここに書かれていることは、エージェントとオーナーとの契約である。契約の遵守はエージェントの存在意義であり、違反は絶対に許されないことを強く自覚すること。
 
-1. **`cmk-gsx/docs/260908_[CONFIDENTIAL]_wx-poc-image/` 配下の画像への言及・複製・引用をしてはならない**
+1. **`[CONFIDENTIAL]` が付されたフォルダ配下のファイルへの言及・複製・引用をしてはならない**
 2. **ホームディレクトリ名を、コードおよびドキュメントに残してはならない**
 3. **mainへ直接コミットをしてはならない**
 4. **明確な指示を受けずにPRをマージしてはならない**
@@ -28,7 +33,9 @@
 6. **明確な指示を受けずに、既存ファイルの削除・大幅な構造変更・マシンに波及する破壊的操作を行ってはならない**
 7. **`docs/basic-design.md`の【設計案】・【未確定】の記述を、無断で確定したものとして扱ってはならない**
 
-### 遵守事項
+### 3.2 遵守事項
+
+開発において、特に守ってほしいことを記載した。理由・具体的行動例などは、別に定めた業務標準・指導文書を参照すること。
 
 #### 開発の進め方に関する遵守事項
 
@@ -47,94 +54,66 @@
 
 - 気象庁XML電文の提供仕様は、実データ・公式資料・[取得方法レポート](docs/data-acquisition-report.md)と照合できたものだけを、設計上の「確定」事実として扱うこと
 
-## Issue 開発フロー
+## 4. 開発の進め方
 
-Issue ごとに、統括、設計、製造、検収をこの順番で進める。統括はユーザーとの対話、フェーズ間の判断、レビュー、マージ判断を担う。統括（メインセッション）は原則として実装を行わず、設計・製造・検収をサブエージェントへ委任すること（軽微な修正を除く）。
+- 会話・コミットメッセージ・ドキュメント・コード中のコメントはすべて日本語で行うこと。
+- Issue ごとに、ヒアリング、設計、製造、検収をこの順番で進める。
+- 統括担当はユーザーとの対話、フェーズ間の判断、レビュー、マージ判断を担う。統括担当（メインセッション）は原則として実装を行わず、設計・製造・検収をサブエージェントへ委任すること（軽微な修正を除く）。
 
-1. **ヒアリング（統括）**: `docs/issues-draft.md` の対象 Issue と関連する基本設計を読み、実装方針を左右する未確定事項をユーザーに選択肢とメリット・デメリット等を整理した形で提示する。確定した判断を Issue 番号と共に次の担当へ渡す。
-2. **設計**: Codex の推奨モデル: Sol以上。`docs/design/issue-N-<slug>.md` を 1 本だけ作成する。コード、設定、ブランチ、コミットは変更しない。設計書には参照資料と判断根拠、具体的なモジュール構成・型・API、実行可能な受け入れ条件、後続 Issue への引き継ぎ、未確認事項を含める。新たな要確認事項は自分で決めず、統括へ具体的な質問として返す。**設計から製造に移行する場合は、一旦ターンを終了し、ユーザーの承認を受けること。**
-3. **製造**: Codex の推奨モデル: Terra。設計書を唯一の仕様として、指定済みブランチ上で実装・テスト・コミットまで行う。設計書と矛盾する場合は別方式を勝手に採らず、理由を統括へ報告する。push と PR 作成はしない。
-4. **検収**: Codex の推奨モデル: Sol（2回目はTerra以下）。設計書の受け入れ条件を項目ごとに実行して検証する。検収担当はコードを修正しない。未達は原因と再現手順を統括へ報告する。全項目が通過した場合のみ、指定ブランチを push して `main` を base とする通常 PR を作成する。PR 本文には該当する `Closes #<Issue番号>` を含め、マージはしない。
+### 4.1 フェーズごとの役割定義
 
-- サブエージェントはユーザーと直接対話できないため、ヒアリングは統括の責務である。Codex のサブエージェントを使う場合も、上記の責務と順番を維持し、各担当に対象 Issue、ブランチ名、設計書パス、ヒアリング済みの確定事項だけを渡す。
+<!-- prettier-ignore -->
+| 役割 | 推奨モデル | 役割と成果物 |
+| --- | --- | --- |
+| ヒアリング | 統括（メインセッション） | **実装方針を左右する未確定事項をユーザーに選択肢とメリット・デメリット等を整理した形で提示する。** 確定した判断を Issue 番号と共に次の担当へ渡す。 |
+| 設計 | Sol以上 | **対象の `docs/design/issue-N-<slug>.md` 1本だけを新規作成または改訂する。**コード、設定、ブランチ、コミットは変更しない。 |
+| 製造 | Terra・Gemini Flash（`agy-delegate`スキル） | **指定済みブランチ上で実装・テスト・コミットまで行う。**push と PR 作成はしない。 |
+| 検収 | Sol（2回目はTerra） | 設計書の受け入れ条件を項目ごとに実行して検証する。コードは修正しない。**全項目が通過した場合のみ PR を作成し、マージはしない。** |
 
-- （Codex向け指示）製造フェーズにおいては、時間短縮・コスト削減を目的に Antigravity への製造委託を行うことがある。必要により、Antigravity に渡すプロンプトを提供すること。
-  - AGY への依頼文には、①対象の作業ディレクトリ・ブランチ・設計コミット、②やること・やらないことの境界、③自己検証の手順、④最終報告のフォーマットを含める。なお、AGENTS.md に記載されている内容を重ねて記載する必要はない。
+フェーズ運用の必須事項(承認ゲート・devサーバー禁止事項・ブランチ/コミット/PR/署名)は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md)を参照のこと。
 
-- （Antigravity向け指示）設計書があり、詳細な指示付きで製造フェーズのみの委託を受けた場合、Implementation Plan の承認は省略する。ただし、統括担当への引き継ぎのため、Walkthrough ファイルを作成すること。
-  - 最終報告には、少なくとも①変更ファイル一覧・②検証結果（実行したテストと設計書の受け入れ条件への合否は必ず含める）・③設計との差異・④迷って止めた点・⑤未解決事項を含める。
+### 4.2 業務標準・指導文書
 
-### 設計・実装・検収の規律
+Issue開発フローの詳細は、必ず守る手順(業務標準)と、それを上手にこなすための知識(指導文書)に分けてまとめている。
 
-- ライブラリの挙動は、必要に応じて `node_modules` 内の実物（型定義・実装）で確認する。記憶や推測だけで設計しない。
-- 具体的なサイズや閾値は推定せず、実際に動かして測る。一時ファイルは必ず削除する。
-- 新しいテストは、対応する実装を意図的に壊して失敗すること（red）を確認してから完成とする。意味を変えないダミー変更が生存する対照実験を先に行ってから、ミューテーション判定をする。
-- アサーションは原則として完全一致を使う。部分一致は意図的な場合だけにし、期待値を実装の式から複製しない。
-- 検収では実装を読んで済ませず、受け入れ条件を実行して確認する。検収で見つけた事項は、通常運用で踏むか、将来の誤用時のみか、到達不能かをトリアージする。受け入れ条件の範囲外の発見で合否を覆さない。
-- 反復中のテストは対象ファイルまたは workspace に絞り、全件実行は節目に行う。同じファイルの反復読み込みや、目的のない網羅テストを避ける。
+- **業務標準**: 各フェーズが必ず通る手順・必須の実施項目・合否条件。必須条件の省略は認めない。[docs/rules/](docs/rules/README.md)(一覧・統治原則もここに記載)
+- **指導文書**: 業務標準の手順を上手にこなすための知識(検証コマンド、環境固有の罠、過去の失敗事例等)。業務標準が定める権限・必須工程・合否条件は追加・変更しない。[docs/rules/advisory/](docs/rules/advisory/README.md)
 
-### コードレビューへの向き合い方
+### 4.3 Antigravity固有指示
 
-- 外部ツールによるコードレビューは、統括担当がトリアージ（要対応・先送り・無視）を行ってから、本当に必要なものだけを提示すること。年に1回あるかどうかのバグに何時間と何万トークン費やして直しても費用対効果が薄い。
-- レビューへの回答・解決済みマークは統括担当が行う。
-- 再レビューの要求はユーザーが行う。統括担当は必要により再レビューの提案を行うこと。修正が局所的で、指摘を再現する回帰テストを追加しすべての必須検証が通った場合、再レビュー不要と判断できる。
+設計書があり、詳細な指示付きで製造フェーズのみの委託を受けた場合、Implementation Planの承認は省略する。
+ただし、統括担当への引き継ぎのため、非対話セッションを除きWalkthroughファイルを作成すること。最終報告に必須の記載事項は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md) の「AGYの最終報告」を参照。
 
-## UI・気象データの規約
+## 5. 技術スタック・規約
 
-- 色は HEX 値をハードコードせず、Material color のトークンを使用する。見れば分かる説明書き・ラベルは省略する。
-- 気象庁 XML 電文の提供仕様は、実データ、公式資料、[取得方法レポート](docs/data-acquisition-report.md) と照合できたものだけを確定事実として扱う。電文構造やコード値を憶測で補わない。
-- 訓練通知の `isTraining` と本番相当データを混同しない。通知、履歴、表示で必要な範囲まで一貫して伝播させる。
-- availability の `available`、`stale`、`unavailable` の 3 状態を boolean や単純な OK/NG に縮退させない。`stale` は前回値を保持しつつ鮮度低下を表現する。
+- React 19 + TypeScript + Vite(フロント) / Express 5 + TypeScript(バックエンド) / npm workspacesモノレポ
+- ESLint(`eslint.config.js`、`--max-warnings 0`) + Prettier。詳細な規約は各設定ファイルを正とする
+- Material Web + `@material/material-color-utilities` によるMD3準拠テーマ。色トークン規約と「破ると静かに壊れる制約」(必須)は [docs/rules/06-ui-md3-protocol.md](docs/rules/06-ui-md3-protocol.md)、UI寸法計測・バンドル見積りのノウハウは [docs/rules/advisory/](docs/rules/advisory/README.md) を参照
+- UI文言は日本語
 
-## 技術スタックとコマンド
-
-- React 19 + TypeScript + Vite（フロントエンド）、Express 5 + TypeScript（バックエンド）、npm workspaces モノレポ。
-- ESLint（`eslint.config.js`、`--max-warnings 0`）と Prettier。詳細な規約は設定ファイルを正とする。
-- Material Web と `@material/material-color-utilities` による MD3 準拠テーマ。UI 文言は日本語。
+## 6. 主要コマンド
 
 ```bash
-npm run dev              # web (5174) + api (3001) を同時起動
+npm run dev              # web(5174) + api(3001) を同時起動
 npm run build             # shared → api → web の順にビルド
-npm run typecheck         # 全 workspace の型検査
-npm run lint              # ESLint による静的検査（--max-warnings 0）
-npm run format:check      # Prettier 整形差分チェック
-npm run test -w apps/web  # test スクリプトがある対象 workspace のテスト
+npm run typecheck         # 全workspaceの型検査
+npm run lint               # ESLintによる静的検査(--max-warnings 0)
+npm run format:check      # Prettier整形差分チェック
+npm run test -w apps/web    # 対象workspaceのテスト(package.jsonのtestスクリプトが定義されているworkspaceのみ)
 ```
 
-## ブランチ・コミット・PR
+## 7. ブランチ・コミット・PR
 
-- ブランチ名は `feature/issue-<番号>-<短い説明>` とする。Codex が新規ブランチを作る場合もこの規約を優先する。
-- コミットメッセージは種別プレフィックス（`feat`、`fix`、`docs`、`chore` など）と日本語要約を使う。
-- コミット回数は、設計完了時に 1 回、製造中に 2〜3 回程度（変更の規模に応じて増減すること）を原則とする。
-- PR 作成時は base が `main` であることを確認する。
-- PR 本文には少なくとも、概要・変更内容・検証を含める。また、`Close` により、元の Issue が自動クローズされるようにする。
-- エージェントが作成するコミットメッセージ、PR 本文、コメントには、それを生成したアプリケーションおよびモデル名を本文中に明記する。CLI や API の投稿者名が人間のアカウントになる場合も同様とする。Codex の場合の署名例は以下のとおりとする。
-  - コミットメッセージ: `Co-Authored-By: Codex (GPT 5.6 Terra) <noreply@openai.com>`
-  - PR本文末尾・コメント: `🤖 Generated with Codex`
+- ブランチ名は `<プレフィックス>/issue-<番号>-<短い説明>` (例: `feature/issue-2-common-shell`)とする。Issueによらない作業は、その都度統括担当が決める。
+- PR作成時はbaseが `main` であることを確認する。
+- **製造担当(`wxviewer-builder`)の作業はコミットまでとし、push・PRの作成・本文の記述は検収担当(`wxviewer-inspector`)が行う**
+- コミット・PR・コメントの署名の必須事項・フォーマット、コミット粒度、PR本文構成は [docs/rules/01-dev-workflow-protocol.md](docs/rules/01-dev-workflow-protocol.md) を参照
 
-  ※Antigravity の場合は、メールアドレスを`<gemini-code-assist@users.noreply.github.com>`とする。
+## 8. 参照文書
 
-## 破ると静かに壊れる制約
-
-### `apps/web` の副作用 import
-
-`apps/web/package.json` の `sideEffects` は CSS のみを宣言している。CSS 以外の `import './foo'` 形式の副作用 import は本番ビルドで除去される。カスタム要素の登録は、ラッパーの export を使って成立させる。
-
-### `@material/material-color-utilities` のバージョン
-
-この依存関係は `0.3.0` 固定であり、キャレットを付けない。`npm update` などで上げない。0.4.x には拡張子なし import の解決に関する既知のパッケージング不具合がある。
-
-### Material Web コンポーネント
-
-`<md-*>` の生タグを直書きしない。必ず `apps/web/src/components/md` のバレル `index.ts` から export された型付きラッパーを import する。未ラップのコンポーネントが必要なら、先にラッパーを追加してバレルに載せる。
-
-### テーマと localStorage
-
-色は `apps/web/src/theme/` がランタイムに生成する `--md-sys-color-*` CSS 変数を使う。シード色は `apps/web/src/theme/seeds.ts` の `DEFAULT_THEME_SEED` のみで管理する。`index.html` と `ThemeProvider.tsx` の localStorage キーは、FOUC 対策のため一致させる。
-
-## 参照文書
-
-- [docs/basic-design.md](docs/basic-design.md) — 基本設計（協議記録）
-- [docs/issues-draft.md](docs/issues-draft.md) — Issue 下書き
-- [docs/design/](docs/design/) — Issue 単位の設計書
+- [docs/basic-design.md](docs/basic-design.md) — 基本設計(協議記録)
+- [docs/issues-draft.md](docs/issues-draft.md) — Issue下書き(Epic単位)
+- [docs/design/](docs/design/) — 各IssueのIssue単位設計書
 - [docs/data-acquisition-report.md](docs/data-acquisition-report.md) — 気象データ取得方法の検証記録
+- [docs/rules/](docs/rules/) — 必ず通る手順と合否条件(業務標準)。一覧は[docs/rules/README.md](docs/rules/README.md)
+- [docs/rules/advisory/](docs/rules/advisory/) — 手順を実行するための知識・ノウハウ・過去事例(指導文書)。一覧は[docs/rules/advisory/README.md](docs/rules/advisory/README.md)

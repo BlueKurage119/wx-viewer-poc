@@ -10,49 +10,25 @@ model: sonnet
 
 - 統括担当が指定した**既存ブランチ上で作業する**。新しいブランチを切らない
 - **指定された設計書 `docs/design/issue-<N>-*.md` を最初に全文精読する。これが唯一かつ絶対の仕様。**
-- あわせて **`CLAUDE.md`**(リポジトリルート)を読み、記載された制約(特に「破ると静かに壊れる制約」)を遵守する
+- あわせて **`CLAUDE.md`**(リポジトリルート)を読み、絶対遵守事項を遵守する。触る対象に応じて [`../../docs/rules/06-ui-md3-protocol.md`](../../docs/rules/06-ui-md3-protocol.md)(`apps/web`の必須制約)・[`../../docs/rules/07-wx-data-protocol.md`](../../docs/rules/07-wx-data-protocol.md)(気象データ)も読む
 - **pushしない。PRを作らない。**(検収担当の仕事)
-- コミットは日本語のメッセージで、論理的にまとまった単位。末尾に必ず `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` を含める
+- コミットは日本語のメッセージで、論理的にまとまった単位。末尾に必ず `Co-Authored-By: Claude (<model>) <noreply@anthropic.com>` (例: `Claude (Sonnet 5)`)を含める。署名フォーマットの正本・Agyへ再委託する場合の署名は [`../../docs/rules/01-dev-workflow-protocol.md`](../../docs/rules/01-dev-workflow-protocol.md) を参照
 
-## 設計書から逸脱が必要になった場合
+## 判断規律
 
-設計書の記述が実現不可能、実物と矛盾する、または内部矛盾がある場合は、**勝手に別方式で実装しない**。その箇所の実装を止めて、理由を最終返答に明記する(統括担当が設計担当へ差し戻す)。「設計書に書かれていない些末な実装詳細」(変数名、内部関数分割等)は自分で妥当に埋めてよい。
+設計書からの逸脱時の対応・スコープ厳守は [`../../docs/rules/03-build-protocol.md`](../../docs/rules/03-build-protocol.md) を参照(この役割の必須事項の本体)。逸脱の理由は必ず最終返答に明記する。
 
 ## テストの規律
 
-### redを先に確認する
-
-**新しく追加したテストは、対応する実装を意図的に壊して実際に落ちることを確認してから完成とする。** 確認手順と結果を最終返答に書く。
-
-### ミューテーション判定の前に対照実験を行う
-
-ミューテーションテストには「常にKILLEDに見える」故障モードがある。意味を変えないダミー改変(コメント挿入等)を先に注入し、それがSURVIVEDになることを確認してから本番の判定を行う。
-
-### アサーションを緩くしない
-
-- 期待値の検証は完全一致を基本とする。部分一致(`includes`/`toContain`)は、一部が丸ごと欠落しても通ることがあるため、意図して使う場合のみ使う
-- 期待値を実装の式からコピーしない。実装を変えると期待値も追随してしまい何も検証しなくなる。独立に計算するかリテラルで書く
+red確認・対照実験・完全一致原則は [`../../docs/rules/05-verification-protocol.md`](../../docs/rules/05-verification-protocol.md) の必須手順に従う。共有可変状態の系統調査は [`../../docs/rules/advisory/G-07-shared-mutable-state-fixes.md`](../../docs/rules/advisory/G-07-shared-mutable-state-fixes.md) を参照。「新しく追加したテストは、対応する実装を意図的に壊して実際に落ちることを確認してから完成とする」の確認手順と結果は必ず最終返答に書く。
 
 ## 気象データ固有の注意
 
-- **訓練データと本番相当データを混同する実装をしない。** `isTraining` フラグが設計書で指定された範囲(通知・履歴・表示)まで一貫して伝播しているか、実装時に確認する。
-- **availability(`available`/`stale`/`unavailable`)を単純なbooleanに縮退させない。** 設計書がこの3状態を要求している箇所で、2値に簡略化した実装をしない。
-- 気象庁XML電文のパース・正規化ロジックは、設計書が参照するサンプル電文・コード表と突き合わせて実装する。設計書に記載のないコード値・電文パターンを憶測で処理しない(未対応として明示的に扱う)。
-
-## スコープ
-
-設計書が定めた範囲だけを実装する。他のIssueのスコープに手を出さない。テスト都合でproductionコードを変更しない(設計書が明示的に許可した場合を除く)。
+`isTraining`の伝播範囲・availability 3状態の縮退禁止は [`../../docs/rules/07-wx-data-protocol.md`](../../docs/rules/07-wx-data-protocol.md) の必須事項に従う。設計書に記載のないコード値・電文パターンを憶測で処理しない(未対応として明示的に扱う)。
 
 ## 完了条件
 
-```
-npm run build
-npm run typecheck
-npm run lint
-npm run format:check
-```
-
-対象workspaceにtestスクリプトがあれば実行する。すべてexit code 0。依存関係を変更した場合は `npm ci` が通ることも確認する。
+[製造フェーズ業務標準](../../docs/rules/03-build-protocol.md)の「完了条件」に従う。
 
 ## トークン規律
 
