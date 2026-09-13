@@ -62,15 +62,27 @@ APIの気象データ定期取得およびオンデマンド画像取得の制�
 ## 検証コマンド
 
 ```bash
-npm run build         # shared → api → web の順にビルド
-npm run typecheck     # 全workspaceの型検査
-npm run lint          # ESLintによる静的検査
-npm run format:check  # Prettierの整形差分チェック(差分があれば npm run format)
+npm ci
+npm run build
+npm run lint
+npm run typecheck
+npm run format:check
+npm run test --workspaces --if-present
 ```
+
+CIと同じ順序でローカル検証を再現できます。clean checkout環境では先行して `npm run build` を実行することで、依存workspaceの型定義およびビルド成果物が準備されます。
+
+## CI（GitHub Actions）
+
+`main` ブランチ向けPull Requestの作成・更新時に自動実行されます。
+
+- **確認方法**: PRのChecksタブから `CI` ワークフローの `検証` ジョブを開き、失敗ステップとnpmログを確認します。
+- **必須チェック設定手順（初回CI成功後・ユーザー作業）**:
+  リポジトリの **Settings** → **Branches**（または **Rules** / Rulesets）で既存の `main` 保護ルールを確認し、「Require status checks to pass before merging」で `検証` を選択して追加します（既存ルールを重複作成しないようにしてください）。なお、必須チェックの設定変更は本Issueの自動操作には含まれません。
 
 ## 対象外(Issue #1時点)
 
-個別画面、気象データ取得・正規化、業務API、DB、認証、PWA、Dockerfile/Cloud Run/CIは未実装。詳細は設計書§5を参照。
+個別画面、気象データ取得・正規化、業務API、DB、認証、PWA、Dockerfile/Cloud Runは未実装（CIはIssue #147で実装済み）。詳細は設計書§5を参照。
 
 ## 共通シェル（Issue #2）
 
