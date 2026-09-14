@@ -1465,8 +1465,12 @@ test(
 
         // 保留していた応答を解放し、以降の再開取得は即時解決するようにする
         holdPointRequests = false;
-        resolvePoint44136!(new Response(point44136Json, { status: 200 }));
-        resolvePoint44166!(new Response(point44166Json, { status: 200 }));
+        (resolvePoint44136 as ((value: Response) => void) | null)?.(
+          new Response(point44136Json, { status: 200 }),
+        );
+        (resolvePoint44166 as ((value: Response) => void) | null)?.(
+          new Response(point44166Json, { status: 200 }),
+        );
         await new Promise<void>((resolve) => setImmediate(resolve));
 
         // 両地点が保存されていること
@@ -1751,7 +1755,7 @@ test(
 
         // 2. プロセス2 (再起動): 新しい factory / 状態で接続し、羽田を 503 失敗にする
         requestedUrls = [];
-        const point44166Status = 503;
+        const point44166Status: number = 503;
         const restartFetch: typeof fetch = async (input) => {
           const urlStr = String(input);
           requestedUrls.push(urlStr);
@@ -2075,7 +2079,9 @@ test(
 
       // 保留を解放し、全体完了させる (完了時刻 = t=70s)
       hold44166 = false;
-      resolve44166!(new Response(point44166Json, { status: 200 }));
+      (resolve44166 as ((value: Response) => void) | null)?.(
+        new Response(point44166Json, { status: 200 }),
+      );
       await new Promise<void>((resolve) => setImmediate(resolve));
 
       // 完了時刻 (t=70s) から 59秒進める (t=129s) -> 次回周期 (60秒後) 直前のため未発火

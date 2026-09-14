@@ -346,7 +346,7 @@ test('AC4: 解除は changeType のみで判定 & C3 全 34 コードの整合�
   for (const code of c3Codes) {
     const def = WARNING_CODE_TABLE[code];
     const input: WarningStateChangeDecisionInput = {
-      phenomenonKey: def.phenomenonKey,
+      phenomenonKey: def!.phenomenonKey,
       changeType: 'released',
       before: createWarningItem(code),
       after: null,
@@ -354,7 +354,7 @@ test('AC4: 解除は changeType のみで判定 & C3 全 34 コードの整合�
     const expected: WarningStateChangeNotificationDecision = {
       notify: true,
       changeType: 'released',
-      phenomenonKey: def.phenomenonKey,
+      phenomenonKey: def!.phenomenonKey,
       category: 'warning',
       ackRequired: false,
       categoryBasis: 'release_rule',

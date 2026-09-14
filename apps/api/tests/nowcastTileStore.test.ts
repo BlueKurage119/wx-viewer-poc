@@ -102,7 +102,7 @@ test('2. ファイル欠損・改変の検出、書き込み障害時の後始�
 
     // 1. ファイル改変（1バイト書き換え）
     const modifiedBytes = Buffer.from(VALID_1X1_PNG);
-    modifiedBytes[modifiedBytes.length - 1] ^= 0xff;
+    modifiedBytes[modifiedBytes.length - 1]! ^= 0xff;
     fs.writeFileSync(fullPath, modifiedBytes);
 
     const verifyModified = await store.verifyTile(relPath, EXPECTED_BYTE_SIZE, EXPECTED_HASH);
@@ -288,7 +288,7 @@ test('3. 一覧から消えたフレームの本体だけ削除され、参照�
     // DB 上、Frame 2 が消えたことを確認
     const snap = findRadarSnapshot(connection, 'N1');
     assert.strictEqual(snap?.frames.length, 1);
-    assert.strictEqual(snap?.frames[0].validTime, '2026-09-07T03:00:00.000Z');
+    assert.strictEqual(snap?.frames[0]!.validTime, '2026-09-07T03:00:00.000Z');
 
     // クリーンアップ実行
     await store.cleanProductUnreferencedTiles(connection, 'N1');

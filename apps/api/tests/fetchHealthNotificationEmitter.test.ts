@@ -65,7 +65,7 @@ test('emitFetchHealthNotification: 通知の永続化と重複抑止', () => {
 
     // 1 回目評価: 初期状態で normal
     const aggregate1 = aggregateFetchHealth(
-      MONITORED_FETCH_SOURCES.map((def) => createResult(def.id, 'normal')),
+      MONITORED_FETCH_SOURCES.map((def) => createResult(def!.id, 'normal')),
       now(),
     );
     const result1 = emitFetchHealthNotification(database.connection, aggregate1, store, { now });
@@ -74,19 +74,19 @@ test('emitFetchHealthNotification: 通知の永続化と重複抑止', () => {
     // 2 回目評価: xml_regular が delayed に遷移
     const aggregate2 = aggregateFetchHealth(
       MONITORED_FETCH_SOURCES.map((def) =>
-        createResult(def.id, def.id === 'xml_regular' ? 'delayed' : 'normal'),
+        createResult(def!.id, def!.id === 'xml_regular' ? 'delayed' : 'normal'),
       ),
       now(),
     );
     const result2 = emitFetchHealthNotification(database.connection, aggregate2, store, { now });
     assert.equal(result2.recorded.length, 1);
-    assert.equal(result2.recorded[0].category, 'warning');
-    assert.equal(result2.recorded[0].changeType, 'fetch_delayed');
+    assert.equal(result2.recorded[0]!.category, 'warning');
+    assert.equal(result2.recorded[0]!.changeType, 'fetch_delayed');
 
     const history = listNotificationOutputHistory(database.connection, { origin: 'system' });
     assert.equal(history.length, 1);
-    assert.equal(history[0].category, 'warning');
-    assert.equal(history[0].changeType, 'fetch_delayed');
+    assert.equal(history[0]!.category, 'warning');
+    assert.equal(history[0]!.changeType, 'fetch_delayed');
 
     // 3 回目評価: 同じ状態で再度 emit -> 重複通知なし (recorded: 0)
     const result3 = emitFetchHealthNotification(database.connection, aggregate2, store, { now });

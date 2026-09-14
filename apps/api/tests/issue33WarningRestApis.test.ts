@@ -45,7 +45,8 @@ function request(app: ReturnType<typeof createApp>) {
   };
 }
 
-import type { ControlStatus, VenueId } from '@wx-viewer-poc/shared';
+import type { VenueId } from '@wx-viewer-poc/shared';
+import type { ControlStatus } from '../src/repositories/types.js';
 import { initializeDatabase } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
 import { startServer } from '../src/server.js';
@@ -78,22 +79,44 @@ function createAvailablePollingStatus(): JmaXmlPollingStatus {
     lastCycleResult: null,
     feedStatuses: {
       regular: {
+        feedKind: 'regular',
         isWaiting: false,
+        waitingReason: null,
         nextAllowedFetchAt: null,
         consecutiveFailures: 0,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
         lastSuccessAt: '2026-09-14T06:00:00.000Z',
+        lastFailureAt: null,
       },
       extra: {
+        feedKind: 'extra',
         isWaiting: false,
+        waitingReason: null,
         nextAllowedFetchAt: null,
         consecutiveFailures: 0,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
         lastSuccessAt: '2026-09-14T06:00:00.000Z',
+        lastFailureAt: null,
       },
-      long_term: {
+      regular_l: {
+        feedKind: 'regular_l',
         isWaiting: false,
+        waitingReason: null,
         nextAllowedFetchAt: null,
         consecutiveFailures: 0,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
         lastSuccessAt: '2026-09-14T06:00:00.000Z',
+        lastFailureAt: null,
+      },
+      extra_l: {
+        feedKind: 'extra_l',
+        isWaiting: false,
+        waitingReason: null,
+        nextAllowedFetchAt: null,
+        consecutiveFailures: 0,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
+        lastSuccessAt: '2026-09-14T06:00:00.000Z',
+        lastFailureAt: null,
       },
     },
     feedFreshness: {
@@ -141,7 +164,7 @@ test('A1: 会場別解決 - east (江東区), trc (大田区) のみ返り、他
     ['1310800', '江東区'],
     ['1311100', '大田区'],
     ['1510000', '新潟市'],
-  ]) {
+  ] as const) {
     saveWarningCurrentSnapshot(db.connection, {
       areaCode: code,
       areaName: name,
@@ -171,6 +194,10 @@ test('A1: 会場別解決 - east (江東区), trc (大田区) のみ返り、他
           kindStatus: '発表',
           lastKindCode: null,
           lastKindName: null,
+          significancyCode: null,
+          significancyName: null,
+          warningLevel: null,
+          attentionText: null,
           kindIssuedAt: '2026-09-14T06:00:00.000Z',
           sourceTelegram: 'VPWW53',
         },
@@ -234,7 +261,7 @@ test('A1: 会場別解決 - east (江東区), trc (大田区) のみ返り、他
   for (const [code, name] of [
     ['130010', '東京地方'],
     ['150000', '新潟県'],
-  ]) {
+  ] as const) {
     for (const segment of ['near', 'far'] as const) {
       saveEarlyWarningSnapshot(db.connection, {
         areaCode: code,
@@ -427,6 +454,10 @@ test('A3: normal/training/test に異なる値を保存し指定領域のみ返�
         kindStatus: '発表',
         lastKindCode: null,
         lastKindName: null,
+        significancyCode: null,
+        significancyName: null,
+        warningLevel: null,
+        attentionText: null,
         kindIssuedAt: '2026-09-14T06:00:00.000Z',
         sourceTelegram: 'VPWW53',
       },
@@ -561,6 +592,10 @@ test('A4: snapshot なしは data=null・unavailable・日時null。正常空は
         kindStatus: '発表',
         lastKindCode: null,
         lastKindName: null,
+        significancyCode: null,
+        significancyName: null,
+        warningLevel: null,
+        attentionText: null,
         kindIssuedAt: '2026-09-14T06:00:00.000Z',
         sourceTelegram: 'VPWW53',
       },
@@ -613,6 +648,10 @@ test('A5: #33 の allowlist と capabilities（04, 18 未対応明示、内部ID
         kindStatus: '発表',
         lastKindCode: null,
         lastKindName: null,
+        significancyCode: null,
+        significancyName: null,
+        warningLevel: null,
+        attentionText: null,
         kindIssuedAt: '2026-09-14T06:00:00.000Z',
         sourceTelegram: 'VPWW53',
       },
@@ -685,20 +724,20 @@ test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険�
   assert.equal(thunderAdditions.length, 2);
 
   // 出現順: 「竜巻」が 0、 「ひょう」が 1
-  assert.equal(thunderAdditions[0].text, '竜巻');
-  assert.equal(thunderAdditions[0].additionIndex, 0);
-  assert.equal(thunderAdditions[0].noteIndex, 0);
-  assert.equal(thunderAdditions[0].areaDivision, null); // Base 直下
-  assert.equal(thunderAdditions[0].scope.localIndex, null);
+  assert.equal(thunderAdditions[0]!.text, '竜巻');
+  assert.equal(thunderAdditions[0]!.additionIndex, 0);
+  assert.equal(thunderAdditions[0]!.noteIndex, 0);
+  assert.equal(thunderAdditions[0]!.areaDivision, null); // Base 直下
+  assert.equal(thunderAdditions[0]!.scope.localIndex, null);
 
-  assert.equal(thunderAdditions[1].text, 'ひょう');
-  assert.equal(thunderAdditions[1].additionIndex, 0);
-  assert.equal(thunderAdditions[1].noteIndex, 1);
-  assert.equal(thunderAdditions[1].areaDivision, null);
+  assert.equal(thunderAdditions[1]!.text, 'ひょう');
+  assert.equal(thunderAdditions[1]!.additionIndex, 0);
+  assert.equal(thunderAdditions[1]!.noteIndex, 1);
+  assert.equal(thunderAdditions[1]!.areaDivision, null);
 
   // 時間 ref が捏造されていない（TimeseriesAddition 型には timeId や refId は存在しない）
-  assert.equal('timeId' in thunderAdditions[0], false);
-  assert.equal('refId' in thunderAdditions[0], false);
+  assert.equal('timeId' in thunderAdditions[0]!, false);
+  assert.equal('refId' in thunderAdditions[0]!, false);
 
   // values に scope が付与されている
   const thunderValues = values.filter((v) => v.propertyType === '雷危険度');
@@ -721,15 +760,12 @@ test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険�
     fetchAttemptId: null,
     feedKind: null,
     feedEntryId: null,
-    feedType: 'regular',
     documentUrl: 'https://example.com/20260913214231_0_VPWP50_150000.xml',
     telegramType: 'VPWP50',
     title: '気象警報・注意報（量的予想時系列）',
     eventId: null,
     serial: null,
     infoType: '発表',
-    infoKind: '気象警報・注意報時系列',
-    infoKindVersion: '1.0',
     reportDateTime: expected.reportDateTime,
     controlDateTime: expected.controlDateTime,
     targetDateTime: null,
@@ -1330,7 +1366,7 @@ test('A10: 旧 schema からのマイグレーションで既存値維持 (addit
   assert.ok(snapshot);
   assert.equal(snapshot.additionsParsed, false);
   assert.equal(snapshot.additions, null);
-  assert.equal(snapshot.values[0].scope, null);
+  assert.equal(snapshot.values[0]!.scope, null);
 
   // 新規正常採用を保存 (additions なし -> additions: [])
   saveWarningTimeseriesSnapshot(db, {
@@ -1417,6 +1453,7 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
         propertyType: '大雨',
         valueType: '大雨',
         valueText: '注意',
+        unit: null,
         areaDivision: null,
         sequence: 1,
         scope: {
@@ -1514,6 +1551,7 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
         propertyType: '洪水',
         valueType: '洪水',
         valueText: '警戒',
+        unit: null,
         areaDivision: null,
         sequence: 1,
         scope: {
@@ -1573,19 +1611,19 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
 
   // timeDefines が完全一致
   assert.equal(snapAfterRollback.timeDefines.length, 1);
-  assert.equal(snapAfterRollback.timeDefines[0].blockId, 'b1');
-  assert.equal(snapAfterRollback.timeDefines[0].timeId, '1');
-  assert.equal(snapAfterRollback.timeDefines[0].timeFrom, '2026-09-14T06:00:00.000Z');
-  assert.equal(snapAfterRollback.timeDefines[0].timeTo, '2026-09-14T09:00:00.000Z');
-  assert.equal(snapAfterRollback.timeDefines[0].duration, 'PT3H');
+  assert.equal(snapAfterRollback.timeDefines[0]!.blockId, 'b1');
+  assert.equal(snapAfterRollback.timeDefines[0]!.timeId, '1');
+  assert.equal(snapAfterRollback.timeDefines[0]!.timeFrom, '2026-09-14T06:00:00.000Z');
+  assert.equal(snapAfterRollback.timeDefines[0]!.timeTo, '2026-09-14T09:00:00.000Z');
+  assert.equal(snapAfterRollback.timeDefines[0]!.duration, 'PT3H');
 
   // values が完全一致（scope 含む）
   assert.equal(snapAfterRollback.values.length, 1);
-  assert.equal(snapAfterRollback.values[0].blockId, 'b1');
-  assert.equal(snapAfterRollback.values[0].refId, '1');
-  assert.equal(snapAfterRollback.values[0].propertyType, '大雨');
-  assert.equal(snapAfterRollback.values[0].valueText, '注意');
-  assert.deepEqual(snapAfterRollback.values[0].scope, {
+  assert.equal(snapAfterRollback.values[0]!.blockId, 'b1');
+  assert.equal(snapAfterRollback.values[0]!.refId, '1');
+  assert.equal(snapAfterRollback.values[0]!.propertyType, '大雨');
+  assert.equal(snapAfterRollback.values[0]!.valueText, '注意');
+  assert.deepEqual(snapAfterRollback.values[0]!.scope, {
     kindIndex: 0,
     propertyIndex: 0,
     partName: 'SignificancyPart',
@@ -1596,11 +1634,11 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
 
   // additions が完全一致（scope 含む）
   assert.equal(snapAfterRollback.additions?.length, 1);
-  assert.equal(snapAfterRollback.additions?.[0].blockId, 'b1');
-  assert.equal(snapAfterRollback.additions?.[0].text, '初期Note');
-  assert.equal(snapAfterRollback.additions?.[0].additionIndex, 0);
-  assert.equal(snapAfterRollback.additions?.[0].noteIndex, 0);
-  assert.deepEqual(snapAfterRollback.additions?.[0].scope, {
+  assert.equal(snapAfterRollback.additions?.[0]!.blockId, 'b1');
+  assert.equal(snapAfterRollback.additions?.[0]!.text, '初期Note');
+  assert.equal(snapAfterRollback.additions?.[0]!.additionIndex, 0);
+  assert.equal(snapAfterRollback.additions?.[0]!.noteIndex, 0);
+  assert.deepEqual(snapAfterRollback.additions?.[0]!.scope, {
     kindIndex: 0,
     propertyIndex: 0,
     partName: 'SignificancyPart',
@@ -1639,9 +1677,9 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
   assert.ok(snapStale);
   assert.equal(snapStale.metadata.availability, 'stale');
   assert.equal(snapStale.values.length, 1);
-  assert.equal(snapStale.values[0].scope?.partName, 'SignificancyPart');
+  assert.equal(snapStale.values[0]!.scope?.partName, 'SignificancyPart');
   assert.equal(snapStale.additions?.length, 1);
-  assert.equal(snapStale.additions?.[0].text, '初期Note');
+  assert.equal(snapStale.additions?.[0]!.text, '初期Note');
 
   db.close();
 });
@@ -1863,6 +1901,15 @@ test('A15: GET 前後で DB 件数不変、安全な 500、startServer での結
       getEarlyWarning() {
         throw new Error('Database disk image is malformed');
       },
+      getAreaTimeseries() {
+        throw new Error('Database disk image is malformed');
+      },
+      getAmedas() {
+        throw new Error('Database disk image is malformed');
+      },
+      getBulletins() {
+        throw new Error('Database disk image is malformed');
+      },
     },
   });
 
@@ -1940,11 +1987,12 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
       rawBody: null,
       bodyBytes: null,
       contentHash: null,
-      areas: [{ areaCode: options.areaCode, sequence: 1 }],
+      areas: [{ areaCode: options.areaCode, areaName: null, codeType: null, sequence: 1 }],
       adoptions: [
         {
           venueId: options.venueId,
           adoptionResult: options.adoptionResult ?? '未対応構造',
+          adoptionReason: null,
           adoptionDecidedAt: '2026-09-14T06:00:00.000Z',
         },
       ],

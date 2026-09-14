@@ -666,7 +666,7 @@ test('B09: ナウキャスト - 実在フレーム単体 GET で PNG fixture 完
     await service.refreshTimes();
 
     const catalog = service.readCatalog();
-    const frame = catalog.products.N1.frames[0];
+    const frame = catalog.products.N1.frames[0]!;
 
     const apiService = createNowcastApiService({
       getService: () => service,
@@ -727,7 +727,7 @@ test('B11: ナウキャスト - stale かつ画像許可でミス 200、停止�
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().products.N1.frames[0];
+    const frame = service.readCatalog().products.N1.frames[0]!;
 
     // 1. stale かつ画像許可でミス要求 -> 200
     // 350秒経過させて stale にする
@@ -823,7 +823,7 @@ test('B12: ナウキャスト - 窓外・不在は 404、上流エラーは 502�
       catalogAvailability: 'available',
     });
 
-    const validFrame = service.readCatalog().products.N1.frames[0];
+    const validFrame = service.readCatalog().products.N1.frames[0]!;
     const tileUrl = `/api/weather/nowcast/N1/tiles/10/900/400.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
       validFrame.baseTime,
     )}&validTime=${encodeURIComponent(validFrame.validTime)}`;
@@ -875,7 +875,7 @@ test('B13: ナウキャスト - DB 保存失敗等の注入で 500、他要求�
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().products.N1.frames[0];
+    const frame = service.readCatalog().products.N1.frames[0]!;
 
     const apiService = createNowcastApiService({
       getService: () => service,
@@ -941,7 +941,7 @@ test('B14: ナウキャスト - 既存キャッシュ破損時に再取得 200�
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().products.N1.frames[0];
+    const frame = service.readCatalog().products.N1.frames[0]!;
 
     const apiService = createNowcastApiService({
       getService: () => service,
@@ -1016,7 +1016,7 @@ test('B15: ナウキャスト - 成功結果後のファイル消失/改変で�
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().products.N1.frames[0];
+    const frame = service.readCatalog().products.N1.frames[0]!;
 
     const apiService = createNowcastApiService({
       getService: () => service,
@@ -1081,7 +1081,7 @@ test('B16: ナウキャスト - no-store, nosniff と 3 ヘッダー、条件付
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().products.N1.frames[0];
+    const frame = service.readCatalog().products.N1.frames[0]!;
 
     const apiService = createNowcastApiService({
       getService: () => service,

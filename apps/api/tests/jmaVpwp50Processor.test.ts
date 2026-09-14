@@ -82,7 +82,7 @@ function createSampleReception(
     rawBody: options.rawXml !== undefined ? options.rawXml : buildSampleVpwp50Xml(options),
     bodyBytes: 1024,
     contentHash: 'hash-1234',
-    areas: [{ sequence: 1, areaCode: '1310800', areaName: '江東区' }],
+    areas: [{ sequence: 1, areaCode: '1310800', areaName: '江東区', codeType: null }],
   };
 
   return recordTelegramReception(context.connection, input);
@@ -215,12 +215,12 @@ test('processVpwp50Reception: 正常系 - スナップショット保存と採�
     assert.equal(snapshot.values.length, 4);
 
     // 値の詳細確認
-    assert.equal(snapshot.values[0].valueCategory, 'risk');
-    assert.equal(snapshot.values[0].valueCode, '11');
-    assert.equal(snapshot.values[0].valueText, '警戒レベル２未満');
-    assert.equal(snapshot.values[2].valueCategory, 'quantity');
-    assert.equal(snapshot.values[2].valueText, '10');
-    assert.equal(snapshot.values[2].unit, 'mm');
+    assert.equal(snapshot.values[0]!.valueCategory, 'risk');
+    assert.equal(snapshot.values[0]!.valueCode, '11');
+    assert.equal(snapshot.values[0]!.valueText, '警戒レベル２未満');
+    assert.equal(snapshot.values[2]!.valueCategory, 'quantity');
+    assert.equal(snapshot.values[2]!.valueText, '10');
+    assert.equal(snapshot.values[2]!.unit, 'mm');
   } finally {
     cleanup();
   }
@@ -435,7 +435,7 @@ test('processVpwp50Reception: rawBody が null の場合は未対応構造', () 
       rawBody: null,
       bodyBytes: null,
       contentHash: 'hash-null',
-      areas: [{ sequence: 1, areaCode: '1310800', areaName: '江東区' }],
+      areas: [{ sequence: 1, areaCode: '1310800', areaName: '江東区', codeType: null }],
     });
 
     const result = processVpwp50Reception(

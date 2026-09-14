@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { PollingPeriod, UpstreamAccess } from '../src/config/pollingSchedule.js';
 import { openDatabase, runMigrations } from '../src/database/index.js';
 import { KikikuruService } from '../src/polling/kikikuruService.js';
 import type { KikikuruFrameKey, TileCoordinate } from '../src/polling/kikikuruTypes.js';
@@ -25,9 +26,27 @@ const emptyJson = fs.readFileSync(
   'utf-8',
 );
 
+const defaultPeriod: PollingPeriod = {
+  start: '00:00',
+  end: '24:00',
+  xmlSeconds: 60,
+  imageCatalogSeconds: 60,
+  amedasSeconds: 60,
+  nowcastEnabled: true,
+  kikikuruEnabled: true,
+};
+
 const defaultAccessOptions = {
-  getCatalogAccess: () => ({ allowed: true, nextChangeAt: null }),
-  getImageAccess: () => ({ allowed: true, nextChangeAt: null }),
+  getCatalogAccess: (): UpstreamAccess => ({
+    allowed: true,
+    period: defaultPeriod,
+    nextAllowedAt: null,
+  }),
+  getImageAccess: (): UpstreamAccess => ({
+    allowed: true,
+    period: defaultPeriod,
+    nextAllowedAt: null,
+  }),
   freshnessPolicy: { staleAfterSeconds: 300 },
 };
 
@@ -437,8 +456,16 @@ test('5. stale の有効フレームは画像許可中にキャッシュミス�
     const service = new KikikuruService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      getCatalogAccess: () => ({ allowed: true, nextChangeAt: null }),
-      getImageAccess: () => ({ allowed: imageAllowed, nextChangeAt: null }),
+      getCatalogAccess: (): UpstreamAccess => ({
+        allowed: true,
+        period: defaultPeriod,
+        nextAllowedAt: null,
+      }),
+      getImageAccess: (): UpstreamAccess => ({
+        allowed: imageAllowed,
+        period: defaultPeriod,
+        nextAllowedAt: null,
+      }),
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: fakeFetch,
       clock: () => currentTime,

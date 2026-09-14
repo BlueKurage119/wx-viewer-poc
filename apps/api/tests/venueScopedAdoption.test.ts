@@ -126,24 +126,25 @@ test('§7-2 同一電文の会場独立: east→trc と trc→east の処理順�
 
   // east -> trc の順
   const dbA = setupDb();
-  let adoptionsOrderA;
+  type Adoptions = NonNullable<Awaited<ReturnType<typeof findTelegramReceptionById>>>['adoptions'];
+  let adoptionsOrderA: Adoptions = [];
   try {
     const reception = saveReception(dbA.connection, rawXml, 'https://example.test/both-a.xml');
     processWarningTelegramReception(dbA.connection, reception, '2026-09-09T00:01:00Z', EAST_VENUE);
     processWarningTelegramReception(dbA.connection, reception, '2026-09-09T00:02:00Z', TRC_VENUE);
-    adoptionsOrderA = findTelegramReceptionById(dbA.connection, reception.id)?.adoptions;
+    adoptionsOrderA = findTelegramReceptionById(dbA.connection, reception.id)?.adoptions ?? [];
   } finally {
     dbA.cleanup();
   }
 
   // trc -> east の順
   const dbB = setupDb();
-  let adoptionsOrderB;
+  let adoptionsOrderB: Adoptions = [];
   try {
     const reception = saveReception(dbB.connection, rawXml, 'https://example.test/both-b.xml');
     processWarningTelegramReception(dbB.connection, reception, '2026-09-09T00:02:00Z', TRC_VENUE);
     processWarningTelegramReception(dbB.connection, reception, '2026-09-09T00:01:00Z', EAST_VENUE);
-    adoptionsOrderB = findTelegramReceptionById(dbB.connection, reception.id)?.adoptions;
+    adoptionsOrderB = findTelegramReceptionById(dbB.connection, reception.id)?.adoptions ?? [];
   } finally {
     dbB.cleanup();
   }

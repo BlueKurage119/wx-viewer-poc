@@ -104,7 +104,7 @@ test('1. 現況警報 (WarningCurrent): CRUD, 置き換え, 訓練分離, 明細
 
     assert.ok(saved.id > 0);
     assert.equal(saved.items.length, 1);
-    assert.equal(saved.items[0].kindCode, '03');
+    assert.equal(saved.items[0]!.kindCode, '03');
 
     const found = findWarningCurrentSnapshot(context.connection, '1310800', 'normal');
     assert.ok(found);
@@ -114,8 +114,8 @@ test('1. 現況警報 (WarningCurrent): CRUD, 置き換え, 訓練分離, 明細
     assert.deepEqual(found.metadata, sampleMetadata);
     assert.deepEqual(found.telegram, sampleTelegram);
     assert.equal(found.items.length, 1);
-    assert.equal(found.items[0].kindCode, '03');
-    assert.equal(found.items[0].warningLevel, '3');
+    assert.equal(found.items[0]!.kindCode, '03');
+    assert.equal(found.items[0]!.warningLevel, '3');
 
     // 1-2. 置き換え（同キーで新発表を保存すると親ID維持で明細が総入れ替え）
     const updated = saveWarningCurrentSnapshot(context.connection, {
@@ -146,7 +146,7 @@ test('1. 現況警報 (WarningCurrent): CRUD, 置き換え, 訓練分離, 明細
     assert.ok(foundUpdated);
     assert.equal(foundUpdated.items.length, 1);
     assert.equal(
-      foundUpdated.items[0].kindCode,
+      foundUpdated.items[0]!.kindCode,
       '05',
       '古い明細は削除され新しい明細だけになること',
     );
@@ -177,11 +177,11 @@ test('1. 現況警報 (WarningCurrent): CRUD, 置き換え, 訓練分離, 明細
 
     const normalAgain = findWarningCurrentSnapshot(context.connection, '1310800', 'normal');
     assert.ok(normalAgain);
-    assert.equal(normalAgain.items[0].kindCode, '05');
+    assert.equal(normalAgain.items[0]!.kindCode, '05');
 
     const training = findWarningCurrentSnapshot(context.connection, '1310800', 'training');
     assert.ok(training);
-    assert.equal(training.items[0].kindCode, '04');
+    assert.equal(training.items[0]!.kindCode, '04');
 
     // 1-3-2. stale 時の明細維持（空配列を渡しても既存明細が残る）
     const staleSaved = saveWarningCurrentSnapshot(context.connection, {
@@ -193,14 +193,14 @@ test('1. 現況警報 (WarningCurrent): CRUD, 置き換え, 訓練分離, 明細
     });
     assert.equal(staleSaved.metadata.availability, 'stale');
     assert.equal(staleSaved.items.length, 1);
-    assert.equal(staleSaved.items[0].kindCode, '05');
+    assert.equal(staleSaved.items[0]!.kindCode, '05');
 
     const foundStale = findWarningCurrentSnapshot(context.connection, '1310800', 'normal');
     assert.ok(foundStale);
     assert.equal(foundStale.metadata.availability, 'stale');
     assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T02:00:00Z');
     assert.equal(foundStale.items.length, 1);
-    assert.equal(foundStale.items[0].kindCode, '05');
+    assert.equal(foundStale.items[0]!.kindCode, '05');
 
     // 1-4. 明細0件かつ availability='available'（警報なしの正常状態）
     saveWarningCurrentSnapshot(context.connection, {
@@ -293,9 +293,9 @@ test('2. 警報等時系列 (WarningTimeseries): block_id による timeId 衝�
     assert.ok(found);
     assert.equal(found.timeDefines.length, 2);
     assert.equal(found.values.length, 2);
-    assert.equal(found.values[0].blockId, 'block_rain');
-    assert.equal(found.values[1].blockId, 'block_wind');
-    assert.equal(found.values[1].valueText, '20');
+    assert.equal(found.values[0]!.blockId, 'block_rain');
+    assert.equal(found.values[1]!.blockId, 'block_wind');
+    assert.equal(found.values[1]!.valueText, '20');
 
     // stale で保存しても明細が保持されること（空配列を渡しても既存明細が残る）
     const staleSaved = saveWarningTimeseriesSnapshot(context.connection, {
@@ -379,25 +379,25 @@ test('2. 警報等時系列 (WarningTimeseries): block_id による timeId 衝�
     });
 
     assert.equal(vpwp50Saved.values.length, 2);
-    assert.equal(vpwp50Saved.values[0].kindCode, null);
-    assert.equal(vpwp50Saved.values[0].kindName, null);
-    assert.equal(vpwp50Saved.values[0].kindDateTime, '2026-09-09T00:00:00Z');
-    assert.equal(vpwp50Saved.values[0].valueCode, '11');
-    assert.equal(vpwp50Saved.values[0].valueText, '警戒レベル２未満');
-    assert.equal(vpwp50Saved.values[1].valueText, '', '値なしの空要素は空文字として保存される');
-    assert.equal(vpwp50Saved.values[1].condition, '値なし');
+    assert.equal(vpwp50Saved.values[0]!.kindCode, null);
+    assert.equal(vpwp50Saved.values[0]!.kindName, null);
+    assert.equal(vpwp50Saved.values[0]!.kindDateTime, '2026-09-09T00:00:00Z');
+    assert.equal(vpwp50Saved.values[0]!.valueCode, '11');
+    assert.equal(vpwp50Saved.values[0]!.valueText, '警戒レベル２未満');
+    assert.equal(vpwp50Saved.values[1]!.valueText, '', '値なしの空要素は空文字として保存される');
+    assert.equal(vpwp50Saved.values[1]!.condition, '値なし');
 
     const vpwp50Found = findWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
     assert.ok(vpwp50Found);
     assert.equal(vpwp50Found.values.length, 2);
-    assert.equal(vpwp50Found.values[0].kindCode, null);
-    assert.equal(vpwp50Found.values[0].kindName, null);
-    assert.equal(vpwp50Found.values[0].kindDateTime, '2026-09-09T00:00:00Z');
-    assert.equal(vpwp50Found.values[0].valueCode, '11');
-    assert.equal(vpwp50Found.values[0].valueText, '警戒レベル２未満');
-    assert.equal(vpwp50Found.values[1].valueText, '');
-    assert.equal(vpwp50Found.values[1].condition, '値なし');
-    assert.equal(vpwp50Found.values[1].unit, '%');
+    assert.equal(vpwp50Found.values[0]!.kindCode, null);
+    assert.equal(vpwp50Found.values[0]!.kindName, null);
+    assert.equal(vpwp50Found.values[0]!.kindDateTime, '2026-09-09T00:00:00Z');
+    assert.equal(vpwp50Found.values[0]!.valueCode, '11');
+    assert.equal(vpwp50Found.values[0]!.valueText, '警戒レベル２未満');
+    assert.equal(vpwp50Found.values[1]!.valueText, '');
+    assert.equal(vpwp50Found.values[1]!.condition, '値なし');
+    assert.equal(vpwp50Found.values[1]!.unit, '%');
 
     // stale 時も新列が完全に復元されること
     const vpwp50Stale = saveWarningTimeseriesSnapshot(context.connection, {
@@ -414,10 +414,10 @@ test('2. 警報等時系列 (WarningTimeseries): block_id による timeId 衝�
     });
     assert.equal(vpwp50Stale.metadata.availability, 'stale');
     assert.equal(vpwp50Stale.values.length, 2);
-    assert.equal(vpwp50Stale.values[0].kindDateTime, '2026-09-09T00:00:00Z');
-    assert.equal(vpwp50Stale.values[0].valueCode, '11');
-    assert.equal(vpwp50Stale.values[1].condition, '値なし');
-    assert.equal(vpwp50Stale.values[1].valueText, '');
+    assert.equal(vpwp50Stale.values[0]!.kindDateTime, '2026-09-09T00:00:00Z');
+    assert.equal(vpwp50Stale.values[0]!.valueCode, '11');
+    assert.equal(vpwp50Stale.values[1]!.condition, '値なし');
+    assert.equal(vpwp50Stale.values[1]!.valueText, '');
 
     deleteWarningTimeseriesSnapshot(context.connection, '1310800', 'normal');
   } finally {
@@ -487,14 +487,14 @@ test('3. 早期注意情報 (EarlyWarning): near / far の独立性, 「なし�
     const near = findEarlyWarningSnapshot(context.connection, '130010', 'near', 'normal');
     assert.ok(near);
     assert.equal(near.cells.length, 1);
-    assert.equal(near.cells[0].rankValue, 'なし');
-    assert.equal(near.cells[0].condition, null);
+    assert.equal(near.cells[0]!.rankValue, 'なし');
+    assert.equal(near.cells[0]!.condition, null);
 
     const far = findEarlyWarningSnapshot(context.connection, '130010', 'far', 'normal');
     assert.ok(far);
     assert.equal(far.cells.length, 1);
-    assert.equal(far.cells[0].rankValue, null);
-    assert.equal(far.cells[0].condition, '値なし');
+    assert.equal(far.cells[0]!.rankValue, null);
+    assert.equal(far.cells[0]!.condition, '値なし');
 
     // 3-3. stale 時の明細維持（空配列を渡しても既存明細が残る）
     const staleSaved = saveEarlyWarningSnapshot(context.connection, {
@@ -515,7 +515,7 @@ test('3. 早期注意情報 (EarlyWarning): near / far の独立性, 「なし�
     assert.equal(foundNearStale.metadata.availability, 'stale');
     assert.equal(foundNearStale.metadata.fetchedAt, '2026-09-09T01:00:00Z');
     assert.equal(foundNearStale.cells.length, 1);
-    assert.equal(foundNearStale.cells[0].rankValue, 'なし');
+    assert.equal(foundNearStale.cells[0]!.rankValue, 'なし');
 
     // near の削除が far に影響しない
     deleteEarlyWarningSnapshot(context.connection, '130010', 'near', 'normal');
@@ -581,8 +581,8 @@ test('4. 地域時系列予報 (AreaTimeseries): block_id による天気・風�
     const found = findAreaTimeseriesSnapshot(context.connection, '130010', '44132', 'normal');
     assert.ok(found);
     assert.equal(found.values.length, 2);
-    assert.equal(found.values[0].valueText, '晴れ');
-    assert.equal(found.values[1].valueNumber, 24.5);
+    assert.equal(found.values[0]!.valueText, '晴れ');
+    assert.equal(found.values[1]!.valueNumber, 24.5);
 
     // 4-2. stale 時の明細維持（空配列を渡しても既存明細が残る）
     const staleSaved = saveAreaTimeseriesSnapshot(context.connection, {
@@ -649,8 +649,8 @@ test('5. レーダー (Radar): N1/N2 独立, 相対パス検証, CASCADE', () =>
     assert.ok(n1);
     assert.equal(n1.metadata.availability, 'available');
     assert.equal(n1.frames.length, 1);
-    assert.equal(n1.frames[0].tiles.length, 1);
-    assert.equal(n1.frames[0].tiles[0].byteSize, 1024);
+    assert.equal(n1.frames[0]!.tiles.length, 1);
+    assert.equal(n1.frames[0]!.tiles[0]!.byteSize, 1024);
 
     const n2 = findRadarSnapshot(context.connection, 'N2');
     assert.ok(n2);
@@ -720,15 +720,15 @@ test('5. レーダー (Radar): N1/N2 独立, 相対パス検証, CASCADE', () =>
     });
     assert.equal(staleSaved.metadata.availability, 'stale');
     assert.equal(staleSaved.frames.length, 1);
-    assert.equal(staleSaved.frames[0].tiles.length, 1);
+    assert.equal(staleSaved.frames[0]!.tiles.length, 1);
 
     const foundStale = findRadarSnapshot(context.connection, 'N1');
     assert.ok(foundStale);
     assert.equal(foundStale.metadata.availability, 'stale');
     assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T00:10:00Z');
     assert.equal(foundStale.frames.length, 1);
-    assert.equal(foundStale.frames[0].tiles.length, 1);
-    assert.equal(foundStale.frames[0].tiles[0].byteSize, 1024);
+    assert.equal(foundStale.frames[0]!.tiles.length, 1);
+    assert.equal(foundStale.frames[0]!.tiles[0]!.byteSize, 1024);
 
     // 削除でタイル含め消えること
     deleteRadarSnapshot(context.connection, 'N1');
@@ -774,8 +774,8 @@ test('6. キキクル (Risk): レイヤー独立, タイル保存', () => {
     const heavyrain = findRiskSnapshot(context.connection, 'heavyrain');
     assert.ok(heavyrain);
     assert.equal(heavyrain.frames.length, 1);
-    assert.equal(heavyrain.frames[0].imageId, 'rain_mesh');
-    assert.equal(heavyrain.frames[0].tiles[0].byteSize, 2048);
+    assert.equal(heavyrain.frames[0]!.imageId, 'rain_mesh');
+    assert.equal(heavyrain.frames[0]!.tiles[0]!.byteSize, 2048);
 
     // stale 時の明細維持（空配列を渡しても既存明細・タイルが残る）
     const staleSaved = saveRiskSnapshot(context.connection, {
@@ -785,15 +785,15 @@ test('6. キキクル (Risk): レイヤー独立, タイル保存', () => {
     });
     assert.equal(staleSaved.metadata.availability, 'stale');
     assert.equal(staleSaved.frames.length, 1);
-    assert.equal(staleSaved.frames[0].tiles.length, 1);
+    assert.equal(staleSaved.frames[0]!.tiles.length, 1);
 
     const foundStale = findRiskSnapshot(context.connection, 'heavyrain');
     assert.ok(foundStale);
     assert.equal(foundStale.metadata.availability, 'stale');
     assert.equal(foundStale.metadata.fetchedAt, '2026-09-09T00:10:00Z');
     assert.equal(foundStale.frames.length, 1);
-    assert.equal(foundStale.frames[0].tiles.length, 1);
-    assert.equal(foundStale.frames[0].tiles[0].byteSize, 2048);
+    assert.equal(foundStale.frames[0]!.tiles.length, 1);
+    assert.equal(foundStale.frames[0]!.tiles[0]!.byteSize, 2048);
 
     deleteRiskSnapshot(context.connection, 'heavyrain');
     assert.equal(findRiskSnapshot(context.connection, 'heavyrain'), null);
@@ -905,6 +905,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
           areaName: '江東区',
           codeType: 'area',
           sequence: 1,
+          informationType: null,
         },
       ],
     });
@@ -928,6 +929,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
           areaName: '大田区',
           codeType: 'area',
           sequence: 1,
+          informationType: null,
         },
       ],
     });
@@ -951,6 +953,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
           areaName: '23区西部',
           codeType: 'area',
           sequence: 1,
+          informationType: null,
         },
       ],
     });
@@ -974,6 +977,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
           areaName: '東京地方',
           codeType: 'area',
           sequence: 1,
+          informationType: null,
         },
       ],
     });
@@ -997,6 +1001,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
           areaName: '伊豆諸島北部',
           codeType: 'area',
           sequence: 1,
+          informationType: null,
         },
       ],
     });
@@ -1048,6 +1053,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
           areaName: '江東区',
           codeType: 'area',
           sequence: 1,
+          informationType: null,
         },
       ],
     });
@@ -1092,6 +1098,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
           areaName: '江東区',
           codeType: 'area',
           sequence: 0,
+          informationType: null,
         },
       ],
     });

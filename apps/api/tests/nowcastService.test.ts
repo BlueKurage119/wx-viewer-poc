@@ -9,7 +9,9 @@ import { NowcastService } from '../src/polling/nowcastService.js';
 import { buildNowcastTileUrl } from '../src/polling/nowcastSource.js';
 import { listFetchAttempts } from '../src/repositories/fetchAttemptRepository.js';
 import { findRadarSnapshot } from '../src/repositories/radarRepository.js';
-import type { NowcastFrameKey, TileCoordinate } from '../src/repositories/types.js';
+import type { NowcastFrameKey } from '../src/repositories/types.js';
+import type { TileCoordinate } from '../src/polling/nowcastTypes.js';
+import type { PollingPeriod, UpstreamAccess } from '../src/config/pollingSchedule.js';
 
 const VALID_1X1_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -26,9 +28,27 @@ const n2SyntheticJson = fs.readFileSync(
   'utf-8',
 );
 
+const defaultPeriod: PollingPeriod = {
+  start: '00:00',
+  end: '24:00',
+  xmlSeconds: 60,
+  imageCatalogSeconds: 60,
+  amedasSeconds: 60,
+  nowcastEnabled: true,
+  kikikuruEnabled: true,
+};
+
 const defaultAccessOptions = {
-  getCatalogAccess: () => ({ allowed: true, nextChangeAt: null }),
-  getImageAccess: () => ({ allowed: true, nextChangeAt: null }),
+  getCatalogAccess: (): UpstreamAccess => ({
+    allowed: true,
+    period: defaultPeriod,
+    nextAllowedAt: null,
+  }),
+  getImageAccess: (): UpstreamAccess => ({
+    allowed: true,
+    period: defaultPeriod,
+    nextAllowedAt: null,
+  }),
   freshnessPolicy: { staleAfterSeconds: 300 },
 };
 
@@ -507,8 +527,16 @@ test('6. stale の有効フレームは画像許可中にキャッシュミス�
     const service = new NowcastService(connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
-      getCatalogAccess: () => ({ allowed: true, nextChangeAt: null }),
-      getImageAccess: () => ({ allowed: imageAllowed, nextChangeAt: null }),
+      getCatalogAccess: (): UpstreamAccess => ({
+        allowed: true,
+        period: defaultPeriod,
+        nextAllowedAt: null,
+      }),
+      getImageAccess: (): UpstreamAccess => ({
+        allowed: imageAllowed,
+        period: defaultPeriod,
+        nextAllowedAt: null,
+      }),
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: fakeFetch,
       clock: () => currentTime,
@@ -678,8 +706,16 @@ function makeRepairEnv() {
   const options = {
     cacheRoot: env.tmpDir,
     allowedZooms: [10],
-    getCatalogAccess: () => ({ allowed: state.catalogAllowed, nextChangeAt: null }),
-    getImageAccess: () => ({ allowed: state.imageAllowed, nextChangeAt: null }),
+    getCatalogAccess: (): UpstreamAccess => ({
+      allowed: state.catalogAllowed,
+      period: defaultPeriod,
+      nextAllowedAt: null,
+    }),
+    getImageAccess: (): UpstreamAccess => ({
+      allowed: state.imageAllowed,
+      period: defaultPeriod,
+      nextAllowedAt: null,
+    }),
     freshnessPolicy: { staleAfterSeconds: 300 },
     clock: () => state.now,
     fetchFn: (async (input) => {
@@ -700,7 +736,7 @@ function storedRows(connection: ReturnType<typeof openDatabase>) {
     .prepare(
       'SELECT frame_id, zoom, tile_x, tile_y, file_path, byte_size, content_hash, stored_at FROM radar_tile ORDER BY tile_y',
     )
-    .all();
+    .all() as Array<Record<string, unknown>>;
 }
 function pngFiles(root: string): string[] {
   return fs
@@ -731,7 +767,7 @@ for (const failure of ['write', 'rename', 'database'] as const) {
         message: `${failure} failure`,
       });
       assert.deepStrictEqual(env.urls, FIX_URLS.slice(0, 2));
-      const frameId = findRadarSnapshot(env.connection, 'N1')!.frames[0].id;
+      const frameId = findRadarSnapshot(env.connection, 'N1')!.frames[0]!.id;
       const expectedPath = `radar/N1/20260907030000/20260907030000/10/909/404/${EXPECTED_HASH}.png`;
       assert.deepStrictEqual(
         storedRows(env.connection).map((row) => ({ ...row })),
@@ -789,7 +825,7 @@ for (const saveFails of [false, true]) {
           "CREATE TRIGGER fail_tile BEFORE INSERT ON radar_tile BEGIN SELECT RAISE(FAIL, 'save failure'); END",
         );
       await assert.rejects(
-        env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]),
+        env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]!]),
         (error: unknown) => {
           if (saveFails) {
             assert.ok(error instanceof AggregateError);
@@ -818,12 +854,12 @@ test('修正: 欠落・改変は画像許可中なら stale でも再GETして�
   try {
     await env.service.refreshTimes();
     const original = await env.service.fetchFrameTiles(FIX_FRAME, FIX_COORDS);
-    const tile0 = original[0].tile!;
-    const tile1 = original[1].tile!;
+    const tile0 = original[0]!.tile!;
+    const tile1 = original[1]!.tile!;
     const damage = () => {
       fs.unlinkSync(path.join(env.tmpDir, tile0.filePath));
       const changed = Buffer.from(VALID_1X1_PNG);
-      changed[changed.length - 1] ^= 0xff;
+      changed[changed.length - 1]! ^= 0xff;
       fs.writeFileSync(path.join(env.tmpDir, tile1.filePath), changed);
     };
     damage();
@@ -872,7 +908,12 @@ test('修正: 欠落・改変は画像許可中なら stale でも再GETして�
         tile: null,
         errorKind: 'scheduled_stopped',
       },
-      { coordinate: FIX_COORDS[2], availability: 'stale', kind: 'cached', tile: original[2].tile },
+      {
+        coordinate: FIX_COORDS[2]!,
+        availability: 'stale',
+        kind: 'cached',
+        tile: original[2]!.tile,
+      },
     ]);
     assert.deepStrictEqual(env.urls, []);
   } finally {
@@ -886,7 +927,7 @@ test('修正: サービス再生成だけで孤児・一時ファイルを清掃
   try {
     fs.writeFileSync(sentinel, 'outside');
     await env.service.refreshTimes();
-    const result = await env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]);
+    const result = await env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]!]);
     env.state.fail = true;
     await env.service.refreshTimes();
     const before = env.service.readCatalog();
@@ -895,9 +936,9 @@ test('修正: サービス再生成だけで孤児・一時ファイルを清掃
     env.urls.length = 0;
     const recreated = new NowcastService(env.connection, env.options);
     assert.deepStrictEqual(recreated.readCatalog(), before);
-    assert.deepStrictEqual(pngFiles(env.tmpDir), [result[0].tile!.filePath]);
-    assert.deepStrictEqual(await recreated.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]), [
-      { ...result[0], kind: 'cached', availability: 'stale' },
+    assert.deepStrictEqual(pngFiles(env.tmpDir), [result[0]!.tile!.filePath]);
+    assert.deepStrictEqual(await recreated.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]!]), [
+      { ...result[0]!, kind: 'cached', availability: 'stale' },
     ]);
     assert.deepStrictEqual(env.urls, []);
     assert.strictEqual(fs.readFileSync(sentinel, 'utf8'), 'outside');
@@ -932,20 +973,20 @@ test('修正: 制御PromiseでGET中に一覧更新と同座標要求を重ね�
       },
     });
     await service.refreshTimes();
-    await service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]);
-    const before = findRadarSnapshot(env.connection, 'N1')!.frames[0];
+    await service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]!]);
+    const before = findRadarSnapshot(env.connection, 'N1')!.frames[0]!;
     pause = true;
-    const first = service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[1]]);
+    const first = service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[1]!]);
     await started.promise;
     const update = service.refreshTimes();
-    const second = service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[1]]);
+    const second = service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[1]!]);
     release.resolve();
     const [a, , b] = await Promise.all([first, update, second]);
-    assert.deepStrictEqual([a[0].kind, b[0].kind], ['downloaded', 'cached']);
+    assert.deepStrictEqual([a[0]!.kind, b[0]!.kind], ['downloaded', 'cached']);
     assert.deepStrictEqual(env.urls, FIX_URLS.slice(0, 2));
-    const after = findRadarSnapshot(env.connection, 'N1')!.frames[0];
+    const after = findRadarSnapshot(env.connection, 'N1')!.frames[0]!;
     assert.strictEqual(after.id, before.id);
-    assert.deepStrictEqual(after.tiles, [before.tiles[0], a[0].tile]);
+    assert.deepStrictEqual(after.tiles, [before.tiles[0]!, a[0]!.tile]);
     // 更新が先にキューへ入った場合、消えたフレームへの後続要求はGETせず拒否。
     const updateStarted = deferred<void>();
     const updateRelease = deferred<void>();
@@ -962,12 +1003,12 @@ test('修正: 制御PromiseでGET中に一覧更新と同座標要求を重ね�
     });
     const removing = deleting.refreshTimes();
     await updateStarted.promise;
-    const queued = deleting.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[2]]);
+    const queued = deleting.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[2]!]);
     updateRelease.resolve();
     await removing;
     assert.deepStrictEqual(await queued, [
       {
-        coordinate: FIX_COORDS[2],
+        coordinate: FIX_COORDS[2]!,
         availability: 'available',
         kind: 'unavailable',
         tile: null,
@@ -999,26 +1040,26 @@ test('修正: DB保存失敗でも既存本体を削除せず、後始末失敗�
   const env = makeRepairEnv();
   try {
     await env.service.refreshTimes();
-    const first = await env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]);
+    const first = await env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]!]);
     // DBメタだけ破損し本体は正常という再取得ケース。
     env.connection.exec('UPDATE radar_tile SET byte_size = 1');
     env.connection.exec(
       "CREATE TRIGGER fail_tile BEFORE INSERT ON radar_tile BEGIN SELECT RAISE(FAIL, 'save failure'); END",
     );
     const before = storedRows(env.connection);
-    await assert.rejects(env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]]), {
+    await assert.rejects(env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[0]!]), {
       message: 'save failure',
     });
     assert.deepStrictEqual(storedRows(env.connection), before);
     assert.deepStrictEqual(
-      fs.readFileSync(path.join(env.tmpDir, first[0].tile!.filePath)),
+      fs.readFileSync(path.join(env.tmpDir, first[0]!.tile!.filePath)),
       VALID_1X1_PNG,
     );
     t.mock.method(env.service.tileStore, 'deleteTileIfUnreferenced', async () => {
       throw new Error('cleanup failure');
     });
     await assert.rejects(
-      env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[1]]),
+      env.service.fetchFrameTiles(FIX_FRAME, [FIX_COORDS[1]!]),
       (error: unknown) => {
         assert.ok(error instanceof AggregateError);
         assert.deepStrictEqual(

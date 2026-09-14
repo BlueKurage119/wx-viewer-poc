@@ -255,28 +255,28 @@ test('parseVpwp50: 正常系（複数ブロック・同一timeId共存・危険�
 
   // TimeDefines: 2ブロック x 2 = 4件
   assert.equal(value.timeDefines.length, 4);
-  assert.equal(value.timeDefines[0].blockId, 'timeseries-1');
-  assert.equal(value.timeDefines[0].timeId, '1');
-  assert.equal(value.timeDefines[0].duration, 'PT3H');
-  assert.equal(value.timeDefines[0].timeFrom, '2026-09-09T00:00:00.000Z');
-  assert.equal(value.timeDefines[0].timeTo, '2026-09-09T03:00:00.000Z');
+  assert.equal(value.timeDefines[0]!.blockId, 'timeseries-1');
+  assert.equal(value.timeDefines[0]!.timeId, '1');
+  assert.equal(value.timeDefines[0]!.duration, 'PT3H');
+  assert.equal(value.timeDefines[0]!.timeFrom, '2026-09-09T00:00:00.000Z');
+  assert.equal(value.timeDefines[0]!.timeTo, '2026-09-09T03:00:00.000Z');
 
-  assert.equal(value.timeDefines[1].blockId, 'timeseries-1');
-  assert.equal(value.timeDefines[1].timeId, '2');
-  assert.equal(value.timeDefines[1].timeFrom, '2026-09-09T03:00:00.000Z');
-  assert.equal(value.timeDefines[1].timeTo, '2026-09-09T06:00:00.000Z');
+  assert.equal(value.timeDefines[1]!.blockId, 'timeseries-1');
+  assert.equal(value.timeDefines[1]!.timeId, '2');
+  assert.equal(value.timeDefines[1]!.timeFrom, '2026-09-09T03:00:00.000Z');
+  assert.equal(value.timeDefines[1]!.timeTo, '2026-09-09T06:00:00.000Z');
 
-  assert.equal(value.timeDefines[2].blockId, 'timeseries-2');
-  assert.equal(value.timeDefines[2].timeId, '1');
-  assert.equal(value.timeDefines[2].duration, 'PT24H');
-  assert.equal(value.timeDefines[2].timeFrom, '2026-09-09T00:00:00.000Z');
-  assert.equal(value.timeDefines[2].timeTo, '2026-09-10T00:00:00.000Z');
+  assert.equal(value.timeDefines[2]!.blockId, 'timeseries-2');
+  assert.equal(value.timeDefines[2]!.timeId, '1');
+  assert.equal(value.timeDefines[2]!.duration, 'PT24H');
+  assert.equal(value.timeDefines[2]!.timeFrom, '2026-09-09T00:00:00.000Z');
+  assert.equal(value.timeDefines[2]!.timeTo, '2026-09-10T00:00:00.000Z');
 
   // Values: block 1 (危険度2 + 雨2 + 風4 + 湿度2) + block 2 (雨2) = 12件
   assert.equal(value.values.length, 12);
 
   // 1. 危険度 (Significancy)
-  const riskVal = value.values[0];
+  const riskVal = value.values[0]!;
   assert.equal(riskVal.blockId, 'timeseries-1');
   assert.equal(riskVal.refId, '1');
   assert.equal(riskVal.valueCategory, 'risk');
@@ -292,7 +292,7 @@ test('parseVpwp50: 正常系（複数ブロック・同一timeId共存・危険�
   assert.equal(riskVal.areaDivision, null);
 
   // 2. 量的雨量 (Precipitation)
-  const rainVal = value.values[2];
+  const rainVal = value.values[2]!;
   assert.equal(rainVal.blockId, 'timeseries-1');
   assert.equal(rainVal.refId, '1');
   assert.equal(rainVal.valueCategory, 'quantity');
@@ -306,7 +306,7 @@ test('parseVpwp50: 正常系（複数ブロック・同一timeId共存・危険�
   assert.equal(rainVal.areaDivision, null);
 
   // 3. 風 (Local: 陸上/海上)
-  const windLand = value.values[4];
+  const windLand = value.values[4]!;
   assert.equal(windLand.blockId, 'timeseries-1');
   assert.equal(windLand.refId, '1');
   assert.equal(windLand.areaDivision, '陸上');
@@ -314,14 +314,14 @@ test('parseVpwp50: 正常系（複数ブロック・同一timeId共存・危険�
   assert.equal(windLand.unit, 'm/s');
   assert.equal(windLand.condition, '風雪');
 
-  const windSea = value.values[6];
+  const windSea = value.values[6]!;
   assert.equal(windSea.blockId, 'timeseries-1');
   assert.equal(windSea.refId, '1');
   assert.equal(windSea.areaDivision, '海上');
   assert.equal(windSea.valueText, '20');
 
   // 4. 乾燥 condition="値なし" の空要素
-  const humidityNone = value.values[9];
+  const humidityNone = value.values[9]!;
   assert.equal(humidityNone.blockId, 'timeseries-1');
   assert.equal(humidityNone.refId, '2');
   assert.equal(humidityNone.propertyType, '乾燥');
@@ -331,7 +331,7 @@ test('parseVpwp50: 正常系（複数ブロック・同一timeId共存・危険�
   assert.equal(humidityNone.unit, '%');
 
   // 5. block 2 の値（同一 timeId '1' が block 2 に結合されていること）
-  const block2Rain = value.values[10];
+  const block2Rain = value.values[10]!;
   assert.equal(block2Rain.blockId, 'timeseries-2');
   assert.equal(block2Rain.refId, '1');
   assert.equal(block2Rain.propertyType, '雨');
@@ -583,7 +583,7 @@ test('parseVpwp50: 一部ブロックに対象地域がない場合は他ブロ�
 
   assert.equal(result.value.timeDefines.length, 2);
   assert.equal(result.value.values.length, 1, 'block 1 の江東区値だけが採用される');
-  assert.equal(result.value.values[0].blockId, 'timeseries-1');
+  assert.equal(result.value.values[0]!.blockId, 'timeseries-1');
 });
 
 test('parseVpwp50: 対象外 - telegramType が VPWP50 でない場合', () => {

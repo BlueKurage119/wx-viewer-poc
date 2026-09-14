@@ -6,13 +6,19 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
-import { VENUE_IDS, type ControlStatus, type UtcIso8601String } from '@wx-viewer-poc/shared';
+import {
+  VENUE_IDS,
+  type WeatherControlStatus as ControlStatus,
+  type VenueId,
+  type UtcIso8601String,
+} from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
 import {
   findWarningCurrentSnapshot,
   listWarningCurrentStreams,
   recordTelegramReception,
   type TelegramReception,
+  type WarningCurrentApplyResult,
 } from '../src/repositories/index.js';
 import {
   applyWarningCurrentReception,
@@ -50,7 +56,7 @@ function createTempDb(): {
 }
 
 function buildXml(
-  telegramType: string,
+  _telegramType: string,
   reportDateTime: string,
   kindsXml: string,
   options?: {
@@ -116,7 +122,11 @@ function saveAndProcessReception(
     readonly url?: string;
     readonly targetArea?: typeof DEFAULT_WARNING_CURRENT_TARGET_AREA;
   },
-): { reception: TelegramReception; parseResult: ReturnType<typeof parseWarningTelegram> } {
+): {
+  reception: TelegramReception;
+  parseResult: ReturnType<typeof parseWarningTelegram>;
+  applyResult?: WarningCurrentApplyResult;
+} {
   const controlStatus = options?.controlStatus ?? 'normal';
   const controlStatusXml =
     controlStatus === 'normal' ? '通常' : controlStatus === 'training' ? '訓練' : '試験';
@@ -366,7 +376,7 @@ test('5. 新しい個別高潮更新の後に古い要素時刻の VPWS50 を受
     assert.equal(snapAfter.items[0]!.kindCode, '48');
     assert.equal(snapAfter.items[0]!.sourceTelegram, 'VPWW57');
     // 指摘 1: 個別 VPWW57 の新しい状態を保持する場合、遅着 VPWS50 は sourceVersion・メタ情報も変更してはならない
-    assert.equal(snapAfter.sourceVersion, snapBefore.sourceVersion);
+    assert.equal(snapAfter.metadata.sourceVersion, snapBefore.metadata.sourceVersion);
     assert.deepEqual(snapAfter.metadata, snapBefore.metadata);
     assert.deepEqual(snapAfter.telegram, snapBefore.telegram);
     assert.deepEqual(snapAfter.items, snapBefore.items);
@@ -398,8 +408,11 @@ test('5-2. 同版競合（same_version_conflict）および差分競合ではス
       '2026-09-09T01:00:00Z',
       `<Kind><Name>大雨注意報</Name><Code>10</Code><Status>発表</Status><DateTime>2026-09-09T01:00:00Z</DateTime></Kind>`,
     );
+    assert.ok(conflictResult1);
     assert.equal(conflictResult1.applied, false);
-    assert.equal(conflictResult1.reason, 'same_version_conflict');
+    if (!conflictResult1.applied) {
+      assert.equal(conflictResult1.reason, 'same_version_conflict');
+    }
 
     // 競合前後でポインター・スナップショットとも完全一致で不変（更新されない）こと
     const streamsAfter1 = listWarningCurrentStreams(connection, '130000', '1310800', 'normal');
@@ -415,8 +428,11 @@ test('5-2. 同版競合（same_version_conflict）および差分競合ではス
       '2026-09-09T02:00:00Z',
       `<Kind><Name>大雨注意報</Name><Code>10</Code><Status>解除</Status><LastKind><Name>暴風警報</Name><Code>05</Code></LastKind></Kind>`,
     );
+    assert.ok(conflictResult2);
     assert.equal(conflictResult2.applied, false);
-    assert.equal(conflictResult2.reason, 'same_version_conflict');
+    if (!conflictResult2.applied) {
+      assert.equal(conflictResult2.reason, 'same_version_conflict');
+    }
 
     const streamsAfter2 = listWarningCurrentStreams(connection, '130000', '1310800', 'normal');
     const snapAfter2 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
@@ -657,14 +673,17 @@ test('AC7: 保存済み現況からの更新 - 一時 DB に保存後再接続�
           vpww55Xml,
         );
 
+        assert.ok(applyResult);
         assert.equal(applyResult.applied, true);
-        assert.equal(applyResult.changes.length, 1);
-        assert.equal(applyResult.changes[0]!.changeType, 'strengthened');
-        assert.equal(applyResult.changes[0]!.phenomenonKey, 'heavy_rain');
-        assert.equal(applyResult.changes[0]!.before?.kindCode, '10');
-        assert.equal(applyResult.changes[0]!.before?.kindName, '大雨注意報');
-        assert.equal(applyResult.changes[0]!.after?.kindCode, '03');
-        assert.equal(applyResult.changes[0]!.after?.kindName, '大雨警報');
+        if (applyResult.applied) {
+          assert.equal(applyResult.changes.length, 1);
+          assert.equal(applyResult.changes[0]!.changeType, 'strengthened');
+          assert.equal(applyResult.changes[0]!.phenomenonKey, 'heavy_rain');
+          assert.equal(applyResult.changes[0]!.before?.kindCode, '10');
+          assert.equal(applyResult.changes[0]!.before?.kindName, '大雨注意報');
+          assert.equal(applyResult.changes[0]!.after?.kindCode, '03');
+          assert.equal(applyResult.changes[0]!.after?.kindName, '大雨警報');
+        }
 
         const snap2 = findWarningCurrentSnapshot(context2.connection, '1310800', 'normal')!;
         assert.ok(snap2);
@@ -711,14 +730,17 @@ test('AC7: 保存済み現況からの更新 - 一時 DB に保存後再接続�
           vpww55WeakenedXml,
         );
 
+        assert.ok(applyResult);
         assert.equal(applyResult.applied, true);
-        assert.equal(applyResult.changes.length, 1);
-        assert.equal(applyResult.changes[0]!.changeType, 'weakened');
-        assert.equal(applyResult.changes[0]!.phenomenonKey, 'heavy_rain');
-        assert.equal(applyResult.changes[0]!.before?.kindCode, '33');
-        assert.equal(applyResult.changes[0]!.before?.kindName, '大雨特別警報');
-        assert.equal(applyResult.changes[0]!.after?.kindCode, '03');
-        assert.equal(applyResult.changes[0]!.after?.kindName, '大雨警報');
+        if (applyResult.applied) {
+          assert.equal(applyResult.changes.length, 1);
+          assert.equal(applyResult.changes[0]!.changeType, 'weakened');
+          assert.equal(applyResult.changes[0]!.phenomenonKey, 'heavy_rain');
+          assert.equal(applyResult.changes[0]!.before?.kindCode, '33');
+          assert.equal(applyResult.changes[0]!.before?.kindName, '大雨特別警報');
+          assert.equal(applyResult.changes[0]!.after?.kindCode, '03');
+          assert.equal(applyResult.changes[0]!.after?.kindName, '大雨警報');
+        }
 
         const snap4 = findWarningCurrentSnapshot(context4.connection, '1310800', 'normal')!;
         assert.ok(snap4);
@@ -995,8 +1017,11 @@ test('AC9: #114 統合境界 - 2会場×3 controlStatus の更新・保持・再
         '2026-09-09T02:00:10Z',
       );
       assert.equal(parseResultsAll.get(targetVenueId)!.ok, true);
-      assert.equal(parseResultsAll.get(otherVenueId)!.ok, false);
-      assert.equal(parseResultsAll.get(otherVenueId)!.disposition, '対象地域外');
+      const otherResult = parseResultsAll.get(otherVenueId)!;
+      assert.equal(otherResult.ok, false);
+      if (!otherResult.ok) {
+        assert.equal(otherResult.disposition, '対象地域外');
+      }
 
       // 対象組のスナップショットが更新され、残り 5 組が事前値と完全一致することを確認
       const updatedTarget = getVenueWarningCurrent(connection, targetVenueId, targetCs)!;

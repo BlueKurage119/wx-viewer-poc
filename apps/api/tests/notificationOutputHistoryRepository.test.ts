@@ -339,10 +339,10 @@ test('6. listNotificationOutputHistory は detectedAt の新しい順、同時�
 
     const list = listNotificationOutputHistory(context.connection);
     assert.equal(list.length, 4);
-    assert.equal(list[0].notificationId, 'notif-order-2'); // 03:00:00Z
-    assert.equal(list[1].notificationId, 'notif-order-4'); // 02:00:00Z (id が大きい)
-    assert.equal(list[2].notificationId, 'notif-order-3'); // 02:00:00Z (id が小さい)
-    assert.equal(list[3].notificationId, 'notif-order-1'); // 01:00:00Z
+    assert.equal(list[0]!.notificationId, 'notif-order-2'); // 03:00:00Z
+    assert.equal(list[1]!.notificationId, 'notif-order-4'); // 02:00:00Z (id が大きい)
+    assert.equal(list[2]!.notificationId, 'notif-order-3'); // 02:00:00Z (id が小さい)
+    assert.equal(list[3]!.notificationId, 'notif-order-1'); // 01:00:00Z
 
     context.close();
   } finally {
@@ -458,7 +458,7 @@ test('7. category / sourceType / changeType / origin / detectionContext / isTrai
       isTraining: false,
     });
     assert.equal(complexList.length, 1);
-    assert.equal(complexList[0].notificationId, 'n-1');
+    assert.equal(complexList[0]!.notificationId, 'n-1');
     assert.equal(
       countNotificationOutputHistory(context.connection, {
         origin: 'weather',
@@ -498,7 +498,7 @@ test('8. isTraining: false が通常通知だけを返し、訓練通知を混�
       isTraining: false,
     });
     assert.equal(normalOnly.length, 1);
-    assert.equal(normalOnly[0].notificationId, 'notif-normal');
+    assert.equal(normalOnly[0]!.notificationId, 'notif-normal');
 
     // countNotificationOutputHistory with isTraining: false
     assert.equal(countNotificationOutputHistory(context.connection, { isTraining: false }), 1);
@@ -532,13 +532,13 @@ test('9. limit / offset でページングでき、既定 100、limit=5000 は 1
 
     const page1 = listNotificationOutputHistory(context.connection, { limit: 2, offset: 0 });
     assert.equal(page1.length, 2);
-    assert.equal(page1[0].notificationId, 'notif-page-5');
-    assert.equal(page1[1].notificationId, 'notif-page-4');
+    assert.equal(page1[0]!.notificationId, 'notif-page-5');
+    assert.equal(page1[1]!.notificationId, 'notif-page-4');
 
     const page2 = listNotificationOutputHistory(context.connection, { limit: 2, offset: 2 });
     assert.equal(page2.length, 2);
-    assert.equal(page2[0].notificationId, 'notif-page-3');
-    assert.equal(page2[1].notificationId, 'notif-page-2');
+    assert.equal(page2[0]!.notificationId, 'notif-page-3');
+    assert.equal(page2[1]!.notificationId, 'notif-page-2');
 
     // 1000 件を一括挿入して合計 1005 件にし、limit > 1000 の丸め（1000件上限）を厳密に検証
     const insertManyTx = context.connection.transaction(() => {

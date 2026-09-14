@@ -376,8 +376,8 @@ test('2. Atom エントリの link.href でだけ個別電文を取得する。�
     // telegram_reception に保存された document_url が完全一致すること
     const receptions = listTelegramReceptions(db.connection);
     assert.equal(receptions.length, 1);
-    assert.equal(receptions[0].documentUrl, docUrl);
-    assert.equal(receptions[0].title, '東京都気象警報・注意報（自作不可能フィクスチャ）');
+    assert.equal(receptions[0]!.documentUrl, docUrl);
+    assert.equal(receptions[0]!.title, '東京都気象警報・注意報（自作不可能フィクスチャ）');
   } finally {
     await server.close();
     cleanup();
@@ -475,7 +475,7 @@ test('3. 同じ document_url が複数フィードまたは同一フィードに
     // telegram_reception テーブルへの追記も 1 回だけ
     const receptions = listTelegramReceptions(db.connection);
     assert.equal(receptions.length, 1);
-    assert.equal(receptions[0].documentUrl, sharedDocUrl);
+    assert.equal(receptions[0]!.documentUrl, sharedDocUrl);
   } finally {
     await server.close();
     cleanup();
@@ -635,7 +635,7 @@ test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が
 
     const receptions = listTelegramReceptions(db.connection);
     assert.equal(receptions.length, 1);
-    const reception = findTelegramReceptionById(db.connection, receptions[0].id);
+    const reception = findTelegramReceptionById(db.connection, receptions[0]!.id);
     assert.ok(reception);
 
     // 完全一致検証
@@ -666,14 +666,14 @@ test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が
     // 地域明細の検証 (sequence順)
     assert.equal(reception.areas.length, 2);
     assert.deepEqual(reception.areas[0], {
-      id: reception.areas[0].id,
+      id: reception.areas[0]!.id,
       areaCode: '1310800',
       areaName: '江東区',
       codeType: '気象情報／細分区域等',
       sequence: 1,
     });
     assert.deepEqual(reception.areas[1], {
-      id: reception.areas[1].id,
+      id: reception.areas[1]!.id,
       areaCode: '130010',
       areaName: '東京地方',
       codeType: '気象情報／府県予報区等',
@@ -1294,7 +1294,7 @@ test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき�
     });
 
     const result = await service.pollOnce('scheduled');
-    assert.equal(result.feedResults[0].downloadedCount, 2);
+    assert.equal(result.feedResults[0]!.downloadedCount, 2);
 
     // telegram_reception に 2 件保存されていること
     const receptions = listTelegramReceptions(db.connection);
@@ -1317,13 +1317,13 @@ test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき�
     // 警報ストリームが保存されていること（個別報のため未初期化ストリームとして保存）
     const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
     assert.equal(streams.length, 1);
-    assert.equal(streams[0].telegramType, 'VPWW55');
+    assert.equal(streams[0]!.telegramType, 'VPWW55');
 
     // 時系列スナップショットが保存されていること
     const timeseries = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
     assert.ok(timeseries);
     assert.equal(timeseries.values.length, 1);
-    assert.equal(timeseries.values[0].valueText, '警戒レベル２未満');
+    assert.equal(timeseries.values[0]!.valueText, '警戒レベル２未満');
   } finally {
     await server.close();
     cleanup();
@@ -1480,9 +1480,9 @@ test('16. 混在フィードで VPFD61/VPFW60 は早期注意 processor にだ�
     const result = await service.pollOnce('scheduled');
 
     // regularFeed: 4件ダウンロード, extraFeed: 重複1件スキップ
-    assert.equal(result.feedResults[0].downloadedCount, 4);
-    assert.equal(result.feedResults[1].skippedDuplicateCount, 1);
-    assert.equal(result.feedResults[1].downloadedCount, 0);
+    assert.equal(result.feedResults[0]!.downloadedCount, 4);
+    assert.equal(result.feedResults[1]!.skippedDuplicateCount, 1);
+    assert.equal(result.feedResults[1]!.downloadedCount, 0);
 
     // telegram_reception に 4 件保存されていること
     const receptions = listTelegramReceptions(db.connection);
@@ -1520,24 +1520,24 @@ test('16. 混在フィードで VPFD61/VPFW60 は早期注意 processor にだ�
     const nearSnap = findEarlyWarningSnapshot(db.connection, '130010', 'near', 'normal');
     assert.ok(nearSnap);
     assert.equal(nearSnap.telegramType, 'VPFD61');
-    assert.equal(nearSnap.cells[0].phenomenonCode, '大雨の警報級の可能性');
-    assert.equal(nearSnap.cells[0].rankValue, '中');
+    assert.equal(nearSnap.cells[0]!.phenomenonCode, '大雨の警報級の可能性');
+    assert.equal(nearSnap.cells[0]!.rankValue, '中');
 
     // 早期注意スナップショット (far) が保存されていること
     const farSnap = findEarlyWarningSnapshot(db.connection, '130010', 'far', 'normal');
     assert.ok(farSnap);
     assert.equal(farSnap.telegramType, 'VPFW60');
-    assert.equal(farSnap.cells[0].phenomenonCode, '雨の警報級の可能性');
-    assert.equal(farSnap.cells[0].rankValue, '高');
+    assert.equal(farSnap.cells[0]!.phenomenonCode, '雨の警報級の可能性');
+    assert.equal(farSnap.cells[0]!.rankValue, '高');
 
     // 現況警報・時系列・通知出力表への非干渉
     const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
     assert.equal(streams.length, 1);
-    assert.equal(streams[0].telegramType, 'VPWW55');
+    assert.equal(streams[0]!.telegramType, 'VPWW55');
 
     const timeseries = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
     assert.ok(timeseries);
-    assert.equal(timeseries.values[0].valueText, '警戒レベル２未満');
+    assert.equal(timeseries.values[0]!.valueText, '警戒レベル２未満');
 
     const notifications = listNotificationOutputHistory(db.connection);
     assert.equal(notifications.length, 0);
@@ -1733,9 +1733,9 @@ test('17. 混在フィードで VPFD51 は地域時系列予報 processor にだ
     const result = await service.pollOnce('scheduled');
 
     // regularFeed: 5件ダウンロード, extraFeed: 重複1件スキップ
-    assert.equal(result.feedResults[0].downloadedCount, 5);
-    assert.equal(result.feedResults[1].skippedDuplicateCount, 1);
-    assert.equal(result.feedResults[1].downloadedCount, 0);
+    assert.equal(result.feedResults[0]!.downloadedCount, 5);
+    assert.equal(result.feedResults[1]!.skippedDuplicateCount, 1);
+    assert.equal(result.feedResults[1]!.downloadedCount, 0);
 
     // telegram_reception に 5 件保存されていること
     const receptions = listTelegramReceptions(db.connection);
@@ -1964,9 +1964,9 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
     const result = await service.pollOnce('scheduled');
 
     // regularFeed: 3件ダウンロード, extraFeed: 重複1件スキップ
-    assert.equal(result.feedResults[0].downloadedCount, 3);
-    assert.equal(result.feedResults[1].skippedDuplicateCount, 1);
-    assert.equal(result.feedResults[1].downloadedCount, 0);
+    assert.equal(result.feedResults[0]!.downloadedCount, 3);
+    assert.equal(result.feedResults[1]!.skippedDuplicateCount, 1);
+    assert.equal(result.feedResults[1]!.downloadedCount, 0);
 
     // telegram_reception に 3 件保存されていること
     const receptions = listTelegramReceptions(db.connection);
@@ -2292,9 +2292,9 @@ test('8. 混在フィード（regular + extra）ポーリングで VPHW50/51（�
     const result = await service.pollOnce('scheduled');
 
     // regularFeed: 4件ダウンロード, extraFeed: 重複1件スキップ
-    assert.equal(result.feedResults[0].downloadedCount, 4);
-    assert.equal(result.feedResults[1].skippedDuplicateCount, 1);
-    assert.equal(result.feedResults[1].downloadedCount, 0);
+    assert.equal(result.feedResults[0]!.downloadedCount, 4);
+    assert.equal(result.feedResults[1]!.skippedDuplicateCount, 1);
+    assert.equal(result.feedResults[1]!.downloadedCount, 0);
 
     // telegram_reception に 4 件保存されていること
     const receptions = listTelegramReceptions(db.connection);
@@ -3281,7 +3281,7 @@ test('22-10. 保存済み履歴の C3 再構成後に初期サイクルが未受
     // C3 の現況ストリームに大雨注意報が反映されていること
     const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
     assert.equal(streams.length, 1);
-    assert.equal(streams[0].telegramType, 'VPWW55');
+    assert.equal(streams[0]!.telegramType, 'VPWW55');
 
     // notification_output_history が 0 件のままであること（通知は生成されない）
     const notificationsAfter = listNotificationOutputHistory(db.connection);
@@ -3914,7 +3914,7 @@ test('23-5. 個別電文のHTTP失敗・未対応構造・未対応コードは�
     const receptions = listTelegramReceptions(db.connection);
     assert.equal(receptions.length, 1);
     assert.deepEqual(
-      receptions[0].adoptions.map((a) => a.adoptionResult),
+      receptions[0]!.adoptions.map((a) => a.adoptionResult),
       ['未対応形式', '未対応形式'],
     );
   } finally {
@@ -4333,9 +4333,9 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
     await service.pollFeeds('recovery', ['regular_l']);
     let attempts = listFetchAttempts(db.connection);
     assert.equal(attempts.length, 1);
-    assert.equal(attempts[0].attemptNo, 1);
-    assert.equal(attempts[0].targetRef, 'regular_l');
-    assert.equal(attempts[0].outcome, 'failure');
+    assert.equal(attempts[0]!.attemptNo, 1);
+    assert.equal(attempts[0]!.targetRef, 'regular_l');
+    assert.equal(attempts[0]!.outcome, 'failure');
 
     // 2. 60秒後、2回目失敗 -> attemptNo=2
     currentTime = '2026-09-09T01:01:00.000Z';
@@ -4343,8 +4343,8 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
     attempts = listFetchAttempts(db.connection);
     assert.equal(attempts.length, 2);
     // listFetchAttempts は降順 (DESC) のため attempts[0] が最新
-    assert.equal(attempts[0].attemptNo, 2);
-    assert.equal(attempts[1].attemptNo, 1);
+    assert.equal(attempts[0]!.attemptNo, 2);
+    assert.equal(attempts[1]!.attemptNo, 1);
 
     // 3. 120秒後、3回目成功 -> attemptNo=3
     regularLStatus = 200;
@@ -4352,15 +4352,15 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
     await service.pollFeeds('recovery', ['regular_l']);
     attempts = listFetchAttempts(db.connection);
     assert.equal(attempts.length, 3);
-    assert.equal(attempts[0].attemptNo, 3);
-    assert.equal(attempts[0].outcome, 'success');
+    assert.equal(attempts[0]!.attemptNo, 3);
+    assert.equal(attempts[0]!.outcome, 'success');
 
     // 4. その後の試行は attemptNo=1 に戻る
     currentTime = '2026-09-09T01:04:00.000Z';
     await service.pollFeeds('recovery', ['regular_l']);
     attempts = listFetchAttempts(db.connection);
     assert.equal(attempts.length, 4);
-    assert.equal(attempts[0].attemptNo, 1);
+    assert.equal(attempts[0]!.attemptNo, 1);
   } finally {
     if (service) {
       await service.stop();

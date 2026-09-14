@@ -138,7 +138,6 @@ test('B01: キキクル - 3 層に異なる自然キーと同 validTime の別 m
       },
       frames: [
         {
-          layer: 'heavyrain',
           baseTime: '2026-09-07T03:00:00.000Z',
           validTime,
           imageId: 'rain_mesh',
@@ -146,7 +145,6 @@ test('B01: キキクル - 3 層に異なる自然キーと同 validTime の別 m
           sequence: 0,
         },
         {
-          layer: 'heavyrain',
           baseTime: '2026-09-07T02:50:00.000Z', // 別 baseTime
           validTime,
           imageId: 'rain_mesh',
@@ -172,7 +170,6 @@ test('B01: キキクル - 3 層に異なる自然キーと同 validTime の別 m
       },
       frames: [
         {
-          layer: 'inund',
           baseTime: '2026-09-07T03:00:00.000Z',
           validTime,
           imageId: 'inund',
@@ -198,7 +195,6 @@ test('B01: キキクル - 3 層に異なる自然キーと同 validTime の別 m
       },
       frames: [
         {
-          layer: 'land',
           baseTime: '2026-09-07T03:00:00.000Z',
           validTime,
           imageId: 'land',
@@ -386,7 +382,7 @@ test('B03: キキクル - layer/imageId 不一致、危険な member、flood で
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().layers.heavyrain.frames[0];
+    const frame = service.readCatalog().layers.heavyrain.frames[0]!;
 
     const apiService = createKikikuruApiService({
       getService: () => service,
@@ -684,7 +680,7 @@ test('B09: キキクル - 3 層それぞれで単体 GET、PNG バイト列 fixt
     ];
 
     for (const { layer, imageId } of testCases) {
-      const frame = catalog.layers[layer].frames[0];
+      const frame = catalog.layers[layer].frames[0]!;
       const tileUrl = `/api/weather/kikikuru/${layer}/tiles/10/800/300.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
         frame.baseTime,
       )}&validTime=${encodeURIComponent(frame.validTime)}&imageId=${imageId}&member=${encodeURIComponent(
@@ -843,7 +839,7 @@ test('B11: キキクル - stale かつ画像許可でミス 200、停止時キ�
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().layers.heavyrain.frames[0];
+    const frame = service.readCatalog().layers.heavyrain.frames[0]!;
 
     // 1. stale かつ画像許可でミス要求 -> 200
     currentTime = '2026-09-07T03:06:00.000Z';
@@ -941,7 +937,7 @@ test('B12: キキクル - 不在フレーム 404、上流エラー 502、保存�
       catalogAvailability: 'available',
     });
 
-    const validFrame = service.readCatalog().layers.heavyrain.frames[0];
+    const validFrame = service.readCatalog().layers.heavyrain.frames[0]!;
     const tileUrl = `/api/weather/kikikuru/heavyrain/tiles/10/800/300.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
       validFrame.baseTime,
     )}&validTime=${encodeURIComponent(
@@ -985,7 +981,7 @@ test('B16: キキクル - no-store, nosniff と 3 ヘッダー、条件付き GE
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().layers.heavyrain.frames[0];
+    const frame = service.readCatalog().layers.heavyrain.frames[0]!;
 
     const apiService = createKikikuruApiService({
       getService: () => service,
@@ -1051,7 +1047,7 @@ test('B13: キキクル - saveTile 失敗・DB 保存失敗・履歴保存失敗
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().layers.heavyrain.frames[0];
+    const frame = service.readCatalog().layers.heavyrain.frames[0]!;
 
     const apiService = createKikikuruApiService({
       getService: () => service,
@@ -1120,7 +1116,7 @@ test('B14: キキクル - 既存キャッシュ破損時に再取得 200、停�
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().layers.heavyrain.frames[0];
+    const frame = service.readCatalog().layers.heavyrain.frames[0]!;
 
     const apiService = createKikikuruApiService({
       getService: () => service,
@@ -1195,7 +1191,7 @@ test('B15: キキクル - 成功結果後のファイル消失/改変で配信�
       clock,
     });
     await service.refreshTimes();
-    const frame = service.readCatalog().layers.heavyrain.frames[0];
+    const frame = service.readCatalog().layers.heavyrain.frames[0]!;
 
     const apiService = createKikikuruApiService({
       getService: () => service,

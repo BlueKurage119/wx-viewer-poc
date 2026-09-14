@@ -147,7 +147,9 @@ class FakeXmlPollingService {
   executing = false;
   nextRunAt: UtcIso8601String | null = null;
 
-  constructor(private readonly timerScheduler?: FakeTimerScheduler) {}
+  constructor(_timerScheduler?: FakeTimerScheduler) {
+    void _timerScheduler;
+  }
 
   setScheduledIntervalSeconds(seconds: number | null): void {
     this.suppliedIntervalSeconds = seconds;
@@ -212,7 +214,6 @@ class FakeXmlPollingService {
           lastAttemptAt: null,
           lastSuccessAt: null,
           lastFailureAt: null,
-          lastErrorReason: null,
         },
         extra: {
           feedKind: 'extra',
@@ -223,7 +224,6 @@ class FakeXmlPollingService {
           lastAttemptAt: null,
           lastSuccessAt: null,
           lastFailureAt: null,
-          lastErrorReason: null,
         },
         regular_l: {
           feedKind: 'regular_l',
@@ -234,7 +234,6 @@ class FakeXmlPollingService {
           lastAttemptAt: null,
           lastSuccessAt: null,
           lastFailureAt: null,
-          lastErrorReason: null,
         },
         extra_l: {
           feedKind: 'extra_l',
@@ -245,12 +244,11 @@ class FakeXmlPollingService {
           lastAttemptAt: null,
           lastSuccessAt: null,
           lastFailureAt: null,
-          lastErrorReason: null,
         },
       },
       feedFreshness: {
-        regular: { availability: 'available', lastSuccessAt: null, latestAttemptFailed: false },
-        extra: { availability: 'available', lastSuccessAt: null, latestAttemptFailed: false },
+        regular: { availability: 'available', lastSuccessAt: null, staleAfterSeconds: 300 },
+        extra: { availability: 'available', lastSuccessAt: null, staleAfterSeconds: 300 },
       },
     };
   }
@@ -1011,14 +1009,17 @@ test('8. #23 XML 単一タイマーとの統合・周期供給 (受け入れ条�
       freshnessPolicy: { staleAfterSeconds: 300 },
       clock: timerScheduler.clock,
       timerScheduler: {
-        setTimeout: timerScheduler.setTimer,
+        setTimeout: timerScheduler.setTimer as unknown as (
+          callback: () => void,
+          ms: number,
+        ) => ReturnType<typeof setTimeout>,
         clearTimeout: timerScheduler.clearTimer,
       },
       fetchFn: async (input) => {
         const url = String(input);
         const kind = /\/([a-z_]+)\.xml$/.exec(url)?.[1];
         assert.notEqual(kind, undefined);
-        requestedKinds.push(kind);
+        requestedKinds.push(kind!);
         if (kind === 'regular' && regularStatus !== 200) {
           return new Response('Service Unavailable', { status: regularStatus });
         }
@@ -1104,7 +1105,7 @@ test('9. アメダス 10分再確認と時刻更新時の地点データ取得 (
 
     const amedasState = new AmedasFetchState('east');
     const adapter = new AmedasScheduledAdapter(database.connection, amedasState, 600, {
-      fetchOptions: { fetchFn: customFetch, allowHttpForTesting: true },
+      fetchOptions: { fetchFn: customFetch },
       now: nowFn,
     });
 
@@ -1183,7 +1184,7 @@ test('10. アメダス地点失敗時の次周期再試行と回復後のスキ�
 
     const amedasState = new AmedasFetchState('east');
     const adapter = new AmedasScheduledAdapter(database.connection, amedasState, 600, {
-      fetchOptions: { fetchFn: customFetch, allowHttpForTesting: true },
+      fetchOptions: { fetchFn: customFetch },
       now: nowFn,
     });
 

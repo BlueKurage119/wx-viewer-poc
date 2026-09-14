@@ -181,7 +181,7 @@ function createReceptionRecord(
     rawBody,
     bodyBytes: rawBody ? Buffer.byteLength(rawBody, 'utf-8') : 0,
     contentHash: 'hash-xml',
-    areas: [{ sequence: 1, areaCode: '130010', areaName: '東京地方' }],
+    areas: [{ sequence: 1, areaCode: '130010', areaName: '東京地方', codeType: null }],
     ...overrides,
   };
 

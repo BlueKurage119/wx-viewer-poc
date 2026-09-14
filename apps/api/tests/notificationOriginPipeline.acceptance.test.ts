@@ -52,7 +52,7 @@ function createTempDb(): {
 }
 
 function buildXml(
-  telegramType: string,
+  _telegramType: string,
   reportDateTime: string,
   kindsXml: string,
   options?: {
@@ -318,9 +318,9 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
     // 4. AC4: origin: 'weather' / 'system' の一覧検索がそれぞれ該当通知のみを返し、相互混入しない
     const weatherOnly = listNotificationOutputHistory(connection, { origin: 'weather' });
     assert.equal(weatherOnly.length, 1);
-    assert.equal(weatherOnly[0].notificationId, weatherNotificationId);
-    assert.equal(weatherOnly[0].origin, 'weather');
-    assert.equal(weatherOnly[0].detectionContext, 'initial');
+    assert.equal(weatherOnly[0]!.notificationId, weatherNotificationId);
+    assert.equal(weatherOnly[0]!.origin, 'weather');
+    assert.equal(weatherOnly[0]!.detectionContext, 'initial');
 
     const systemOnly = listNotificationOutputHistory(connection, { origin: 'system' });
     assert.deepEqual(
@@ -343,9 +343,9 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
       detectionContext: 'normal',
     });
     assert.equal(normalOnly.length, 1);
-    assert.equal(normalOnly[0].notificationId, systemNotificationId);
-    assert.equal(normalOnly[0].origin, 'system');
-    assert.equal(normalOnly[0].detectionContext, 'normal');
+    assert.equal(normalOnly[0]!.notificationId, systemNotificationId);
+    assert.equal(normalOnly[0]!.origin, 'system');
+    assert.equal(normalOnly[0]!.detectionContext, 'normal');
   } finally {
     cleanup();
   }

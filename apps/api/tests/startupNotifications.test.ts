@@ -116,7 +116,15 @@ function saveEastBulletin(
     hasSighting: null,
     isCancelled: false,
     metadata,
-    areas: [{ areaCode: '1310800', areaName: '江東区', codeType: 'municipal', sequence: 1 }],
+    areas: [
+      {
+        areaCode: '1310800',
+        areaName: '江東区',
+        codeType: 'municipal',
+        sequence: 1,
+        informationType: null,
+      },
+    ],
   });
 }
 

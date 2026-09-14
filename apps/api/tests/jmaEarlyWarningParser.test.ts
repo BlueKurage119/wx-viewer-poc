@@ -369,11 +369,11 @@ test('parseEarlyWarning: 「なし」は rankValue="なし", condition=null、co
   const cellNashi = result.value.cells[0];
   const cellAtaiNashi = result.value.cells[1];
 
-  assert.equal(cellNashi.rankValue, 'なし');
-  assert.equal(cellNashi.condition, null);
+  assert.equal(cellNashi!.rankValue, 'なし');
+  assert.equal(cellNashi!.condition, null);
 
-  assert.equal(cellAtaiNashi.rankValue, null);
-  assert.equal(cellAtaiNashi.condition, '値なし');
+  assert.equal(cellAtaiNashi!.rankValue, null);
+  assert.equal(cellAtaiNashi!.condition, '値なし');
 
   // 両者が同一でないことを確認
   assert.notDeepEqual(cellNashi, cellAtaiNashi);

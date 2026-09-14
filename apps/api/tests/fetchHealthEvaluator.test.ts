@@ -92,9 +92,9 @@ test('evaluateFetchSourceHealth: 連続失敗 2 回で遅延', () => {
   const result = evaluateFetchSourceHealth(input, sampleConfig);
   assert.equal(result.status, 'delayed');
   assert.equal(result.reasons.length, 1);
-  assert.equal(result.reasons[0].kind, 'consecutive_failures');
-  assert.equal(result.reasons[0].status, 'delayed');
-  assert.equal(result.reasons[0].text, '連続2回失敗');
+  assert.equal(result.reasons[0]!.kind, 'consecutive_failures');
+  assert.equal(result.reasons[0]!.status, 'delayed');
+  assert.equal(result.reasons[0]!.text, '連続2回失敗');
 });
 
 test('evaluateFetchSourceHealth: 連続失敗 5 回で異常', () => {
@@ -119,9 +119,9 @@ test('evaluateFetchSourceHealth: 連続失敗 5 回で異常', () => {
   const result = evaluateFetchSourceHealth(input, sampleConfig);
   assert.equal(result.status, 'abnormal');
   assert.equal(result.reasons.length, 1);
-  assert.equal(result.reasons[0].kind, 'consecutive_failures');
-  assert.equal(result.reasons[0].status, 'abnormal');
-  assert.equal(result.reasons[0].text, '連続5回失敗');
+  assert.equal(result.reasons[0]!.kind, 'consecutive_failures');
+  assert.equal(result.reasons[0]!.status, 'abnormal');
+  assert.equal(result.reasons[0]!.text, '連続5回失敗');
 });
 
 test('evaluateFetchSourceHealth: 経過時間による遅延（適用周期×3 超過）', () => {
@@ -150,8 +150,8 @@ test('evaluateFetchSourceHealth: 経過時間による遅延（適用周期×3 �
   const result = evaluateFetchSourceHealth(input, sampleConfig);
   assert.equal(result.status, 'delayed');
   assert.equal(result.reasons.length, 1);
-  assert.equal(result.reasons[0].kind, 'last_success_elapsed');
-  assert.equal(result.reasons[0].status, 'delayed');
+  assert.equal(result.reasons[0]!.kind, 'last_success_elapsed');
+  assert.equal(result.reasons[0]!.status, 'delayed');
 });
 
 test('evaluateFetchSourceHealth: 経過時間による異常（固定 10 分超過）', () => {
@@ -180,8 +180,8 @@ test('evaluateFetchSourceHealth: 経過時間による異常（固定 10 分超�
   const result = evaluateFetchSourceHealth(input, sampleConfig);
   assert.equal(result.status, 'abnormal');
   assert.equal(result.reasons.length, 1);
-  assert.equal(result.reasons[0].kind, 'last_success_elapsed');
-  assert.equal(result.reasons[0].status, 'abnormal');
+  assert.equal(result.reasons[0]!.kind, 'last_success_elapsed');
+  assert.equal(result.reasons[0]!.status, 'abnormal');
 });
 
 test('evaluateFetchSourceHealth: appliesElapsedCondition: false（amedas_point）は経過時間で判定されない', () => {
@@ -217,7 +217,7 @@ test('evaluateFetchSourceHealth: appliesElapsedCondition: false（amedas_point�
       ...input,
       streams: [
         {
-          ...input.streams[0],
+          ...input.streams[0]!,
           consecutiveFailures: 2,
         },
       ],
@@ -225,7 +225,7 @@ test('evaluateFetchSourceHealth: appliesElapsedCondition: false（amedas_point�
     sampleConfig,
   );
   assert.equal(delayedResult.status, 'delayed');
-  assert.equal(delayedResult.reasons[0].kind, 'consecutive_failures');
+  assert.equal(delayedResult.reasons[0]!.kind, 'consecutive_failures');
 
   // 連続失敗 5 回で abnormal
   const abnormalResult = evaluateFetchSourceHealth(
@@ -233,7 +233,7 @@ test('evaluateFetchSourceHealth: appliesElapsedCondition: false（amedas_point�
       ...input,
       streams: [
         {
-          ...input.streams[0],
+          ...input.streams[0]!,
           consecutiveFailures: 5,
         },
       ],
@@ -241,7 +241,7 @@ test('evaluateFetchSourceHealth: appliesElapsedCondition: false（amedas_point�
     sampleConfig,
   );
   assert.equal(abnormalResult.status, 'abnormal');
-  assert.equal(abnormalResult.reasons[0].kind, 'consecutive_failures');
+  assert.equal(abnormalResult.reasons[0]!.kind, 'consecutive_failures');
 });
 
 test('evaluateFetchSourceHealth: suspended: true のときは status: "suspended"', () => {
@@ -329,7 +329,7 @@ test('evaluateFetchSourceHealth: 複数ストリーム（雨雲 N1/N2）の最�
   assert.equal(result.status, 'abnormal', 'N1 が異常なら取得元全体が abnormal');
   assert.equal(result.maxConsecutiveFailures, 5);
   assert.equal(result.reasons.length, 1);
-  assert.equal(result.reasons[0].sourceKind, 'radar_times_N1');
+  assert.equal(result.reasons[0]!.sourceKind, 'radar_times_N1');
 });
 
 test('aggregateFetchHealth: 表示用集約の最悪値と順序固定', () => {
