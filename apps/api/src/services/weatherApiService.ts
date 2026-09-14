@@ -5,6 +5,7 @@ import {
   type AmedasObservationDto,
   type AmedasPublicElement,
   type AmedasResponse,
+  type AmedasTarget,
   type AreaTimeseriesCapabilities,
   type AreaTimeseriesData,
   type AreaTimeseriesResponse,
@@ -21,6 +22,7 @@ import {
   type EarlyWarningTimeDefine,
   type TerminalDefinition,
   type TimeseriesAddition,
+  type VenueId,
   type WarningCurrentData,
   type WarningCurrentItem,
   type WarningsResponse,
@@ -60,6 +62,7 @@ export interface WeatherApiServiceDeps {
   readonly connection: DatabaseConnection;
   readonly getPollingStatus?: () => JmaXmlPollingStatus | undefined;
   readonly now?: () => string;
+  readonly resolveAmedasTarget?: (venueId: VenueId) => AmedasTarget;
 }
 
 export interface WeatherApiService {
@@ -734,7 +737,8 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
 
     getAmedas(terminal: TerminalDefinition, controlStatus: WeatherControlStatus): AmedasResponse {
       const nowIso = getNow();
-      const target = resolveAmedasTarget(terminal.venueId);
+      const targetResolver = deps.resolveAmedasTarget ?? resolveAmedasTarget;
+      const target = targetResolver(terminal.venueId);
 
       const context: WeatherContext = {
         terminalId: terminal.id,
