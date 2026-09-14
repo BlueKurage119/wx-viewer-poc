@@ -40,6 +40,19 @@ export interface CreateNotificationDeltaServiceDependencies {
   readonly now?: () => UtcIso8601String;
 }
 
+function isNotificationTarget(value: unknown): value is NotificationTarget {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    (candidate.kind === 'area' || candidate.kind === 'point' || candidate.kind === 'equipment') &&
+    typeof candidate.codeType === 'string' &&
+    typeof candidate.code === 'string' &&
+    typeof candidate.name === 'string'
+  );
+}
+
 export function createNotificationDeltaService(
   dependencies: CreateNotificationDeltaServiceDependencies,
 ): NotificationDeltaService {
@@ -69,8 +82,12 @@ export function createNotificationDeltaService(
                 throw new Error('targetAreaJson is null');
               }
               const parsed = JSON.parse(row.targetAreaJson);
-              if (!Array.isArray(parsed) || parsed.length === 0) {
-                throw new Error('targets must be a non-empty array');
+              if (
+                !Array.isArray(parsed) ||
+                parsed.length === 0 ||
+                !parsed.every(isNotificationTarget)
+              ) {
+                throw new Error('targets must be a non-empty array of valid NotificationTarget');
               }
               targets = parsed as readonly NotificationTarget[];
             } catch (err) {

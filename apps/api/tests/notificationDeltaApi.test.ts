@@ -829,6 +829,33 @@ test('AC8 cursor_out_of_range と破損行', async () => {
           0,
         );
 
+      // さらに、JSON構文としては正しいが要素が不正な行を追加 (id=6)
+      // 例: [null] は Array.isArray かつ非空だが、要素が NotificationTarget の形をしていない
+      context.connection
+        .prepare(
+          `INSERT INTO notification_output_history (
+            notification_id, category, source_type, source_version, target_area_json,
+            occurred_at, detected_at, change_type, ack_required, summary,
+            related_refs_json, origin, detection_context, is_training
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          'notif-corrupted-6',
+          'warning',
+          'warning_current',
+          'v1',
+          '[null]', // 構文上は正しいが要素が不正
+          fixedNow,
+          fixedNow,
+          'new',
+          1,
+          '要素不正行サマリ',
+          '[]',
+          'weather',
+          'normal',
+          0,
+        );
+
       // cursor=0 で取得
       const resSkipped = await fetch(
         `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=0`,
@@ -836,9 +863,9 @@ test('AC8 cursor_out_of_range と破損行', async () => {
       assert.equal(resSkipped.status, 200);
       const bodySkipped = (await resSkipped.json()) as NotificationDeltaReadyResponse;
 
-      // 破損行は2件除外され skippedCount=2、正常行 notif-1, notif-2, notif-4 は返り、cursor は末尾破損行も含めた "5"
-      assert.equal(bodySkipped.skippedCount, 2);
-      assert.equal(bodySkipped.cursor, '5');
+      // 破損行は3件除外され skippedCount=3、正常行 notif-1, notif-2, notif-4 は返り、cursor は末尾破損行も含めた "6"
+      assert.equal(bodySkipped.skippedCount, 3);
+      assert.equal(bodySkipped.cursor, '6');
       assert.deepEqual(
         bodySkipped.notifications.map((n) => n.notificationId),
         ['notif-1', 'notif-2', 'notif-4'],
