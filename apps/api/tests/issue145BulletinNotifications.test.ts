@@ -2184,6 +2184,7 @@ test('AC14: startServer起動時、polling開始前に速報の初期通知が�
     const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
       source,
       runScheduled: async () => {},
+      runManual: async () => {},
     });
 
     const server = await startServer({

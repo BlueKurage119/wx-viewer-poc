@@ -91,7 +91,10 @@ export class KikikuruService {
   }
 
   async refreshTimes(options?: KikikuruAttemptOptions): Promise<KikikuruCatalog> {
-    const catalogAccess = this.options.getCatalogAccess();
+    const catalogAccess =
+      options?.bypassScheduleStop === true && this.options.getManualCatalogAccess
+        ? this.options.getManualCatalogAccess()
+        : this.options.getCatalogAccess();
     if (!catalogAccess.allowed) {
       return this.readCatalog();
     }

@@ -2,14 +2,34 @@ import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
 import crypto from 'node:crypto';
 
-import { VENUE_IDS } from '@wx-viewer-poc/shared';
+import { VENUE_IDS, type UtcIso8601String } from '@wx-viewer-poc/shared';
 import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
 import {
   loadPollingScheduleConfig,
+  resolvePollingPeriod,
   validatePollingScheduleConfig,
   type PollingScheduleConfig,
 } from './config/index.js';
+import {
+  createFetchControlService,
+  ForceRefreshFailedError,
+  type FetchControlService,
+  type FetchControlTargets,
+} from './services/fetchControlService.js';
+import { registerGracefulShutdown, type SignalSource } from './gracefulShutdown.js';
+import {
+  createMonitoringStatusService,
+  type MonitoringStatusService,
+} from './monitoring/monitoringStatusService.js';
+import {
+  createMonitoringProcessingService,
+  type MonitoringProcessingService,
+} from './monitoring/monitoringProcessingService.js';
+import {
+  createMonitoringHistoryService,
+  type MonitoringHistoryService,
+} from './monitoring/monitoringHistoryService.js';
 import {
   JmaXmlPollingService,
   TimeBasedPollingScheduler,
@@ -46,11 +66,12 @@ export interface StartedServer {
   readonly pollingService?: JmaXmlPollingService;
   readonly scheduler?: TimeBasedPollingScheduler;
   readonly fetchHealthMonitorService?: FetchHealthMonitorService;
+  readonly fetchControlService?: FetchControlService;
   readonly imageServices?: {
     readonly nowcast: NowcastService;
     readonly kikikuru: KikikuruService;
   };
-  close(): Promise<void>;
+  close(options?: { readonly reason?: 'signal' | 'programmatic' }): Promise<void>;
 }
 
 export interface StartServerOptions {
@@ -64,6 +85,9 @@ export interface StartServerOptions {
   readonly pollingSchedule?: PollingScheduleConfig;
   readonly configUrl?: URL;
   readonly imageServices?: ImageServices;
+  /** Issue #43 §6.1: graceful shutdown の検証用。指定すると SIGTERM/SIGINT を購読する。 */
+  readonly shutdownSignalSource?: SignalSource;
+  readonly fetchControlNotificationIdFactory?: () => string;
 }
 
 const DEFAULT_PORT = 3001;
@@ -113,6 +137,8 @@ function createStartupNotificationRuntime(
     pollingService.onInitialFetchCompleted(evaluateVenues);
   };
   return {
+    serverGenerationId,
+    initialization,
     startupNotifications,
     notificationDelta,
     warningEmitDeps,
@@ -193,6 +219,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   });
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let imageServices: ImageServices | undefined;
+  let scheduler: TimeBasedPollingScheduler | undefined;
+  let nowFnHolder: () => Date = () => new Date();
 
   const nowcastApi = createNowcastApiService({
     getService: () => imageServices?.nowcast ?? null,
@@ -205,18 +233,95 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     clock,
   });
 
+  const fetchControlTargets: FetchControlTargets | null = enablePolling
+    ? {
+        start: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.start();
+        },
+        stop: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.stop();
+        },
+        forceRefresh: async () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          const result = await scheduler.runManualOnce();
+          if (result.failedSources.length > 0) {
+            throw new ForceRefreshFailedError(result.failedSources);
+          }
+        },
+        runRecovery: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.runRecoveryOnce();
+        },
+        isRunning: () => (scheduler ? scheduler.isRunningNow() : false),
+        isUpstreamAllowedNow: () =>
+          resolvePollingPeriod(nowFnHolder(), schedule).xmlSeconds !== null,
+      }
+    : null;
+
+  const fetchControlService = createFetchControlService({
+    connection: database.connection,
+    targets: fetchControlTargets,
+    now: () => clock() as UtcIso8601String,
+    notificationIdFactory: options.fetchControlNotificationIdFactory,
+  });
+
+  if (options.shutdownSignalSource) {
+    registerGracefulShutdown(options.shutdownSignalSource, () => close({ reason: 'signal' }));
+  }
+
+  const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
+    connection: database.connection,
+    now: () => clock() as UtcIso8601String,
+  });
+  const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
+    connection: database.connection,
+    serverGenerationId: startupRuntime.serverGenerationId,
+    now: () => clock() as UtcIso8601String,
+  });
+  const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
+    connection: database.connection,
+    scheduler: {
+      getStatus: () =>
+        scheduler?.getStatus() ??
+        (() => {
+          throw new Error('scheduler is not ready');
+        })(),
+    },
+    xmlPollingService: {
+      getStatus: () =>
+        pollingService?.getStatus() ??
+        (() => {
+          throw new Error('polling service is not ready');
+        })(),
+    },
+    fetchHealthMonitor: {
+      getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+    },
+    startupInitialization: startupRuntime.initialization,
+    weatherApi,
+    nowcastApi,
+    kikikuruApi,
+    fetchHealthConfig: schedule.fetchHealth,
+    serverGenerationId: startupRuntime.serverGenerationId,
+    now: () => clock() as UtcIso8601String,
+  });
+
   const app = createApp({
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
     nowcastApi,
     kikikuruApi,
+    monitoringStatus,
+    monitoringProcessing,
+    monitoringHistory,
+    fetchControl: fetchControlService,
   });
   const actualServer = app.listen(options.port ?? DEFAULT_PORT);
 
   const serverListeningPromise = waitForServerListening(actualServer);
-
-  let scheduler: TimeBasedPollingScheduler | undefined;
 
   try {
     // 初期取得より先に待受失敗を監視する。失敗時は直ちに catch で全資源を解放する。
@@ -231,6 +336,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             ? () => new Date(options.pollingServiceOptions!.clock!())
             : () => new Date();
           const nowFn = options.schedulerOptions?.now ?? defaultNow;
+          nowFnHolder = nowFn;
 
           // 索引・画像共用サービスの作成（テスト等で注入がない場合）
           imageServices =
@@ -354,7 +460,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   }
 
   let closed = false;
-  const close = async () => {
+  const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
     if (!closed) {
       closed = true;
       if (fetchHealthMonitorService) {
@@ -368,6 +474,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       }
       if (pollingService) {
         await pollingService.stop();
+      }
+      // Issue #43 §6.1: シグナル由来の停止のときだけB5記録+サービス停止通知を行う。
+      // 既存テストのDBに停止行が混ざるのを避けるため、programmatic な close では記録しない。
+      if (closeOptions?.reason === 'signal') {
+        try {
+          await fetchControlService.recordShutdown();
+        } catch (error) {
+          console.error('graceful shutdown の記録に失敗しました:', error);
+        }
       }
       await closeServer(actualServer);
       database.close();
@@ -385,6 +500,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     pollingService,
     scheduler,
     fetchHealthMonitorService,
+    fetchControlService,
     imageServices: imageServices
       ? {
           nowcast: imageServices.nowcast,
@@ -416,6 +532,8 @@ async function main(): Promise<void> {
   });
   const enablePolling = process.env.DISABLE_POLLING !== 'true';
   let imageServices: ImageServices | undefined;
+  let scheduler: TimeBasedPollingScheduler | undefined;
+  const nowFnHolder: () => Date = () => new Date();
 
   const nowcastApi = createNowcastApiService({
     getService: () => imageServices?.nowcast ?? null,
@@ -428,18 +546,91 @@ async function main(): Promise<void> {
     clock,
   });
 
+  const fetchControlTargets: FetchControlTargets | null = enablePolling
+    ? {
+        start: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.start();
+        },
+        stop: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.stop();
+        },
+        forceRefresh: async () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          const result = await scheduler.runManualOnce();
+          if (result.failedSources.length > 0) {
+            throw new ForceRefreshFailedError(result.failedSources);
+          }
+        },
+        runRecovery: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.runRecoveryOnce();
+        },
+        isRunning: () => (scheduler ? scheduler.isRunningNow() : false),
+        isUpstreamAllowedNow: () =>
+          resolvePollingPeriod(nowFnHolder(), schedule).xmlSeconds !== null,
+      }
+    : null;
+
+  const fetchControlService = createFetchControlService({
+    connection: database.connection,
+    targets: fetchControlTargets,
+    now: () => clock() as UtcIso8601String,
+  });
+
+  const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
+    connection: database.connection,
+    now: () => clock() as UtcIso8601String,
+  });
+  const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
+    connection: database.connection,
+    serverGenerationId: startupRuntime.serverGenerationId,
+    now: () => clock() as UtcIso8601String,
+  });
+  const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
+    connection: database.connection,
+    scheduler: {
+      getStatus: () =>
+        scheduler?.getStatus() ??
+        (() => {
+          throw new Error('scheduler is not ready');
+        })(),
+    },
+    xmlPollingService: {
+      getStatus: () =>
+        pollingService?.getStatus() ??
+        (() => {
+          throw new Error('polling service is not ready');
+        })(),
+    },
+    fetchHealthMonitor: {
+      getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+    },
+    startupInitialization: startupRuntime.initialization,
+    weatherApi,
+    nowcastApi,
+    kikikuruApi,
+    fetchHealthConfig: schedule.fetchHealth,
+    serverGenerationId: startupRuntime.serverGenerationId,
+    now: () => clock() as UtcIso8601String,
+  });
+
   const app = createApp({
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
     nowcastApi,
     kikikuruApi,
+    monitoringStatus,
+    monitoringProcessing,
+    monitoringHistory,
+    fetchControl: fetchControlService,
   });
   const server = app.listen(port);
-  let scheduler: TimeBasedPollingScheduler | undefined;
 
   let closed = false;
-  const close = async () => {
+  const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
     if (closed) {
       return;
     }
@@ -455,6 +646,13 @@ async function main(): Promise<void> {
     }
     if (pollingService) {
       await pollingService.stop();
+    }
+    if (closeOptions?.reason === 'signal') {
+      try {
+        await fetchControlService.recordShutdown();
+      } catch (error) {
+        console.error('graceful shutdown の記録に失敗しました:', error);
+      }
     }
     await closeServer(server);
     database.close();
@@ -554,8 +752,7 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     });
   });
-  process.once('SIGINT', () => void close());
-  process.once('SIGTERM', () => void close());
+  registerGracefulShutdown(process, () => close({ reason: 'signal' }));
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

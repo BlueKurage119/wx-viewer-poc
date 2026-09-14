@@ -27,6 +27,13 @@ import { resolveAmedasTarget } from '../venueForecastTargets.js';
 export interface ScheduledPollAdapter {
   readonly source: ScheduledSource;
   runScheduled(): Promise<void>;
+  /** 強制更新用の単発実行。未実装のアダプタは runScheduled と同じ取得を triggerKind:'manual' で行う。 */
+  runManual(): Promise<void>;
+}
+
+export interface ManualRunResult {
+  /** 例外が起きた取得元（順不同）。空なら全件正常終了。 */
+  readonly failedSources: readonly (ScheduledSource | 'xml')[];
 }
 
 export interface TimeBasedPollingSchedulerOptions {
@@ -135,6 +142,61 @@ export class TimeBasedPollingScheduler {
       options.setTimer ?? ((cb: () => void, ms: number) => setTimeout(cb, ms) as unknown);
     this.clearTimerFn =
       options.clearTimer ?? ((id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>));
+  }
+
+  /**
+   * Issue #43 §4.3: 定期タイマー・世代・lastCompletedAt を一切変更せずに全取得元を1回実行する。
+   * 夜間帯でも実行する（索引の夜間ゲート迂回は各アダプタの runManual 実装が担う）。
+   */
+  async runManualOnce(): Promise<ManualRunResult> {
+    const failedSources: (ScheduledSource | 'xml')[] = [];
+
+    const xmlTask = (async () => {
+      try {
+        await this.xmlPollingService.pollOnce('manual');
+      } catch (err) {
+        failedSources.push('xml');
+        console.error('[TimeBasedPollingScheduler] manual xml poll failed:', err);
+      }
+    })();
+
+    const nonXmlTasks = REQUIRED_ADAPTER_SOURCES.map((source) =>
+      (async () => {
+        try {
+          // 定期実行中のものがあれば合流し、上流取得を1回にまとめる。
+          const inFlight = this.inFlightPromises.get(source);
+          if (inFlight) {
+            await inFlight;
+            return;
+          }
+          const adapter = this.adapterMap.get(source);
+          if (!adapter) {
+            return;
+          }
+          await adapter.runManual();
+        } catch (err) {
+          failedSources.push(source);
+          console.error(`[TimeBasedPollingScheduler] manual ${source} poll failed:`, err);
+        }
+      })(),
+    );
+
+    await Promise.allSettled([xmlTask, ...nonXmlTasks]);
+
+    return { failedSources };
+  }
+
+  /**
+   * Issue #43 §4.3・§9-B: 長期フィードを含む復旧取得を1回行う（XMLのみ）。
+   * 定期タイマー・世代・nextRunAt を変更しない。
+   */
+  async runRecoveryOnce(): Promise<void> {
+    await this.xmlPollingService.pollFeeds('recovery');
+  }
+
+  /** Issue #43: FetchControlTargets.isRunning() の実体。全体の運転状態を返す。 */
+  isRunningNow(): boolean {
+    return this.isRunning;
   }
 
   getStatus(): TimeBasedPollingStatus {
@@ -509,6 +571,11 @@ export class NowcastScheduledAdapter implements ScheduledPollAdapter {
   async runScheduled(): Promise<void> {
     await this.service.refreshTimes({ triggerKind: 'scheduled' });
   }
+
+  /** Issue #43 §9-A: 手動強制更新は夜間帯の索引取得ゲートを迂回する。 */
+  async runManual(): Promise<void> {
+    await this.service.refreshTimes({ triggerKind: 'manual', bypassScheduleStop: true });
+  }
 }
 
 export class KikikuruScheduledAdapter implements ScheduledPollAdapter {
@@ -517,6 +584,11 @@ export class KikikuruScheduledAdapter implements ScheduledPollAdapter {
 
   async runScheduled(): Promise<void> {
     await this.service.refreshTimes({ triggerKind: 'scheduled' });
+  }
+
+  /** Issue #43 §9-A: 手動強制更新は夜間帯の索引取得ゲートを迂回する。 */
+  async runManual(): Promise<void> {
+    await this.service.refreshTimes({ triggerKind: 'manual', bypassScheduleStop: true });
   }
 }
 
@@ -566,6 +638,16 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
       this.lastPointFetchStartedAtMs = currentNowMs;
     }
   }
+
+  /** Issue #43 §4.3: lastPointFetchStartedAtMs を更新しない単発実行。 */
+  async runManual(): Promise<void> {
+    await runAmedasFetchCycle(this.connection, this.state, {
+      ...this.fetchOptions,
+      triggerKind: 'manual',
+      backfillBlocks: 0,
+      pointFetchPolicy: 'always',
+    });
+  }
 }
 
 export class MultiVenueAmedasScheduledAdapter implements ScheduledPollAdapter {
@@ -576,6 +658,20 @@ export class MultiVenueAmedasScheduledAdapter implements ScheduledPollAdapter {
     const results = await Promise.allSettled(
       this.adapters.map((adapter) => adapter.runScheduled()),
     );
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (rejected.length > 0) {
+      if (rejected.length === 1) {
+        throw rejected[0]!.reason;
+      }
+      throw new AggregateError(
+        rejected.map((r) => r.reason),
+        `${rejected.length} 件のアメダスアダプター実行で例外が発生しました`,
+      );
+    }
+  }
+
+  async runManual(): Promise<void> {
+    const results = await Promise.allSettled(this.adapters.map((adapter) => adapter.runManual()));
     const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
     if (rejected.length > 0) {
       if (rejected.length === 1) {

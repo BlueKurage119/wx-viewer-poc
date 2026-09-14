@@ -134,6 +134,12 @@ class FakeScheduledAdapter implements ScheduledPollAdapter {
       this.inFlight = false;
     }
   }
+
+  // Issue #43 で ScheduledPollAdapter に runManual が追加された。本テストは #24 のものであり
+  // 強制更新は検証対象ではないため、runScheduled と同じ計測に相乗りするだけの最小実装とする。
+  async runManual(): Promise<void> {
+    await this.runScheduled();
+  }
 }
 
 class FakeXmlPollingService {
