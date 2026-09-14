@@ -717,6 +717,15 @@ export class KikikuruService {
     });
   }
 
+  async readVerifiedTile(tile: RiskTile): Promise<Buffer | null> {
+    const verified = await this.tileStore.verifyTile(
+      tile.filePath,
+      tile.byteSize,
+      tile.contentHash,
+    );
+    return verified.valid ? verified.buffer : null;
+  }
+
   async waitForIdle(): Promise<void> {
     await Promise.all([this.queueHeavyrain, this.queueInund, this.queueLand, this.queueTimes]);
   }

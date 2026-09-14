@@ -9,3 +9,4 @@ export * from './terminalSession.js';
 export * from './types.js';
 export * from './venueForecastTargets.js';
 export * from './weatherApi.js';
+export * from './tileApi.js';

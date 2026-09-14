@@ -1,15 +1,28 @@
 import express, { type Express } from 'express';
 import {
+  parseKikikuruTileRequest,
+  parseNowcastTileRequest,
   parseStartupNotificationRequest,
   parseWeatherApiQuery,
   resolveTerminalDefinition,
 } from '@wx-viewer-poc/shared';
 import type { StartupNotificationService } from './notifications/index.js';
 import type { WeatherApiService } from './services/weatherApiService.js';
+import type { NowcastApiService } from './services/nowcastApiService.js';
+import type { KikikuruApiService } from './services/kikikuruApiService.js';
+import { ImageServicesInitializingError } from './services/tileApiSupport.js';
 
 export interface AppDependencies {
   readonly startupNotifications?: StartupNotificationService;
   readonly weatherApi?: WeatherApiService;
+  readonly nowcastApi?: NowcastApiService;
+  readonly kikikuruApi?: KikikuruApiService;
+}
+
+function sendJsonNoStore(res: express.Response, status: number, body: unknown): void {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.status(status).end(JSON.stringify(body));
 }
 
 export function createApp(dependencies: AppDependencies = {}): Express {
@@ -176,9 +189,152 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     });
   }
 
+  if (dependencies.nowcastApi) {
+    const nowcastApi = dependencies.nowcastApi;
+
+    app.get('/api/weather/nowcast/times', (req, res) => {
+      const parsed = parseWeatherApiQuery(req.query);
+      if (!parsed.ok) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      if (terminal === null) {
+        sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      try {
+        const result = nowcastApi.getTimes(terminal, parsed.value.controlStatus);
+        sendJsonNoStore(res, 200, result);
+      } catch (err) {
+        if (err instanceof ImageServicesInitializingError) {
+          sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
+          return;
+        }
+        sendJsonNoStore(res, 500, { status: 'error', code: 'weather_read_failed' });
+      }
+    });
+
+    app.head('/api/weather/nowcast/:product/tiles/:z/:x/:y.png', (_req, res) => {
+      res.setHeader('Allow', 'GET');
+      sendJsonNoStore(res, 405, { status: 'error', code: 'method_not_allowed' });
+    });
+
+    app.get('/api/weather/nowcast/:product/tiles/:z/:x/:y.png', async (req, res) => {
+      const parsed = parseNowcastTileRequest(req.params, req.query);
+      if (!parsed.ok) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      if (terminal === null) {
+        sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      if (parsed.value.controlStatus !== 'normal') {
+        sendJsonNoStore(res, 422, { status: 'error', code: 'unsupported_control_status' });
+        return;
+      }
+      try {
+        const result = await nowcastApi.getTile(parsed.value.frame, parsed.value.coordinate);
+        if (result.kind === 'success') {
+          res.setHeader('Cache-Control', 'no-store');
+          res.setHeader('Content-Type', 'image/png');
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('X-Wx-Catalog-Availability', result.catalogAvailability);
+          res.setHeader('X-Wx-Tile-Result', result.tileResult);
+          res.setHeader('X-Wx-Tile-Stored-At', result.storedAt);
+          res.status(200).end(result.buffer);
+        } else {
+          sendJsonNoStore(res, result.httpStatus, result.error);
+        }
+      } catch (err) {
+        if (err instanceof ImageServicesInitializingError) {
+          sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
+          return;
+        }
+        sendJsonNoStore(res, 500, { status: 'error', code: 'tile_read_failed' });
+      }
+    });
+  }
+
+  if (dependencies.kikikuruApi) {
+    const kikikuruApi = dependencies.kikikuruApi;
+
+    app.get('/api/weather/kikikuru/times', (req, res) => {
+      const parsed = parseWeatherApiQuery(req.query);
+      if (!parsed.ok) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      if (terminal === null) {
+        sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      try {
+        const result = kikikuruApi.getTimes(terminal, parsed.value.controlStatus);
+        sendJsonNoStore(res, 200, result);
+      } catch (err) {
+        if (err instanceof ImageServicesInitializingError) {
+          sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
+          return;
+        }
+        sendJsonNoStore(res, 500, { status: 'error', code: 'weather_read_failed' });
+      }
+    });
+
+    app.head('/api/weather/kikikuru/:layer/tiles/:z/:x/:y.png', (_req, res) => {
+      res.setHeader('Allow', 'GET');
+      sendJsonNoStore(res, 405, { status: 'error', code: 'method_not_allowed' });
+    });
+
+    app.get('/api/weather/kikikuru/:layer/tiles/:z/:x/:y.png', async (req, res) => {
+      const parsed = parseKikikuruTileRequest(req.params, req.query);
+      if (!parsed.ok) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      if (terminal === null) {
+        sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      if (parsed.value.controlStatus !== 'normal') {
+        sendJsonNoStore(res, 422, { status: 'error', code: 'unsupported_control_status' });
+        return;
+      }
+      try {
+        const result = await kikikuruApi.getTile(parsed.value.frame, parsed.value.coordinate);
+        if (result.kind === 'success') {
+          res.setHeader('Cache-Control', 'no-store');
+          res.setHeader('Content-Type', 'image/png');
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('X-Wx-Catalog-Availability', result.catalogAvailability);
+          res.setHeader('X-Wx-Tile-Result', result.tileResult);
+          res.setHeader('X-Wx-Tile-Stored-At', result.storedAt);
+          res.status(200).end(result.buffer);
+        } else {
+          sendJsonNoStore(res, result.httpStatus, result.error);
+        }
+      } catch (err) {
+        if (err instanceof ImageServicesInitializingError) {
+          sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
+          return;
+        }
+        sendJsonNoStore(res, 500, { status: 'error', code: 'tile_read_failed' });
+      }
+    });
+  }
+
+  // 不正 percent encoding は 400 invalid_request に正規化する（§3.1）
   // JSON 構文エラーは入力値を返さず、起動 API の契約どおり 400 に統一する。
   app.use(
     (error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (error instanceof URIError) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
       if (error instanceof SyntaxError && 'body' in error) {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
         return;

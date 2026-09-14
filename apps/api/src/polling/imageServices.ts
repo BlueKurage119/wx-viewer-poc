@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import { TILE_API_ALLOWED_ZOOMS, type UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   getNextEnabledAt,
@@ -102,7 +102,7 @@ export function createImageServices(options: CreateImageServicesOptions): ImageS
 
   const rawNowcast = new NowcastService(options.connection, {
     cacheRoot: nowcastCacheRoot,
-    allowedZooms: [10],
+    allowedZooms: [...TILE_API_ALLOWED_ZOOMS],
     getCatalogAccess,
     getImageAccess: () => getImageAccess('nowcast'),
     freshnessPolicy: options.schedule.freshness.imageCatalog,
@@ -112,7 +112,7 @@ export function createImageServices(options: CreateImageServicesOptions): ImageS
 
   const rawKikikuru = new KikikuruService(options.connection, {
     cacheRoot: kikikuruCacheRoot,
-    allowedZooms: [10],
+    allowedZooms: [...TILE_API_ALLOWED_ZOOMS],
     getCatalogAccess,
     getImageAccess: () => getImageAccess('kikikuru'),
     freshnessPolicy: options.schedule.freshness.imageCatalog,
