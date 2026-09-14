@@ -216,9 +216,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     });
 
     app.head('/api/weather/nowcast/:product/tiles/:z/:x/:y.png', (_req, res) => {
-      res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Allow', 'GET');
-      res.status(405).json({ status: 'error', code: 'method_not_allowed' });
+      sendJsonNoStore(res, 405, { status: 'error', code: 'method_not_allowed' });
     });
 
     app.get('/api/weather/nowcast/:product/tiles/:z/:x/:y.png', async (req, res) => {
@@ -286,9 +285,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     });
 
     app.head('/api/weather/kikikuru/:layer/tiles/:z/:x/:y.png', (_req, res) => {
-      res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Allow', 'GET');
-      res.status(405).json({ status: 'error', code: 'method_not_allowed' });
+      sendJsonNoStore(res, 405, { status: 'error', code: 'method_not_allowed' });
     });
 
     app.get('/api/weather/kikikuru/:layer/tiles/:z/:x/:y.png', async (req, res) => {

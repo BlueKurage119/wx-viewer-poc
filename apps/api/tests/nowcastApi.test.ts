@@ -1151,6 +1151,7 @@ test('B17: ナウキャスト - HEAD 送信で 405/Allow: GET (呼出し 0 回)�
     assert.equal(resHead.statusCode, 405);
     assert.equal(resHead.headers['allow'], 'GET');
     assert.equal(resHead.headers['cache-control'], 'no-store');
+    assert.equal(resHead.headers['etag'], undefined);
     assert.equal(callCount, 0);
 
     // 不正 percent encoding
