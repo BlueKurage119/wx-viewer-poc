@@ -4,6 +4,7 @@ import type {
   NotificationTarget,
   ResolvedNotificationOutputSnapshot,
 } from './notification.js';
+import type { NotificationDeltaCursor } from './notificationDeltaCursor.js';
 import type { TerminalSessionId, TerminalSessionInquiryKind } from './terminalSession.js';
 import { isTerminalSessionId } from './terminalSession.js';
 import type { UtcIso8601String } from './types.js';
@@ -43,6 +44,8 @@ export interface StartupNotificationReadyResponse {
   };
   readonly warningClaimed: boolean;
   readonly notifications: readonly StartupCurrentNotification[];
+  /** 通常差分の開始位置。この値を GET /api/notifications/delta の cursor に渡す。 */
+  readonly cursor: NotificationDeltaCursor;
 }
 
 export type StartupNotificationErrorResponse = {

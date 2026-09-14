@@ -2,6 +2,9 @@ export const SHARED_PACKAGE_NAME = '@wx-viewer-poc/shared';
 
 export * from './availability.js';
 export * from './notification.js';
+export * from './notificationDeltaCursor.js';
+export * from './notificationDelta.js';
+export * from './notificationFeed.js';
 export * from './notificationMessageDefinitions.js';
 export * from './startupNotification.js';
 export * from './terminalConfig.js';
