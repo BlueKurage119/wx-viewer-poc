@@ -618,7 +618,9 @@ test('受け入れ条件23: 再開時の復旧（しきい値30分）', async ()
     await service.request('stop', '55555555-5555-4555-8555-555555555555');
 
     // 30分ちょうど後の開始: 復旧する
-    currentIso = new Date(Date.parse(currentIso) + RESUME_RECOVERY_THRESHOLD_MS).toISOString();
+    // §9-B 確定事項(5): しきい値30分は固定値。実装の定数からではなくリテラル値からコピーして、
+    // 定数の値が変わってもテストが追従してしまわないようにする。
+    currentIso = new Date(Date.parse(currentIso) + 30 * 60 * 1000).toISOString();
     await service.request('start', '66666666-6666-4666-8666-666666666666');
     assert.equal(targets.runRecoveryCalls, 1);
 
@@ -782,6 +784,135 @@ test('受け入れ条件9: 強制更新の実行前後で定期予定(nextRunAt�
 
       await scheduler.stop();
     }
+  } finally {
+    cleanup();
+  }
+});
+
+test('受け入れ条件23(c): 復旧は長期フィード(regular_l/extra_l)を含み、manualトリガーには含まれない', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const now = () => '2026-09-15T10:00:00.000Z';
+
+    const recoveryUrls: string[] = [];
+    const recoveryFetchFn: typeof fetch = async (url) => {
+      recoveryUrls.push(String(url));
+      return new Response('', { status: 500 });
+    };
+    const recoveryXmlService = new JmaXmlPollingService(context.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+      fetchFn: recoveryFetchFn,
+      clock: now,
+    });
+    await recoveryXmlService.pollFeeds('recovery');
+    assert.ok(
+      recoveryUrls.some((u) => u.includes('regular_l.xml')),
+      'recovery は regular_l を含む',
+    );
+    assert.ok(
+      recoveryUrls.some((u) => u.includes('extra_l.xml')),
+      'recovery は extra_l を含む',
+    );
+
+    const manualUrls: string[] = [];
+    const manualFetchFn: typeof fetch = async (url) => {
+      manualUrls.push(String(url));
+      return new Response('', { status: 500 });
+    };
+    const manualXmlService = new JmaXmlPollingService(context.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+      fetchFn: manualFetchFn,
+      clock: now,
+    });
+    await manualXmlService.pollOnce('manual');
+    assert.equal(
+      manualUrls.some((u) => u.includes('regular_l.xml') || u.includes('extra_l.xml')),
+      false,
+      'manual トリガーは長期フィードを含まない',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('受け入れ条件11: 手動停止は時間帯境界を跨いでも維持される', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    // 19:59:50 JST から開始し、20:00・翌04:00 の時間帯境界を跨いで検証する。
+    let nowIso = '2026-09-15T19:59:50+09:00';
+    const nowFn = () => new Date(nowIso);
+    const fetchFn: typeof fetch = async () => new Response('', { status: 500 });
+    const xmlService = new JmaXmlPollingService(context.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+      fetchFn,
+      clock: () => nowFn().toISOString(),
+    });
+
+    const callCounts = { nowcast: 0, kikikuru: 0, amedas: 0 };
+    function countingAdapter(source: 'nowcast' | 'kikikuru' | 'amedas') {
+      return {
+        source,
+        runScheduled: async () => {
+          callCounts[source] += 1;
+        },
+        runManual: async () => {
+          callCounts[source] += 1;
+        },
+      };
+    }
+
+    const timers = new Map<number, () => void>();
+    let nextTimerId = 1;
+    const setTimer = (cb: () => void) => {
+      const id = nextTimerId;
+      nextTimerId += 1;
+      timers.set(id, cb);
+      return id;
+    };
+    const clearTimer = (id: unknown) => {
+      timers.delete(id as number);
+    };
+
+    const schedule: PollingScheduleConfig = loadPollingScheduleConfig();
+    const scheduler = new TimeBasedPollingScheduler({
+      schedule,
+      adapters: [
+        countingAdapter('nowcast'),
+        countingAdapter('kikikuru'),
+        countingAdapter('amedas'),
+      ],
+      xmlPollingService: xmlService,
+      now: nowFn,
+      setTimer,
+      clearTimer,
+    });
+
+    await scheduler.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    // start() 直後に登録されたタイマー(境界タイマーを含む)のスナップショットを取る。
+    const timersAtStart = new Map(timers);
+    const before = { ...callCounts };
+
+    // 手動停止（境界タイマーも解除される想定）
+    await scheduler.stop();
+    assert.equal(scheduler.isRunningNow(), false);
+
+    // 疑似時計を 20:00 → 翌04:00 の境界を跨いで進める
+    nowIso = '2026-09-15T20:00:00+09:00';
+    assert.equal(scheduler.isRunningNow(), false);
+    nowIso = '2026-09-16T04:00:00+09:00';
+    assert.equal(scheduler.isRunningNow(), false);
+
+    // 回帰確認: stop() は稼働中に登録されていた全タイマー(境界タイマーを含む)を
+    // 実際に解除している。解除されていなければ、実タイマーの環境では境界到来時に
+    // コールバックが発火して定期取得が再開してしまう。
+    for (const id of timersAtStart.keys()) {
+      assert.equal(timers.has(id), false, `timer ${id} が stop() 後も残っている`);
+    }
+    assert.equal(timers.size, 0, 'stop() 後に未解除のタイマーが残っている');
+
+    assert.equal(scheduler.isRunningNow(), false);
+    assert.deepEqual(callCounts, before);
   } finally {
     cleanup();
   }

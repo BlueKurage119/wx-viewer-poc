@@ -15,6 +15,7 @@ import {
 import { initializeDatabase } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
 import { createWeatherApiService } from '../src/services/weatherApiService.js';
+import type { WeatherApiService } from '../src/services/weatherApiService.js';
 import type { NowcastApiService } from '../src/services/nowcastApiService.js';
 import type { KikikuruApiService } from '../src/services/kikikuruApiService.js';
 import { recordTelegramReception } from '../src/repositories/telegramReceptionRepository.js';
@@ -238,6 +239,114 @@ function stubKikikuruApi(): KikikuruApiService {
   };
 }
 
+/**
+ * AC11: availability の3状態(available/stale/unavailable)が実際に共存することを検証するため、
+ * weatherApi をスタブして warning=available, warning_timeseries=stale を注入する。
+ * issuedAt/fetchedAt は保持された値のまま返ることを確認できるよう固定値を使う。
+ */
+const STUB_WARNING_ISSUED_AT = '2026-09-15T09:00:00.000Z' as UtcIso8601String;
+const STUB_WARNING_FETCHED_AT = '2026-09-15T09:05:00.000Z' as UtcIso8601String;
+const STUB_TIMESERIES_ISSUED_AT = '2026-09-15T08:00:00.000Z' as UtcIso8601String;
+const STUB_TIMESERIES_FETCHED_AT = '2026-09-15T08:10:00.000Z' as UtcIso8601String;
+
+function stubWeatherApi(): WeatherApiService {
+  const unavailableMetadata = {
+    source: null,
+    issuedAt: null,
+    validAt: null,
+    validFrom: null,
+    validTo: null,
+    fetchedAt: null,
+    lastSuccessAt: null,
+    availability: 'unavailable' as const,
+    sourceVersion: null,
+  };
+  const baseContext = (
+    terminal: { id: string; venueId: 'east' | 'trc' },
+    controlStatus: 'normal' | 'training' | 'test',
+  ) => ({
+    terminalId: terminal.id,
+    venueId: terminal.venueId,
+    controlStatus,
+    isTraining: controlStatus === 'training',
+    evaluatedAt: FIXED_NOW,
+  });
+
+  return {
+    getWarnings: (terminal, controlStatus) => ({
+      ...baseContext(terminal, controlStatus),
+      area: { code: '000', name: 'stub' },
+      metadata: {
+        source: 'xml',
+        issuedAt: STUB_WARNING_ISSUED_AT,
+        validAt: null,
+        validFrom: null,
+        validTo: null,
+        fetchedAt: STUB_WARNING_FETCHED_AT,
+        lastSuccessAt: STUB_WARNING_FETCHED_AT,
+        availability: 'available',
+        sourceVersion: null,
+      },
+      data: { items: [] },
+      capabilities: { unsupportedKindCodes: ['04', '18'], supplementSource: 'warning-timeseries' },
+    }),
+    getWarningTimeseries: (terminal, controlStatus) => ({
+      ...baseContext(terminal, controlStatus),
+      area: { code: '000', name: 'stub' },
+      metadata: {
+        source: 'xml',
+        issuedAt: STUB_TIMESERIES_ISSUED_AT,
+        validAt: null,
+        validFrom: null,
+        validTo: null,
+        fetchedAt: STUB_TIMESERIES_FETCHED_AT,
+        lastSuccessAt: STUB_TIMESERIES_FETCHED_AT,
+        availability: 'stale',
+        sourceVersion: null,
+      },
+      data: null,
+    }),
+    getEarlyWarning: (terminal, controlStatus) => ({
+      ...baseContext(terminal, controlStatus),
+      near: { area: { code: '000', name: 'stub' }, metadata: unavailableMetadata, data: null },
+      far: { area: { code: '000', name: 'stub' }, metadata: unavailableMetadata, data: null },
+    }),
+    getAreaTimeseries: (terminal, controlStatus) => ({
+      ...baseContext(terminal, controlStatus),
+      area: { code: '000', name: 'stub' },
+      metadata: unavailableMetadata,
+      data: null,
+      capabilities: {
+        blockIds: ['region-3hour', 'temperature-3hour'],
+        elements: ['weather', 'wind_direction', 'wind_speed_rank', 'temperature'],
+        unsupportedFields: ['weatherCode', 'windSpeedRange', 'windSpeedDescription'],
+      },
+    }),
+    getAmedas: (terminal, controlStatus) => ({
+      ...baseContext(terminal, controlStatus),
+      station: { code: '000', name: 'stub' },
+      metadata: unavailableMetadata,
+      data: null,
+      capabilities: {
+        publicElements: ['temp', 'humidity', 'windDirection', 'wind', 'precipitation1h'],
+        unsupportedElements: [],
+      },
+    }),
+    getBulletins: (terminal, controlStatus) => ({
+      ...baseContext(terminal, controlStatus),
+      area: { code: '000', name: 'stub' },
+      availability: 'unavailable',
+      bulletins: [],
+      capabilities: {
+        telegramTypes: ['VPBS50', 'VPHW50', 'VPHW51'],
+        sightingUndeterminableTypes: ['VPHW50', 'VPBS50'],
+        unsupportedFields: ['editorialOffice', 'publishingOffice'],
+        deduplicated: false,
+      },
+    }),
+  };
+}
+
 function fakeStartupStatus(
   overrides?: Partial<StartupNotificationInitializationStatus>,
 ): StartupNotificationInitializationStatus {
@@ -254,13 +363,16 @@ interface BuildAppOptions {
   readonly xmlStatus?: JmaXmlPollingStatus;
   readonly aggregate?: FetchHealthAggregate | null;
   readonly startupStatus?: StartupNotificationInitializationStatus;
+  readonly weatherApi?: WeatherApiService;
 }
 
 function buildApp(options: BuildAppOptions) {
-  const weatherApi = createWeatherApiService({
-    connection: options.connection,
-    now: () => FIXED_NOW,
-  });
+  const weatherApi =
+    options.weatherApi ??
+    createWeatherApiService({
+      connection: options.connection,
+      now: () => FIXED_NOW,
+    });
   const nowcastApi = stubNowcastApi();
   const kikikuruApi = stubKikikuruApi();
 
@@ -470,6 +582,11 @@ test('AC4 タイルを健全性系列として返さないこと（確定事項4
       );
       assert.equal(body.tiles.healthMonitored, false);
       assert.equal(body.tiles.healthCriteriaStatus, 'undecided');
+
+      // §4.3: tiles 自身は status フィールドを持たない。トップレベルキー集合の完全一致で検証する。
+      const tilesKeys = new Set(Object.keys(body.tiles));
+      assert.deepEqual(tilesKeys, new Set(['healthMonitored', 'healthCriteriaStatus', 'layers']));
+
       const layer0Keys = new Set(Object.keys(body.tiles.layers[0]!));
       assert.deepEqual(
         layer0Keys,
@@ -975,6 +1092,52 @@ test('AC9 検索上限（確定事項3）', async () => {
   }
 });
 
+test('AC9(e) notification-outputs・operations の limit 範囲検証', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const app = buildApp({ connection: context.connection });
+    const { baseUrl, close } = await startTestServer(app);
+    try {
+      for (const path of ['/api/monitoring/notification-outputs', '/api/monitoring/operations']) {
+        for (const badLimit of ['201', '1000', '0', '-1', '1.5', 'abc']) {
+          const res = await fetch(`${baseUrl}${path}?limit=${badLimit}`);
+          assert.equal(res.status, 400, `${path}?limit=${badLimit}`);
+        }
+
+        const at200 = await fetch(`${baseUrl}${path}?limit=200`);
+        assert.equal(at200.status, 200, `${path}?limit=200`);
+
+        const withOffset = await fetch(`${baseUrl}${path}?offset=250`);
+        assert.equal(withOffset.status, 200, `${path}?offset=250`);
+      }
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC10(c) operations が空のとき ready・totalCount0・items空を返す', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const app = buildApp({ connection: context.connection });
+    const { baseUrl, close } = await startTestServer(app);
+    try {
+      const res = await fetch(`${baseUrl}/api/monitoring/operations`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { status: string; totalCount: number; items: unknown[] };
+      assert.equal(body.status, 'ready');
+      assert.equal(body.totalCount, 0);
+      assert.deepEqual(body.items, []);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
 test('AC10(a) 会場別セクションは全会場分を返す（確定事項6）', async () => {
   const { context, cleanup } = createDb();
   try {
@@ -1110,22 +1273,42 @@ test('AC10(a) 会場別セクションは全会場分を返す（確定事項6�
 test('AC11 availability 3状態を縮退させないこと', async () => {
   const { context, cleanup } = createDb();
   try {
-    const app = buildApp({ connection: context.connection });
+    // weatherApi をスタブし、warning=available・warning_timeseries=stale を注入する。
+    // nowcast/kikikuru は既定スタブにより unavailable のまま。これで応答中に3状態が共存する。
+    const app = buildApp({ connection: context.connection, weatherApi: stubWeatherApi() });
     const { baseUrl, close } = await startTestServer(app);
     try {
       const res = await fetch(`${baseUrl}/api/monitoring/status?terminalId=hkeagh01`);
       const body = (await res.json()) as {
-        information: readonly { kind: string; availability: string }[];
+        information: readonly {
+          kind: string;
+          availability: string;
+          issuedAt: string | null;
+          fetchedAt: string | null;
+        }[];
       };
+
       const warning = body.information.find((i) => i.kind === 'warning');
-      assert.equal(warning?.availability, 'unavailable');
+      assert.equal(warning?.availability, 'available');
+      assert.equal(warning?.issuedAt, STUB_WARNING_ISSUED_AT);
+      assert.equal(warning?.fetchedAt, STUB_WARNING_FETCHED_AT);
+
+      const warningTimeseries = body.information.find((i) => i.kind === 'warning_timeseries');
+      assert.equal(warningTimeseries?.availability, 'stale');
+      assert.equal(warningTimeseries?.issuedAt, STUB_TIMESERIES_ISSUED_AT);
+      assert.equal(warningTimeseries?.fetchedAt, STUB_TIMESERIES_FETCHED_AT);
+
+      const nowcastInfo = body.information.find((i) => i.kind === 'nowcast');
+      assert.equal(nowcastInfo?.availability, 'unavailable');
+
+      // 3状態が同一応答内に実際に共存していることを確認する（縮退していないこと）。
       const availabilities = new Set(body.information.map((i) => i.availability));
-      assert.ok(['available', 'stale', 'unavailable'].every((a) => a));
+      assert.deepEqual(availabilities, new Set(['available', 'stale', 'unavailable']));
+
       for (const info of body.information) {
         assert.ok(['available', 'stale', 'unavailable'].includes(info.availability));
         assert.equal('isAvailable' in (info as unknown as Record<string, unknown>), false);
       }
-      void availabilities;
     } finally {
       await close();
     }
