@@ -28,7 +28,11 @@ import {
 } from '../src/repositories/notificationOutputHistoryRepository.js';
 import { countOperationHistory } from '../src/repositories/operationHistoryRepository.js';
 import { JmaXmlPollingService } from '../src/polling/jmaXmlPollingService.js';
-import { TimeBasedPollingScheduler } from '../src/polling/timeBasedPollingScheduler.js';
+import {
+  TimeBasedPollingScheduler,
+  NowcastScheduledAdapter,
+  KikikuruScheduledAdapter,
+} from '../src/polling/timeBasedPollingScheduler.js';
 import { NowcastService } from '../src/polling/nowcastService.js';
 import { KikikuruService } from '../src/polling/kikikuruService.js';
 import { resolvePollingPeriod, type PollingScheduleConfig } from '../src/config/pollingSchedule.js';
@@ -267,6 +271,48 @@ test('受け入れ条件7: 強制更新の同時実行集約（別requestId）',
       .all() as { request_id: string; requested_at: string }[];
     assert.equal(rows.length, 2);
     assert.deepEqual(rows.map((r) => r.request_id).sort(), [UUID_A, UUID_B].sort());
+  } finally {
+    cleanup();
+  }
+});
+
+test('レビュー指摘#3: 強制更新は開始・停止と同じ直列レーンに乗り、実行順を追い越さない', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const startDeferred = makeDeferred<void>();
+    const callOrder: string[] = [];
+    const targets = createStubTargets({
+      async start() {
+        callOrder.push('start-called');
+        await startDeferred.promise;
+        callOrder.push('start-finished');
+      },
+      async forceRefresh() {
+        callOrder.push('forceRefresh-called');
+      },
+    });
+    const service = createFetchControlService({
+      connection: context.connection,
+      targets,
+      now: () => new Date().toISOString() as UtcIso8601String,
+    });
+
+    // start が実行中(共有レーンを保持中)に別 requestId の force_refresh が届く。
+    const startPromise = service.request('start', UUID_A);
+    await Promise.resolve();
+    assert.deepEqual(callOrder, ['start-called']);
+
+    const forcePromise = service.request('force_refresh', UUID_B);
+    await Promise.resolve();
+    await Promise.resolve();
+    // レビュー指摘#3が未修正だと、force_refresh が lane を経由せず即座に実行され、
+    // ここで 'forceRefresh-called' が 'start-finished' より先に記録されてしまう。
+    assert.deepEqual(callOrder, ['start-called'], 'force_refresh は start 完了まで実行されない');
+
+    startDeferred.resolve();
+    await Promise.all([startPromise, forcePromise]);
+
+    assert.deepEqual(callOrder, ['start-called', 'start-finished', 'forceRefresh-called']);
   } finally {
     cleanup();
   }
@@ -786,6 +832,76 @@ test('受け入れ条件9: 強制更新の実行前後で定期予定(nextRunAt�
     }
   } finally {
     cleanup();
+  }
+});
+
+test('レビュー指摘#1: XML取得が例外を投げず失敗結果を返すだけでも runManualOnce は失敗を検知する', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const now = () => '2026-09-15T10:00:00.000Z';
+    // 上流が常に500を返す。JmaXmlPollingService.pollOnce は例外を投げず、
+    // feedResults に feedFetchOutcome: 'failure' を記録するだけで正常終了する。
+    const fetchFn: typeof fetch = async () => new Response('', { status: 500 });
+    const xmlService = new JmaXmlPollingService(context.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+      fetchFn,
+      clock: now,
+    });
+    const schedule: PollingScheduleConfig = loadPollingScheduleConfig();
+    const scheduler = new TimeBasedPollingScheduler({
+      schedule,
+      adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+      xmlPollingService: xmlService,
+      now: () => new Date(now()),
+      setTimer: () => 1,
+      clearTimer: () => {},
+    });
+
+    const result = await scheduler.runManualOnce();
+    assert.ok(
+      result.failedSources.includes('xml'),
+      `failedSources に xml が含まれるべき: ${JSON.stringify(result.failedSources)}`,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('レビュー指摘#1: nowcast/kikikuru の取得失敗時は runManual() が例外を投げる', async () => {
+  const { context, cleanup } = createDb();
+  const nowcastCacheRoot = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-nowcast-cache-'));
+  const kikikuruCacheRoot = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-kikikuru-cache-'));
+  try {
+    const clock = () => '2026-09-15T10:00:00.000Z' as UtcIso8601String;
+    const failFetch: typeof fetch = async () => new Response('Error', { status: 500 });
+
+    const nowcastService = new NowcastService(context.connection, {
+      cacheRoot: nowcastCacheRoot,
+      allowedZooms: [10],
+      getCatalogAccess: () => ({ allowed: true, period: {} as never, nextAllowedAt: null }),
+      getImageAccess: () => ({ allowed: true, period: {} as never, nextAllowedAt: null }),
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+      fetchFn: failFetch,
+      clock,
+    });
+    const nowcastAdapter = new NowcastScheduledAdapter(nowcastService);
+    await assert.rejects(() => nowcastAdapter.runManual());
+
+    const kikikuruService = new KikikuruService(context.connection, {
+      cacheRoot: kikikuruCacheRoot,
+      allowedZooms: [10],
+      getCatalogAccess: () => ({ allowed: true, period: {} as never, nextAllowedAt: null }),
+      getImageAccess: () => ({ allowed: true, period: {} as never, nextAllowedAt: null }),
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+      fetchFn: failFetch,
+      clock,
+    });
+    const kikikuruAdapter = new KikikuruScheduledAdapter(kikikuruService);
+    await assert.rejects(() => kikikuruAdapter.runManual());
+  } finally {
+    cleanup();
+    rmSync(nowcastCacheRoot, { recursive: true, force: true });
+    rmSync(kikikuruCacheRoot, { recursive: true, force: true });
   }
 });
 

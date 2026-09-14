@@ -42,6 +42,14 @@ export class NowcastService {
 
   private queueN1: Promise<unknown> = Promise.resolve();
   private queueN2: Promise<unknown> = Promise.resolve();
+  /**
+   * 直近の refreshTimes() 呼び出しで、上流取得または解析が失敗したか。
+   * Issue #43 レビュー指摘 #1: runManualOnce() が強制更新の失敗を検知できるように、
+   * NowcastCatalog（availability 3状態は前回正常値を保持し縮退させない）とは別に
+   * 「今回の呼び出し自体が失敗したか」を公開する。catalogAccess で取得自体をスキップした
+   * 場合（夜間停止等）は失敗として扱わない。
+   */
+  private lastRefreshFailed = false;
 
   constructor(connection: DatabaseConnection, options: NowcastOptions) {
     this.connection = connection;
@@ -104,21 +112,31 @@ export class NowcastService {
         ? this.options.getManualCatalogAccess()
         : this.options.getCatalogAccess();
     if (!catalogAccess.allowed) {
+      // 取得自体を行っていない（夜間停止等の意図的スキップ）ため失敗として扱わない。
+      this.lastRefreshFailed = false;
       return this.readCatalog();
     }
 
-    await Promise.all([
+    const outcomes = await Promise.all([
       this.refreshProductTimes('N1', options),
       this.refreshProductTimes('N2', options),
     ]);
+    this.lastRefreshFailed = outcomes.some((outcome) => outcome === 'failure');
 
     return this.readCatalog();
+  }
+
+  /**
+   * 直近の refreshTimes() 呼び出しが失敗したか。Issue #43 §4.3 の強制更新失敗検知に使う。
+   */
+  hasLastRefreshFailed(): boolean {
+    return this.lastRefreshFailed;
   }
 
   private async refreshProductTimes(
     product: RadarProduct,
     options?: NowcastAttemptOptions,
-  ): Promise<void> {
+  ): Promise<'success' | 'failure'> {
     return this.enqueue(product, async () => {
       const clock = this.getClock();
       const startedAt = clock();
@@ -267,6 +285,8 @@ export class NowcastService {
           });
         }
       }
+
+      return outcome;
     });
   }
 

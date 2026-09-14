@@ -35,6 +35,7 @@ import {
   TimeBasedPollingScheduler,
   createScheduledAdapters,
   createImageServices,
+  buildStoppedPollingStatus,
   type ImageServices,
   type JmaXmlPollingServiceOptions,
   type TimeBasedPollingSchedulerOptions,
@@ -282,19 +283,20 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   });
   const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
     connection: database.connection,
+    // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
+    // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
+    // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
     scheduler: {
-      getStatus: () =>
-        scheduler?.getStatus() ??
-        (() => {
-          throw new Error('scheduler is not ready');
-        })(),
+      getStatus: () => scheduler?.getStatus() ?? buildStoppedPollingStatus(nowFnHolder(), schedule),
+      isRunningNow: () => scheduler?.isRunningNow() ?? false,
     },
     xmlPollingService: {
-      getStatus: () =>
-        pollingService?.getStatus() ??
-        (() => {
-          throw new Error('polling service is not ready');
-        })(),
+      getStatus: () => ({
+        initialFetch: pollingService?.getStatus().initialFetch ?? {
+          phase: 'not_started',
+          result: null,
+        },
+      }),
     },
     fetchHealthMonitor: {
       getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
@@ -590,19 +592,20 @@ async function main(): Promise<void> {
   });
   const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
     connection: database.connection,
+    // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
+    // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
+    // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
     scheduler: {
-      getStatus: () =>
-        scheduler?.getStatus() ??
-        (() => {
-          throw new Error('scheduler is not ready');
-        })(),
+      getStatus: () => scheduler?.getStatus() ?? buildStoppedPollingStatus(nowFnHolder(), schedule),
+      isRunningNow: () => scheduler?.isRunningNow() ?? false,
     },
     xmlPollingService: {
-      getStatus: () =>
-        pollingService?.getStatus() ??
-        (() => {
-          throw new Error('polling service is not ready');
-        })(),
+      getStatus: () => ({
+        initialFetch: pollingService?.getStatus().initialFetch ?? {
+          phase: 'not_started',
+          result: null,
+        },
+      }),
     },
     fetchHealthMonitor: {
       getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,

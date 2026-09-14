@@ -373,11 +373,22 @@ export function createFetchControlService(
 
       if (kind === 'force_refresh') {
         if (activeForceRefresh) {
+          // レビュー指摘 #3・設計§5.4-3: 実行中（レーン待機中を含む）の強制更新へ合流する。
+          // この分岐だけは共有レーンを新たに取らない。
           const outcome = await activeForceRefresh.promise;
           return finalizeOperation(kind, requestId, requestedAt, outcome);
         }
-        const sharedPromise = runForceRefresh();
+        // レビュー指摘 #3・設計§5.4-4: 新規の強制更新は共有レーンに乗せ、開始・停止と直列化する。
+        // activeForceRefresh はレーンの順番が回ってくるのを待たず「この場で」同期的に登録する
+        // ことで、レーン待機中に届いた別 requestId の強制更新も正しくこの sharedPromise へ
+        // 合流できるようにする（レーン内で登録すると、その順番が来るまでの間に届いた要求が
+        // 合流できず、開始・停止を挟んで上流取得が複数回走ってしまう）。
+        const sharedPromise = lane.then(() => runForceRefresh());
         activeForceRefresh = { promise: sharedPromise };
+        lane = sharedPromise.then(
+          () => undefined,
+          () => undefined,
+        );
         let outcome: RunOutcome;
         try {
           outcome = await sharedPromise;

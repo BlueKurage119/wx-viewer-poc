@@ -153,7 +153,16 @@ export class TimeBasedPollingScheduler {
 
     const xmlTask = (async () => {
       try {
-        await this.xmlPollingService.pollOnce('manual');
+        const result = await this.xmlPollingService.pollOnce('manual');
+        // レビュー指摘 #1: pollOnce は上流の取得失敗（HTTP異常・不正JSON等）で例外を
+        // 投げず、feedResults に失敗を記録するだけの場合がある。ここを検査しないと
+        // failedSources が常に空になり、強制更新APIが誤って success を返してしまう。
+        const hasFailedFeed = result.feedResults.some(
+          (feedResult) => feedResult.feedFetchOutcome === 'failure',
+        );
+        if (hasFailedFeed) {
+          failedSources.push('xml');
+        }
       } catch (err) {
         failedSources.push('xml');
         console.error('[TimeBasedPollingScheduler] manual xml poll failed:', err);
@@ -572,9 +581,17 @@ export class NowcastScheduledAdapter implements ScheduledPollAdapter {
     await this.service.refreshTimes({ triggerKind: 'scheduled' });
   }
 
-  /** Issue #43 §9-A: 手動強制更新は夜間帯の索引取得ゲートを迂回する。 */
+  /**
+   * Issue #43 §9-A: 手動強制更新は夜間帯の索引取得ゲートを迂回する。
+   * レビュー指摘 #1: 上流取得・解析が失敗していれば例外を投げ、runManualOnce() の
+   * failedSources 検知が機能するようにする（NowcastCatalog は前回正常値を保持し
+   * 縮退させないため、catalog の availability だけでは今回の失敗を判定できない）。
+   */
   async runManual(): Promise<void> {
     await this.service.refreshTimes({ triggerKind: 'manual', bypassScheduleStop: true });
+    if (this.service.hasLastRefreshFailed()) {
+      throw new Error('nowcast の時刻一覧取得または解析に失敗しました');
+    }
   }
 }
 
@@ -586,9 +603,15 @@ export class KikikuruScheduledAdapter implements ScheduledPollAdapter {
     await this.service.refreshTimes({ triggerKind: 'scheduled' });
   }
 
-  /** Issue #43 §9-A: 手動強制更新は夜間帯の索引取得ゲートを迂回する。 */
+  /**
+   * Issue #43 §9-A: 手動強制更新は夜間帯の索引取得ゲートを迂回する。
+   * レビュー指摘 #1: 失敗時に例外を投げ、runManualOnce() の failedSources 検知を機能させる。
+   */
   async runManual(): Promise<void> {
     await this.service.refreshTimes({ triggerKind: 'manual', bypassScheduleStop: true });
+    if (this.service.hasLastRefreshFailed()) {
+      throw new Error('kikikuru の時刻一覧取得または解析に失敗しました');
+    }
   }
 }
 
@@ -639,14 +662,30 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
     }
   }
 
-  /** Issue #43 §4.3: lastPointFetchStartedAtMs を更新しない単発実行。 */
+  /**
+   * Issue #43 §4.3: lastPointFetchStartedAtMs を更新しない単発実行。
+   * レビュー指摘 #1: 最新時刻・地点データのいずれかが失敗していれば例外を投げ、
+   * runManualOnce() の failedSources 検知が機能するようにする。
+   * pointData は latest_time 失敗時のみ意図的に未試行（skipReason: 'latest_time_failed'）
+   * になるため、attempted な場合だけ succeeded を確認する。
+   */
   async runManual(): Promise<void> {
-    await runAmedasFetchCycle(this.connection, this.state, {
+    const result = await runAmedasFetchCycle(this.connection, this.state, {
       ...this.fetchOptions,
       triggerKind: 'manual',
       backfillBlocks: 0,
       pointFetchPolicy: 'always',
     });
+    if (!result.latestTime.succeeded) {
+      throw new Error(
+        `アメダス最新時刻の取得に失敗しました: ${result.latestTime.errorMessage ?? '不明なエラー'}`,
+      );
+    }
+    if (result.pointData.attempted && !result.pointData.succeeded) {
+      throw new Error(
+        `アメダス地点データの取得に失敗しました: ${result.pointData.errorMessage ?? '不明なエラー'}`,
+      );
+    }
   }
 }
 
