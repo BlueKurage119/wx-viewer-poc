@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { WeatherMapView } from '../src/map/WeatherMapView.tsx';
 import { terminals } from '../src/shell/config.ts';
-import { LAYER_PRESENTATIONS } from '../src/map/fixtures.ts';
+import { LAYER_PRESENTATIONS, emptyTimeline } from '../src/map/fixtures.ts';
 
 const el = React.createElement;
 
@@ -54,6 +54,20 @@ test('WeatherMapView: trc (東京流通センター) で地図構造と全コン
   assert.ok(html.includes('map-attribution'));
   assert.ok(html.includes('map-zoom-controls'));
   assert.ok(html.includes('timeline-control-card'));
+});
+
+test('WeatherMapView: F4 境界 - 外部から渡された表示モデル (空カタログ等) をそのまま描画する', () => {
+  const eastTerminal = terminals.find((t) => t.venue.id === 'east')!;
+  const html = renderToStaticMarkup(
+    el(WeatherMapView, {
+      venue: eastTerminal.venue,
+      timelineViewModel: emptyTimeline,
+    }),
+  );
+
+  // 空カタログのメッセージがそのまま表示されること
+  assert.ok(html.includes('利用可能な時刻はありません'));
+  assert.ok(html.includes('timeline-slider-empty'));
 });
 
 test('F5/F6 状態独立性: 会場復帰やレイヤー選択のデータ整合性', () => {

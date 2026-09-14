@@ -7,8 +7,9 @@ export interface MapInformationColumnSlotProps {
 /**
  * 右側情報列の予約スロット (F1 / G1)
  *
- * G1 が後から実カード列を渡すまで同じ位置・幅を占め、会場中心補正のための測定基準となる。
- * 情報カードの見出し、アイコン、データ、スクロール内容は持たない。
+ * 将来 G1 がダークカード列を配置するためのコンテナ。
+ * カード間に地図が見えるよう、スロット自体は不透明な面や境界線・影を持たない。
+ * 会場中心補正のための遮蔽領域（幅）を確保し、列の一括スクロール操作面を提供する。
  */
 export const MapInformationColumnSlot = forwardRef<HTMLElement, MapInformationColumnSlotProps>(
   function MapInformationColumnSlot({ children }, ref) {

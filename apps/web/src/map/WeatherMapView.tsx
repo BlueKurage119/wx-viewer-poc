@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { Venue } from '../shell/config';
 import type { MapLayerId, TimelineIntent, TimelineViewModel } from './types';
-import { LAYER_PRESENTATIONS, sampleNowcastTimeline, sampleKikikuruTimeline } from './fixtures';
+import { LAYER_PRESENTATIONS, sampleNowcastTimeline } from './fixtures';
 import { MapViewport, type MapViewportHandle } from './MapViewport';
 import { MapInformationColumnSlot } from './MapInformationColumnSlot';
 import { MapLegend } from './MapLegend';
@@ -12,14 +12,29 @@ import { LayerSelector } from './LayerSelector';
 
 export interface WeatherMapViewProps {
   venue: Venue;
-  initialTimeline?: TimelineViewModel;
+  timelineViewModel?: TimelineViewModel;
+  onTimelineIntent?: (intent: TimelineIntent) => void;
+  selectedLayerId?: MapLayerId;
+  onLayerSelect?: (layerId: MapLayerId) => void;
 }
 
 /**
  * 防災気象情報地図ビュー統括コンポーネント (F1, F4, F5, F6)
+ *
+ * F4/F5 の責務境界に従い、タイムライン表示モデルの描画と、
+ * ユーザー操作による TimelineIntent / レイヤー選択の通知のみを行う。
+ * 時刻選択遷移・再生タイマー・最新追従・カタログ切り替えは後続 (F2/F3/F7) の所有とする。
  */
-export function WeatherMapView({ venue, initialTimeline }: WeatherMapViewProps) {
-  const [selectedLayerId, setSelectedLayerId] = useState<MapLayerId>('nowcast');
+export function WeatherMapView({
+  venue,
+  timelineViewModel = sampleNowcastTimeline,
+  onTimelineIntent,
+  selectedLayerId: controlledLayerId,
+  onLayerSelect,
+}: WeatherMapViewProps) {
+  const [internalLayerId, setInternalLayerId] = useState<MapLayerId>('nowcast');
+  const currentLayerId = controlledLayerId ?? internalLayerId;
+
   const [legendOpen, setLegendOpen] = useState(true);
   const [currentZoom, setCurrentZoom] = useState(10);
 
@@ -36,97 +51,18 @@ export function WeatherMapView({ venue, initialTimeline }: WeatherMapViewProps) 
 
   const viewportRef = useRef<MapViewportHandle>(null);
 
-  // レイヤー別の初期ビューモデル選択
-  const baseTimeline = useMemo(() => {
-    if (initialTimeline) return initialTimeline;
-    if (selectedLayerId.startsWith('kikikuru')) {
-      return {
-        ...sampleKikikuruTimeline,
-        layerLabel: LAYER_PRESENTATIONS[selectedLayerId].label,
-      };
+  const handleLayerSelect = (layerId: MapLayerId) => {
+    if (controlledLayerId === undefined) {
+      setInternalLayerId(layerId);
     }
-    return sampleNowcastTimeline;
-  }, [initialTimeline, selectedLayerId]);
+    onLayerSelect?.(layerId);
+  };
 
-  // タイムラインの選択・再生内部状態
-  const [selectedFrameId, setSelectedFrameId] = useState<string | null>(
-    () => baseTimeline.selectedFrameId,
-  );
-  const [playing, setPlaying] = useState(false);
+  const handleIntent = (intent: TimelineIntent) => {
+    onTimelineIntent?.(intent);
+  };
 
-  // レイヤー切り替え時にフレーム選択を同期
-  useEffect(() => {
-    setSelectedFrameId(baseTimeline.selectedFrameId);
-    setPlaying(false);
-  }, [baseTimeline]);
-
-  const frames = baseTimeline.frames;
-  const currentIndex = selectedFrameId ? frames.findIndex((f) => f.id === selectedFrameId) : -1;
-
-  // 再生タイマー (1秒間隔)
-  useEffect(() => {
-    if (!playing || frames.length === 0) return;
-
-    const timer = window.setInterval(() => {
-      setSelectedFrameId((currentId) => {
-        const idx = currentId ? frames.findIndex((f) => f.id === currentId) : -1;
-        if (idx < 0 || idx >= frames.length - 1) {
-          return frames[0]?.id ?? null;
-        }
-        return frames[idx + 1]?.id ?? null;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [playing, frames]);
-
-  // Intent ハンドラー (F4)
-  const handleIntent = useCallback(
-    (intent: TimelineIntent) => {
-      switch (intent.type) {
-        case 'select-frame':
-          setSelectedFrameId(intent.frameId);
-          break;
-        case 'previous-frame':
-          if (currentIndex > 0) {
-            const prev = frames[currentIndex - 1];
-            if (prev) setSelectedFrameId(prev.id);
-          }
-          break;
-        case 'next-frame':
-          if (currentIndex < frames.length - 1) {
-            const next = frames[currentIndex + 1];
-            if (next) setSelectedFrameId(next.id);
-          }
-          break;
-        case 'toggle-play':
-          setPlaying((prev) => !prev);
-          break;
-        case 'select-latest': {
-          const last = frames[frames.length - 1];
-          if (last) setSelectedFrameId(last.id);
-          break;
-        }
-      }
-    },
-    [currentIndex, frames],
-  );
-
-  // 現在の View Model を合成
-  const currentFrame = currentIndex >= 0 ? frames[currentIndex] : undefined;
-  const currentViewModel: TimelineViewModel = useMemo(
-    () => ({
-      layerLabel: LAYER_PRESENTATIONS[selectedLayerId].label,
-      selectedFrameId,
-      selectedFrameLabel: currentFrame ? `09/15 ${currentFrame.displayTime}` : '',
-      frames,
-      playing,
-      latestAvailable: baseTimeline.latestAvailable,
-    }),
-    [selectedLayerId, selectedFrameId, currentFrame, frames, playing, baseTimeline.latestAvailable],
-  );
-
-  const presentation = LAYER_PRESENTATIONS[selectedLayerId];
+  const presentation = LAYER_PRESENTATIONS[currentLayerId];
 
   // ズーム・会場復帰操作 (F6)
   const handleZoomIn = () => viewportRef.current?.zoomIn();
@@ -169,12 +105,12 @@ export function WeatherMapView({ venue, initialTimeline }: WeatherMapViewProps) 
       <div className="timeline-card-wrapper">
         <TimelineControlCard
           ref={bottomCardRef}
-          viewModel={currentViewModel}
+          viewModel={timelineViewModel}
           onIntent={handleIntent}
           layerSelector={
             <LayerSelector
-              selectedLayerId={selectedLayerId}
-              onLayerSelect={setSelectedLayerId}
+              selectedLayerId={currentLayerId}
+              onLayerSelect={handleLayerSelect}
               legendOpen={legendOpen}
               onOpenLegend={() => setLegendOpen(true)}
             />

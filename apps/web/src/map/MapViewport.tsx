@@ -34,8 +34,8 @@ function createVenueIcon(): L.DivIcon {
     className: 'wx-venue-marker-container',
     html: `<div class="wx-venue-marker-pin" aria-hidden="true">
       <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
-        <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22c0-7.732-6.268-14-14-14z" fill="var(--md-sys-color-error, #ba1a1a)"/>
-        <circle cx="14" cy="14" r="5" fill="var(--md-sys-color-on-error, #ffffff)"/>
+        <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22c0-7.732-6.268-14-14-14z" fill="var(--md-sys-color-error)"/>
+        <circle cx="14" cy="14" r="5" fill="var(--md-sys-color-on-error)"/>
       </svg>
     </div>`,
     iconSize: [28, 36],
