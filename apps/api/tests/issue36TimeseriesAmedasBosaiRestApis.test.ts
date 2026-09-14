@@ -1435,7 +1435,16 @@ test('#37 複数観測時点: observations が observedAt 昇順で返り、late
       availability: 'available',
       sourceVersion: '1.0',
     },
+    // 並び替えの検証のため、意図的に非昇順（06:00, 05:00, 05:30）で保存
     observations: [
+      {
+        observedAt: '2026-09-14T06:00:00.000Z',
+        element: 'temp',
+        valueNumber: 22.0,
+        valueText: null,
+        qualityFlag: 0,
+        isEstimated: false,
+      },
       {
         observedAt: '2026-09-14T05:00:00.000Z',
         element: 'temp',
@@ -1445,9 +1454,9 @@ test('#37 複数観測時点: observations が observedAt 昇順で返り、late
         isEstimated: false,
       },
       {
-        observedAt: '2026-09-14T05:00:00.000Z',
-        element: 'precipitation1h',
-        valueNumber: 0.0,
+        observedAt: '2026-09-14T06:00:00.000Z',
+        element: 'humidity',
+        valueNumber: 60,
         valueText: null,
         qualityFlag: 0,
         isEstimated: false,
@@ -1461,17 +1470,9 @@ test('#37 複数観測時点: observations が observedAt 昇順で返り、late
         isEstimated: false,
       },
       {
-        observedAt: '2026-09-14T06:00:00.000Z',
-        element: 'temp',
-        valueNumber: 22.0,
-        valueText: null,
-        qualityFlag: 0,
-        isEstimated: false,
-      },
-      {
-        observedAt: '2026-09-14T06:00:00.000Z',
-        element: 'humidity',
-        valueNumber: 60,
+        observedAt: '2026-09-14T05:00:00.000Z',
+        element: 'precipitation1h',
+        valueNumber: 0.0,
         valueText: null,
         qualityFlag: 0,
         isEstimated: false,
