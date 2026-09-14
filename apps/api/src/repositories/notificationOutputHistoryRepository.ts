@@ -119,11 +119,6 @@ function mapNotificationOutputHistoryRow(
 
   validateUtcIso8601String(row.occurred_at, 'occurred_at');
   validateUtcIso8601String(row.detected_at, 'detected_at');
-
-  if (row.target_area_json !== null) {
-    validateJson(row.target_area_json, 'target_area_json');
-  }
-  validateJson(row.related_refs_json, 'related_refs_json');
   validateNonEmptyString(row.summary, 'summary');
 
   if (
@@ -335,4 +330,27 @@ export function deleteNotificationOutputHistory(
 ): boolean {
   const result = connection.prepare('DELETE FROM notification_output_history WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export function findMaxNotificationOutputSequence(connection: DatabaseConnection): number {
+  const row = connection
+    .prepare('SELECT MAX(id) AS max_id FROM notification_output_history')
+    .get() as { max_id: number | null } | undefined;
+  return row?.max_id ?? 0;
+}
+
+export function listNotificationOutputHistoryAfter(
+  connection: DatabaseConnection,
+  afterSequence: number,
+): readonly NotificationOutputHistory[] {
+  if (!Number.isInteger(afterSequence) || afterSequence < 0) {
+    throw new Error(`afterSequence must be a non-negative integer: ${afterSequence}`);
+  }
+  const sql = `
+    SELECT * FROM notification_output_history
+    WHERE id > ?
+    ORDER BY id ASC
+  `;
+  const rows = connection.prepare(sql).all(afterSequence) as NotificationOutputHistoryRow[];
+  return rows.map(mapNotificationOutputHistoryRow);
 }

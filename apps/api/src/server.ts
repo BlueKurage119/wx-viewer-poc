@@ -29,6 +29,7 @@ import {
   InitialWarningNotificationTracker,
   InitialBosaiNotificationTracker,
   createStartupNotificationService,
+  createNotificationDeltaService,
   StartupNotificationInitialization,
   emitInitialWarningNotifications,
   emitInitialBosaiBulletinNotifications,
@@ -72,6 +73,7 @@ function createStartupNotificationRuntime(
   clock: () => string,
   getFetchHealth?: () => ReturnType<FetchHealthMonitorService['getLastAggregate']>,
 ) {
+  const serverGenerationId = crypto.randomUUID();
   const initialization = new StartupNotificationInitialization();
   const warningEmitDeps: WarningNotificationEmitDeps = {
     tracker: new InitialWarningNotificationTracker(),
@@ -84,9 +86,14 @@ function createStartupNotificationRuntime(
   const startupNotifications = createStartupNotificationService({
     connection,
     initialization,
-    serverGenerationId: crypto.randomUUID(),
+    serverGenerationId,
     now: clock,
     getFetchHealth,
+  });
+  const notificationDelta = createNotificationDeltaService({
+    connection,
+    serverGenerationId,
+    now: clock,
   });
   const evaluateVenues = async () => {
     recoverLegacyVphwBulletinAreas(connection);
@@ -105,7 +112,14 @@ function createStartupNotificationRuntime(
     });
     pollingService.onInitialFetchCompleted(evaluateVenues);
   };
-  return { startupNotifications, warningEmitDeps, bosaiEmitDeps, connectPolling, evaluateVenues };
+  return {
+    startupNotifications,
+    notificationDelta,
+    warningEmitDeps,
+    bosaiEmitDeps,
+    connectPolling,
+    evaluateVenues,
+  };
 }
 
 function closeServer(server: Server): Promise<void> {
@@ -193,6 +207,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
   const app = createApp({
     startupNotifications: startupRuntime.startupNotifications,
+    notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
     nowcastApi,
     kikikuruApi,
@@ -415,6 +430,7 @@ async function main(): Promise<void> {
 
   const app = createApp({
     startupNotifications: startupRuntime.startupNotifications,
+    notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
     nowcastApi,
     kikikuruApi,
