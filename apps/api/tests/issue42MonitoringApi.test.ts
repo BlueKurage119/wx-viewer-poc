@@ -360,6 +360,7 @@ function fakeStartupStatus(
 interface BuildAppOptions {
   readonly connection: ReturnType<typeof initializeDatabase>['connection'];
   readonly schedulerStatus?: TimeBasedPollingStatus;
+  readonly schedulerRunning?: boolean;
   readonly xmlStatus?: JmaXmlPollingStatus;
   readonly aggregate?: FetchHealthAggregate | null;
   readonly startupStatus?: StartupNotificationInitializationStatus;
@@ -378,7 +379,10 @@ function buildApp(options: BuildAppOptions) {
 
   const deps: MonitoringStatusServiceDependencies = {
     connection: options.connection,
-    scheduler: { getStatus: () => options.schedulerStatus ?? fakeSchedulerStatus() },
+    scheduler: {
+      getStatus: () => options.schedulerStatus ?? fakeSchedulerStatus(),
+      isRunningNow: () => options.schedulerRunning ?? true,
+    },
     xmlPollingService: { getStatus: () => options.xmlStatus ?? fakeXmlStatus() },
     fetchHealthMonitor: { getLastAggregate: () => options.aggregate ?? null },
     startupInitialization: { getStatus: () => options.startupStatus ?? fakeStartupStatus() },
@@ -637,6 +641,71 @@ test('AC5 健全性の未評価を正常に丸めないこと', async () => {
       assert.equal(amedasPoint?.appliesElapsedCondition, false);
     } finally {
       await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('レビュー指摘#4: schedulerRunning は夜間自動停止と手動停止を区別する', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    // sources[*].state が全て scheduled_stopped(夜間自動停止の見た目)でも、
+    // scheduler.isRunningNow()(運転フラグ本体)が true なら「稼働中(夜間帯で自動停止中)」
+    // として schedulerRunning=true を返すべきで、all-scheduled_stopped から逆算してはならない。
+    const period = { ...EMPTY_PERIOD, end: '24:00' };
+    const stoppedSrc = (source: 'xml' | 'nowcast' | 'kikikuru' | 'amedas') => ({
+      source,
+      period,
+      state: 'scheduled_stopped' as const,
+      intervalSeconds: 60,
+      nextRunAt: null,
+    });
+    const allStoppedStatus: TimeBasedPollingStatus = {
+      period,
+      nextPeriodChangeAt: FIXED_NOW,
+      sources: {
+        xml: stoppedSrc('xml'),
+        nowcast: stoppedSrc('nowcast'),
+        kikikuru: stoppedSrc('kikikuru'),
+        amedas: stoppedSrc('amedas'),
+      },
+    };
+
+    const nightAutoStopApp = buildApp({
+      connection: context.connection,
+      schedulerStatus: allStoppedStatus,
+      schedulerRunning: true,
+    });
+    const nightAutoStopServer = await startTestServer(nightAutoStopApp);
+    try {
+      const res = await fetch(
+        `${nightAutoStopServer.baseUrl}/api/monitoring/status?terminalId=hkeagh01`,
+      );
+      const body = (await res.json()) as { operation: { schedulerRunning: boolean } };
+      assert.equal(
+        body.operation.schedulerRunning,
+        true,
+        '夜間自動停止中でもスケジューラ自体は稼働中なら true',
+      );
+    } finally {
+      await nightAutoStopServer.close();
+    }
+
+    const manualStopApp = buildApp({
+      connection: context.connection,
+      schedulerStatus: allStoppedStatus,
+      schedulerRunning: false,
+    });
+    const manualStopServer = await startTestServer(manualStopApp);
+    try {
+      const res = await fetch(
+        `${manualStopServer.baseUrl}/api/monitoring/status?terminalId=hkeagh01`,
+      );
+      const body = (await res.json()) as { operation: { schedulerRunning: boolean } };
+      assert.equal(body.operation.schedulerRunning, false, '手動停止では false');
+    } finally {
+      await manualStopServer.close();
     }
   } finally {
     cleanup();
@@ -1382,7 +1451,7 @@ test('AC13 HTTP実挙動と依存注入（3依存の独立性・startup-inquirie
     });
     const monitoringStatus = createMonitoringStatusService({
       connection: context.connection,
-      scheduler: { getStatus: () => fakeSchedulerStatus() },
+      scheduler: { getStatus: () => fakeSchedulerStatus(), isRunningNow: () => true },
       xmlPollingService: { getStatus: () => fakeXmlStatus() },
       fetchHealthMonitor: { getLastAggregate: () => null },
       startupInitialization: { getStatus: () => fakeStartupStatus() },

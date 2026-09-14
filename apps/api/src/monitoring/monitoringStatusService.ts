@@ -17,7 +17,7 @@ import {
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import type { TimeBasedPollingScheduler } from '../polling/timeBasedPollingScheduler.js';
-import type { JmaXmlPollingService } from '../polling/jmaXmlPollingService.js';
+import type { InitialFetchStatus } from '../polling/jmaXmlPollingService.js';
 import type { FetchHealthMonitorService } from './fetchHealthMonitorService.js';
 import type { FetchHealthConfig } from './fetchHealthConfig.js';
 import { MONITORED_FETCH_SOURCES } from './fetchHealthSources.js';
@@ -33,10 +33,20 @@ export interface StartupInitializationStatusProvider {
   getStatus(): StartupNotificationInitializationStatus;
 }
 
+/**
+ * Issue #42/#43 レビュー指摘 #2: 監視状態APIが実際に使うのは initialFetch フィールドのみ。
+ * JmaXmlPollingService 全体ではなくこの最小限のインターフェースを要求することで、
+ * ポーリング無効起動・初期化中に pollingService インスタンスが無くても
+ * サーバー側で安全な既定値（not_started）を注入できるようにする。
+ */
+export interface XmlPollingStatusProvider {
+  getStatus(): { readonly initialFetch: InitialFetchStatus };
+}
+
 export interface MonitoringStatusServiceDependencies {
   readonly connection: DatabaseConnection;
-  readonly scheduler: Pick<TimeBasedPollingScheduler, 'getStatus'>;
-  readonly xmlPollingService: Pick<JmaXmlPollingService, 'getStatus'>;
+  readonly scheduler: Pick<TimeBasedPollingScheduler, 'getStatus' | 'isRunningNow'>;
+  readonly xmlPollingService: XmlPollingStatusProvider;
   readonly fetchHealthMonitor: Pick<FetchHealthMonitorService, 'getLastAggregate'>;
   readonly startupInitialization: StartupInitializationStatusProvider;
   readonly weatherApi: WeatherApiService;
@@ -72,13 +82,8 @@ function worseAvailability(a: Availability, b: Availability): Availability {
 
 function buildOperationSection(
   status: ReturnType<TimeBasedPollingScheduler['getStatus']>,
+  schedulerRunning: boolean,
 ): MonitoringOperationSection {
-  const schedulerRunning =
-    status.sources.xml.state !== 'scheduled_stopped' ||
-    status.sources.nowcast.state !== 'scheduled_stopped' ||
-    status.sources.kikikuru.state !== 'scheduled_stopped' ||
-    status.sources.amedas.state !== 'scheduled_stopped';
-
   return {
     schedulerRunning,
     period: {
@@ -178,7 +183,7 @@ function buildHealthSection(
 }
 
 function buildReadinessSection(
-  status: ReturnType<JmaXmlPollingService['getStatus']>,
+  status: ReturnType<XmlPollingStatusProvider['getStatus']>,
 ): MonitoringReadinessSection {
   const { initialFetch } = status;
   const feedKinds = ['regular', 'extra', 'regular_l', 'extra_l'] as const;
@@ -455,7 +460,11 @@ export function createMonitoringStatusService(
         requestedVenueId: terminal.venueId,
         serverGenerationId: deps.serverGenerationId,
         generatedAt,
-        operation: buildOperationSection(schedulerStatus),
+        // レビュー指摘 #4: sources[*].state はデフォルト夜間帯で全取得元が scheduled_stopped
+        // になるため、これだけでは「スケジューラ稼働中（夜間帯で自動停止中）」と
+        // 「手動停止」を区別できない。scheduler.isRunningNow()（運転フラグ本体）を
+        // schedulerRunning の出どころにする。
+        operation: buildOperationSection(schedulerStatus, deps.scheduler.isRunningNow()),
         health: buildHealthSection(aggregate, deps.fetchHealthConfig),
         readiness: buildReadinessSection(xmlStatus),
         venues: buildVenues(generatedAt),

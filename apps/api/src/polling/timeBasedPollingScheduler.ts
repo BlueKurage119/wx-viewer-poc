@@ -65,6 +65,37 @@ const REQUIRED_ADAPTER_SOURCES: readonly ScheduledSource[] = [
   'amedas',
 ] as const;
 
+const ALL_SCHEDULED_SOURCES: readonly ScheduledSource[] = ['xml', 'nowcast', 'kikikuru', 'amedas'];
+
+/**
+ * Issue #42/#43 レビュー指摘 #2: ポーリング無効起動時・初期化中は scheduler インスタンスが
+ * 存在しない。監視状態APIがその間も「停止中」を安全に表現できるよう、
+ * scheduler.getStatus() が !isRunning のときに返す形と同じ形の既定値を、
+ * インスタンスなしで構築する。
+ */
+export function buildStoppedPollingStatus(
+  now: Date,
+  schedule: PollingScheduleConfig,
+): TimeBasedPollingStatus {
+  const period = resolvePollingPeriod(now, schedule);
+  const nextPeriodChangeAt = getNextPeriodChangeAt(now, schedule).toISOString() as UtcIso8601String;
+
+  const sources = Object.fromEntries(
+    ALL_SCHEDULED_SOURCES.map((source) => [
+      source,
+      {
+        source,
+        period,
+        state: 'scheduled_stopped' as const,
+        intervalSeconds: getIntervalSecondsForSource(period, source),
+        nextRunAt: null,
+      },
+    ]),
+  ) as Record<ScheduledSource, ScheduledPollStatus>;
+
+  return { period, nextPeriodChangeAt, sources };
+}
+
 export function getIntervalSecondsForSource(
   period: PollingPeriod,
   source: ScheduledSource,
