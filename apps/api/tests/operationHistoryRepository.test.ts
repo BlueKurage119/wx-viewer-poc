@@ -215,7 +215,7 @@ test('3. operationKind / result / actorId / 要求受理・結果確定の各時
     // operationKind フィルター
     const startList = listOperationHistory(context.connection, { operationKind: 'start' });
     assert.equal(startList.length, 1);
-    assert.equal(startList[0].requestId, 'req-filter-1');
+    assert.equal(startList[0]!.requestId, 'req-filter-1');
     assert.equal(countOperationHistory(context.connection, { operationKind: 'start' }), 1);
 
     const refreshList = listOperationHistory(context.connection, {
@@ -370,14 +370,14 @@ test('4. 同一 completedAt の 2 行が id 降順で返る。ページング、
     const all = listOperationHistory(context.connection);
     // completedAt DESC, id DESC: r3 -> r2 -> r1
     assert.equal(all.length, 3);
-    assert.equal(all[0].id, r3.id);
-    assert.equal(all[1].id, r2.id); // 同一時刻なら id 降順
-    assert.equal(all[2].id, r1.id);
+    assert.equal(all[0]!.id, r3.id);
+    assert.equal(all[1]!.id, r2.id); // 同一時刻なら id 降順
+    assert.equal(all[2]!.id, r1.id);
 
     // ページング: limit=1, offset=1 -> r2
     const page = listOperationHistory(context.connection, { limit: 1, offset: 1 });
     assert.equal(page.length, 1);
-    assert.equal(page[0].id, r2.id);
+    assert.equal(page[0]!.id, r2.id);
 
     // 1005 行投入して上限 1000 の丸めを検証
     const insertMany = context.connection.transaction(() => {

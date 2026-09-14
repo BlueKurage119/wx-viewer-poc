@@ -94,14 +94,14 @@ test('2. notification_output_history の PRAGMA table_info が設計書 §4.2 �
     for (let i = 0; i < expectedColumns.length; i++) {
       const actual = columns[i];
       const expected = expectedColumns[i];
-      assert.equal(actual.name, expected.name, `Column index ${i} name mismatch`);
+      assert.equal(actual!.name, expected!.name, `Column index ${i} name mismatch`);
       assert.equal(
-        actual.type.toUpperCase(),
-        expected.type,
-        `Column ${expected.name} type mismatch`,
+        actual!.type.toUpperCase(),
+        expected!.type,
+        `Column ${expected!.name} type mismatch`,
       );
-      assert.equal(actual.notnull, expected.notnull, `Column ${expected.name} notnull mismatch`);
-      assert.equal(actual.pk, expected.pk, `Column ${expected.name} pk mismatch`);
+      assert.equal(actual!.notnull, expected!.notnull, `Column ${expected!.name} notnull mismatch`);
+      assert.equal(actual!.pk, expected!.pk, `Column ${expected!.name} pk mismatch`);
     }
 
     context.close();

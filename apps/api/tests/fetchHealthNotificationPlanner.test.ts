@@ -42,8 +42,8 @@ function createAllSourcesAggregate(
   now = '2026-09-09T00:01:00.000Z' as UtcIso8601String,
 ) {
   const results = MONITORED_FETCH_SOURCES.map((def) => {
-    const status = statusBySource[def.id] ?? 'normal';
-    return createResult(def.id, status);
+    const status = statusBySource[def!.id] ?? 'normal';
+    return createResult(def!.id, status);
   });
   return aggregateFetchHealth(results, now);
 }
@@ -51,7 +51,7 @@ function createAllSourcesAggregate(
 function createInitialPrevStatus(): Record<MonitoredFetchSourceId, null> {
   const prev = {} as Record<MonitoredFetchSourceId, null>;
   for (const def of MONITORED_FETCH_SOURCES) {
-    prev[def.id] = null;
+    prev[def!.id] = null;
   }
   return prev;
 }
@@ -84,15 +84,15 @@ test('planFetchHealthNotification: 起動直後の初期評価 (initial)', () =>
   });
   assert.equal(planDelayed.notifications.length, 1);
   const notif = planDelayed.notifications[0];
-  assert.equal(notif.sourceId, 'xml_regular');
-  assert.equal(notif.notification.category, 'warning');
-  assert.equal(notif.notification.changeType, 'fetch_delayed');
-  assert.equal(notif.notification.detectionContext, 'initial');
-  assert.equal(notif.notification.origin, 'system');
-  assert.equal(notif.notification.sourceType, 'fetch_health');
-  assert.equal(notif.notification.isTraining, false);
-  assert.equal(notif.output.messageDefinition.id, 'system-data-fetch-delayed');
-  assert.equal(notif.output.ackRequired, false);
+  assert.equal(notif!.sourceId, 'xml_regular');
+  assert.equal(notif!.notification.category, 'warning');
+  assert.equal(notif!.notification.changeType, 'fetch_delayed');
+  assert.equal(notif!.notification.detectionContext, 'initial');
+  assert.equal(notif!.notification.origin, 'system');
+  assert.equal(notif!.notification.sourceType, 'fetch_health');
+  assert.equal(notif!.notification.isTraining, false);
+  assert.equal(notif!.output.messageDefinition.id, 'system-data-fetch-delayed');
+  assert.equal(notif!.output.ackRequired, false);
 
   // 3. abnormal が 1 件 -> initial の question 通知が 1 件
   const oneAbnormal = createAllSourcesAggregate({ xml_regular: 'abnormal' });
@@ -104,12 +104,12 @@ test('planFetchHealthNotification: 起動直後の初期評価 (initial)', () =>
   });
   assert.equal(planAbnormal.notifications.length, 1);
   const notifAbnormal = planAbnormal.notifications[0];
-  assert.equal(notifAbnormal.sourceId, 'xml_regular');
-  assert.equal(notifAbnormal.notification.category, 'question');
-  assert.equal(notifAbnormal.notification.changeType, 'fetch_abnormal');
-  assert.equal(notifAbnormal.notification.detectionContext, 'initial');
-  assert.equal(notifAbnormal.output.messageDefinition.id, 'system-data-fetch-failed');
-  assert.equal(notifAbnormal.output.ackRequired, true);
+  assert.equal(notifAbnormal!.sourceId, 'xml_regular');
+  assert.equal(notifAbnormal!.notification.category, 'question');
+  assert.equal(notifAbnormal!.notification.changeType, 'fetch_abnormal');
+  assert.equal(notifAbnormal!.notification.detectionContext, 'initial');
+  assert.equal(notifAbnormal!.output.messageDefinition.id, 'system-data-fetch-failed');
+  assert.equal(notifAbnormal!.output.ackRequired, true);
 });
 
 test('planFetchHealthNotification: 遷移表の検証 (悪化、回復、正常復帰、停止遷移、不変)', () => {
@@ -123,9 +123,9 @@ test('planFetchHealthNotification: 遷移表の検証 (悪化、回復、正常�
     notificationIdFactory: testIdFactory,
   });
   assert.equal(plan1.notifications.length, 1);
-  assert.equal(plan1.notifications[0].notification.category, 'warning');
-  assert.equal(plan1.notifications[0].notification.changeType, 'fetch_delayed');
-  assert.equal(plan1.notifications[0].output.messageDefinition.id, 'system-data-fetch-delayed');
+  assert.equal(plan1.notifications[0]!.notification.category, 'warning');
+  assert.equal(plan1.notifications[0]!.notification.changeType, 'fetch_delayed');
+  assert.equal(plan1.notifications[0]!.output.messageDefinition.id, 'system-data-fetch-delayed');
 
   // delayed -> abnormal (悪化): question, fetch_abnormal
   const plan2 = planFetchHealthNotification({
@@ -135,9 +135,9 @@ test('planFetchHealthNotification: 遷移表の検証 (悪化、回復、正常�
     notificationIdFactory: testIdFactory,
   });
   assert.equal(plan2.notifications.length, 1);
-  assert.equal(plan2.notifications[0].notification.category, 'question');
-  assert.equal(plan2.notifications[0].notification.changeType, 'fetch_abnormal');
-  assert.equal(plan2.notifications[0].output.messageDefinition.id, 'system-data-fetch-failed');
+  assert.equal(plan2.notifications[0]!.notification.category, 'question');
+  assert.equal(plan2.notifications[0]!.notification.changeType, 'fetch_abnormal');
+  assert.equal(plan2.notifications[0]!.output.messageDefinition.id, 'system-data-fetch-failed');
 
   // abnormal -> delayed (回復): warning, fetch_delayed
   const plan3 = planFetchHealthNotification({
@@ -147,9 +147,9 @@ test('planFetchHealthNotification: 遷移表の検証 (悪化、回復、正常�
     notificationIdFactory: testIdFactory,
   });
   assert.equal(plan3.notifications.length, 1);
-  assert.equal(plan3.notifications[0].notification.category, 'warning');
-  assert.equal(plan3.notifications[0].notification.changeType, 'fetch_delayed');
-  assert.equal(plan3.notifications[0].output.messageDefinition.id, 'system-data-fetch-delayed');
+  assert.equal(plan3.notifications[0]!.notification.category, 'warning');
+  assert.equal(plan3.notifications[0]!.notification.changeType, 'fetch_delayed');
+  assert.equal(plan3.notifications[0]!.output.messageDefinition.id, 'system-data-fetch-delayed');
 
   // delayed -> normal (正常復帰): warning, fetch_recovered
   const plan4 = planFetchHealthNotification({
@@ -159,10 +159,10 @@ test('planFetchHealthNotification: 遷移表の検証 (悪化、回復、正常�
     notificationIdFactory: testIdFactory,
   });
   assert.equal(plan4.notifications.length, 1);
-  assert.equal(plan4.notifications[0].notification.category, 'warning');
-  assert.equal(plan4.notifications[0].notification.changeType, 'fetch_recovered');
-  assert.equal(plan4.notifications[0].output.messageDefinition.id, 'system-data-fetch-recovered');
-  assert.equal(plan4.notifications[0].output.ackRequired, false);
+  assert.equal(plan4.notifications[0]!.notification.category, 'warning');
+  assert.equal(plan4.notifications[0]!.notification.changeType, 'fetch_recovered');
+  assert.equal(plan4.notifications[0]!.output.messageDefinition.id, 'system-data-fetch-recovered');
+  assert.equal(plan4.notifications[0]!.output.ackRequired, false);
 
   // abnormal -> normal (正常復帰): warning, fetch_recovered
   const plan5 = planFetchHealthNotification({
@@ -172,8 +172,8 @@ test('planFetchHealthNotification: 遷移表の検証 (悪化、回復、正常�
     notificationIdFactory: testIdFactory,
   });
   assert.equal(plan5.notifications.length, 1);
-  assert.equal(plan5.notifications[0].notification.category, 'warning');
-  assert.equal(plan5.notifications[0].notification.changeType, 'fetch_recovered');
+  assert.equal(plan5.notifications[0]!.notification.category, 'warning');
+  assert.equal(plan5.notifications[0]!.notification.changeType, 'fetch_recovered');
 
   // unchanged (delayed -> delayed): 0件
   const plan6 = planFetchHealthNotification({
@@ -235,12 +235,12 @@ test('planFetchHealthNotification: 複数取得元の独立性 (AC3・AC4)', () 
   const xmlNotif = plan2.notifications.find((n) => n.sourceId === 'xml_regular');
   assert.ok(xmlNotif);
   assert.equal(xmlNotif.notification.category, 'warning');
-  assert.equal(xmlNotif.notification.targets[0].code, 'xml_regular');
+  assert.equal(xmlNotif.notification.targets[0]!.code, 'xml_regular');
 
   const kikiNotif = plan2.notifications.find((n) => n.sourceId === 'kikikuru_target_times');
   assert.ok(kikiNotif);
   assert.equal(kikiNotif.notification.category, 'question');
-  assert.equal(kikiNotif.notification.targets[0].code, 'kikikuru_target_times');
+  assert.equal(kikiNotif.notification.targets[0]!.code, 'kikikuru_target_times');
 
   // 2. 5 取得元が同時に abnormal -> 5 件通知
   const plan5 = planFetchHealthNotification({
@@ -257,7 +257,7 @@ test('planFetchHealthNotification: 複数取得元の独立性 (AC3・AC4)', () 
   });
   assert.equal(plan5.notifications.length, 5);
   assert.ok(plan5.notifications.every((n) => n.notification.category === 'question'));
-  const targetCodes = plan5.notifications.map((n) => n.notification.targets[0].code);
+  const targetCodes = plan5.notifications.map((n) => n.notification.targets[0]!.code);
   assert.deepEqual(targetCodes, [
     'xml_regular',
     'xml_extra',
@@ -284,6 +284,6 @@ test('planFetchHealthNotification: 複数取得元の独立性 (AC3・AC4)', () 
     notificationIdFactory: testIdFactory,
   });
   assert.equal(planIndependent.notifications.length, 1);
-  assert.equal(planIndependent.notifications[0].sourceId, 'xml_extra');
-  assert.equal(planIndependent.notifications[0].notification.category, 'warning');
+  assert.equal(planIndependent.notifications[0]!.sourceId, 'xml_extra');
+  assert.equal(planIndependent.notifications[0]!.notification.category, 'warning');
 });

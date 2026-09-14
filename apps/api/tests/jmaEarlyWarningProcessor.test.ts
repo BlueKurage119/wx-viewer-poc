@@ -187,7 +187,7 @@ function createSampleReception(
     rawBody,
     bodyBytes: rawBody ? Buffer.byteLength(rawBody, 'utf-8') : 0,
     contentHash: 'hash-1234',
-    areas: [{ sequence: 1, areaCode: '130010', areaName: '東京地方' }],
+    areas: [{ sequence: 1, areaCode: '130010', areaName: '東京地方', codeType: null }],
   };
 
   return recordTelegramReception(context.connection, input);
@@ -241,8 +241,8 @@ test('processEarlyWarningReception: VPFD61 を near として保存し、recepti
     assert.equal(snapshot.metadata.issuedAt, '2026-09-09T00:00:00.000Z');
     assert.equal(snapshot.timeDefines.length, 1);
     assert.equal(snapshot.cells.length, 1);
-    assert.equal(snapshot.cells[0].phenomenonCode, '大雨の警報級の可能性');
-    assert.equal(snapshot.cells[0].rankValue, '高');
+    assert.equal(snapshot.cells[0]!.phenomenonCode, '大雨の警報級の可能性');
+    assert.equal(snapshot.cells[0]!.rankValue, '高');
   } finally {
     cleanup();
   }
@@ -288,7 +288,7 @@ test('processEarlyWarningReception: VPFW60 を far として保存し、near と
     assert.ok(snapshotFar);
     assert.equal(snapshotFar.segment, 'far');
     assert.equal(snapshotFar.telegramType, 'VPFW60');
-    assert.equal(snapshotFar.cells[0].phenomenonCode, '雨の警報級の可能性');
+    assert.equal(snapshotFar.cells[0]!.phenomenonCode, '雨の警報級の可能性');
 
     // 3. near が far 保存の影響を受けずに完全に残っていること
     const snapshotNearAfter = findEarlyWarningSnapshot(

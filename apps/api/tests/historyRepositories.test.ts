@@ -198,10 +198,10 @@ test('3. listFetchAttempts が startedAt の新しい順に返る。同一 start
 
     const list = listFetchAttempts(context.connection);
     assert.equal(list.length, 4);
-    assert.equal(list[0].id, row2.id); // 03:00:00
-    assert.equal(list[1].id, row4.id); // 02:00:00 (id larger)
-    assert.equal(list[2].id, row3.id); // 02:00:00 (id smaller)
-    assert.equal(list[3].id, row1.id); // 01:00:00
+    assert.equal(list[0]!.id, row2.id); // 03:00:00
+    assert.equal(list[1]!.id, row4.id); // 02:00:00 (id larger)
+    assert.equal(list[2]!.id, row3.id); // 02:00:00 (id smaller)
+    assert.equal(list[3]!.id, row1.id); // 01:00:00
 
     context.close();
   } finally {
@@ -291,7 +291,7 @@ test('5. limit / offset でページングでき、limit 未指定が 100 件、
 
     const page2 = listFetchAttempts(context.connection, { limit: 2, offset: 2 });
     assert.equal(page2.length, 2);
-    assert.notEqual(page1[0].id, page2[0].id);
+    assert.notEqual(page1[0]!.id, page2[0]!.id);
 
     // 1005 件を一括挿入して limit > 1000 の丸め（1000件で頭打ち）を厳密に検証
     const insertManyTx = context.connection.transaction(() => {
@@ -517,8 +517,8 @@ test('8. recordTelegramReception した内容を findTelegramReceptionById で�
     assert.strictEqual(created.hasRawBody, true);
     assert.strictEqual(created.rawBody, '<Report>...</Report>');
     assert.equal(created.areas.length, 1);
-    assert.ok(created.areas[0].id > 0);
-    assert.equal(created.areas[0].areaCode, '1310800');
+    assert.ok(created.areas[0]!.id > 0);
+    assert.equal(created.areas[0]!.areaCode, '1310800');
 
     const found = findTelegramReceptionById(context.connection, created.id);
     assert.deepEqual(found, created);
@@ -540,12 +540,12 @@ test('9. listTelegramReceptions の結果に rawBody プロパティが含まれ
 
     const list = listTelegramReceptions(context.connection);
     assert.equal(list.length, 1);
-    const summary = list[0];
+    const summary = list[0]!;
 
     assert.strictEqual('rawBody' in summary, false);
-    assert.strictEqual(summary.hasRawBody, true);
-    assert.equal(summary.areas.length, 1);
-    assert.equal(summary.id, created.id);
+    assert.strictEqual(summary!.hasRawBody, true);
+    assert.equal(summary!.areas.length, 1);
+    assert.equal(summary!.id, created.id);
 
     const detailed = findTelegramReceptionById(context.connection, created.id);
     assert.ok(detailed);
@@ -581,7 +581,7 @@ test('10. 原文なし（rawBody: null, bodyBytes: null）の行を保存でき�
 
     const list = listTelegramReceptions(context.connection);
     assert.equal(list.length, 1);
-    assert.strictEqual(list[0].hasRawBody, false);
+    assert.strictEqual(list[0]!.hasRawBody, false);
 
     context.close();
   } finally {
@@ -618,7 +618,7 @@ test('11. 訓練の分離: controlStatus 指定時に normal の 1 行だけを�
     // controlStatus: 'normal' 指定
     const normalList = listTelegramReceptions(context.connection, { controlStatus: 'normal' });
     assert.equal(normalList.length, 1);
-    assert.equal(normalList[0].id, rowNormal.id);
+    assert.equal(normalList[0]!.id, rowNormal.id);
     assert.equal(countTelegramReceptions(context.connection, { controlStatus: 'normal' }), 1);
 
     // controlStatus 未指定（全件）
@@ -764,12 +764,12 @@ test('14. areaCode 絞り込みで 1310800 のみ返り、130010 検索時に 13
     // 1310800 検索
     const kotoList = listTelegramReceptions(context.connection, { areaCode: '1310800' });
     assert.equal(kotoList.length, 1);
-    assert.equal(kotoList[0].id, rowKoto.id);
+    assert.equal(kotoList[0]!.id, rowKoto.id);
 
     // 130010 検索 (1300100 はヒットしてはならない)
     const list130010 = listTelegramReceptions(context.connection, { areaCode: '130010' });
     assert.equal(list130010.length, 1);
-    assert.equal(list130010[0].id, row130010.id);
+    assert.equal(list130010[0]!.id, row130010.id);
     assert.ok(!list130010.some((r) => r.id === row1300100.id));
 
     context.close();
@@ -793,10 +793,10 @@ test('15. 1 電文に複数区域を保存でき sequence 順に往復する。�
 
     const created = recordTelegramReception(context.connection, multiAreaInput);
     assert.equal(created.areas.length, 2);
-    assert.equal(created.areas[0].sequence, 1);
-    assert.equal(created.areas[0].areaCode, '1310100');
-    assert.equal(created.areas[1].sequence, 2);
-    assert.equal(created.areas[1].areaCode, '1310800');
+    assert.equal(created.areas[0]!.sequence, 1);
+    assert.equal(created.areas[0]!.areaCode, '1310100');
+    assert.equal(created.areas[1]!.sequence, 2);
+    assert.equal(created.areas[1]!.areaCode, '1310800');
 
     // 重複 sequence の挿入で一意制約違反
     assert.throws(() => {
@@ -885,7 +885,7 @@ test('16. telegramType / infoType / receivedAtFrom/To / reportDateTimeFrom/To / 
 
     // documentUrl
     assert.equal(
-      listTelegramReceptions(context.connection, { documentUrl: 'https://example.com/1.xml' })[0]
+      listTelegramReceptions(context.connection, { documentUrl: 'https://example.com/1.xml' })[0]!
         .id,
       row1.id,
     );

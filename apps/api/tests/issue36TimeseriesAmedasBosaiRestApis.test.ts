@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
+import { type Server } from 'node:http';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type {
-  ControlStatus,
-  AreaTimeseriesTimeDefine,
-  AreaTimeseriesValue,
-  BulletinDetail,
+  WeatherControlStatus as ControlStatus,
+  AreaTimeseriesTimeDefineDto as AreaTimeseriesTimeDefine,
+  AreaTimeseriesValueDto as AreaTimeseriesValue,
+  BulletinDto as BulletinDetail,
 } from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
@@ -53,7 +54,7 @@ function request(app: ReturnType<typeof createApp>) {
         };
       } finally {
         await new Promise<void>((resolve, reject) =>
-          server.close((error) => (error ? reject(error) : resolve())),
+          server.close((error?: Error) => (error ? reject(error) : resolve())),
         );
       }
     },
@@ -67,22 +68,44 @@ function createAvailablePollingStatus(): JmaXmlPollingStatus {
     lastCycleResult: null,
     feedStatuses: {
       regular: {
+        feedKind: 'regular',
         isWaiting: false,
+        waitingReason: null,
         nextAllowedFetchAt: null,
         consecutiveFailures: 0,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
         lastSuccessAt: '2026-09-14T06:00:00.000Z',
+        lastFailureAt: null,
       },
       extra: {
+        feedKind: 'extra',
         isWaiting: false,
+        waitingReason: null,
         nextAllowedFetchAt: null,
         consecutiveFailures: 0,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
         lastSuccessAt: '2026-09-14T06:00:00.000Z',
+        lastFailureAt: null,
       },
-      long_term: {
+      regular_l: {
+        feedKind: 'regular_l',
         isWaiting: false,
+        waitingReason: null,
         nextAllowedFetchAt: null,
         consecutiveFailures: 0,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
         lastSuccessAt: '2026-09-14T06:00:00.000Z',
+        lastFailureAt: null,
+      },
+      extra_l: {
+        feedKind: 'extra_l',
+        isWaiting: false,
+        waitingReason: null,
+        nextAllowedFetchAt: null,
+        consecutiveFailures: 0,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
+        lastSuccessAt: '2026-09-14T06:00:00.000Z',
+        lastFailureAt: null,
       },
     },
     feedFreshness: {
@@ -1331,22 +1354,44 @@ test('B10 #37 鮮度: XMLフィードが unavailable でも #37 の鮮度は変�
     lastCycleResult: null,
     feedStatuses: {
       regular: {
+        feedKind: 'regular',
         isWaiting: false,
+        waitingReason: null,
         nextAllowedFetchAt: null,
         consecutiveFailures: 1,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
         lastSuccessAt: null,
+        lastFailureAt: '2026-09-14T06:00:00.000Z',
       },
       extra: {
+        feedKind: 'extra',
         isWaiting: false,
+        waitingReason: null,
         nextAllowedFetchAt: null,
         consecutiveFailures: 1,
+        lastAttemptAt: '2026-09-14T06:00:00.000Z',
         lastSuccessAt: null,
+        lastFailureAt: '2026-09-14T06:00:00.000Z',
       },
-      long_term: {
+      regular_l: {
+        feedKind: 'regular_l',
         isWaiting: false,
+        waitingReason: null,
         nextAllowedFetchAt: null,
         consecutiveFailures: 0,
+        lastAttemptAt: null,
         lastSuccessAt: null,
+        lastFailureAt: null,
+      },
+      extra_l: {
+        feedKind: 'extra_l',
+        isWaiting: false,
+        waitingReason: null,
+        nextAllowedFetchAt: null,
+        consecutiveFailures: 0,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
       },
     },
     feedFreshness: {

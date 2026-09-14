@@ -42,10 +42,10 @@ import {
 import type {
   BosaiBulletin,
   ControlStatus,
-  FetchHealthAggregate,
   TelegramReception,
   VphwTelegramType,
 } from '../src/repositories/types.js';
+import type { FetchHealthAggregate } from '../src/monitoring/fetchHealthEvaluator.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -1496,7 +1496,8 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
     // 1. 全 6 取得元が abnormal
     const allAbnormal: FetchHealthAggregate = {
       evaluatedAt: fixedNowIso,
-      overallHealth: 'abnormal',
+      status: 'abnormal',
+      worstSourceIds: sourceIds,
       sources: sourceIds.map((id) => ({
         sourceId: id,
         status: 'abnormal' as const,
@@ -1505,7 +1506,7 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
         maxConsecutiveFailures: 3,
         intervalSeconds: 60,
-      })),
+      })) as unknown as FetchHealthAggregate['sources'],
     };
 
     const projectedAbnormal = projectStartupCurrentNotifications(context.connection, {
@@ -1527,7 +1528,8 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
     // 2. 混合: delayed 3件 + abnormal 3件
     const mixedHealth: FetchHealthAggregate = {
       evaluatedAt: fixedNowIso,
-      overallHealth: 'abnormal',
+      status: 'abnormal',
+      worstSourceIds: sourceIds.filter((_, idx) => idx >= 3),
       sources: sourceIds.map((id, idx) => ({
         sourceId: id,
         status: idx < 3 ? ('delayed' as const) : ('abnormal' as const),
@@ -1536,7 +1538,7 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
         maxConsecutiveFailures: 1,
         intervalSeconds: 60,
-      })),
+      })) as unknown as FetchHealthAggregate['sources'],
     };
 
     const currentHealth = mixedHealth;
@@ -1607,7 +1609,8 @@ test('AC10: system normal/suspended/未評価・過去に復帰済みの状態�
 
     const normalHealth: FetchHealthAggregate = {
       evaluatedAt: fixedNowIso,
-      overallHealth: 'normal',
+      status: 'normal',
+      worstSourceIds: [],
       sources: sourceIds.map((id) => ({
         sourceId: id,
         status: 'normal' as const,
@@ -1616,7 +1619,7 @@ test('AC10: system normal/suspended/未評価・過去に復帰済みの状態�
         lastSuccessAt: fixedNowIso,
         maxConsecutiveFailures: 0,
         intervalSeconds: 60,
-      })),
+      })) as unknown as FetchHealthAggregate['sources'],
     };
 
     const initialization = new StartupNotificationInitialization();
@@ -1679,7 +1682,8 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
 
     const mixedHealth: FetchHealthAggregate = {
       evaluatedAt: fixedNowIso,
-      overallHealth: 'abnormal',
+      status: 'abnormal',
+      worstSourceIds: [sourceIds[1]!],
       sources: sourceIds.map((id, idx) => ({
         sourceId: id,
         status:
@@ -1693,7 +1697,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
         maxConsecutiveFailures: idx === 1 ? 3 : 0,
         intervalSeconds: 60,
-      })),
+      })) as unknown as FetchHealthAggregate['sources'],
     };
 
     const initialization = new StartupNotificationInitialization();
@@ -1799,6 +1803,7 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
     },
     areas: [
       {
+        id: 1,
         areaCode: '1310800',
         areaName: '江東区',
         codeType: '気象・地震・火山情報／市町村等',
@@ -1875,6 +1880,7 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
     },
     areas: [
       {
+        id: 2,
         areaCode: '130010',
         areaName: '東京地方',
         codeType: '気象情報／府県予報区・細分区域等',
@@ -1922,21 +1928,23 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
       initialization,
       serverGenerationId: 'gen-ac12',
       now: () => fixedNowIso,
-      getFetchHealth: () => ({
-        evaluatedAt: fixedNowIso,
-        overallHealth: 'abnormal',
-        sources: [
-          {
-            sourceId: 'xml_regular',
-            status: 'abnormal',
-            reasons: [{ code: 'test', text: '異常' }],
-            lastAttemptAt: fixedNowIso,
-            lastSuccessAt: '2026-09-13T11:00:00.000Z',
-            maxConsecutiveFailures: 1,
-            intervalSeconds: 60,
-          },
-        ],
-      }),
+      getFetchHealth: () =>
+        ({
+          evaluatedAt: fixedNowIso,
+          status: 'abnormal',
+          worstSourceIds: ['xml_regular'],
+          sources: [
+            {
+              sourceId: 'xml_regular',
+              status: 'abnormal',
+              reasons: [{ code: 'test', text: '異常' }],
+              lastAttemptAt: fixedNowIso,
+              lastSuccessAt: '2026-09-13T11:00:00.000Z',
+              maxConsecutiveFailures: 1,
+              intervalSeconds: 60,
+            },
+          ],
+        }) as unknown as FetchHealthAggregate,
     });
 
     const res = service.inquire({

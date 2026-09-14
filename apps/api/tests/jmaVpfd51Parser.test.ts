@@ -136,9 +136,10 @@ function buildVpfd51Xml(options: BuildVpfd51XmlOptions = {}): string {
 
         const itemXml = ts.items
           .map((item) => {
-            const weatherProp = item.omitWeather
-              ? ''
-              : `
+            const weatherProp =
+              'omitWeather' in item && item.omitWeather
+                ? ''
+                : `
             <Kind>
               <Property>
                 <Type>３時間内卓越天気</Type>
@@ -153,9 +154,10 @@ function buildVpfd51Xml(options: BuildVpfd51XmlOptions = {}): string {
               </Property>
             </Kind>`;
 
-            const windProp = item.omitWind
-              ? ''
-              : `
+            const windProp =
+              'omitWind' in item && item.omitWind
+                ? ''
+                : `
             <Kind>
               <Property>
                 <Type>３時間内代表風</Type>
@@ -213,9 +215,10 @@ function buildVpfd51Xml(options: BuildVpfd51XmlOptions = {}): string {
 
         const itemXml = ts.items
           .map((item) => {
-            const tempProp = item.omitTemperature
-              ? ''
-              : `
+            const tempProp =
+              'omitTemperature' in item && item.omitTemperature
+                ? ''
+                : `
             <Kind>
               <Property>
                 <Type>３時間毎気温</Type>

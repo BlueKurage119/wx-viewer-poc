@@ -302,11 +302,11 @@ test('受け入れ条件 9: 閲覧readCatalog複数回呼出で索引HTTP不変�
 
     // 3. 同じサービスの readCatalog から得られた保存フレームに対して fetchFrameTiles で画像取得できる
     const targetFrame = catalogAfterRefresh.products.N1.frames[0];
-    const tileResults = await imageServices.nowcast.fetchFrameTiles(targetFrame, [
+    const tileResults = await imageServices.nowcast.fetchFrameTiles(targetFrame!, [
       { zoom: 10, tileX: 908, tileY: 403 },
     ]);
     assert.equal(tileResults.length, 1);
-    assert.equal(tileResults[0].kind, 'downloaded');
+    assert.equal(tileResults[0]!.kind, 'downloaded');
     assert.equal(fetchCount, 3); // 2 index + 1 tile
 
     await imageServices.close();
@@ -396,13 +396,22 @@ test('受け入れ条件 11: 実インスタンスでのXMLおよび索引の鮮
 
     // --- 索引 (NowcastService) 実インスタンス検証 ---
     let nowcastFetchSuccess = true;
+    const defaultSchedule = loadPollingScheduleConfig();
     const nowcastService = new NowcastService(database.connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
       freshnessPolicy: { staleAfterSeconds: 300 },
       clock,
-      getCatalogAccess: () => ({ allowed: true, nextChangeAt: null }),
-      getImageAccess: () => ({ allowed: true, nextChangeAt: null }),
+      getCatalogAccess: () => ({
+        allowed: true,
+        period: defaultSchedule.periods[0]!,
+        nextAllowedAt: null,
+      }),
+      getImageAccess: () => ({
+        allowed: true,
+        period: defaultSchedule.periods[0]!,
+        nextAllowedAt: null,
+      }),
       fetchFn: async (input) => {
         const url = String(input);
         if (!nowcastFetchSuccess) {

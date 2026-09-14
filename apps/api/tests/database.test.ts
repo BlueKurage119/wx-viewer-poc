@@ -85,7 +85,11 @@ test('migrationと保存行は再初期化後も完全に保持され、再適�
       { id: 2, value: 'persisted' },
     ]);
     assert.equal(
-      second.connection.prepare('SELECT count(*) AS count FROM __schema_migrations').get().count,
+      (
+        second.connection.prepare('SELECT count(*) AS count FROM __schema_migrations').get() as {
+          count: number;
+        }
+      ).count,
       2,
     );
   } finally {
@@ -136,11 +140,10 @@ test('不正なmigrationファイルを拒否する', async () => {
     const directory = await createTemporaryDirectory();
     const migrationsDirectory = join(directory, 'migrations');
     await mkdir(migrationsDirectory);
-    await writeMigration(migrationsDirectory, name, sql);
+    await writeMigration(migrationsDirectory, name!, sql!);
     assert.throws(
       () =>
         initializeDatabase({ databasePath: join(directory, 'state.sqlite3'), migrationsDirectory }),
-      undefined,
       `初期化は ${name} を拒否する必要がある`,
     );
   }
@@ -212,7 +215,7 @@ test('番号重複、編集、改名、削除、過去番号への後挿しを�
     const initial = initializeDatabase(config);
     initial.close();
     await operation(migrationsDirectory);
-    assert.throws(() => initializeDatabase(config), undefined, label);
+    assert.throws(() => initializeDatabase(config), label);
   }
 });
 

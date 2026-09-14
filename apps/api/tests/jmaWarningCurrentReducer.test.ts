@@ -13,6 +13,7 @@ import type {
   IndividualWarningTelegramType,
   ParsedWarningTelegram,
   WarningCurrentItemInput,
+  WarningPhenomenonKey,
   WarningTargetArea,
 } from '../src/repositories/types.js';
 
@@ -478,7 +479,7 @@ test('AC3: C3 の正しい段階表 - WARNING_CODE_TABLE の段階表が §4 の
 
 test('AC4: 7 現象の強化・緩和 - 隣接 17 組の往復および最上段・最下段の直接遷移', () => {
   function makeItem(
-    phenomenonKey: WarningPhenomenonKey,
+    _phenomenonKey: WarningPhenomenonKey,
     kindCode: string,
     kindName: string,
     telegramType: IndividualWarningTelegramType,

@@ -142,7 +142,7 @@ test('AC1: 連続2回失敗で警報、連続5回失敗で問いかけが生成�
     const result1 = service.runOnce();
     assert.equal(result1.aggregate.status, 'delayed');
     assert.equal(result1.emit.recorded.length, 1);
-    const notif1 = result1.emit.recorded[0];
+    const notif1 = result1.emit.recorded[0]!;
     assert.equal(notif1.category, 'warning');
     assert.equal(notif1.changeType, 'fetch_delayed');
     assert.equal(notif1.origin, 'system');
@@ -151,8 +151,8 @@ test('AC1: 連続2回失敗で警報、連続5回失敗で問いかけが生成�
 
     const history1 = listNotificationOutputHistory(database.connection, { origin: 'system' });
     assert.equal(history1.length, 1);
-    assert.equal(history1[0].messageDefinitionId, 'system-data-fetch-delayed');
-    assert.equal(history1[0].ackRequired, false);
+    assert.equal(history1[0]!.messageDefinitionId, 'system-data-fetch-delayed');
+    assert.equal(history1[0]!.ackRequired, false);
 
     // 失敗をさらに 3 件（計 5 件）追加
     insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:01:30.000Z');
@@ -164,7 +164,7 @@ test('AC1: 連続2回失敗で警報、連続5回失敗で問いかけが生成�
     const result2 = service.runOnce();
     assert.equal(result2.aggregate.status, 'abnormal');
     assert.equal(result2.emit.recorded.length, 1);
-    const notif2 = result2.emit.recorded[0];
+    const notif2 = result2.emit.recorded[0]!;
     assert.equal(notif2.category, 'question');
     assert.equal(notif2.changeType, 'fetch_abnormal');
     assert.equal(notif2.origin, 'system');
@@ -174,8 +174,8 @@ test('AC1: 連続2回失敗で警報、連続5回失敗で問いかけが生成�
     const history2 = listNotificationOutputHistory(database.connection, { origin: 'system' });
     assert.equal(history2.length, 2);
     // listNotificationOutputHistory は detected_at DESC なので最新が [0]
-    assert.equal(history2[0].messageDefinitionId, 'system-data-fetch-failed');
-    assert.equal(history2[0].ackRequired, true);
+    assert.equal(history2[0]!.messageDefinitionId, 'system-data-fetch-failed');
+    assert.equal(history2[0]!.ackRequired, true);
 
     database.close();
   } finally {
@@ -301,8 +301,8 @@ test('AC3: 2 取得元が同時に問題化すると通知が 2 件出て、区�
 
     const resultSecond = service.runOnce();
     assert.equal(resultSecond.emit.recorded.length, 1, 'xml_regular だけが 1 件増える');
-    assert.equal(resultSecond.emit.recorded[0].targets[0].code, 'xml_regular');
-    assert.equal(resultSecond.emit.recorded[0].category, 'question');
+    assert.equal(resultSecond.emit.recorded[0]!.targets[0]!.code, 'xml_regular');
+    assert.equal(resultSecond.emit.recorded[0]!.category, 'question');
 
     const allHistory = listNotificationOutputHistory(database.connection, { origin: 'system' });
     assert.equal(allHistory.length, 3);
@@ -411,8 +411,8 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
     currentNow = '2026-09-09T00:00:20.000Z';
     const step1 = service.runOnce();
     assert.equal(step1.emit.recorded.length, 1);
-    assert.equal(step1.emit.recorded[0].changeType, 'fetch_delayed');
-    assert.equal(step1.emit.recorded[0].category, 'warning');
+    assert.equal(step1.emit.recorded[0]!.changeType, 'fetch_delayed');
+    assert.equal(step1.emit.recorded[0]!.category, 'warning');
 
     // 無変化 runOnce
     const step1Unchanged = service.runOnce();
@@ -426,8 +426,8 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
     currentNow = '2026-09-09T00:00:50.000Z';
     const step2 = service.runOnce();
     assert.equal(step2.emit.recorded.length, 1);
-    assert.equal(step2.emit.recorded[0].changeType, 'fetch_abnormal');
-    assert.equal(step2.emit.recorded[0].category, 'question');
+    assert.equal(step2.emit.recorded[0]!.changeType, 'fetch_abnormal');
+    assert.equal(step2.emit.recorded[0]!.category, 'question');
 
     // 無変化 runOnce
     const step2Unchanged = service.runOnce();
@@ -439,8 +439,8 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
     currentNow = '2026-09-09T00:04:01.000Z'; // 00:01:00 + 181s
     const step3 = service.runOnce();
     assert.equal(step3.emit.recorded.length, 1);
-    assert.equal(step3.emit.recorded[0].changeType, 'fetch_delayed');
-    assert.equal(step3.emit.recorded[0].category, 'warning');
+    assert.equal(step3.emit.recorded[0]!.changeType, 'fetch_delayed');
+    assert.equal(step3.emit.recorded[0]!.category, 'warning');
 
     // 無変化 runOnce
     const step3Unchanged = service.runOnce();
@@ -452,14 +452,14 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
     currentNow = '2026-09-09T00:05:10.000Z';
     const step4 = service.runOnce();
     assert.equal(step4.emit.recorded.length, 1);
-    assert.equal(step4.emit.recorded[0].changeType, 'fetch_recovered');
-    assert.equal(step4.emit.recorded[0].category, 'warning');
+    assert.equal(step4.emit.recorded[0]!.changeType, 'fetch_recovered');
+    assert.equal(step4.emit.recorded[0]!.category, 'warning');
 
     const history = listNotificationOutputHistory(database.connection, { origin: 'system' });
     assert.equal(history.length, 4);
     // history は detected_at DESC なので最新 (step4) が [0]
-    assert.equal(history[0].messageDefinitionId, 'system-data-fetch-recovered');
-    assert.equal(history[0].ackRequired, false);
+    assert.equal(history[0]!.messageDefinitionId, 'system-data-fetch-recovered');
+    assert.equal(history[0]!.ackRequired, false);
 
     database.close();
   } finally {
@@ -495,7 +495,7 @@ test('AC4 追加ケース: 取得元 A が異常のまま取得元 B が delayed
     }
     const resA = service.runOnce();
     assert.equal(resA.emit.recorded.length, 1);
-    assert.equal(resA.emit.recorded[0].targets[0].code, 'xml_regular');
+    assert.equal(resA.emit.recorded[0]!.targets[0]!.code, 'xml_regular');
 
     // 取得元 B (xml_extra) を delayed にする
     insertAttempt(database.connection, 'xml_feed_extra', 'failure', '2026-09-09T00:01:10.000Z');
@@ -504,8 +504,8 @@ test('AC4 追加ケース: 取得元 A が異常のまま取得元 B が delayed
 
     const resB = service.runOnce();
     assert.equal(resB.emit.recorded.length, 1, 'B の通知が 1 件記録される');
-    assert.equal(resB.emit.recorded[0].targets[0].code, 'xml_extra');
-    assert.equal(resB.emit.recorded[0].category, 'warning');
+    assert.equal(resB.emit.recorded[0]!.targets[0]!.code, 'xml_extra');
+    assert.equal(resB.emit.recorded[0]!.category, 'warning');
 
     database.close();
   } finally {
@@ -630,7 +630,7 @@ test('AC6: 新しい StateStore で評価すると継続中の異常が initial 
 
     const res1 = service1.runOnce();
     assert.equal(res1.emit.recorded.length, 1);
-    assert.equal(res1.emit.recorded[0].detectionContext, 'initial');
+    assert.equal(res1.emit.recorded[0]!.detectionContext, 'initial');
 
     // 再実行では増えない
     const res1Repeat = service1.runOnce();
@@ -1036,13 +1036,13 @@ test('AC12 回帰テスト: start() 呼び出しで即時に初回評価が走�
     insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:20.000Z');
     currentNow = '2026-09-09T00:00:30.000Z';
 
-    const fireTimer = timerCallback!;
+    const fireTimer = timerCallback as unknown as () => void;
     fireTimer();
 
     assert.equal(service.getLastAggregate()?.status, 'delayed');
     const history = listNotificationOutputHistory(database.connection, { origin: 'system' });
     assert.equal(history.length, 1);
-    assert.equal(history[0].messageDefinitionId, 'system-data-fetch-delayed');
+    assert.equal(history[0]!.messageDefinitionId, 'system-data-fetch-delayed');
 
     // 3. stop() 呼び出しでタイマーが解除される
     service.stop();

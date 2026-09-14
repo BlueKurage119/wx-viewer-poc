@@ -48,7 +48,7 @@ function createTempDb(): {
 }
 
 function buildXml(
-  telegramType: string,
+  _telegramType: string,
   reportDateTime: string,
   kindsXml: string,
   options?: {
