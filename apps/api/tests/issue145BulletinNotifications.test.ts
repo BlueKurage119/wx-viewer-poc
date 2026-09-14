@@ -1501,12 +1501,19 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
       sources: sourceIds.map((id) => ({
         sourceId: id,
         status: 'abnormal' as const,
-        reasons: [{ code: 'connection_error', text: '接続エラー' }],
+        reasons: [
+          {
+            kind: 'consecutive_failures' as const,
+            status: 'abnormal' as const,
+            sourceKind: id,
+            text: '接続エラー',
+          },
+        ],
         lastAttemptAt: fixedNowIso,
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
         maxConsecutiveFailures: 3,
         intervalSeconds: 60,
-      })) as unknown as FetchHealthAggregate['sources'],
+      })),
     };
 
     const projectedAbnormal = projectStartupCurrentNotifications(context.connection, {
@@ -1533,12 +1540,19 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
       sources: sourceIds.map((id, idx) => ({
         sourceId: id,
         status: idx < 3 ? ('delayed' as const) : ('abnormal' as const),
-        reasons: [{ code: 'status_reason', text: idx < 3 ? '遅延' : '異常' }],
+        reasons: [
+          {
+            kind: 'consecutive_failures' as const,
+            status: idx < 3 ? ('delayed' as const) : ('abnormal' as const),
+            sourceKind: id,
+            text: idx < 3 ? '遅延' : '異常',
+          },
+        ],
         lastAttemptAt: fixedNowIso,
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
         maxConsecutiveFailures: 1,
         intervalSeconds: 60,
-      })) as unknown as FetchHealthAggregate['sources'],
+      })),
     };
 
     const currentHealth = mixedHealth;
@@ -1619,7 +1633,7 @@ test('AC10: system normal/suspended/未評価・過去に復帰済みの状態�
         lastSuccessAt: fixedNowIso,
         maxConsecutiveFailures: 0,
         intervalSeconds: 60,
-      })) as unknown as FetchHealthAggregate['sources'],
+      })),
     };
 
     const initialization = new StartupNotificationInitialization();
@@ -1692,12 +1706,22 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
             : idx === 1
               ? ('abnormal' as const)
               : ('normal' as const),
-        reasons: [{ code: 'status', text: idx === 0 ? '遅延' : idx === 1 ? '異常' : '正常' }],
+        reasons:
+          idx < 2
+            ? [
+                {
+                  kind: 'consecutive_failures' as const,
+                  status: idx === 0 ? ('delayed' as const) : ('abnormal' as const),
+                  sourceKind: id,
+                  text: idx === 0 ? '遅延' : '異常',
+                },
+              ]
+            : [],
         lastAttemptAt: fixedNowIso,
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
         maxConsecutiveFailures: idx === 1 ? 3 : 0,
         intervalSeconds: 60,
-      })) as unknown as FetchHealthAggregate['sources'],
+      })),
     };
 
     const initialization = new StartupNotificationInitialization();
@@ -1928,23 +1952,40 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
       initialization,
       serverGenerationId: 'gen-ac12',
       now: () => fixedNowIso,
-      getFetchHealth: () =>
-        ({
+      getFetchHealth: () => {
+        const sourceIds = [
+          'xml_regular',
+          'xml_extra',
+          'nowcast_target_times',
+          'kikikuru_target_times',
+          'amedas_latest_time',
+          'amedas_point',
+        ] as const;
+        return {
           evaluatedAt: fixedNowIso,
           status: 'abnormal',
           worstSourceIds: ['xml_regular'],
-          sources: [
-            {
-              sourceId: 'xml_regular',
-              status: 'abnormal',
-              reasons: [{ code: 'test', text: '異常' }],
-              lastAttemptAt: fixedNowIso,
-              lastSuccessAt: '2026-09-13T11:00:00.000Z',
-              maxConsecutiveFailures: 1,
-              intervalSeconds: 60,
-            },
-          ],
-        }) as unknown as FetchHealthAggregate,
+          sources: sourceIds.map((id) => ({
+            sourceId: id,
+            status: id === 'xml_regular' ? ('abnormal' as const) : ('normal' as const),
+            reasons:
+              id === 'xml_regular'
+                ? [
+                    {
+                      kind: 'consecutive_failures' as const,
+                      status: 'abnormal' as const,
+                      sourceKind: id,
+                      text: '異常',
+                    },
+                  ]
+                : [],
+            lastAttemptAt: fixedNowIso,
+            lastSuccessAt: '2026-09-13T11:00:00.000Z',
+            maxConsecutiveFailures: id === 'xml_regular' ? 1 : 0,
+            intervalSeconds: 60,
+          })),
+        };
+      },
     });
 
     const res = service.inquire({
