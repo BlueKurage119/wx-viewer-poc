@@ -37,6 +37,8 @@ import {
 } from './notifications/index.js';
 import { FetchHealthMonitorService } from './monitoring/index.js';
 import { createWeatherApiService } from './services/weatherApiService.js';
+import { createNowcastApiService } from './services/nowcastApiService.js';
+import { createKikikuruApiService } from './services/kikikuruApiService.js';
 
 export interface StartedServer {
   readonly port: number;
@@ -175,17 +177,31 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     getPollingStatus: () => pollingService?.getStatus(),
     now: clock,
   });
+  const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
+  let imageServices: ImageServices | undefined;
+
+  const nowcastApi = createNowcastApiService({
+    getService: () => imageServices?.nowcast ?? null,
+    enablePolling,
+    clock,
+  });
+  const kikikuruApi = createKikikuruApiService({
+    getService: () => imageServices?.kikikuru ?? null,
+    enablePolling,
+    clock,
+  });
+
   const app = createApp({
     startupNotifications: startupRuntime.startupNotifications,
     weatherApi,
+    nowcastApi,
+    kikikuruApi,
   });
   const actualServer = app.listen(options.port ?? DEFAULT_PORT);
 
   const serverListeningPromise = waitForServerListening(actualServer);
 
-  const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let scheduler: TimeBasedPollingScheduler | undefined;
-  let imageServices: ImageServices | undefined;
 
   try {
     // 初期取得より先に待受失敗を監視する。失敗時は直ちに catch で全資源を解放する。
@@ -383,13 +399,28 @@ async function main(): Promise<void> {
     getPollingStatus: () => pollingService?.getStatus(),
     now: clock,
   });
+  const enablePolling = process.env.DISABLE_POLLING !== 'true';
+  let imageServices: ImageServices | undefined;
+
+  const nowcastApi = createNowcastApiService({
+    getService: () => imageServices?.nowcast ?? null,
+    enablePolling,
+    clock,
+  });
+  const kikikuruApi = createKikikuruApiService({
+    getService: () => imageServices?.kikikuru ?? null,
+    enablePolling,
+    clock,
+  });
+
   const app = createApp({
     startupNotifications: startupRuntime.startupNotifications,
     weatherApi,
+    nowcastApi,
+    kikikuruApi,
   });
   const server = app.listen(port);
   let scheduler: TimeBasedPollingScheduler | undefined;
-  let imageServices: ImageServices | undefined;
 
   let closed = false;
   const close = async () => {
