@@ -38,7 +38,7 @@ https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png
 
 Leaflet は `leaflet` とその CSS を `apps/web` に追加する。React-Leaflet は導入しない。地図インスタンスの生成・破棄、Leaflet のイベント解除、`invalidateSize`、タイル層の差替えを `MapViewport` の React effect に集約する。CSS は `leaflet/dist/leaflet.css` のような CSS import とし、既存の `sideEffects` 制約に反する JavaScript の bare import を増やさない。
 
-標準マーカー画像の URL 自動解決には依存しない。会場マーカーは React/CSS で管理する SVG を `L.divIcon` として渡すか、Leaflet の `CircleMarker` として描画し、Vite のアセット解決差異でマーカーが消えないようにする。会場位置を明確に示すため、マーカー本体には error 系の MD3 トークンを使用する。マーカーには会場名を `aria-label` としたフォーカス可能な操作を設けず、地図上の位置を示す非操作要素とする。
+標準マーカー画像の URL 自動解決には依存しない。会場マーカーは React/CSS で管理する SVG を `L.divIcon` として渡すか、Leaflet の `CircleMarker` として描画し、Vite のアセット解決差異でマーカーが消えないようにする。会場位置を明確に示すため、マーカー本体には淡色地図上で赤く見える light scheme の error 系 MD3 トークンを使用する。マーカーには会場名を `aria-label` としたフォーカス可能な操作を設けず、地図上の位置を示す非操作要素とする。
 
 ### 2.3 行政界の扱い
 

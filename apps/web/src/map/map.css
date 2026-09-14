@@ -231,31 +231,61 @@
   bottom: 172px;
   left: 16px;
   z-index: var(--wx-map-z-controls);
-  max-width: 140px;
 }
 
-.map-layer-select-dropdown {
-  width: 100%;
-  min-height: 44px;
-  padding: 0 10px;
-  font-size: 13px;
-  font-weight: 500;
+.map-layer-selector-fab {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
   background: var(--md-sys-color-surface-container);
   color: var(--md-sys-color-on-surface);
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 8px;
+  border-radius: 50%;
   box-shadow: 0 2px 6px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
   cursor: pointer;
-  outline: none;
+  padding: 0;
   transition: background-color 0.15s ease;
 }
 
-.map-layer-select-dropdown:hover {
+.map-layer-selector-fab:hover {
   background: var(--md-sys-color-surface-container-high);
 }
 
-.map-layer-select-dropdown:focus-visible {
+.map-layer-selector-fab:focus-visible {
   outline: 2px solid var(--md-sys-color-primary);
+}
+
+.map-layer-selector-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  min-width: 176px;
+  padding: 6px;
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--md-sys-color-shadow) 35%, transparent);
+}
+
+.map-layer-selector-option {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.map-layer-selector-option:hover,
+.map-layer-selector-option[aria-checked='true'] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
 
 /* 左下ズームおよび会場復帰 (F6) */
@@ -301,7 +331,7 @@
 .timeline-card-wrapper {
   position: absolute;
   bottom: 16px;
-  left: calc(16px + 140px + 16px); /* 左下のレイヤー選択・ズーム群と重ならない安全余白 */
+  left: calc(16px + 44px + 16px); /* 左下の FAB・ズーム群と重ならない安全余白 */
   right: calc(var(--wx-map-right-column-width) + 16px);
   display: flex;
   justify-content: center;
