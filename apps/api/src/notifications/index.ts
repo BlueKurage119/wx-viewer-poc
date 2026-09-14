@@ -11,3 +11,5 @@ export * from './fetchHealthNotificationPlanner.js';
 export * from './fetchHealthNotificationEmitter.js';
 export * from './bosaiBulletinNotificationPlanner.js';
 export * from './bosaiBulletinNotificationEmitter.js';
+export * from './notificationVenueScope.js';
+export * from './notificationDeltaService.js';

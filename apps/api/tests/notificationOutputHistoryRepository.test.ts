@@ -9,9 +9,11 @@ import { initializeDatabase } from '../src/database/index.js';
 import {
   countNotificationOutputHistory,
   deleteNotificationOutputHistory,
+  findMaxNotificationOutputSequence,
   findNotificationOutputHistoryById,
   findNotificationOutputHistoryByNotificationId,
   listNotificationOutputHistory,
+  listNotificationOutputHistoryAfter,
   recordNotificationOutputHistory,
   type NotificationDetectionContext,
   type NotificationOutputHistoryInput,
@@ -757,6 +759,91 @@ test('12. deleteNotificationOutputHistory で対象 1 行だけが消え、存�
     // notif2 は完全一致で残っている
     const remaining = findNotificationOutputHistoryById(context.connection, notif2.id);
     assert.deepEqual(remaining, notif2);
+
+    context.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test('13. findMaxNotificationOutputSequence は空テーブルで 0、レコード存在時は MAX(id) を返す', () => {
+  const { databasePath, cleanup } = createTempDbPath();
+  try {
+    const context = initializeDatabase({
+      databasePath,
+      migrationsDirectory,
+    });
+
+    assert.equal(findMaxNotificationOutputSequence(context.connection), 0);
+
+    const n1 = recordNotificationOutputHistory(context.connection, {
+      ...sampleWeatherNotificationInput,
+      notificationId: 'seq-1',
+    });
+    assert.equal(findMaxNotificationOutputSequence(context.connection), n1.id);
+
+    const n2 = recordNotificationOutputHistory(context.connection, {
+      ...sampleWeatherNotificationInput,
+      notificationId: 'seq-2',
+    });
+    assert.equal(findMaxNotificationOutputSequence(context.connection), n2.id);
+
+    context.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test('14. listNotificationOutputHistoryAfter は指定 sequence より大きい id の行を id 昇順で全件返す', () => {
+  const { databasePath, cleanup } = createTempDbPath();
+  try {
+    const context = initializeDatabase({
+      databasePath,
+      migrationsDirectory,
+    });
+
+    const n1 = recordNotificationOutputHistory(context.connection, {
+      ...sampleWeatherNotificationInput,
+      notificationId: 'after-1',
+    });
+    const n2 = recordNotificationOutputHistory(context.connection, {
+      ...sampleWeatherNotificationInput,
+      notificationId: 'after-2',
+    });
+    const n3 = recordNotificationOutputHistory(context.connection, {
+      ...sampleWeatherNotificationInput,
+      notificationId: 'after-3',
+    });
+
+    // afterSequence=0 -> 全件（昇順）
+    const all = listNotificationOutputHistoryAfter(context.connection, 0);
+    assert.equal(all.length, 3);
+    assert.deepEqual(
+      all.map((r) => r.id),
+      [n1.id, n2.id, n3.id],
+    );
+
+    // afterSequence=n1.id -> n2, n3
+    const afterN1 = listNotificationOutputHistoryAfter(context.connection, n1.id);
+    assert.equal(afterN1.length, 2);
+    assert.deepEqual(
+      afterN1.map((r) => r.id),
+      [n2.id, n3.id],
+    );
+
+    // afterSequence=n3.id -> 空
+    const afterN3 = listNotificationOutputHistoryAfter(context.connection, n3.id);
+    assert.equal(afterN3.length, 0);
+
+    // 不正な afterSequence は例外
+    assert.throws(
+      () => listNotificationOutputHistoryAfter(context.connection, -1),
+      /afterSequence must be a non-negative integer/,
+    );
+    assert.throws(
+      () => listNotificationOutputHistoryAfter(context.connection, 1.5),
+      /afterSequence must be a non-negative integer/,
+    );
 
     context.close();
   } finally {

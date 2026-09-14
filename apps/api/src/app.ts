@@ -2,11 +2,16 @@ import express, { type Express } from 'express';
 import {
   parseKikikuruTileRequest,
   parseNowcastTileRequest,
+  parseNotificationDeltaQuery,
   parseStartupNotificationRequest,
   parseWeatherApiQuery,
   resolveTerminalDefinition,
+  type UtcIso8601String,
 } from '@wx-viewer-poc/shared';
-import type { StartupNotificationService } from './notifications/index.js';
+import type {
+  NotificationDeltaService,
+  StartupNotificationService,
+} from './notifications/index.js';
 import type { WeatherApiService } from './services/weatherApiService.js';
 import type { NowcastApiService } from './services/nowcastApiService.js';
 import type { KikikuruApiService } from './services/kikikuruApiService.js';
@@ -14,6 +19,7 @@ import { ImageServicesInitializingError } from './services/tileApiSupport.js';
 
 export interface AppDependencies {
   readonly startupNotifications?: StartupNotificationService;
+  readonly notificationDelta?: NotificationDeltaService;
   readonly weatherApi?: WeatherApiService;
   readonly nowcastApi?: NowcastApiService;
   readonly kikikuruApi?: KikikuruApiService;
@@ -185,6 +191,41 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         res.status(result.status === 'initializing' ? 202 : 200).json(result);
       } catch {
         res.status(500).json({ status: 'error', code: 'startup_notification_failed' });
+      }
+    });
+  }
+
+  if (dependencies.notificationDelta) {
+    const notificationDelta = dependencies.notificationDelta;
+    app.get('/api/notifications/delta', (req, res) => {
+      const parsed = parseNotificationDeltaQuery(req.query);
+      if (parsed === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.terminalId);
+      if (terminal === null) {
+        sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      try {
+        const result = notificationDelta.query({
+          terminalId: parsed.terminalId,
+          venueId: terminal.venueId,
+          cursor: parsed.cursor,
+          requestedAt: new Date().toISOString() as UtcIso8601String,
+        });
+        if (result.status === 'cursor_out_of_range') {
+          sendJsonNoStore(res, 409, {
+            status: 'error',
+            code: 'cursor_out_of_range',
+            cursor: result.cursor,
+          });
+          return;
+        }
+        sendJsonNoStore(res, 200, result);
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'notification_delta_failed' });
       }
     });
   }

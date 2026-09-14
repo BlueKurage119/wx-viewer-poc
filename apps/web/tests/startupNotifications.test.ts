@@ -40,3 +40,51 @@ test('AC12: StrictMode 相当の重複購読と abort でも同一端末への P
     reason: 'session',
   });
 });
+
+test('ready 応答: cursor が存在する場合は ready として受理し、cursor 欠落時は unavailable(server) とする', async () => {
+  const readyBodyWithCursor = {
+    status: 'ready',
+    terminalId: 'a',
+    venueId: 'east',
+    serverGenerationId: 'gen-1',
+    generatedAt: '2026-09-14T10:00:00Z',
+    session: { kind: 'startup', firstInquiredAt: '2026-09-14T10:00:00Z' },
+    warningClaimed: true,
+    notifications: [],
+    cursor: '10',
+  };
+  const readyBodyWithoutCursor = {
+    status: 'ready',
+    terminalId: 'a',
+    venueId: 'east',
+    serverGenerationId: 'gen-1',
+    generatedAt: '2026-09-14T10:00:00Z',
+    session: { kind: 'startup', firstInquiredAt: '2026-09-14T10:00:00Z' },
+    warningClaimed: true,
+    notifications: [],
+  };
+
+  const clientWithCursor = createStartupNotificationClient({
+    getSession: () => ({ status: 'ready', sessionId: sessionA, persistence: 'memory' }),
+    fetch: async () =>
+      new Response(JSON.stringify(readyBodyWithCursor), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  });
+
+  const res1 = await clientWithCursor.fetchStartupNotifications('a');
+  assert.deepEqual(res1, readyBodyWithCursor);
+
+  const clientWithoutCursor = createStartupNotificationClient({
+    getSession: () => ({ status: 'ready', sessionId: sessionA, persistence: 'memory' }),
+    fetch: async () =>
+      new Response(JSON.stringify(readyBodyWithoutCursor), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  });
+
+  const res2 = await clientWithoutCursor.fetchStartupNotifications('a');
+  assert.deepEqual(res2, { status: 'unavailable', reason: 'server' });
+});

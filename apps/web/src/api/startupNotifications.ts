@@ -35,7 +35,8 @@ function isReady(value: unknown): value is StartupNotificationReadyResponse {
     typeof value === 'object' &&
     value !== null &&
     (value as { status?: unknown }).status === 'ready' &&
-    Array.isArray((value as { notifications?: unknown }).notifications)
+    Array.isArray((value as { notifications?: unknown }).notifications) &&
+    typeof (value as { cursor?: unknown }).cursor === 'string'
   );
 }
 

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 
 import {
   resolveTerminalDefinition,
+  toNotificationDeltaCursor,
   type StartupNotificationInitializingResponse,
   type StartupNotificationReadyResponse,
   type TerminalSessionId,
@@ -11,6 +12,7 @@ import {
 import type { InitialFetchPhase } from '../polling/index.js';
 import {
   claimStartupWarning,
+  findMaxNotificationOutputSequence,
   recordStartupNotificationInquiry,
   recordTerminalSessionInquiry,
 } from '../repositories/index.js';
@@ -119,6 +121,7 @@ export function createStartupNotificationService(
               sessionId: input.sessionId,
             });
           const fetchHealth = dependencies.getFetchHealth?.() ?? null;
+          const maxSequence = findMaxNotificationOutputSequence(dependencies.connection);
           const projection = projector(
             dependencies.connection,
             {
@@ -141,6 +144,7 @@ export function createStartupNotificationService(
             },
             warningClaimed,
             notifications: projection.notifications,
+            cursor: toNotificationDeltaCursor(maxSequence),
           };
           recordInquiry(dependencies.connection, {
             serverGenerationId: dependencies.serverGenerationId,
