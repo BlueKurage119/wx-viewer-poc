@@ -13,16 +13,16 @@ import {
   type StartupNotificationReadyResponse,
   type UtcIso8601String,
 } from '@wx-viewer-poc/shared';
-import { initializeDatabase } from '../../src/database/index.js';
-import { createApp } from '../../src/app.js';
+import { initializeDatabase } from '../src/database/index.js';
+import { createApp } from '../src/app.js';
 import {
   createStartupNotificationService,
   StartupNotificationInitialization,
-} from '../../src/notifications/startupNotificationService.js';
-import { createNotificationDeltaService } from '../../src/notifications/notificationDeltaService.js';
-import { recordNotificationOutputHistory } from '../../src/repositories/index.js';
+} from '../src/notifications/startupNotificationService.js';
+import { createNotificationDeltaService } from '../src/notifications/notificationDeltaService.js';
+import { recordNotificationOutputHistory } from '../src/repositories/index.js';
 
-const apiRoot = join(fileURLToPath(import.meta.url), '../../..');
+const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 const fixedNow = '2026-09-14T10:00:00.000Z';
 const serverGenId = '00000000-0000-4000-8000-000000000001';
@@ -1072,7 +1072,7 @@ test('AC10 共通store合流の変換契約', async () => {
 test('AC12 境界（作りすぎていないこと）', async () => {
   // apps/api および packages/shared のコード内に terminalMode による通知除外ロジックが存在しないこと
   const { resolveNotificationVenueScope } =
-    await import('../../src/notifications/notificationVenueScope.js');
+    await import('../src/notifications/notificationVenueScope.js');
   assert.equal(typeof resolveNotificationVenueScope, 'function');
   // terminalMode 引数を取らない（targets のみ）
   assert.equal(resolveNotificationVenueScope.length, 1);
