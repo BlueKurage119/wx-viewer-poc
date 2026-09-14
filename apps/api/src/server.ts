@@ -268,10 +268,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     notificationIdFactory: options.fetchControlNotificationIdFactory,
   });
 
-  if (options.shutdownSignalSource) {
-    registerGracefulShutdown(options.shutdownSignalSource, () => close({ reason: 'signal' }));
-  }
-
   const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
     connection: database.connection,
     now: () => clock() as UtcIso8601String,
@@ -496,6 +492,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     });
     console.error(error);
   });
+
+  // レビュー指摘 #6: close は上の const 定義まで初期化されない。close 定義前に登録すると、
+  // 初期取得中(実測17分超かかりうる await の間)にシグナルが届いた場合、TDZ により
+  // ReferenceError で失敗する。close 定義後に登録することで安全にする。
+  if (options.shutdownSignalSource) {
+    registerGracefulShutdown(options.shutdownSignalSource, () => close({ reason: 'signal' }));
+  }
 
   return {
     port: address.port,
