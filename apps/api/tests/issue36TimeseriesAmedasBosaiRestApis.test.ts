@@ -7,7 +7,9 @@ import type {
   WeatherControlStatus as ControlStatus,
   AreaTimeseriesTimeDefineDto as AreaTimeseriesTimeDefine,
   AreaTimeseriesValueDto as AreaTimeseriesValue,
+  AmedasTarget,
   BulletinDto as BulletinDetail,
+  VenueId,
 } from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
@@ -127,6 +129,7 @@ function createTestApp(options?: {
   pollingStatus?: JmaXmlPollingStatus;
   nowIso?: string;
   onInitDb?: (db: ReturnType<typeof initializeDatabase>) => void;
+  resolveAmedasTarget?: (venueId: VenueId) => AmedasTarget;
 }) {
   const db = initializeDatabase({ databasePath: ':memory:', migrationsDirectory });
   if (options?.onInitDb) {
@@ -137,6 +140,7 @@ function createTestApp(options?: {
     connection: db.connection,
     getPollingStatus: () => options?.pollingStatus ?? createAvailablePollingStatus(),
     now: () => nowIso,
+    resolveAmedasTarget: options?.resolveAmedasTarget,
   });
   const app = createApp({ weatherApi });
   return { db, app, weatherApi, nowIso };
@@ -454,6 +458,25 @@ test('B2 入力検証: 3 GET でクエリ検証エラー400、未知端末404、
     const resInvalidCtrl = await client.get(`${path}?terminalId=hkeagh01&controlStatus=unknown`);
     assert.equal(resInvalidCtrl.status, 400);
     assert.deepEqual(resInvalidCtrl.body, { status: 'error', code: 'invalid_request' });
+
+    // 重複キー（配列形式）
+    const resDupTerm = await client.get(
+      `${path}?terminalId=hkeagh01&terminalId=htrcph01&controlStatus=normal`,
+    );
+    assert.equal(resDupTerm.status, 400);
+    assert.deepEqual(resDupTerm.body, { status: 'error', code: 'invalid_request' });
+
+    const resDupCtrl = await client.get(
+      `${path}?terminalId=hkeagh01&controlStatus=normal&controlStatus=training`,
+    );
+    assert.equal(resDupCtrl.status, 400);
+    assert.deepEqual(resDupCtrl.body, { status: 'error', code: 'invalid_request' });
+
+    const resDupBoth = await client.get(
+      `${path}?terminalId=hkeagh01&terminalId=htrcph01&controlStatus=normal&controlStatus=training`,
+    );
+    assert.equal(resDupBoth.status, 400);
+    assert.deepEqual(resDupBoth.body, { status: 'error', code: 'invalid_request' });
 
     // 未知端末
     const resUnknownTerm = await client.get(`${path}?terminalId=unknown99&controlStatus=normal`);
@@ -1341,6 +1364,141 @@ test('B9 #37 非対応要素と欠測の区別: trc では humidity キーがな
   assert.deepEqual(resTrc.body.capabilities.unsupportedElements, ['humidity']);
   assert.equal('humidity' in resTrc.body.data.observations[0].values, false); // 非対応要素はキー自体が存在しない
   assert.equal(resTrc.body.data.observations[0].values.temp, 26.0);
+
+  // 合成 elems 注入: 実在の会場コードや地点番号をハードコードした判定になっていないことの検証
+  // elems='10110000' (桁0:temp=1, 桁1:precip1h=0, 桁2:windDir=1, 桁3:wind=1, 桁6:humidity=0)
+  // 公開5要素のうち precipitation1h と humidity が非対応 -> unsupportedElements: ['humidity', 'precipitation1h']
+  const syntheticTarget: AmedasTarget = {
+    stationCode: '44136' as AmedasTarget['stationCode'],
+    displayName: '合成地点',
+    elements: '10110000',
+  };
+
+  const { db: dbSynth, app: appSynth } = createTestApp({
+    resolveAmedasTarget: () => syntheticTarget,
+  });
+
+  saveAmedasSnapshot(dbSynth.connection, {
+    stationCode: '44136',
+    stationName: '合成地点',
+    metadata: {
+      source: 'https://example.com/synthetic',
+      issuedAt: '2026-09-14T06:00:00.000Z',
+      validAt: null,
+      validFrom: null,
+      validTo: null,
+      fetchedAt: '2026-09-14T06:01:00.000Z',
+      lastSuccessAt: '2026-09-14T06:01:00.000Z',
+      availability: 'available',
+      sourceVersion: '1.0',
+    },
+    observations: [
+      {
+        observedAt: '2026-09-14T06:00:00.000Z',
+        element: 'temp',
+        valueNumber: 22.5,
+        valueText: null,
+        qualityFlag: 0,
+        isEstimated: false,
+      },
+    ],
+  });
+
+  const resSynth = await request(appSynth).get(
+    '/api/weather/amedas?terminalId=hkeagh01&controlStatus=normal',
+  );
+  assert.equal(resSynth.status, 200);
+  assert.deepEqual(resSynth.body.capabilities.unsupportedElements, ['humidity', 'precipitation1h']);
+  assert.equal('humidity' in resSynth.body.data.observations[0].values, false);
+  assert.equal('precipitation1h' in resSynth.body.data.observations[0].values, false);
+  assert.equal(resSynth.body.data.observations[0].values.temp, 22.5);
+});
+
+// ---------------------------------------------------------------------------
+// #37 アメダス 複数観測時点
+// ---------------------------------------------------------------------------
+test('#37 複数観測時点: observations が observedAt 昇順で返り、latestObservedAt が最終要素と一致する', async () => {
+  const { db, app } = createTestApp();
+
+  // 3つの観測時点（05:00, 05:30, 06:00）を持つ snapshot を保存
+  saveAmedasSnapshot(db.connection, {
+    stationCode: '44136',
+    stationName: '江戸川臨海',
+    metadata: {
+      source: 'https://example.com/44136',
+      issuedAt: '2026-09-14T06:00:00.000Z',
+      validAt: null,
+      validFrom: null,
+      validTo: null,
+      fetchedAt: '2026-09-14T06:01:00.000Z',
+      lastSuccessAt: '2026-09-14T06:01:00.000Z',
+      availability: 'available',
+      sourceVersion: '1.0',
+    },
+    // 並び替えの検証のため、意図的に非昇順（06:00, 05:00, 05:30）で保存
+    observations: [
+      {
+        observedAt: '2026-09-14T06:00:00.000Z',
+        element: 'temp',
+        valueNumber: 22.0,
+        valueText: null,
+        qualityFlag: 0,
+        isEstimated: false,
+      },
+      {
+        observedAt: '2026-09-14T05:00:00.000Z',
+        element: 'temp',
+        valueNumber: 20.0,
+        valueText: null,
+        qualityFlag: 0,
+        isEstimated: false,
+      },
+      {
+        observedAt: '2026-09-14T06:00:00.000Z',
+        element: 'humidity',
+        valueNumber: 60,
+        valueText: null,
+        qualityFlag: 0,
+        isEstimated: false,
+      },
+      {
+        observedAt: '2026-09-14T05:30:00.000Z',
+        element: 'temp',
+        valueNumber: 21.0,
+        valueText: null,
+        qualityFlag: 0,
+        isEstimated: false,
+      },
+      {
+        observedAt: '2026-09-14T05:00:00.000Z',
+        element: 'precipitation1h',
+        valueNumber: 0.0,
+        valueText: null,
+        qualityFlag: 0,
+        isEstimated: false,
+      },
+    ],
+  });
+
+  const client = request(app);
+  const res = await client.get('/api/weather/amedas?terminalId=hkeagh01&controlStatus=normal');
+  assert.equal(res.status, 200);
+
+  const data = res.body.data;
+  assert.ok(data);
+  assert.equal(data.observations.length, 3);
+
+  // observedAt 昇順の検証
+  const timestamps = data.observations.map((o: { observedAt: string }) => o.observedAt);
+  assert.deepEqual(timestamps, [
+    '2026-09-14T05:00:00.000Z',
+    '2026-09-14T05:30:00.000Z',
+    '2026-09-14T06:00:00.000Z',
+  ]);
+
+  // latestObservedAt が最終要素と完全一致することの検証
+  assert.equal(data.latestObservedAt, '2026-09-14T06:00:00.000Z');
+  assert.equal(data.latestObservedAt, data.observations[data.observations.length - 1].observedAt);
 });
 
 // ---------------------------------------------------------------------------
@@ -1922,17 +2080,56 @@ test('B13 #38 目撃・並存・期限: VPHW51 の hasSighting boolean, VPHW50/V
     ],
   });
 
+  // 4. VPHW51 (目撃なし, hasSighting: false)
+  saveBosaiBulletin(db.connection, {
+    eventId: 'VPHW51:130010:no-sighting',
+    controlStatus: 'normal',
+    infoType: '発表',
+    reportDateTime: '2026-09-14T06:10:00.000Z',
+    controlDateTime: '2026-09-14T06:10:00.000Z',
+    title: '竜巻注意情報（目撃なし）',
+    headlineText: null,
+    informationTag: null,
+    hasSighting: false,
+    isCancelled: false,
+    metadata: {
+      source: 'https://example.com/20260914061000_0_VPHW51_130000.xml',
+      issuedAt: '2026-09-14T06:10:00.000Z',
+      validAt: '2026-09-14T07:20:00.000Z',
+      validFrom: null,
+      validTo: null,
+      fetchedAt: '2026-09-14T06:11:00.000Z',
+      lastSuccessAt: '2026-09-14T06:11:00.000Z',
+      availability: 'available',
+      sourceVersion: '1.0',
+    },
+    areas: [
+      {
+        areaCode: '1310800',
+        areaName: '江東区',
+        codeType: '市町村等',
+        sequence: 1,
+        informationType: null,
+      },
+    ],
+  });
+
   const client = request(app);
   const res = await client.get('/api/weather/bulletins?terminalId=hkeagh01&controlStatus=normal');
   assert.equal(res.status, 200);
 
   const bulletins = res.body.bulletins as BulletinDetail[];
-  assert.equal(bulletins.length, 3); // 2行並存統合なしで3件
+  assert.equal(bulletins.length, 4); // 2行並存統合なし + 目撃なし追加で4件
 
   const b51 = bulletins.find((b) => b.eventId === 'VPHW51:130010');
   assert.ok(b51);
   assert.equal(b51.hasSighting, true);
   assert.equal(b51.metadata.validAt, '2026-09-14T07:15:00.000Z');
+
+  const b51NoSighting = bulletins.find((b) => b.eventId === 'VPHW51:130010:no-sighting');
+  assert.ok(b51NoSighting);
+  assert.equal(b51NoSighting.hasSighting, false); // null ではなく明示的に false
+  assert.equal(b51NoSighting.metadata.validAt, '2026-09-14T07:20:00.000Z');
 
   const b50 = bulletins.find((b) => b.eventId === 'VPHW50:130010');
   assert.ok(b50);
@@ -2169,6 +2366,188 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
   );
   assert.equal(resNoTypeFailure.status, 200);
   assert.equal(resNoTypeFailure.body.availability, 'available'); // VPHW50 の行がないため判定されず available
+
+  // 5. 否定条件の検証: 別種別・別区域・別会場・過去時刻の解析失敗では availability が変化しない
+  const createBaseBulletinDb = () => {
+    const instance = createTestApp();
+    saveBosaiBulletin(instance.db.connection, {
+      eventId: 'event-base-vpbs',
+      controlStatus: 'normal',
+      infoType: '発表',
+      reportDateTime: '2026-09-14T06:00:00.000Z',
+      controlDateTime: '2026-09-14T06:00:00.000Z',
+      title: '正常速報',
+      headlineText: null,
+      informationTag: null,
+      hasSighting: null,
+      isCancelled: false,
+      metadata: {
+        source: 'https://example.com/20260914060000_0_VPBS50_130000.xml',
+        issuedAt: '2026-09-14T06:00:00.000Z',
+        validAt: null,
+        validFrom: null,
+        validTo: null,
+        fetchedAt: '2026-09-14T06:01:00.000Z',
+        lastSuccessAt: '2026-09-14T06:01:00.000Z',
+        availability: 'available',
+        sourceVersion: '1.0',
+      },
+      areas: [
+        {
+          areaCode: '1310800',
+          areaName: '江東区',
+          codeType: '市町村等',
+          sequence: 1,
+          informationType: null,
+        },
+      ],
+    });
+    return instance;
+  };
+
+  // 否定条件(a): 別種別 (VPFD51) の未対応構造失敗 -> available
+  const { db: dbDiffType, app: appDiffType } = createBaseBulletinDb();
+  recordTelegramReception(dbDiffType.connection, {
+    fetchAttemptId: null,
+    feedKind: null,
+    feedEntryId: null,
+    documentUrl: 'https://example.com/failed_VPFD51.xml',
+    telegramType: 'VPFD51',
+    title: null,
+    controlStatus: 'normal',
+    infoType: null,
+    eventId: 'failed-vpfd51',
+    serial: null,
+    controlDateTime: '2026-09-14T06:10:00.000Z',
+    reportDateTime: '2026-09-14T06:10:00.000Z',
+    targetDateTime: null,
+    receivedAt: '2026-09-14T06:10:00.000Z',
+    rawBody: null,
+    bodyBytes: null,
+    contentHash: null,
+    areas: [{ areaCode: '1310800', areaName: '江東区', codeType: null, sequence: 1 }],
+    adoptions: [
+      {
+        venueId: 'east',
+        adoptionResult: '未対応構造',
+        adoptionReason: 'パース失敗',
+        adoptionDecidedAt: '2026-09-14T06:10:00.000Z',
+      },
+    ],
+  });
+  const resDiffType = await request(appDiffType).get(
+    '/api/weather/bulletins?terminalId=hkeagh01&controlStatus=normal',
+  );
+  assert.equal(resDiffType.status, 200);
+  assert.equal(resDiffType.body.availability, 'available');
+
+  // 否定条件(b): 別区域 (新潟地方 150010) の未対応構造失敗 -> available
+  const { db: dbDiffArea, app: appDiffArea } = createBaseBulletinDb();
+  recordTelegramReception(dbDiffArea.connection, {
+    fetchAttemptId: null,
+    feedKind: null,
+    feedEntryId: null,
+    documentUrl: 'https://example.com/failed_diff_area.xml',
+    telegramType: 'VPBS50',
+    title: null,
+    controlStatus: 'normal',
+    infoType: null,
+    eventId: 'failed-diff-area',
+    serial: null,
+    controlDateTime: '2026-09-14T06:10:00.000Z',
+    reportDateTime: '2026-09-14T06:10:00.000Z',
+    targetDateTime: null,
+    receivedAt: '2026-09-14T06:10:00.000Z',
+    rawBody: null,
+    bodyBytes: null,
+    contentHash: null,
+    areas: [{ areaCode: '150010', areaName: '新潟地方', codeType: null, sequence: 1 }],
+    adoptions: [
+      {
+        venueId: 'east',
+        adoptionResult: '未対応構造',
+        adoptionReason: 'パース失敗',
+        adoptionDecidedAt: '2026-09-14T06:10:00.000Z',
+      },
+    ],
+  });
+  const resDiffArea = await request(appDiffArea).get(
+    '/api/weather/bulletins?terminalId=hkeagh01&controlStatus=normal',
+  );
+  assert.equal(resDiffArea.status, 200);
+  assert.equal(resDiffArea.body.availability, 'available');
+
+  // 否定条件(c): 別会場 (trc) の未対応構造失敗 (east端末からリクエスト) -> available
+  const { db: dbDiffVenue, app: appDiffVenue } = createBaseBulletinDb();
+  recordTelegramReception(dbDiffVenue.connection, {
+    fetchAttemptId: null,
+    feedKind: null,
+    feedEntryId: null,
+    documentUrl: 'https://example.com/failed_diff_venue.xml',
+    telegramType: 'VPBS50',
+    title: null,
+    controlStatus: 'normal',
+    infoType: null,
+    eventId: 'failed-diff-venue',
+    serial: null,
+    controlDateTime: '2026-09-14T06:10:00.000Z',
+    reportDateTime: '2026-09-14T06:10:00.000Z',
+    targetDateTime: null,
+    receivedAt: '2026-09-14T06:10:00.000Z',
+    rawBody: null,
+    bodyBytes: null,
+    contentHash: null,
+    areas: [{ areaCode: '1310800', areaName: '江東区', codeType: null, sequence: 1 }],
+    adoptions: [
+      {
+        venueId: 'trc',
+        adoptionResult: '未対応構造',
+        adoptionReason: 'パース失敗',
+        adoptionDecidedAt: '2026-09-14T06:10:00.000Z',
+      },
+    ],
+  });
+  const resDiffVenue = await request(appDiffVenue).get(
+    '/api/weather/bulletins?terminalId=hkeagh01&controlStatus=normal',
+  );
+  assert.equal(resDiffVenue.status, 200);
+  assert.equal(resDiffVenue.body.availability, 'available');
+
+  // 否定条件(d): 過去時刻 (baseline 06:00 より前 05:00) の未対応構造失敗 -> available
+  const { db: dbPast, app: appPast } = createBaseBulletinDb();
+  recordTelegramReception(dbPast.connection, {
+    fetchAttemptId: null,
+    feedKind: null,
+    feedEntryId: null,
+    documentUrl: 'https://example.com/failed_past.xml',
+    telegramType: 'VPBS50',
+    title: null,
+    controlStatus: 'normal',
+    infoType: null,
+    eventId: 'failed-past',
+    serial: null,
+    controlDateTime: '2026-09-14T05:00:00.000Z',
+    reportDateTime: '2026-09-14T05:00:00.000Z',
+    targetDateTime: null,
+    receivedAt: '2026-09-14T05:00:00.000Z',
+    rawBody: null,
+    bodyBytes: null,
+    contentHash: null,
+    areas: [{ areaCode: '1310800', areaName: '江東区', codeType: null, sequence: 1 }],
+    adoptions: [
+      {
+        venueId: 'east',
+        adoptionResult: '未対応構造',
+        adoptionReason: 'パース失敗',
+        adoptionDecidedAt: '2026-09-14T05:00:00.000Z',
+      },
+    ],
+  });
+  const resPast = await request(appPast).get(
+    '/api/weather/bulletins?terminalId=hkeagh01&controlStatus=normal',
+  );
+  assert.equal(resPast.status, 200);
+  assert.equal(resPast.body.availability, 'available');
 });
 
 // ---------------------------------------------------------------------------
