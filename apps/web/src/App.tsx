@@ -6,6 +6,7 @@ import { NotificationArea } from './shell/NotificationArea';
 import { visibleNotices } from './shell/notifications';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
 import { fetchStartupNotifications } from './api/startupNotifications';
+import { WeatherMapView } from './map/WeatherMapView';
 
 const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
   weather: {
@@ -123,25 +124,17 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
         ) : undefined
       }
     >
-      <div className="view-placeholder">
-        <span className="placeholder-symbol" aria-hidden="true">
-          {VIEW_PLACEHOLDER[view].symbol}
-        </span>
-        <h3>{VIEW_PLACEHOLDER[view].heading}</h3>
-        <p>{VIEW_PLACEHOLDER[view].description}</p>
-        {view === 'weather' && (
-          <dl>
-            <div>
-              <dt>対象市区町村</dt>
-              <dd>{terminal.venue.weatherTargets.warning.displayName}</dd>
-            </div>
-            <div>
-              <dt>アメダス</dt>
-              <dd>{terminal.venue.weatherTargets.amedas.displayName}</dd>
-            </div>
-          </dl>
-        )}
-      </div>
+      {view === 'weather' ? (
+        <WeatherMapView venue={terminal.venue} />
+      ) : (
+        <div className="view-placeholder">
+          <span className="placeholder-symbol" aria-hidden="true">
+            {VIEW_PLACEHOLDER[view].symbol}
+          </span>
+          <h3>{VIEW_PLACEHOLDER[view].heading}</h3>
+          <p>{VIEW_PLACEHOLDER[view].description}</p>
+        </div>
+      )}
     </AppShell>
   );
 }

@@ -1,4 +1,6 @@
 @import '@material/web/typography/md-typescale-styles.css';
+@import 'leaflet/dist/leaflet.css';
+@import './map/map.css';
 :root {
   --md-ref-typeface-brand: 'Noto Sans JP', system-ui, sans-serif;
   --md-ref-typeface-plain: 'Noto Sans JP', system-ui, sans-serif;

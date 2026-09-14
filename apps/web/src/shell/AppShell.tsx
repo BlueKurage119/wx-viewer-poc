@@ -109,7 +109,11 @@ export function AppShell({
           </a>
         ))}
       </nav>
-      <main id="view-content" tabIndex={-1} className="view-content">
+      <main
+        id="view-content"
+        tabIndex={-1}
+        className={`view-content ${view === 'weather' ? 'view-content-map' : ''}`}
+      >
         {children}
       </main>
       {toolbar && (
