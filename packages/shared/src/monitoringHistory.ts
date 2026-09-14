@@ -158,8 +158,16 @@ function parseOffset(raw: unknown): number | null {
   return value;
 }
 
+/**
+ * レビュー指摘 #5: Date.parse だけでは "2024-01-01"（日付のみ）や
+ * "2024-01-01T00:00:00+09:00"（タイムゾーン付き）も受理してしまい、
+ * UtcIso8601String（Z終端のUTC限定）という契約を満たさない値でフィルタが
+ * 通ってしまう。Z終端の厳密なUTC ISO8601形式のみを受理する。
+ */
+const UTC_ISO_8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+
 function isValidUtcIso8601(raw: unknown): raw is string {
-  if (typeof raw !== 'string' || raw.length === 0) {
+  if (typeof raw !== 'string' || raw.length === 0 || !UTC_ISO_8601_PATTERN.test(raw)) {
     return false;
   }
   return !Number.isNaN(Date.parse(raw));
