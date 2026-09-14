@@ -34,11 +34,11 @@ test('F4: fixture の複数フレームでスライダー、各ボタンの属�
   assert.ok(html.includes('timeline-slider'));
   assert.ok(html.includes('aria-valuetext="実況 01:30"'));
 
-  // ボタンの aria-label
-  assert.ok(html.includes('aria-label="前のコマへ"'));
+  // ボタンの aria-label（戻る、再生、現在、次へ）
+  assert.ok(html.includes('aria-label="戻る"'));
   assert.ok(html.includes('aria-label="再生"'));
-  assert.ok(html.includes('aria-label="次のコマへ"'));
-  assert.ok(html.includes('aria-label="最新へ"'));
+  assert.ok(html.includes('aria-label="現在"'));
+  assert.ok(html.includes('aria-label="次へ"'));
 
   // 再生中状態のテスト
   const playingHtml = renderToStaticMarkup(
@@ -61,11 +61,11 @@ test('F4: 空カタログでは操作が disabled となり、「利用可能な
   assert.ok(html.includes('利用可能な時刻はありません'));
   // スライダー領域が無効状態
   assert.ok(html.includes('timeline-slider-empty'));
-  // 各ボタンが disabled
-  assert.ok(html.includes('disabled="" aria-label="前のコマへ"'));
+  // 各ボタンが disabled（戻る、再生、現在、次へ）
+  assert.ok(html.includes('disabled="" aria-label="戻る"'));
   assert.ok(html.includes('disabled="" aria-label="再生"'));
-  assert.ok(html.includes('disabled="" aria-label="次のコマへ"'));
-  assert.ok(html.includes('disabled="" aria-label="最新へ"'));
+  assert.ok(html.includes('disabled="" aria-label="現在"'));
+  assert.ok(html.includes('disabled="" aria-label="次へ"'));
 });
 
 test('F4: キキクルの reference フレームで基準バッジと時刻が表示される', () => {
@@ -91,8 +91,6 @@ test('F5: レイヤー選択にナウキャストとキキクル3種のみが含
     el(LayerSelector, {
       selectedLayerId: 'nowcast',
       onLayerSelect: () => {},
-      legendOpen: true,
-      onOpenLegend: () => {},
     }),
   );
 
@@ -107,44 +105,49 @@ test('F5: レイヤー選択にナウキャストとキキクル3種のみが含
   assert.equal(html.includes('竜巻'), false);
 });
 
-test('F5: 凡例が開いている時は再表示ボタンがなく、閉じている時に再表示ボタンが現れる', () => {
+test('F5: 凡例が開いている時は再表示ボタンがなく、閉じている時は元の左上位置に再表示ボタンが現れる', () => {
   const openHtml = renderToStaticMarkup(
-    el(LayerSelector, {
-      selectedLayerId: 'nowcast',
-      onLayerSelect: () => {},
-      legendOpen: true,
-      onOpenLegend: () => {},
+    el(MapLegend, {
+      presentation: LAYER_PRESENTATIONS.nowcast,
+      open: true,
+      onClose: () => {},
+      onOpen: () => {},
     }),
   );
-  assert.equal(openHtml.includes('legend-open-button'), false);
+  assert.equal(openHtml.includes('map-legend-reopen-button'), false);
+  assert.ok(openHtml.includes('legend-close-button'));
 
   const closedHtml = renderToStaticMarkup(
-    el(LayerSelector, {
-      selectedLayerId: 'nowcast',
-      onLayerSelect: () => {},
-      legendOpen: false,
-      onOpenLegend: () => {},
-    }),
-  );
-  assert.ok(closedHtml.includes('legend-open-button'));
-  assert.ok(closedHtml.includes('aria-label="凡例を表示"'));
-});
-
-test('F5: 凡例カードは open=false で描画されず、open=true で階級と閉じるボタンが表示される', () => {
-  const hidden = renderToStaticMarkup(
     el(MapLegend, {
       presentation: LAYER_PRESENTATIONS.nowcast,
       open: false,
       onClose: () => {},
+      onOpen: () => {},
     }),
   );
-  assert.equal(hidden, '');
+  assert.ok(closedHtml.includes('map-legend-reopen-button'));
+  assert.ok(closedHtml.includes('aria-label="凡例を表示"'));
+});
+
+test('F5: 凡例カードは open=false で本体が描画されず再表示ボタンが表示され、open=true で階級と閉じるボタンが表示される', () => {
+  const closed = renderToStaticMarkup(
+    el(MapLegend, {
+      presentation: LAYER_PRESENTATIONS.nowcast,
+      open: false,
+      onClose: () => {},
+      onOpen: () => {},
+    }),
+  );
+  // open=false のときは凡例本体（map-legend）は描画されず、再表示ボタンが描画される
+  assert.equal(closed.includes('class="map-legend"'), false);
+  assert.ok(closed.includes('map-legend-reopen-button'));
 
   const visible = renderToStaticMarkup(
     el(MapLegend, {
       presentation: LAYER_PRESENTATIONS.nowcast,
       open: true,
       onClose: () => {},
+      onOpen: () => {},
     }),
   );
   assert.ok(visible.includes('雨雲ナウキャスト（降水強度）'));

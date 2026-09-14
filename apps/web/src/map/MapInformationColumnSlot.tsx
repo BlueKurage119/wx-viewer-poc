@@ -4,23 +4,32 @@ export interface MapInformationColumnSlotProps {
   children?: ReactNode;
 }
 
+const defaultPlaceholderCards = (
+  <>
+    <div className="map-info-placeholder-card" onWheel={(event) => event.stopPropagation()}>
+      <span className="map-info-placeholder-label">情報カード（プレースホルダー 1）</span>
+    </div>
+    <div className="map-info-placeholder-card" onWheel={(event) => event.stopPropagation()}>
+      <span className="map-info-placeholder-label">情報カード（プレースホルダー 2）</span>
+    </div>
+    <div className="map-info-placeholder-card" onWheel={(event) => event.stopPropagation()}>
+      <span className="map-info-placeholder-label">情報カード（プレースホルダー 3）</span>
+    </div>
+  </>
+);
+
 /**
  * 右側情報列の予約スロット (F1 / G1)
  *
- * 将来 G1 がダークカード列を配置するためのコンテナ。
- * カード間に地図が見えるよう、スロット自体は不透明な面や境界線・影を持たない。
- * 会場中心補正のための遮蔽領域（幅）を確保し、列の一括スクロール操作面を提供する。
+ * 実カードの前段として不透明なダークテーマのプレースホルダーカードを配置する。
+ * 列全体は一枚の面で覆わず、カード群より下に見える地図はドラッグ・ホイール等で操作可能とする。
+ * カード自体はポインターイベントを消費し、初期の中心補正のために実測幅を提供する。
  */
 export const MapInformationColumnSlot = forwardRef<HTMLElement, MapInformationColumnSlotProps>(
   function MapInformationColumnSlot({ children }, ref) {
     return (
-      <aside
-        ref={ref}
-        className="map-information-column-slot"
-        aria-label="気象情報詳細"
-        onWheel={(event) => event.stopPropagation()}
-      >
-        {children}
+      <aside ref={ref} className="map-information-column-slot" aria-label="気象情報詳細">
+        {children ?? defaultPlaceholderCards}
       </aside>
     );
   },

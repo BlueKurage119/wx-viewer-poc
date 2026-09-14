@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Venue } from '../shell/config';
 import type { MapLayerId, TimelineIntent, TimelineViewModel } from './types';
-import { LAYER_PRESENTATIONS, sampleNowcastTimeline } from './fixtures';
+import { LAYER_PRESENTATIONS, emptyTimeline } from './fixtures';
 import { MapViewport, type MapViewportHandle } from './MapViewport';
 import { MapInformationColumnSlot } from './MapInformationColumnSlot';
 import { MapLegend } from './MapLegend';
@@ -23,11 +23,12 @@ export interface WeatherMapViewProps {
  *
  * F4/F5 の責務境界に従い、タイムライン表示モデルの描画と、
  * ユーザー操作による TimelineIntent / レイヤー選択の通知のみを行う。
- * 時刻選択遷移・再生タイマー・最新追従・カタログ切り替えは後続 (F2/F3/F7) の所有とする。
+ * 通常画面のデフォルト表示は空カタログ (emptyTimeline) とし、固定日時の fixture は描画しない。
+ * DOM 順序はキーボードフォーカス順（凡例 → レイヤー選択と時間操作 → ズーム → 会場復帰）に準拠する。
  */
 export function WeatherMapView({
   venue,
-  timelineViewModel = sampleNowcastTimeline,
+  timelineViewModel = emptyTimeline,
   onTimelineIntent,
   selectedLayerId: controlledLayerId,
   onLayerSelect,
@@ -36,7 +37,7 @@ export function WeatherMapView({
   const currentLayerId = controlledLayerId ?? internalLayerId;
 
   const [legendOpen, setLegendOpen] = useState(true);
-  const [currentZoom, setCurrentZoom] = useState(10);
+  const [currentZoom, setCurrentZoom] = useState(11);
 
   // 右列 slot と時間カードの DOM 要素参照（MapViewport の中心補正に渡す）
   const rightColumnRef = useRef<HTMLElement>(null);
@@ -71,29 +72,27 @@ export function WeatherMapView({
 
   return (
     <div className="weather-map-view" aria-label="防災気象情報ビュー">
-      {/* Leaflet 地図本体 (F1) */}
-      <MapViewport
-        ref={viewportRef}
-        venue={venue}
-        rightColumnElement={rightColumnEl}
-        bottomCardElement={bottomCardEl}
-        onZoomChange={setCurrentZoom}
-      />
-
-      {/* 右側情報列スロット (F1 / G1) */}
-      <MapInformationColumnSlot ref={rightColumnRef} />
-
-      {/* 左上凡例カード (F5) */}
+      {/* 1. 左上凡例カード／再表示ボタン (F5) */}
       <MapLegend
         presentation={presentation}
         open={legendOpen}
         onClose={() => setLegendOpen(false)}
+        onOpen={() => setLegendOpen(true)}
       />
 
-      {/* 右下出典リンク (F5) */}
-      <MapAttribution />
+      {/* 2. 左下フローティングレイヤー選択 (F5) */}
+      <LayerSelector selectedLayerId={currentLayerId} onLayerSelect={handleLayerSelect} />
 
-      {/* 左下ズーム群および会場復帰 (F6) */}
+      {/* 3. 下部中央時間操作カード (F4) */}
+      <div className="timeline-card-wrapper">
+        <TimelineControlCard
+          ref={bottomCardRef}
+          viewModel={timelineViewModel}
+          onIntent={handleIntent}
+        />
+      </div>
+
+      {/* 4. 左下ズーム群および会場復帰 (F6) */}
       <MapZoomControls
         currentZoom={currentZoom}
         onZoomIn={handleZoomIn}
@@ -101,22 +100,20 @@ export function WeatherMapView({
         onReturnToVenue={handleReturnToVenue}
       />
 
-      {/* 下部中央時間操作カード (F4) */}
-      <div className="timeline-card-wrapper">
-        <TimelineControlCard
-          ref={bottomCardRef}
-          viewModel={timelineViewModel}
-          onIntent={handleIntent}
-          layerSelector={
-            <LayerSelector
-              selectedLayerId={currentLayerId}
-              onLayerSelect={handleLayerSelect}
-              legendOpen={legendOpen}
-              onOpenLegend={() => setLegendOpen(true)}
-            />
-          }
-        />
-      </div>
+      {/* 5. 右下出典リンク (F5) */}
+      <MapAttribution />
+
+      {/* 6. 右側情報列スロット (F1 / G1) */}
+      <MapInformationColumnSlot ref={rightColumnRef} />
+
+      {/* 7. Leaflet 地図本体 (F1) - 背景レイヤー */}
+      <MapViewport
+        ref={viewportRef}
+        venue={venue}
+        rightColumnElement={rightColumnEl}
+        bottomCardElement={bottomCardEl}
+        onZoomChange={setCurrentZoom}
+      />
     </div>
   );
 }

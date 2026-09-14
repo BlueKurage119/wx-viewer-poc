@@ -59,6 +59,32 @@
   width: var(--wx-map-right-column-width);
   z-index: var(--wx-map-z-column);
   overflow-y: auto;
+  pointer-events: none;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+}
+
+.map-info-placeholder-card {
+  pointer-events: auto;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface-variant);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 96px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-info-placeholder-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 /* 地図左上凡例 (F5) */
@@ -75,6 +101,31 @@
   box-shadow: 0 4px 12px color-mix(in srgb, var(--md-sys-color-shadow) 35%, transparent);
   min-width: 220px;
   max-width: 280px;
+}
+
+/* 凡例を閉じた後の元の左上位置にある再表示ボタン (F5 §6, §9.4) */
+.map-legend-reopen-button {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: var(--wx-map-z-legend);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.15s ease;
+}
+
+.map-legend-reopen-button:hover {
+  background: var(--md-sys-color-surface-container-high);
 }
 
 .legend-header {
@@ -145,31 +196,66 @@
   color: var(--md-sys-color-outline);
 }
 
-/* 地図右下出典 (F5) */
+/* 地図右下出典 (F5) - 背景カードなしの下線付きリンク */
 .map-attribution {
   position: absolute;
   bottom: 8px;
   right: calc(var(--wx-map-right-column-width) + 8px);
   z-index: var(--wx-map-z-attribution);
-  background: var(--md-sys-color-surface-container-highest);
-  opacity: 0.92;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 4px;
-  padding: 4px 8px;
-  font-size: 11px;
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--md-sys-color-shadow) 25%, transparent);
+  padding: 0;
 }
 
 .attribution-link {
   color: var(--md-sys-color-primary);
-  text-decoration: none;
+  text-decoration: underline;
   display: inline-flex;
   align-items: center;
   min-height: 24px;
+  padding: 4px 6px;
+  font-size: 11px;
+  border-radius: 4px;
 }
 
 .attribution-link:hover {
+  color: var(--md-sys-color-primary);
   text-decoration: underline;
+}
+
+.attribution-link:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+}
+
+/* 左下独立フローティングレイヤー選択 (F5 §6, §9.4) */
+.map-layer-selector-floating {
+  position: absolute;
+  bottom: 172px;
+  left: 16px;
+  z-index: var(--wx-map-z-controls);
+  max-width: 140px;
+}
+
+.map-layer-select-dropdown {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.15s ease;
+}
+
+.map-layer-select-dropdown:hover {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.map-layer-select-dropdown:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
 }
 
 /* 左下ズームおよび会場復帰 (F6) */
@@ -215,7 +301,7 @@
 .timeline-card-wrapper {
   position: absolute;
   bottom: 16px;
-  left: 16px;
+  left: calc(16px + 140px + 16px); /* 左下のレイヤー選択・ズーム群と重ならない安全余白 */
   right: calc(var(--wx-map-right-column-width) + 16px);
   display: flex;
   justify-content: center;
@@ -226,7 +312,7 @@
 .timeline-control-card {
   pointer-events: auto;
   width: 100%;
-  max-width: min(36rem, 100%);
+  max-width: min(24rem, 100%); /* 1024x768 相当でも左下と重ならない幅に縮小 */
   background: var(--md-sys-color-surface-container);
   color: var(--md-sys-color-on-surface);
   border: 1px solid var(--md-sys-color-outline-variant);
@@ -238,59 +324,19 @@
   gap: 10px;
 }
 
-/* 上段: レイヤー選択とサマリー */
+/* 上段: サマリー */
 .timeline-summary-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 36px;
-}
-
-.timeline-layer-slot {
-  display: flex;
-  align-items: center;
-}
-
-.layer-selector-container {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.layer-select-dropdown {
-  min-height: 36px;
-  padding: 0 8px;
-  font-size: 13px;
-  font-weight: 500;
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface);
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: 6px;
-}
-
-.legend-open-button {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface);
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: 6px;
-  padding: 0;
-}
-
-.legend-open-button:hover {
-  background: var(--md-sys-color-surface-container-highest);
+  min-height: 28px;
 }
 
 .timeline-frame-summary {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
 }
 
 .timeline-empty-message {
@@ -321,8 +367,11 @@
 }
 
 .timeline-selected-time {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--md-sys-color-on-surface);
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
 }
 
 /* 中段: スライダー */
@@ -443,12 +492,6 @@
 .timeline-play-button:hover:not(:disabled) {
   background: var(--md-sys-color-primary);
   filter: brightness(1.1);
-}
-
-.timeline-latest-button {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 0 12px;
 }
 
 /* 狭小画面対応 (レスポンシブ) */

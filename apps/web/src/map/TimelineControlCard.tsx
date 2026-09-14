@@ -4,7 +4,6 @@ import type { TimelineViewModel, TimelineIntent, TimelineFrameKind } from './typ
 export interface TimelineControlCardProps {
   viewModel: TimelineViewModel;
   onIntent: (intent: TimelineIntent) => void;
-  layerSelector?: ReactNode;
   statusSlot?: ReactNode;
 }
 
@@ -28,7 +27,7 @@ function getKindLabel(kind?: TimelineFrameKind): string {
  * 表示モデル (TimelineViewModel) に基づいて描画し、入力操作を TimelineIntent として上位へ通知する。
  */
 export const TimelineControlCard = forwardRef<HTMLDivElement, TimelineControlCardProps>(
-  function TimelineControlCard({ viewModel, onIntent, layerSelector, statusSlot }, ref) {
+  function TimelineControlCard({ viewModel, onIntent, statusSlot }, ref) {
     const { selectedFrameId, selectedFrameLabel, frames, playing, latestAvailable } = viewModel;
 
     const isEmpty = frames.length === 0;
@@ -72,21 +71,19 @@ export const TimelineControlCard = forwardRef<HTMLDivElement, TimelineControlCar
         aria-label="時間操作"
         onWheel={(event) => event.stopPropagation()}
       >
-        {/* 上段: レイヤー選択と選択日時サマリー */}
+        {/* 上段: 選択日時と実況／予報サマリー */}
         <div className="timeline-summary-row">
-          <div className="timeline-layer-slot">{layerSelector}</div>
-
           <div className="timeline-frame-summary">
             {isEmpty ? (
               <span className="timeline-empty-message">利用可能な時刻はありません</span>
             ) : (
               <>
+                <span className="timeline-selected-time">{selectedFrameLabel}</span>
                 {currentFrame && (
                   <span className={`timeline-kind-badge kind-${currentFrame.kind}`}>
                     {getKindLabel(currentFrame.kind)}
                   </span>
                 )}
-                <span className="timeline-selected-time">{selectedFrameLabel}</span>
               </>
             )}
             {statusSlot && <div className="timeline-status-slot">{statusSlot}</div>}
@@ -130,15 +127,15 @@ export const TimelineControlCard = forwardRef<HTMLDivElement, TimelineControlCar
           )}
         </div>
 
-        {/* 下段: トランスポート操作ボタン（前、再生／停止、次、最新へ） */}
+        {/* 下段: トランスポート操作ボタン（戻る、再生／停止、現在、次へ） */}
         <div className="timeline-transport-row">
           <button
             type="button"
             className="timeline-transport-button"
             disabled={isEmpty || safeIndex <= 0}
             onClick={() => onIntent({ type: 'previous-frame' })}
-            aria-label="前のコマへ"
-            title="前へ"
+            aria-label="戻る"
+            title="戻る"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
@@ -179,25 +176,28 @@ export const TimelineControlCard = forwardRef<HTMLDivElement, TimelineControlCar
           <button
             type="button"
             className="timeline-transport-button"
-            disabled={isEmpty || safeIndex >= frames.length - 1}
-            onClick={() => onIntent({ type: 'next-frame' })}
-            aria-label="次のコマへ"
-            title="次へ"
+            disabled={isEmpty || !latestAvailable}
+            onClick={() => onIntent({ type: 'select-latest' })}
+            aria-label="現在"
+            title="現在"
           >
+            {/* 現在時刻／最新を示す時計アイコン */}
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+              <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-4.18-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" />
             </svg>
           </button>
 
           <button
             type="button"
-            className="timeline-transport-button timeline-latest-button"
-            disabled={isEmpty || !latestAvailable}
-            onClick={() => onIntent({ type: 'select-latest' })}
-            aria-label="最新へ"
-            title="最新へ"
+            className="timeline-transport-button"
+            disabled={isEmpty || safeIndex >= frames.length - 1}
+            onClick={() => onIntent({ type: 'next-frame' })}
+            aria-label="次へ"
+            title="次へ"
           >
-            <span className="latest-button-text">最新へ</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+            </svg>
           </button>
         </div>
       </section>
