@@ -118,6 +118,11 @@ export interface ReprocessPendingWarningOptions {
   >;
   /** バッチログ出力のインターバル件数（既定: 100） */
   readonly batchLogInterval?: number;
+  /**
+   * ページ処理間でイベントループへ制御を戻す関数。
+   * 既定値は setImmediate による制御返却（Node.js イベントループ解放）。
+   */
+  readonly yieldEventLoop?: () => Promise<void>;
 }
 
 export async function reprocessPendingWarningTelegramReceptions(
@@ -130,6 +135,8 @@ export async function reprocessPendingWarningTelegramReceptions(
   const logger = options?.logger;
   const tracker = options?.progressTracker;
   const batchLogInterval = options?.batchLogInterval ?? 100;
+  const yieldEventLoop =
+    options?.yieldEventLoop ?? (() => new Promise<void>((resolve) => setImmediate(resolve)));
   const venueId = venue.venueId;
 
   const total = countPendingWarningTelegramReceptions(connection, venueId);
@@ -169,6 +176,9 @@ export async function reprocessPendingWarningTelegramReceptions(
       }
     }
     after = page.nextCursor ?? undefined;
+    if (after) {
+      await yieldEventLoop();
+    }
   } while (after);
 
   const elapsedMs = Math.max(0, Date.now() - startMs);

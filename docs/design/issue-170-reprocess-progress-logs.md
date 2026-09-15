@@ -220,6 +220,12 @@ export interface ReprocessPendingWarningOptions {
   >;
   /** バッチログ出力のインターバル件数（既定: 100） */
   readonly batchLogInterval?: number;
+  /**
+   * ページ処理間でイベントループへ制御を戻す関数。
+   * 既定値は setImmediate による制御返却（Node.js イベントループ解放）。
+   * レビュー指摘対応: 同期的な SQLite 処理が長時間ループして監視 API 要求をブロックするのを防ぐ。
+   */
+  readonly yieldEventLoop?: () => Promise<void>;
 }
 
 export async function reprocessPendingWarningTelegramReceptions(
@@ -232,6 +238,8 @@ export async function reprocessPendingWarningTelegramReceptions(
   const logger = options?.logger;
   const tracker = options?.progressTracker;
   const batchLogInterval = options?.batchLogInterval ?? 100;
+  const yieldEventLoop =
+    options?.yieldEventLoop ?? (() => new Promise<void>((resolve) => setImmediate(resolve)));
   const venueId = venue.venueId;
 
   const total = countPendingWarningTelegramReceptions(connection, venueId);
@@ -267,6 +275,9 @@ export async function reprocessPendingWarningTelegramReceptions(
       }
     }
     after = page.nextCursor ?? undefined;
+    if (after) {
+      await yieldEventLoop();
+    }
   } while (after);
 
   const elapsedMs = Math.max(0, Date.now() - startMs);
@@ -354,6 +365,7 @@ return {
   3. バッチ進捗: `[api] reprocessed 200/250 telegrams for venue '<venueId>'...`
   4. 完了時: `[api] finished reprocessing pending warning telegrams for venue '<venueId>' (250 items, <elapsedMs>ms)`
 - [ ] **静穏性**: `options` または `logger` を指定しない場合、コンソールに一切ログが出力されないこと（既存テストが汚染されないこと）。
+- [ ] **イベントループ解放（レビュー指摘対応）**: 複数ページ処理時にページ間でイベントループへ制御が戻り（`yieldEventLoop` / `setImmediate`）、再処理実行中であっても並行するタスク（HTTPリクエスト処理等）がブロックされないこと。
 
 ### 4.3 初回XMLフィード取得フェーズのログ出力
 - [ ] `JmaXmlPollingService` の初期取得が `running` に遷移した際、`[api] starting initial JMA XML feed fetch...` がコンソールに出力されること。

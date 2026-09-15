@@ -610,3 +610,78 @@ test('4.4 監視API HTTPエンドポイント: GET /api/monitoring/status の ve
     cleanup();
   }
 });
+
+test('4.2 イベントループ解放: 複数ページ処理時にページ間で yieldEventLoop が呼ばれ、並行処理に制御が渡る', async () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    const venue = resolveVenueWarningContext('east');
+    const clock = () => '2026-09-16T00:00:00Z' as UtcIso8601String;
+
+    // 150件（2ページ分: 100件 + 50件）の未処理電文を挿入
+    for (let i = 1; i <= 150; i++) {
+      insertSampleTelegram(connection, i);
+    }
+
+    let yieldCount = 0;
+    let concurrentTaskRan = false;
+
+    // イベントループ解放時に実行されることを期待する並行タスク
+    setImmediate(() => {
+      concurrentTaskRan = true;
+    });
+
+    const outcome = await reprocessPendingWarningTelegramReceptions(
+      connection,
+      venue,
+      clock,
+      undefined,
+      {
+        yieldEventLoop: async () => {
+          yieldCount += 1;
+          // 実際に setImmediate でイベントループを回す
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        },
+      },
+    );
+
+    assert.equal(outcome.processedCount, 150);
+    assert.equal(yieldCount, 1, '100件処理後の次ページ移行前に yieldEventLoop が1回呼ばれること');
+    assert.equal(
+      concurrentTaskRan,
+      true,
+      '再処理完了までの間にイベントループが回り、並行タスクが実行されていること',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('4.2 イベントループ解放: 既定の yieldEventLoop でも並行する setImmediate が再処理中に実行される', async () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    const venue = resolveVenueWarningContext('east');
+    const clock = () => '2026-09-16T00:00:00Z' as UtcIso8601String;
+
+    // 120件の未処理電文を挿入（2ページ）
+    for (let i = 1; i <= 120; i++) {
+      insertSampleTelegram(connection, i);
+    }
+
+    let concurrentTaskRan = false;
+    setImmediate(() => {
+      concurrentTaskRan = true;
+    });
+
+    // yieldEventLoop オプションを省略（デフォルトの setImmediate 実装を使用）
+    const outcome = await reprocessPendingWarningTelegramReceptions(connection, venue, clock);
+
+    assert.equal(outcome.processedCount, 120);
+    assert.equal(
+      concurrentTaskRan,
+      true,
+      '既定の yieldEventLoop により、再処理完了前に並行タスクが実行されること',
+    );
+  } finally {
+    cleanup();
+  }
+});
