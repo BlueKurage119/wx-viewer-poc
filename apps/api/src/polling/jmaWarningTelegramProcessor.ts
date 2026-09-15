@@ -163,10 +163,20 @@ export async function reprocessPendingWarningTelegramReceptions(
       after,
       limit: 100,
     });
-    for (const reception of page.receptions) {
-      processWarningTelegramReception(connection, reception, clock(), venue, emitDeps);
-      processedCount += 1;
 
+    const processPageTransaction = connection.transaction(() => {
+      let pageCount = 0;
+      for (const reception of page.receptions) {
+        processWarningTelegramReception(connection, reception, clock(), venue, emitDeps);
+        pageCount += 1;
+      }
+      return pageCount;
+    });
+
+    const processedInPage = processPageTransaction();
+
+    for (let i = 0; i < processedInPage; i++) {
+      processedCount += 1;
       // 100件ごとの進捗ログとトラッカー更新（最終件数未満）
       if (processedCount % batchLogInterval === 0 && processedCount < total) {
         logger?.(
@@ -175,6 +185,7 @@ export async function reprocessPendingWarningTelegramReceptions(
         tracker?.updateVenueReprocessing(venueId, processedCount);
       }
     }
+
     after = page.nextCursor ?? undefined;
     if (after) {
       await yieldEventLoop();
