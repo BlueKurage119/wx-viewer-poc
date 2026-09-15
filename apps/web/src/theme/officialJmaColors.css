@@ -1,0 +1,20 @@
+/**
+ * 気象庁公式配色 プリミティブ定義
+ *
+ * 出典:
+ * - 気象庁「気象庁ホームページにおける気象情報の配色に関する設定指針」 (2020年7月)
+ *   https://www.jma.go.jp/jma/kishou/info/colorguide/HPColorGuide_202007.pdf
+ * - 気象庁「防災気象情報と警戒レベルとの対応について」
+ *   https://www.jma.go.jp/jma/kishou/know/bosai/alertlevel.html
+ * 取得日: 2026-09-15
+ *
+ * 本ファイルは気象庁公式配色リテラルの単一情報源 (Single Source of Truth) である。
+ * 色相名のみで命名し、特定の防災気象情報の意味 (「警戒」等) を含めない。
+ */
+:root {
+  --wx-jma-hue-dark-purple: #0c000c;
+  --wx-jma-hue-purple: #aa00aa;
+  --wx-jma-hue-red: #ff2800;
+  --wx-jma-hue-yellow: #f2e700;
+  --wx-jma-hue-white: #ffffff;
+}

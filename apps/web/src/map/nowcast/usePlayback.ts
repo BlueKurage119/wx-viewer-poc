@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { TimelineIntent, TimelineViewModel } from '../types';
+import type { WeatherTileOverlayFrame } from '../tiles/WeatherTileOverlay';
 import type { NowcastCatalog, NowcastFrame } from './nowcastCatalog';
 import { buildNowcastTileUrlTemplate } from './nowcastTileUrl';
 import { buildNowcastTimelineViewModel, findLatestNowcastFrame } from './nowcastTimeline';
@@ -14,12 +15,62 @@ export interface UsePlaybackParams {
 
 export interface UsePlaybackResult {
   readonly viewModel: TimelineViewModel;
-  readonly overlayFrame: { readonly id: string; readonly urlTemplate: string } | null;
+  readonly overlayFrame: WeatherTileOverlayFrame | null;
+  readonly prefetchFrames?: readonly WeatherTileOverlayFrame[];
+  readonly retainLoaded?: boolean;
   readonly handleIntent: (intent: TimelineIntent) => void;
   readonly handleSwapSettled: (result: { frameId: string; complete: boolean }) => void;
 }
 
-const PLAYBACK_INTERVAL_MS = 1000;
+export const PLAYBACK_INTERVAL_MS = 1000;
+export const PLAYBACK_PREFETCH_DEPTH = 3;
+
+/**
+ * 再生先読み対象のフレーム群を計算する純関数 (§9.3.2)
+ */
+export function computePrefetchFrames(params: {
+  readonly frames: readonly NowcastFrame[];
+  readonly targetFrameId: string | null;
+  readonly terminalId: string;
+  readonly controlStatus: WeatherControlStatus;
+  readonly depth?: number;
+}): readonly WeatherTileOverlayFrame[] {
+  const {
+    frames,
+    targetFrameId,
+    terminalId,
+    controlStatus,
+    depth = PLAYBACK_PREFETCH_DEPTH,
+  } = params;
+  if (!targetFrameId) return [];
+
+  const representative = frames.filter((f) => f.representative);
+  if (representative.length <= 1) return [];
+
+  const currentIdx = representative.findIndex((f) => f.id === targetFrameId);
+  if (currentIdx === -1) return [];
+
+  const targets: WeatherTileOverlayFrame[] = [];
+  const seenIds = new Set<string>([targetFrameId]);
+
+  for (let offset = 1; offset <= depth; offset++) {
+    const targetIndex = (currentIdx + offset) % representative.length;
+    const f = representative[targetIndex];
+    if (f && !seenIds.has(f.id)) {
+      seenIds.add(f.id);
+      targets.push({
+        id: f.id,
+        urlTemplate: buildNowcastTileUrlTemplate({
+          frame: f,
+          terminalId,
+          controlStatus,
+        }),
+      });
+    }
+  }
+
+  return targets;
+}
 
 /**
  * ナウキャストのタイムライン再生・選択コントローラー (§9, §10)
@@ -275,7 +326,7 @@ export function usePlayback(params: {
       ? (activeCatalog.frames.find((f) => f.id === targetFrameId) ?? null)
       : null;
 
-  const overlayFrame =
+  const overlayFrame: WeatherTileOverlayFrame | null =
     enabled && targetFrame
       ? {
           id: targetFrame.id,
@@ -287,9 +338,22 @@ export function usePlayback(params: {
         }
       : null;
 
+  // 再生先読み対象のフレーム群 (§9.3.2)
+  const prefetchFrames: readonly WeatherTileOverlayFrame[] | undefined = useMemo(() => {
+    if (!enabled || !playing || !targetFrameId) return undefined;
+    return computePrefetchFrames({
+      frames: playbackFramesRef.current,
+      targetFrameId,
+      terminalId,
+      controlStatus,
+    });
+  }, [enabled, playing, targetFrameId, terminalId, controlStatus]);
+
   return {
     viewModel,
     overlayFrame,
+    prefetchFrames,
+    retainLoaded: playing,
     handleIntent,
     handleSwapSettled,
   };

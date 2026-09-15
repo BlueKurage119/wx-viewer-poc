@@ -190,6 +190,8 @@ export function WeatherMapView({
     : (kikikuruCatalog?.allowedZooms ?? [10]);
 
   const overlayOpacity = isNowcast ? NOWCAST_LAYER_OPACITY : KIKIKURU_LAYER_OPACITY;
+  const overlayPrefetchFrames = isNowcast ? nowcastPlayback.prefetchFrames : undefined;
+  const overlayRetainLoaded = isNowcast ? nowcastPlayback.retainLoaded : false;
 
   // キキクル表示中のステータス注記スロット (§7.2, §8.2, §11.5, §11.7)
   const statusSlot = isKikikuru ? (
@@ -210,6 +212,8 @@ export function WeatherMapView({
       <WeatherTileOverlay
         map={mapInstance}
         frame={overlayFrame}
+        prefetchFrames={overlayPrefetchFrames}
+        retainLoaded={overlayRetainLoaded}
         allowedZooms={overlayAllowedZooms}
         opacity={overlayOpacity}
         swapTimeoutMs={SWAP_TIMEOUT_MS}

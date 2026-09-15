@@ -6,7 +6,7 @@ export const LAYER_PRESENTATIONS: Readonly<Record<MapLayerId, LayerPresentation>
   'kikikuru-heavyrain': {
     id: 'kikikuru-heavyrain',
     label: 'キキクル（大雨）',
-    legendTitle: '大雨警報（浸水害）の危険度分布',
+    legendTitle: '浸水害・洪水の危険度分布（統合）',
     legendItems: [
       {
         label: '災害切迫',
@@ -34,7 +34,7 @@ export const LAYER_PRESENTATIONS: Readonly<Record<MapLayerId, LayerPresentation>
   'kikikuru-inund': {
     id: 'kikikuru-inund',
     label: 'キキクル（浸水）',
-    legendTitle: '浸水害危険度分布',
+    legendTitle: '大雨警報（浸水害）の危険度分布',
     legendItems: [
       {
         label: '災害切迫 (警戒レベル5相当)',
@@ -62,7 +62,7 @@ export const LAYER_PRESENTATIONS: Readonly<Record<MapLayerId, LayerPresentation>
   'kikikuru-land': {
     id: 'kikikuru-land',
     label: 'キキクル（土砂）',
-    legendTitle: '土砂災害警戒判定メッシュ',
+    legendTitle: '大雨警報（土砂災害）の危険度分布',
     legendItems: [
       {
         label: '災害切迫 (警戒レベル5相当)',

@@ -5,7 +5,6 @@ import {
   type Theme,
 } from '@material/material-color-utilities';
 import { createSemanticColors } from './semanticColors';
-import { applyDataColors } from './dataColors';
 
 /**
  * `@material/material-color-utilities` 0.3.0 の `applyTheme()` は
@@ -119,9 +118,6 @@ export function applyMd3Theme(
   for (const [token, color] of Object.entries(semanticColors)) {
     root.style.setProperty(token, color);
   }
-
-  // 6. 気象データ色トークンの書き出し(設計書 §7.4.2)
-  applyDataColors(root);
 
   // ネイティブUI・スクロールバーをテーマへ追従させる
   root.style.colorScheme = dark ? 'dark' : 'light';

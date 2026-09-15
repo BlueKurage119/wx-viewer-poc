@@ -3,12 +3,6 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { LAYER_PRESENTATIONS } from '../src/map/fixtures';
-import {
-  KIKIKURU_DATA_COLORS,
-  KIKIKURU_COLOR_TOKENS,
-  applyDataColors,
-} from '../src/theme/dataColors';
-import { applyMd3Theme, DEFAULT_THEME_SEED } from '../src/theme';
 
 test('kikikuruLegend: 凡例の階級ラベルが公式確定値と完全一致すること (§7.4.1, §11.5)', () => {
   const heavyrain = LAYER_PRESENTATIONS['kikikuru-heavyrain'];
@@ -77,61 +71,62 @@ test('kikikuruLegend: 凡例の swatchToken が var(--wx-data-kikikuru-*) を参
   }
 });
 
-test('kikikuruColors: データ色トークンが公式配色と一致し、DOM へ正しく書き出されること (§7.4.2, §11.5.1)', () => {
-  assert.equal(KIKIKURU_DATA_COLORS.imminent, '#0C000C');
-  assert.equal(KIKIKURU_DATA_COLORS.danger, '#AA00AA');
-  assert.equal(KIKIKURU_DATA_COLORS.warning, '#FF2800');
-  assert.equal(KIKIKURU_DATA_COLORS.caution, '#F2E700');
-  assert.equal(KIKIKURU_DATA_COLORS.none, '#FFFFFF');
+test('kikikuruColors: 公式配色プリミティブおよびキキクルデータ色トークンが CSS として定義されていること (§7.4.2, §7.4.3, §11.5.1, §11.5.2)', () => {
+  const baseDir = process.cwd().endsWith('apps/web')
+    ? process.cwd()
+    : join(process.cwd(), 'apps/web');
 
-  assert.equal(KIKIKURU_COLOR_TOKENS['--wx-data-kikikuru-imminent'], '#0C000C');
-  assert.equal(KIKIKURU_COLOR_TOKENS['--wx-data-kikikuru-danger'], '#AA00AA');
-  assert.equal(KIKIKURU_COLOR_TOKENS['--wx-data-kikikuru-warning'], '#FF2800');
-  assert.equal(KIKIKURU_COLOR_TOKENS['--wx-data-kikikuru-caution'], '#F2E700');
-  assert.equal(KIKIKURU_COLOR_TOKENS['--wx-data-kikikuru-none'], '#FFFFFF');
+  // 1. officialJmaColors.css の検証
+  const officialCssPath = join(baseDir, 'src/theme/officialJmaColors.css');
+  const officialCss = readFileSync(officialCssPath, 'utf-8');
+  assert.ok(officialCss.includes('HPColorGuide_202007.pdf'), '出典 PDF が記載されていること');
+  assert.ok(officialCss.includes('2026-09-15'), '取得日 2026-09-15 が記載されていること');
+  assert.ok(officialCss.includes('--wx-jma-hue-dark-purple: #0c000c;'));
+  assert.ok(officialCss.includes('--wx-jma-hue-purple: #aa00aa;'));
+  assert.ok(officialCss.includes('--wx-jma-hue-red: #ff2800;'));
+  assert.ok(officialCss.includes('--wx-jma-hue-yellow: #f2e700;'));
+  assert.ok(officialCss.includes('--wx-jma-hue-white: #ffffff;'));
 
-  // mock DOM 要素で書き出しを検証
-  const mockElement = {
-    style: {
-      setProperty(name: string, value: string) {
-        (this as Record<string, unknown>)[name] = value;
-      },
-    },
-  } as unknown as HTMLElement;
-
-  applyDataColors(mockElement);
-  assert.equal(
-    (mockElement.style as Record<string, unknown>)['--wx-data-kikikuru-caution'],
-    '#F2E700',
+  // 2. kikikuruDataColors.css の検証 (HEX 直書きがなく var() 参照であること)
+  const kikikuruCssPath = join(baseDir, 'src/theme/kikikuruDataColors.css');
+  const kikikuruCss = readFileSync(kikikuruCssPath, 'utf-8');
+  assert.ok(kikikuruCss.includes('--wx-data-kikikuru-imminent: var(--wx-jma-hue-dark-purple);'));
+  assert.ok(kikikuruCss.includes('--wx-data-kikikuru-danger: var(--wx-jma-hue-purple);'));
+  assert.ok(kikikuruCss.includes('--wx-data-kikikuru-warning: var(--wx-jma-hue-red);'));
+  assert.ok(kikikuruCss.includes('--wx-data-kikikuru-caution: var(--wx-jma-hue-yellow);'));
+  assert.ok(kikikuruCss.includes('--wx-data-kikikuru-none: var(--wx-jma-hue-white);'));
+  assert.ok(
+    !/#[0-9A-Fa-f]{6}/.test(kikikuruCss),
+    'kikikuruDataColors.css に HEX リテラルが含まれていないこと',
   );
 
-  // applyMd3Theme を通しても書き出されること
-  const mockRoot = {
-    style: {
-      setProperty(name: string, value: string) {
-        (this as Record<string, unknown>)[name] = value;
-      },
-      colorScheme: '',
-    },
-  } as unknown as HTMLElement;
-
-  applyMd3Theme(DEFAULT_THEME_SEED, true, mockRoot);
-  assert.equal(
-    (mockRoot.style as Record<string, unknown>)['--wx-data-kikikuru-caution'],
-    '#F2E700',
+  // 3. weatherDataColors.css の検証 (--wx-data-nowcast-7 が var(--wx-jma-hue-red) であること)
+  const nowcastCssPath = join(baseDir, 'src/theme/weatherDataColors.css');
+  const nowcastCss = readFileSync(nowcastCssPath, 'utf-8');
+  assert.ok(
+    nowcastCss.includes('--wx-data-nowcast-7: var(--wx-jma-hue-red);'),
+    '--wx-data-nowcast-7 が var(--wx-jma-hue-red) 参照であること',
   );
-  assert.equal(
-    (mockRoot.style as Record<string, unknown>)['--wx-data-kikikuru-imminent'],
-    '#0C000C',
+
+  // 4. index.css での @import 順序の検証
+  const indexCssPath = join(baseDir, 'src/index.css');
+  const indexCss = readFileSync(indexCssPath, 'utf-8');
+  const officialImportPos = indexCss.indexOf("@import './theme/officialJmaColors.css';");
+  const kikikuruImportPos = indexCss.indexOf("@import './theme/kikikuruDataColors.css';");
+  assert.ok(officialImportPos !== -1, 'officialJmaColors.css が @import されていること');
+  assert.ok(kikikuruImportPos !== -1, 'kikikuruDataColors.css が @import されていること');
+  assert.ok(
+    officialImportPos < kikikuruImportPos,
+    'officialJmaColors.css が先に @import されていること',
   );
 });
 
-test('kikikuruColors: HEX リテラルが dataColors.ts (および既存許可ファイル) 以外に存在しないこと (§11.5.1)', () => {
+test('kikikuruColors: HEX リテラルが officialJmaColors.css (および既存許可ファイル) 以外に存在しないこと (§11.5.2)', () => {
   const allowedHexFiles = new Set([
     'seeds.ts',
     'semanticColors.ts',
     'weatherDataColors.css',
-    'dataColors.ts',
+    'officialJmaColors.css',
   ]);
 
   const hexPattern = /#[0-9A-Fa-f]{6}/;
@@ -157,7 +152,6 @@ test('kikikuruColors: HEX リテラルが dataColors.ts (および既存許可�
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i]!;
             if (hexPattern.test(line)) {
-              // コメント中の HEX 言及も避けるのが望ましいが、コード内の直書きを禁止
               assert.fail(
                 `HEX リテラルが許可されていないファイルで検出されました: ${fullPath}:${i + 1} -> ${line}`,
               );
