@@ -87,7 +87,7 @@ test('F5/F6 状態独立性: 会場復帰やレイヤー選択のデータ整合
     assert.ok(layer.label.length > 0);
     assert.ok(layer.legendTitle.length > 0);
     assert.ok(layer.legendItems.length > 0);
-    assert.equal(layer.sourceLabel, '気象庁');
+    assert.ok(layer.sourceLabel.includes('気象庁'));
     // HEX ハードコードではなく CSS 変数またはトークン名が使われていること
     for (const item of layer.legendItems) {
       assert.ok(item.swatchToken.startsWith('var(--'));

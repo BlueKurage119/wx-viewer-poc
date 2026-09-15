@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
+import type L from 'leaflet';
+import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { Venue } from '../shell/config';
 import type { MapLayerId, TimelineIntent, TimelineViewModel } from './types';
 import { LAYER_PRESENTATIONS, emptyTimeline } from './fixtures';
@@ -9,37 +11,49 @@ import { MapAttribution } from './MapAttribution';
 import { MapZoomControls } from './MapZoomControls';
 import { TimelineControlCard } from './TimelineControlCard';
 import { LayerSelector } from './LayerSelector';
+import { useNowcastCatalog } from './nowcast/useNowcastCatalog';
+import { usePlayback } from './nowcast/usePlayback';
+import { WeatherTileOverlay } from './tiles/WeatherTileOverlay';
 
 export interface WeatherMapViewProps {
   venue: Venue;
+  terminalId?: string;
+  controlStatus?: WeatherControlStatus;
   timelineViewModel?: TimelineViewModel;
   onTimelineIntent?: (intent: TimelineIntent) => void;
   selectedLayerId?: MapLayerId;
   onLayerSelect?: (layerId: MapLayerId) => void;
 }
 
+const NOWCAST_LAYER_OPACITY = 0.8;
+const SWAP_TIMEOUT_MS = 12_000;
+
 /**
- * 防災気象情報地図ビュー統括コンポーネント (F1, F4, F5, F6)
+ * 防災気象情報地図ビュー統括コンポーネント (F1, F2, F4, F5, F6)
  *
- * F4/F5 の責務境界に従い、タイムライン表示モデルの描画と、
- * ユーザー操作による TimelineIntent / レイヤー選択の通知のみを行う。
- * 通常画面のデフォルト表示は空カタログ (emptyTimeline) とし、固定日時の fixture は描画しない。
- * DOM 順序はキーボードフォーカス順（凡例 → レイヤー選択と時間操作 → ズーム → 会場復帰）に準拠する。
+ * レイヤー選択、時間操作、ズーム、会場復帰、および気象タイルレイヤーの重ね描画を統合する。
+ * 通常画面のデフォルト表示は空カタログ (emptyTimeline) とし、API 応答取得後に実データを反映する。
  */
 export function WeatherMapView({
   venue,
-  timelineViewModel = emptyTimeline,
+  terminalId: propTerminalId,
+  controlStatus = 'normal',
+  timelineViewModel: controlledTimelineViewModel,
   onTimelineIntent,
   selectedLayerId: controlledLayerId,
   onLayerSelect,
 }: WeatherMapViewProps) {
+  const terminalId = propTerminalId ?? (venue.id === 'trc' ? 'htrcph01' : 'hkeagh01');
+
   const [internalLayerId, setInternalLayerId] = useState<MapLayerId>('nowcast');
   const currentLayerId = controlledLayerId ?? internalLayerId;
+  const isNowcast = currentLayerId === 'nowcast';
 
   const [legendOpen, setLegendOpen] = useState(true);
   const [currentZoom, setCurrentZoom] = useState(11);
+  const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
 
-  // 右列 slot と時間カードの DOM 要素参照（MapViewport の中心補正に渡す）
+  // 右列 slot と時間カードの DOM 要素参照 (MapViewport の中心補正に渡す)
   const rightColumnRef = useRef<HTMLElement>(null);
   const bottomCardRef = useRef<HTMLDivElement>(null);
   const [rightColumnEl, setRightColumnEl] = useState<HTMLElement | null>(null);
@@ -52,6 +66,34 @@ export function WeatherMapView({
 
   const viewportRef = useRef<MapViewportHandle>(null);
 
+  // 雨雲ナウキャストの索引ポーリング
+  const nowcastState = useNowcastCatalog({
+    terminalId,
+    controlStatus,
+    enabled: isNowcast,
+  });
+
+  const catalog =
+    nowcastState.status === 'ready' || nowcastState.status === 'stale'
+      ? nowcastState.catalog
+      : null;
+
+  // 雨雲ナウキャストの再生・選択制御
+  const {
+    viewModel: internalViewModel,
+    overlayFrame,
+    handleIntent: internalHandleIntent,
+    handleSwapSettled,
+  } = usePlayback({
+    catalog,
+    terminalId,
+    controlStatus,
+    enabled: isNowcast,
+  });
+
+  const effectiveTimelineViewModel =
+    controlledTimelineViewModel ?? (catalog ? internalViewModel : emptyTimeline);
+
   const handleLayerSelect = (layerId: MapLayerId) => {
     if (controlledLayerId === undefined) {
       setInternalLayerId(layerId);
@@ -60,6 +102,7 @@ export function WeatherMapView({
   };
 
   const handleIntent = (intent: TimelineIntent) => {
+    internalHandleIntent(intent);
     onTimelineIntent?.(intent);
   };
 
@@ -72,6 +115,16 @@ export function WeatherMapView({
 
   return (
     <div className="weather-map-view" aria-label="防災気象情報ビュー">
+      {/* 気象タイルオーバーレイ (F2) */}
+      <WeatherTileOverlay
+        map={mapInstance}
+        frame={overlayFrame}
+        allowedZooms={catalog?.allowedZooms ?? [10]}
+        opacity={NOWCAST_LAYER_OPACITY}
+        swapTimeoutMs={SWAP_TIMEOUT_MS}
+        onSwapSettled={handleSwapSettled}
+      />
+
       {/* 1. 左上凡例カード／再表示ボタン (F5) */}
       <MapLegend
         presentation={presentation}
@@ -87,7 +140,7 @@ export function WeatherMapView({
       <div className="timeline-card-wrapper">
         <TimelineControlCard
           ref={bottomCardRef}
-          viewModel={timelineViewModel}
+          viewModel={effectiveTimelineViewModel}
           onIntent={handleIntent}
         />
       </div>
@@ -113,6 +166,7 @@ export function WeatherMapView({
         rightColumnElement={rightColumnEl}
         bottomCardElement={bottomCardEl}
         onZoomChange={setCurrentZoom}
+        onMapReady={setMapInstance}
       />
     </div>
   );

@@ -1,19 +1,8 @@
 import type { MapLayerId, LayerPresentation, TimelineViewModel, TimelineFrame } from './types';
+import { NOWCAST_PRESENTATION } from './nowcast/nowcastLegend';
 
 export const LAYER_PRESENTATIONS: Readonly<Record<MapLayerId, LayerPresentation>> = {
-  nowcast: {
-    id: 'nowcast',
-    label: '雨雲ナウキャスト',
-    legendTitle: '雨雲ナウキャスト（降水強度）',
-    legendItems: [
-      { label: '80mm/h以上 (猛烈な雨)', swatchToken: 'var(--md-sys-color-error)' },
-      { label: '50〜80mm/h (非常に激しい雨)', swatchToken: 'var(--md-sys-color-tertiary)' },
-      { label: '30〜50mm/h (激しい雨)', swatchToken: 'var(--md-sys-color-primary)' },
-      { label: '10〜30mm/h (やや強い雨)', swatchToken: 'var(--md-sys-color-secondary)' },
-      { label: '1〜10mm/h (雨)', swatchToken: 'var(--md-sys-color-outline)' },
-    ],
-    sourceLabel: '気象庁',
-  },
+  nowcast: NOWCAST_PRESENTATION,
   'kikikuru-heavyrain': {
     id: 'kikikuru-heavyrain',
     label: 'キキクル（大雨）',

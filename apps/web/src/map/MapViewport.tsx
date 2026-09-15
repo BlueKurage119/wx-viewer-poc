@@ -8,6 +8,8 @@ export interface MapViewportHandle {
   zoomIn: () => void;
   zoomOut: () => void;
   returnToVenue: () => void;
+  /** F2/F3 の気象レイヤー接続用。地図生成前・破棄後は null */
+  getMap: () => L.Map | null;
 }
 
 export interface MapViewportProps {
@@ -16,6 +18,7 @@ export interface MapViewportProps {
   bottomCardElement: HTMLElement | null;
   onZoomChange?: (zoom: number) => void;
   onPlacementChange?: (placement: ViewPlacement) => void;
+  onMapReady?: (map: L.Map | null) => void;
 }
 
 const GSI_PALE_TILE_URL = 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png';
@@ -50,7 +53,7 @@ function createVenueIcon(): L.DivIcon {
  * リサイズ時の閲覧位置維持、ズーム・会場復帰の実行を提供する。
  */
 export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(function MapViewport(
-  { venue, rightColumnElement, bottomCardElement, onZoomChange, onPlacementChange },
+  { venue, rightColumnElement, bottomCardElement, onZoomChange, onPlacementChange, onMapReady },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,6 +62,11 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
   const placementRef = useRef<ViewPlacement>('initial');
   const layoutSettledRef = useRef(false);
   const scheduledRafRef = useRef<number | null>(null);
+
+  const onMapReadyRef = useRef(onMapReady);
+  useEffect(() => {
+    onMapReadyRef.current = onMapReady;
+  }, [onMapReady]);
 
   const onZoomChangeRef = useRef(onZoomChange);
   useEffect(() => {
@@ -131,6 +139,7 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
         alignVenueCenter(map, INITIAL_ZOOM, false);
         setPlacement('initial');
       },
+      getMap: () => mapRef.current,
     }),
     [alignVenueCenter, setPlacement],
   );
@@ -152,6 +161,7 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
       zoom: INITIAL_ZOOM,
     });
     mapRef.current = map;
+    onMapReadyRef.current?.(map);
 
     // 国土地理院淡色地図タイル
     const tileLayer = L.tileLayer(GSI_PALE_TILE_URL, {
@@ -189,6 +199,7 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
     map.on('zoomend', handleZoom);
 
     return () => {
+      onMapReadyRef.current?.(null);
       map.off('dragstart', handleUserOperation);
       map.off('zoomstart', handleUserOperation);
       map.off('zoomend', handleZoom);

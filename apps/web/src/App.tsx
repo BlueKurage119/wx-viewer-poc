@@ -125,7 +125,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       }
     >
       {view === 'weather' ? (
-        <WeatherMapView venue={terminal.venue} />
+        <WeatherMapView venue={terminal.venue} terminalId={terminal.id} />
       ) : (
         <div className="view-placeholder">
           <span className="placeholder-symbol" aria-hidden="true">
