@@ -26,6 +26,7 @@ import type { WeatherApiService } from '../services/weatherApiService.js';
 import type { NowcastApiService } from '../services/nowcastApiService.js';
 import type { KikikuruApiService } from '../services/kikikuruApiService.js';
 import { summarizeAdoptionResults } from '../repositories/telegramReceptionRepository.js';
+import type { StartupProgressTracker } from './startupProgressTracker.js';
 
 const ADOPTION_WINDOW_HOURS_DEFAULT = 24;
 
@@ -49,6 +50,7 @@ export interface MonitoringStatusServiceDependencies {
   readonly xmlPollingService: XmlPollingStatusProvider;
   readonly fetchHealthMonitor: Pick<FetchHealthMonitorService, 'getLastAggregate'>;
   readonly startupInitialization: StartupInitializationStatusProvider;
+  readonly progressTracker?: StartupProgressTracker;
   readonly weatherApi: WeatherApiService;
   readonly nowcastApi: NowcastApiService;
   readonly kikikuruApi: KikikuruApiService;
@@ -235,9 +237,21 @@ export function createMonitoringStatusService(
           latestDecidedAt: null,
         }));
 
+      const reprocessing = deps.progressTracker
+        ? deps.progressTracker.getVenueReprocessingStatus(venueId)
+        : {
+            status: 'idle' as const,
+            total: 0,
+            processedCount: 0,
+            startedAt: null,
+            finishedAt: null,
+            elapsedMs: null,
+          };
+
       return {
         venueId,
         startupEvaluated,
+        reprocessing,
         recentAdoptions,
         adoptionWindowHours,
       };

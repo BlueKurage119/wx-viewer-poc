@@ -104,10 +104,29 @@ export interface MonitoringReadinessSection {
   readonly errorReason: string | null;
 }
 
+export type MonitoringReprocessingPhase = 'idle' | 'running' | 'completed';
+
+export interface MonitoringVenueReprocessingStatus {
+  /** 再処理の進行フェーズ */
+  readonly status: MonitoringReprocessingPhase;
+  /** 再処理対象の未処理電文総数（0件の場合は0） */
+  readonly total: number;
+  /** 処理済み件数 */
+  readonly processedCount: number;
+  /** 再処理開始時刻（未開始時は null） */
+  readonly startedAt: UtcIso8601String | null;
+  /** 再処理完了時刻（未完了時は null） */
+  readonly finishedAt: UtcIso8601String | null;
+  /** 再処理所要時間（ミリ秒、未完了時は null） */
+  readonly elapsedMs: number | null;
+}
+
 export interface MonitoringVenueSection {
   readonly venueId: VenueId;
   /** StartupNotificationInitialization.isReady(venueId) と同値。起動時評価が済んだか。 */
   readonly startupEvaluated: boolean;
+  /** 会場ごとの未処理電文再処理ステータス */
+  readonly reprocessing: MonitoringVenueReprocessingStatus;
   /**
    * 直近の採用判定の集計。adoption_result の区分値ごとの件数。
    * 【重要】会場ごとに独立。片方の会場の失敗を全体成功に隠さない（基本設計 §8.2）。
