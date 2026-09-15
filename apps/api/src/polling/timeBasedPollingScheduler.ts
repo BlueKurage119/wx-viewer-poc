@@ -29,6 +29,13 @@ export interface ScheduledPollAdapter {
   runScheduled(): Promise<void>;
   /** 強制更新用の単発実行。未実装のアダプタは runScheduled と同じ取得を triggerKind:'manual' で行う。 */
   runManual(): Promise<void>;
+  /**
+   * Codexレビュー指摘#1（2回目レビュー）: 直近の runScheduled() が実質的に失敗していたか。
+   * runScheduled() は上流の取得・解析失敗でも例外を投げない実装があるため（結果を内部状態
+   * として保持するだけ）、runManual() が使うのと同じ判断基準で成否を問い合わせる。
+   * 未実装なら「例外を投げなければ成功」とみなす（省略時 false）。
+   */
+  hasLastRunFailed?(): boolean;
 }
 
 export interface ManualRunResult {
@@ -130,6 +137,14 @@ export class TimeBasedPollingScheduler {
     'waiting' | 'running' | 'scheduled_stopped'
   >();
   private readonly lastCompletedAtMap = new Map<ScheduledSource, number>();
+  /**
+   * Codexレビュー指摘#1（2回目レビュー）: runManualOnce() が実行中の定期取得（inFlight）へ
+   * 合流するとき、合流先の定期実行が実際に成功したか失敗したかを判定するための記録。
+   * triggerSourcePoll() 内で各実行の成否を記録し、合流側はこれを検査して failedSources へ
+   * 反映する（NowcastScheduledAdapter.runScheduled() 等はHTTP・解析失敗でも例外を投げず
+   * resolve するため、Promise の成否だけでは判定できない）。
+   */
+  private readonly lastScheduledRunFailedMap = new Map<ScheduledSource, boolean>();
   private xmlInitialStarted = false;
 
   constructor(options: TimeBasedPollingSchedulerOptions) {
@@ -207,6 +222,14 @@ export class TimeBasedPollingScheduler {
           const inFlight = this.inFlightPromises.get(source);
           if (inFlight) {
             await inFlight;
+            // Codexレビュー指摘#1（2回目レビュー）: inFlight は例外を外へ投げない実装のため
+            // (triggerSourcePoll が catch している)、await が成功しても合流先の定期取得が
+            // 実際には失敗している場合がある。runManual() と同じ判断基準
+            // (hasLastRunFailed()/結果オブジェクト) で記録された成否を検査し、失敗していれば
+            // 強制更新側にも伝播する。
+            if (this.lastScheduledRunFailedMap.get(source)) {
+              failedSources.push(source);
+            }
             return;
           }
           const adapter = this.adapterMap.get(source);
@@ -545,12 +568,18 @@ export class TimeBasedPollingScheduler {
     this.sourceStates.set(source, 'running');
 
     const pollPromise = (async () => {
+      let failed = false;
       try {
         await adapter.runScheduled();
+        failed = adapter.hasLastRunFailed?.() ?? false;
       } catch (err) {
+        failed = true;
         console.error(`[TimeBasedPollingScheduler] ${source} scheduled poll failed:`, err);
       } finally {
         this.inFlightPromises.delete(source);
+        // Codexレビュー指摘#1（2回目レビュー）: runManualOnce() の合流経路が、この定期実行の
+        // 実際の成否を検査できるようにする。
+        this.lastScheduledRunFailedMap.set(source, failed);
         this.onPollCompleted(source, generation);
       }
     })();
@@ -624,6 +653,11 @@ export class NowcastScheduledAdapter implements ScheduledPollAdapter {
       throw new Error('nowcast の時刻一覧取得または解析に失敗しました');
     }
   }
+
+  /** Codexレビュー指摘#1（2回目レビュー）: runManual() と同じ判断基準。 */
+  hasLastRunFailed(): boolean {
+    return this.service.hasLastRefreshFailed();
+  }
 }
 
 export class KikikuruScheduledAdapter implements ScheduledPollAdapter {
@@ -644,6 +678,11 @@ export class KikikuruScheduledAdapter implements ScheduledPollAdapter {
       throw new Error('kikikuru の時刻一覧取得または解析に失敗しました');
     }
   }
+
+  /** Codexレビュー指摘#1（2回目レビュー）: runManual() と同じ判断基準。 */
+  hasLastRunFailed(): boolean {
+    return this.service.hasLastRefreshFailed();
+  }
 }
 
 export class AmedasScheduledAdapter implements ScheduledPollAdapter {
@@ -654,6 +693,8 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
   private readonly nowFn: () => number;
   private readonly fetchOptions?: AmedasFetchOptions;
   private lastPointFetchStartedAtMs: number | null = null;
+  /** Codexレビュー指摘#1（2回目レビュー）: 直近の runScheduled() の成否（runManual() と同じ判定式）。 */
+  private lastRunFailed = false;
 
   constructor(
     connection: DatabaseConnection,
@@ -691,6 +732,15 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
     if (result.pointData.attempted) {
       this.lastPointFetchStartedAtMs = currentNowMs;
     }
+
+    // Codexレビュー指摘#1（2回目レビュー）: runManual() と同じ判断基準で成否を記録する。
+    this.lastRunFailed =
+      !result.latestTime.succeeded || (result.pointData.attempted && !result.pointData.succeeded);
+  }
+
+  /** Codexレビュー指摘#1（2回目レビュー）: runManual() と同じ判断基準。 */
+  hasLastRunFailed(): boolean {
+    return this.lastRunFailed;
   }
 
   /**
@@ -738,6 +788,11 @@ export class MultiVenueAmedasScheduledAdapter implements ScheduledPollAdapter {
         `${rejected.length} 件のアメダスアダプター実行で例外が発生しました`,
       );
     }
+  }
+
+  /** Codexレビュー指摘#1（2回目レビュー）: いずれかの会場が失敗していれば失敗とみなす。 */
+  hasLastRunFailed(): boolean {
+    return this.adapters.some((adapter) => adapter.hasLastRunFailed());
   }
 
   async runManual(): Promise<void> {

@@ -867,6 +867,77 @@ test('レビュー指摘#1: XML取得が例外を投げず失敗結果を返す�
   }
 });
 
+/**
+ * hasLastRunFailed() を持つ制御可能なアダプタ。runScheduled() の完了を deferred で
+ * 制御し、in-flight 状態を意図的に作る。runScheduled() は NowcastScheduledAdapter 等の
+ * 実装同様、上流失敗でも例外を投げず、hasLastRunFailed() で成否を保持するだけとする。
+ */
+function makeJoinableAdapter(
+  source: 'nowcast' | 'kikikuru' | 'amedas',
+  deferred: { promise: Promise<void> },
+) {
+  let failed = false;
+  return {
+    source,
+    async runScheduled(): Promise<void> {
+      await deferred.promise;
+      // 上流取得・解析が失敗した状態をシミュレートする（例外は投げない）。
+      failed = true;
+    },
+    async runManual(): Promise<void> {
+      failed = false;
+    },
+    hasLastRunFailed(): boolean {
+      return failed;
+    },
+  };
+}
+
+test('Codexレビュー指摘#1（2回目レビュー）: 強制更新が実行中の定期取得へ合流したとき、合流先の失敗を検知して伝播する', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const now = () => '2026-09-15T10:00:00.000Z';
+    const fetchFn: typeof fetch = async () => new Response('{}', { status: 200 });
+    const xmlService = new JmaXmlPollingService(context.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+      fetchFn,
+      clock: now,
+    });
+    const schedule: PollingScheduleConfig = loadPollingScheduleConfig();
+    const deferred = makeDeferred<void>();
+    const nowcastAdapter = makeJoinableAdapter('nowcast', deferred);
+    const scheduler = new TimeBasedPollingScheduler({
+      schedule,
+      adapters: [nowcastAdapter, dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+      xmlPollingService: xmlService,
+      now: () => new Date(now()),
+      setTimer: () => 1,
+      clearTimer: () => {},
+    });
+
+    const startPromise = scheduler.start();
+    // start() は nowcast の定期実行を同期的に投入する。in-flight 状態が確立するまで待つ。
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // 定期取得が実行中のうちに強制更新を実行し、合流させる。
+    const manualPromise = scheduler.runManualOnce();
+
+    deferred.resolve();
+    await startPromise;
+    const result = await manualPromise;
+
+    assert.ok(
+      result.failedSources.includes('nowcast'),
+      `合流先の定期取得が失敗しているのに failedSources に nowcast が含まれない: ${JSON.stringify(result.failedSources)}`,
+    );
+
+    await scheduler.stop();
+  } finally {
+    cleanup();
+  }
+});
+
 test('レビュー指摘#1: nowcast/kikikuru の取得失敗時は runManual() が例外を投げる', async () => {
   const { context, cleanup } = createDb();
   const nowcastCacheRoot = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-nowcast-cache-'));
