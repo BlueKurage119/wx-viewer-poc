@@ -1,7 +1,7 @@
 # Issue #46 (F3) キキクル（大雨・浸水・土砂）レイヤーの表示・種別切替 設計
 
 作成日: 2026-09-15
-改訂日: 2026-09-15（統括担当のヒアリング結果を反映。§0 に改訂内容）
+改訂日: 2026-09-15（統括担当のヒアリング結果を反映。§0 に改訂内容 / 検収差し戻しによる改訂は §17）
 対象 Issue: #46 (F3)
 依存: #44 (F1 地図基盤)、#47〜#49 (F4/F5/F6 操作面)、#39・#40 (E7/E8 索引・PNG 配信 API)、**#45 (F2 ナウキャスト) — 共通モジュールの提供元。F2 が先行して実装し、F3 はそれを import して流用する（§10）**
 
@@ -179,8 +179,14 @@
 | `apps/web/src/map/kikikuru/kikikuruCatalog.ts` | 新規（F3） | 純関数: `KikikuruTimesResponse` → 表示用カタログ。3 時間窓フィルタ（§6.4）、`member` 再解決（§6.3）、`MapLayerId` ↔ `KikikuruApiLayer` 変換 |
 | `apps/web/src/map/kikikuru/kikikuruTileUrl.ts` | 新規（F3） | `WeatherTileOverlay` へ渡す `urlTemplate` の組立（`imageId` / `member` を含む、§7.1） |
 | `apps/web/src/map/kikikuru/useKikikuruLayerState.ts` | 新規（F3） | 選択時刻の維持・切替時の再生停止の状態機械（§5） |
-| `apps/web/src/theme/dataColors.ts` | 新規（F3。F2 が先に作成済みなら追記） | データ色トークン `--wx-data-kikikuru-*` の定義。**HEX リテラルを書いてよい唯一のモジュール**（§7.4.2） |
-| `apps/web/src/map/fixtures.ts` | 変更（F3） | キキクル 3 種の `LAYER_PRESENTATIONS` を、§7.4.1 の確定ラベルと `var(--wx-data-kikikuru-*)` へ差し替え、fixture 扱いを解除 |
+| `apps/web/src/theme/officialJmaColors.css` | 新規（F3） | 気象庁公式配色のプリミティブ `--wx-jma-hue-*` 5 値。**HEX リテラルを書いてよい唯一のモジュール**。出典・取得日をコメントで保持（§7.4.3） |
+| `apps/web/src/theme/kikikuruDataColors.css` | 新規（F3） | キキクルのデータ色トークン `--wx-data-kikikuru-*`。値はプリミティブの `var()` 参照（§7.4.3） |
+| `apps/web/src/theme/dataColors.ts` | **削除**（F3） | §7.4.3 により不要。CSS へ移行 |
+| `apps/web/src/theme/applyTheme.ts` | 変更（F3） | `applyDataColors` の import と呼び出しを除去。他の行に触れない |
+| `apps/web/src/theme/index.ts` | 変更（F3） | `dataColors` の re-export 行を除去 |
+| `apps/web/src/index.css` | 変更（F3） | 新設 CSS 2 本の `@import` を追加 |
+| `apps/web/src/theme/weatherDataColors.css` | 変更（F3、**1 行のみ**） | `--wx-data-nowcast-7` をプリミティブ参照へ。F2 所有ファイルのため他 7 行に触れない（§7.4.3） |
+| `apps/web/src/map/fixtures.ts` | 変更（F3） | キキクル 3 種の `LAYER_PRESENTATIONS` の `legendTitle` を §7.4.1 の確定値へ、`swatchToken` を `var(--wx-data-kikikuru-*)` へ。fixture 扱いを解除 |
 | `apps/web/src/map/WeatherMapView.tsx` | 変更（F2 も変更。競合注意） | キキクル選択時にオーバーレイと `TimelineViewModel` を配線 |
 | `apps/web/src/App.tsx` | 変更（F2 も変更。競合注意） | `WeatherMapView` へ `selectedLayerId` / `onLayerSelect` / `timelineViewModel` / `onTimelineIntent` を供給するコンテナを接続 |
 | `apps/web/tests/*` | 新規（F3） | §11 の検証に対応する単体テスト |
@@ -438,7 +444,32 @@ const url =
 
 **大雨キキクル（`heavyrain` / `rain_mesh`）**: 本資料に大雨キキクルのタイル階級表は含まれていない。取得方法レポート §4.1 のとおり浸水と洪水の危険度を統合した表示であり、階級の名称は「注意／警戒／危険／災害切迫」の 4 段階を用いる。統合時の算出規則は未検証のため、凡例に警戒レベル相当を付記しない。
 
-凡例のラベルはこの 4 段階＋「着色なし（今後の情報等に留意）」の 5 行構成とする。旧表記の「非常に危険」「極めて危険」は令和 4 年 6 月以降の表では「危険」「災害切迫」に置き換わっており、**旧表記を使わない**。
+凡例のラベルはこの 4 段階＋「着色なし（今後の情報等に留意）」の 5 行構成とする。旧表記の「非常に危険」「極めて危険」は令和 4 年 6 月以降の表では「危険」「災害切迫」に置き換わっており、**旧表記を使わない**。階級名の表記は別表 3 に合わせ、最下位は「**今後の情報等に留意**」（「等」を入れる）で統一する。配色資料側の「今後の情報に留意」は同義だが、階級名の正本は別表 3 とする。
+
+##### 凡例見出し（`legendTitle`）の確定値【2026-09-15 改訂】
+
+検収で、`apps/web/src/map/fixtures.ts` の大雨キキクルの `legendTitle` が `'大雨警報（浸水害）の危険度分布'` となっており、**浸水キキクルの名称を大雨キキクルに付けてしまっている**ことが判明した。本節でこれを含む 3 種の見出しを確定する。
+
+| `MapLayerId` | 確定する `legendTitle` | 根拠 |
+| --- | --- | --- |
+| `kikikuru-heavyrain` | **`浸水害・洪水の危険度分布（統合）`** | 基本設計 §4.3【確定】「大雨キキクルは公式仕様上、浸水・洪水の危険度を統合した PNG」。取得方法レポート §4.1 の「浸水と洪水の危険度を統合」 |
+| `kikikuru-inund` | **`大雨警報（浸水害）の危険度分布`** | 大雨危険度通知_解説資料.pdf 別表 1「浸水害危険度」の判定に用いる情報 |
+| `kikikuru-land` | **`大雨警報（土砂災害）の危険度分布`** | 同 別表 1「土砂災害危険度」の判定に用いる情報（＝土砂災害警戒判定メッシュ情報） |
+
+**実装側で修正すべき文言**（`apps/web/src/map/fixtures.ts` の `LAYER_PRESENTATIONS`）:
+
+| キー | 現在の値 | 修正後の値 |
+| --- | --- | --- |
+| `kikikuru-heavyrain.legendTitle` | `'大雨警報（浸水害）の危険度分布'` | `'浸水害・洪水の危険度分布（統合）'` |
+| `kikikuru-inund.legendTitle` | `'浸水害危険度分布'` | `'大雨警報（浸水害）の危険度分布'` |
+| `kikikuru-land.legendTitle` | `'土砂災害警戒判定メッシュ'` | `'大雨警報（土砂災害）の危険度分布'` |
+
+規約:
+
+- `legendTitle` に「キキクル」「大雨キキクル」等の製品名を**含めない**。レイヤー選択ボタンと `label`（`キキクル（大雨）` 等）が同じ画面に出ており、重複は 06-ui-md3-protocol 必須制約 2（見ればわかるラベルは省略）に反する。`legendTitle` が担うのは「どの警報のどの危険度分布か」だけである。
+- 大雨キキクルの見出しに**単独の警報名（「大雨警報（浸水害）」等）を使わない**。統合表示であることが読めなくなり、実態と食い違う。
+- 土砂キキクルに「土砂災害警戒判定メッシュ（情報）」を単独で使わない。別表 1 が「大雨警報（土砂災害）の危険度分布（土砂災害警戒判定メッシュ情報）」と併記しており、前段の正式名称を見出しに使う。
+- `sourceLabel` は 3 種とも `'気象庁'` のままとする（変更不要）。
 
 #### 7.4.2 階級色【確定・2026-09-15】
 
@@ -507,14 +538,104 @@ const url =
 
 実装規約:
 
-- 定義場所は `apps/web/src/theme/dataColors.ts`（新規）とする。**HEX リテラルを書いてよいのはこのモジュールだけ**とし、`apps/web/src/theme/semanticColors.ts` がシード 4 色にリテラルを限定しているのと同じ扱いにする。CSS・TSX・fixture への直書きは引き続き禁止（06-ui-md3-protocol §例外 3）。
+- 定義場所は `apps/web/src/theme/kikikuruDataColors.css`（新規）とし、値は `apps/web/src/theme/officialJmaColors.css`（新規）のプリミティブを `var()` で参照する。**HEX リテラルを書いてよいのは `officialJmaColors.css` だけ**とし、`apps/web/src/theme/semanticColors.ts` がシード 4 色にリテラルを限定しているのと同じ扱いにする。CSS・TSX・fixture への直書きは引き続き禁止（06-ui-md3-protocol §例外 3）。構成と根拠は §7.4.3 を参照。
 - 凡例・タイル補助 UI は `var(--wx-data-kikikuru-*)` で参照する（同 §例外 2）。`fixtures.ts` の `LAYER_PRESENTATIONS` のキキクル 3 種の `swatchToken` を、この `var(...)` へ差し替える。fixture 扱いを解除し、実仕様の凡例とする。
 - **`--wx-alert-level-*`（`semanticColors.ts`）を流用してはならない。** あちらは MD3 トーナルパレットから生成した近似色であり、タイルの実配色と一致しない。凡例と地図が食い違う事故（06-ui-md3-protocol §例外の趣旨そのもの）になる。
 - トークン名は危険度の名称に対応させ、警戒レベル番号を使わない。浸水害では警戒レベル相当が定義されないため、番号でキーを作ると誤った対応を固定してしまう。
 - `--wx-data-kikikuru-none`（白）の swatch は、ダークテーマの凡例カード上で背景と紛れないよう `--md-sys-color-outline` の細線で囲む。色そのものは変えない。
-- ナウキャストのデータ色トークン（`--wx-data-nowcast-*`）は F2 (#45) の範囲であり、本 Issue では定義しない。`dataColors.ts` を F2 が先に作成していればキキクル分を追記する。
+- ナウキャストのデータ色トークン（`--wx-data-nowcast-*`）の**値**は F2 (#45) の範囲であり、本 Issue では定義しない。ただし両者が同一のリテラルを二重に持つ問題への対処は §7.4.3 で定める。
 
 透過度（§7.3）は、公式配色が確定したことで実データでの視認性検証がしやすくなったが、**会場周辺に着色が出ている実データでの確認は依然として未実施**である。`opacity: 0.75` は引き続き【設計案】のままとする。
+
+#### 7.4.3 公式配色リテラルの単一情報源化【2026-09-15 改訂】
+
+##### 検出された重複
+
+検収により、`#FF2800` が 2 か所に別々にハードコードされていることが判明した。
+
+| ファイル | 所有 | 該当箇所 | 意味 |
+| --- | --- | --- | --- |
+| `apps/web/src/theme/weatherDataColors.css` | F2 (#45) | `--wx-data-nowcast-7: #ff2800;` | 雨雲ナウキャストの 7 階級目（降水強度） |
+| `apps/web/src/theme/dataColors.ts` | F3 (#46) | `KIKIKURU_DATA_COLORS.warning = '#FF2800'` | キキクルの「警戒」 |
+
+大文字・小文字も揃っていない。値が一致しているのは気象庁公式配色どうしの一致であって、**意味は無関係**である（一方は降水強度、他方は危険度階級）。
+
+##### 採用する構造: 2 層（プリミティブ／セマンティック）
+
+意味の異なる 2 つの尺度を 1 つのトークンに統合すると、将来どちらか一方の配色が改定されたときにもう一方が黙って巻き込まれる。これは重複より悪い失敗モードである。したがって**リテラルだけを共有し、意味は分離したまま**にする 2 層構成を採る。
+
+```
+apps/web/src/theme/officialJmaColors.css   ★新設（プリミティブ層・リテラルの唯一の所在）
+  :root {
+    --wx-jma-hue-dark-purple: #0c000c;
+    --wx-jma-hue-purple:      #aa00aa;
+    --wx-jma-hue-red:         #ff2800;
+    --wx-jma-hue-yellow:      #f2e700;
+    --wx-jma-hue-white:       #ffffff;
+  }
+
+apps/web/src/theme/kikikuruDataColors.css  ★新設（セマンティック層・F3）
+  :root {
+    --wx-data-kikikuru-imminent: var(--wx-jma-hue-dark-purple);
+    --wx-data-kikikuru-danger:   var(--wx-jma-hue-purple);
+    --wx-data-kikikuru-warning:  var(--wx-jma-hue-red);
+    --wx-data-kikikuru-caution:  var(--wx-jma-hue-yellow);
+    --wx-data-kikikuru-none:     var(--wx-jma-hue-white);
+  }
+
+apps/web/src/theme/weatherDataColors.css   既存（セマンティック層・F2）
+  --wx-data-nowcast-7: var(--wx-jma-hue-red);   ← この 1 行だけ変更
+  （他の 7 値は据え置き。§7.4.3「据え置く理由」を参照）
+```
+
+- プリミティブ名は**色相の記述であり意味を持たない**。`--wx-jma-alert-warning` のような意味づけ名にすると、`--wx-data-nowcast-7`（猛烈な雨）がそれを参照した時点で「猛烈な雨＝警戒」という誤った対応を固定してしまう。
+- セマンティックトークン（`--wx-data-*`）の名前・粒度・個数は現状から変えない。参照先が `var()` になるだけで、利用側（`fixtures.ts` の `swatchToken` 等）は一切変更不要である。
+- 出典（§7.4.2 の 2 URL）と取得日は `officialJmaColors.css` の冒頭コメントに記す。06-ui-md3-protocol §例外 4 の「取得先・取得日時とともに保存」をこのファイルが担う。
+
+##### なぜ CSS で行うか（TypeScript にしない理由）
+
+`weatherDataColors.css` は `apps/web/src/index.css` から `@import` される純 CSS であり、**CSS ファイルは TypeScript の定数を参照できない**。逆に CSS 側の値を JS が実行時に上書きする形にすると、JS 実行前の描画で色が未定義になる読み込み順の問題が生じる。リテラルを 1 か所にする解は「両方を CSS に寄せる」しかない。
+
+これに伴い、F3 の `apps/web/src/theme/dataColors.ts` と実行時適用は**不要になる**。
+
+| 対象 | 変更 |
+| --- | --- |
+| `apps/web/src/theme/dataColors.ts` | **削除**。`KIKIKURU_DATA_COLORS` / `KIKIKURU_COLOR_TOKENS` / `applyDataColors` はいずれも不要 |
+| `apps/web/src/theme/applyTheme.ts` | `applyDataColors` の import と呼び出し（L8 / L124 付近）を削除 |
+| `apps/web/src/theme/index.ts` | `dataColors` の re-export 行を削除 |
+| `apps/web/src/index.css` | `@import './theme/officialJmaColors.css';` と `@import './theme/kikikuruDataColors.css';` を追加。`officialJmaColors.css` を**先に**書く |
+| `apps/web/tests/kikikuruLegendAndColors.test.ts` | TS 定数への assertion を CSS ファイル内容の assertion へ置き換え。HEX 許可ファイル一覧を更新（§11.5.1） |
+
+CSS カスタムプロパティは宣言順に依存しないため `@import` の順序は動作上は任意だが、読み手のために依存の向き（プリミティブ→セマンティック）どおりに並べる。
+
+MD3 テーマ（`--md-sys-color-*`）が要素単位で適用されるのに対し、データ色は文書全体で一意の絶対値であり、`:root` の静的 CSS に置くほうが正しい。現行実装は `applyMd3Theme` 経由でヘッダー要素にもキキクル色を書き込んでおり、この点も解消される。
+
+##### `weatherDataColors.css` の他 7 値を据え置く理由
+
+`--wx-data-nowcast-1〜6, 8` は本書では**プリミティブへ移さない**。これらの出典（どの公式資料のどの表か、取得日）は F2 (#45) が保持しており、F3 は確認していない。出典を確認せずに「気象庁公式配色のプリミティブ」として持ち上げると、07-wx-data-protocol「実データ・公式資料と照合できたものだけを確定として扱う」に反する。プリミティブへ載せるのは、本書 §7.4.2 で出典と取得日を記録した 5 値だけとする。残りの扱いは F2 側の判断に委ねる。
+
+##### 責務分担（F2 設計担当との重複回避）
+
+F2 (#45) の設計担当が並行して別の修正を進めているため、**変更対象ファイル単位で所有を分ける**。
+
+| ファイル | 変更する担当 | 内容 |
+| --- | --- | --- |
+| `apps/web/src/theme/officialJmaColors.css` | **F3 (#46) が新設** | プリミティブ 5 値。出典・取得日のコメント |
+| `apps/web/src/theme/kikikuruDataColors.css` | **F3 (#46) が新設** | キキクル 5 トークン |
+| `apps/web/src/theme/dataColors.ts` | **F3 (#46) が削除** | F3 が作ったファイル |
+| `apps/web/src/theme/applyTheme.ts` | **F3 (#46)** | F3 が追加した 2 行の除去のみ。他の行に触れない |
+| `apps/web/src/theme/index.ts` | **F3 (#46)** | F3 が追加した 1 行の除去のみ |
+| `apps/web/src/index.css` | **F3 (#46)** | `@import` 2 行の追加のみ。既存行を並べ替えない |
+| `apps/web/src/theme/weatherDataColors.css` | **F3 (#46)** | `--wx-data-nowcast-7` の 1 行のみ `var(--wx-jma-hue-red)` へ変更。他 7 行に触れない |
+| `apps/web/src/map/fixtures.ts` | **F3 (#46)** | §7.4.1 の `legendTitle` 3 件の修正 |
+
+**F3 が共有モジュールを新設し、F2 所有ファイルは 1 行だけ書き換える**方針を採る。根拠は次の 3 点。
+
+1. 重複を持ち込んだのは後発の F3 である（`weatherDataColors.css` はコミット `1ec973b`、`dataColors.ts` は `9aaeef8`）。後から同じ値を別形式で足した側が解消する。
+2. 「HEX リテラルを書いてよいモジュールを 1 つに限る」という規約は F3 の設計（§7.4.2）が持ち込んだものであり、その規約の適用範囲を広げる作業は F3 に属する。
+3. F2 所有ファイルへの変更を 1 行に抑えられ、F2 設計担当の並行作業との衝突面積が最小になる。逆向き（F2 が新設）にすると、F3 の `dataColors.ts` 削除・`applyTheme.ts` 改変まで F2 が担うことになり、衝突面積が大きい。
+
+**F3 製造担当への指示**: `weatherDataColors.css` は 1 行だけを変更する。同ファイルの他の値・順序・書式に手を入れない。着手前に同ファイルの最新状態を確認し、F2 側が先に改変していた場合は上書きせず統括担当へ報告する。
 
 ### 7.5 タイル取得失敗・未取得
 
@@ -616,7 +737,7 @@ const url =
 - [ ] フレームが 2 件以上ある状態で再生ボタンを押し `playing === true` にしてから、レイヤーを切り替える。切替直後に再生ボタンが停止状態へ戻る。ナウキャスト↔キキクル、キキクル種別間のいずれでも停止する。
 - [ ] **過去のコマ（例: 最新から 5 つ前）を選択した状態で 大雨→浸水→土砂 と切り替える。3 回とも選択日時が同一の値のまま維持される**（最新へ巻き戻らない）。スライダーのつまみ位置も変わらない。
 - [ ] 過去のコマを選択した状態で キキクル→雨雲ナウキャスト へ切り替えると、時間軸が異なるため引き継がず、切替先の最新コマが選択される（F2 マージ後に確認。F2 未接続なら空カタログとなり例外が出ないことのみ確認する）。
-- [ ] 切替先にコマが 1 件もない場合、「利用可能な時刻はありません」が表示され、スライダーと前／再生／次／最新へが disabled になる。
+- [ ] 切替先にコマが 1 件もない場合、「利用可能な時刻はありません」が表示され、**スライダーが非表示（未描画）になり**、前／再生／次／最新へが disabled になる。コマ 0 件時にスライダーを描画したうえで disabled にする実装でも、非表示にする実装でも、操作できない点は同等である。**現行実装（非表示）を正とする**（2026-09-15 検収により確認・§17-2）。
 - [ ] 切替先に同じ `validTime` のコマが存在しない状況（fixture で片方のレイヤーのフレームを削って再現）で、黙って別時刻へ差し替わらず、「提供範囲外」の趣旨の注記が出る。
 
 ### 11.4.1 表示窓（過去 3 時間）
@@ -642,8 +763,27 @@ const url =
 
 - [ ] 凡例の swatch の算出値が、3 種いずれでも上から `#0C000C`（災害切迫）/ `#AA00AA`（危険）/ `#FF2800`（警戒）/ `#F2E700`（注意）/ `#FFFFFF`（今後の情報に留意）である。DevTools の Computed スタイルで `background-color` を読み、`rgb(12, 0, 12)` / `rgb(170, 0, 170)` / `rgb(255, 40, 0)` / `rgb(242, 231, 0)` / `rgb(255, 255, 255)` と一致することを確認する。
 - [ ] `--wx-data-kikikuru-imminent` / `-danger` / `-warning` / `-caution` / `-none` の 5 トークンが定義され、`getComputedStyle(document.documentElement).getPropertyValue('--wx-data-kikikuru-caution')` が `#F2E700` 相当を返す。
-- [ ] **HEX リテラルが `apps/web/src/theme/dataColors.ts` 以外に増えていない。** `apps/web/src` を `#[0-9A-Fa-f]{6}` と `rgb(` で検索し、新規の直書きが `dataColors.ts`（と既存の `semanticColors.ts` のシード 4 色、`seeds.ts`）以外に無いことを確認する。
 - [ ] 凡例の swatch が `var(--wx-data-kikikuru-*)` を参照しており、`--wx-alert-level-*` を流用していない（`apps/web/src/map/fixtures.ts` を確認）。
+
+### 11.5.2 公式配色リテラルの単一情報源化（§7.4.3）
+
+- [ ] `apps/web/src/theme/officialJmaColors.css` が存在し、`--wx-jma-hue-dark-purple` / `-purple` / `-red` / `-yellow` / `-white` の 5 プリミティブを定義している。ファイル冒頭コメントに §7.4.2 の出典 2 URL と取得日 2026-09-15 がある。
+- [ ] `apps/web/src/theme/kikikuruDataColors.css` のキキクル 5 トークンが、いずれも `var(--wx-jma-hue-*)` 参照であり HEX を直書きしていない。
+- [ ] `apps/web/src/theme/weatherDataColors.css` の `--wx-data-nowcast-7` が `var(--wx-jma-hue-red)` になっている。**同ファイルの他 7 行（`nowcast-1〜6, 8`）が変更されていない**ことを `git diff` で確認する（差分が 1 行であること）。
+- [ ] `#FF2800` / `#ff2800` が `apps/web/src` 全体で `officialJmaColors.css` の 1 か所にしか存在しない。`grep -ri 'ff2800' apps/web/src` で 1 件であることを確認する。
+- [ ] **HEX リテラルの許可ファイルが `seeds.ts` / `semanticColors.ts` / `weatherDataColors.css` / `officialJmaColors.css` の 4 つに限られている。** `apps/web/tests/kikikuruLegendAndColors.test.ts` の許可一覧から `dataColors.ts` が除かれ、`officialJmaColors.css` が加わっていること。テストが通過すること。
+- [ ] `apps/web/src/theme/dataColors.ts` が削除され、`applyTheme.ts` / `index.ts` に `applyDataColors` への参照が残っていない（`grep -rn 'applyDataColors\|KIKIKURU_DATA_COLORS\|KIKIKURU_COLOR_TOKENS' apps/web/src apps/web/tests` が 0 件）。
+- [ ] `apps/web/src/index.css` が `officialJmaColors.css` と `kikikuruDataColors.css` を `@import` している。
+- [ ] ブラウザで凡例の swatch が §11.5.1 の 5 色で描画される（CSS への移行後も実際に色が付いていること。`var()` の参照切れで透明・黒になっていないこと）。
+- [ ] 雨雲ナウキャストの凡例・タイル補助 UI の色が、この変更の前後で見た目に変化していない（`--wx-data-nowcast-7` の解決値が `rgb(255, 40, 0)` のままであることを Computed スタイルで確認）。
+
+### 11.5.3 凡例見出し（§7.4.1）
+
+- [ ] 大雨キキクルの凡例見出しが `浸水害・洪水の危険度分布（統合）` である。**`大雨警報（浸水害）の危険度分布` になっていない**（これは浸水キキクルの名称）。
+- [ ] 浸水キキクルの凡例見出しが `大雨警報（浸水害）の危険度分布` である。
+- [ ] 土砂キキクルの凡例見出しが `大雨警報（土砂災害）の危険度分布` である。
+- [ ] 3 種いずれの `legendTitle` にも「キキクル」の語が含まれていない（レイヤー名との重複を避ける規約）。
+- [ ] 階級名の最下位が 3 種とも「今後の情報等に留意」（「等」あり）で統一されている。
 - [ ] 「今後の情報に留意」の白い swatch が、ダークテーマの凡例カード上で `--md-sys-color-outline` の細線に囲まれ、背景と区別できる。
 - [ ] 実データに着色が出ている時刻・座標があれば、地図上の着色と凡例の swatch が同じ色に見える。着色が出ていない場合はその旨を検収記録に残し、「凡例と地図の色一致を確認した」と報告しない。
 - [ ] タイル画像のレスポンスが `Content-Type: image/png`、`Cache-Control: no-store` であり、`X-Wx-Catalog-Availability` / `X-Wx-Tile-Result` / `X-Wx-Tile-Stored-At` が付いている。
@@ -736,3 +876,19 @@ const url =
 3. **`docs/basic-design.md` §4.3 の「キキクルは最新を基本とし、取得可能な過去 3 時間を表示窓とする案」は【未確定】のまま記載されている。** §6.4 のとおり確定事項として採用したため、タグを【確定】へ改める必要がある。同じく本 Issue のスコープ外とする。
 4. **Issue #46 の本文（やること・受け入れ条件）も、§5.1 と §5.3 の変更を反映する必要がある。** 受け入れ条件 1 の削除と受け入れ条件 3 の文言修正。本書は設計書のみを改訂しており、Issue 本文は変更していない。
 5. **`docs/audit-epic-a-d.md` の AD-H057 / AD-H058 / AD-H062 の状態欄。** 本書 §13 に結論を記録したが、台帳側の状態更新は棚卸し Issue (#139) の管理範囲であり本 Issue では行わない。採否待ちの保守事項（AD-H058 の追加検証）を修正必須へ昇格させていない。
+
+## 17. 検収差し戻しによる改訂（2026-09-15）
+
+ブランチ `feature/issue-45-46-nowcast-kikikuru-layers`、F3 実装コミット `9aaeef8` に対する検収（`wxviewer-inspector`）で見つかった軽微な不整合 3 点を、本書で解消した。いずれも受け入れ条件の不合格ではなく、設計書と実装の記述上のずれ、および設計上の改善点である。
+
+| # | 検収指摘 | 本書での解消 | 実装側の作業 |
+| --- | --- | --- | --- |
+| 1 | `fixtures.ts` の大雨キキクル `legendTitle` が `'大雨警報（浸水害）の危険度分布'` であり、浸水キキクルの名称になっている。§7.4.1 の「浸水＋洪水の統合表示」と食い違う | §7.4.1 に「凡例見出し（`legendTitle`）の確定値」を追加。3 種の見出しを確定し、命名規約（製品名を含めない・単独の警報名を使わない）を明記 | `fixtures.ts` の `legendTitle` 3 件を修正（§7.4.1 の修正表） |
+| 2 | 受け入れ条件は「スライダーが disabled」だが、実装はスライダー自体を非表示にしている。動作は同等だが記述が食い違う | §11.4 の当該条件を「スライダーが非表示（未描画）になる」へ修正。**現行実装（非表示）を正**と明記 | 実装変更なし |
+| 3 | `#FF2800` が `weatherDataColors.css`（F2 所有）と `dataColors.ts`（F3 所有）の 2 か所にハードコードされ、単一情報源になっていない | §7.4.3 を新設。プリミティブ／セマンティックの 2 層構成、CSS へ寄せる技術的理由、F2 所有ファイルの 7 値を据え置く理由、責務分担と根拠を明記 | 共通 CSS 2 本を F3 が新設、`dataColors.ts` を削除、`weatherDataColors.css` は 1 行のみ変更（§7.4.3 の分担表） |
+
+指摘 3 について、統括担当は「F3 側が共有モジュールを新設するか、F2 側がするか、どちらでもよいので設計書側で決めて根拠を残す」としていた。本書は **F3 側が新設し、F2 所有ファイルの変更を 1 行に抑える**方針を採った。根拠は §7.4.3「責務分担」の 3 点（重複を持ち込んだのが後発の F3 であること、リテラル単一化の規約が F3 の設計由来であること、F2 設計担当の並行作業との衝突面積が最小になること）。
+
+**意味の統合はしない**点を強調する。`--wx-data-nowcast-7`（猛烈な雨）と `--wx-data-kikikuru-warning`（警戒）は値が一致しているだけで意味は無関係であり、1 つのトークンにまとめると片方の配色改定がもう片方を黙って巻き込む。共有するのはリテラルのみとし、セマンティックトークンは分離したままにする。
+
+これに伴う受け入れ条件の追加は §11.5.2（単一情報源化）と §11.5.3（凡例見出し）である。§11.5.1 から、`dataColors.ts` を前提とした HEX 許可ファイルの確認項目は §11.5.2 へ移した。
