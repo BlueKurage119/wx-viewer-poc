@@ -199,6 +199,40 @@ function monitorServerErrors(server: Server): {
 }
 
 export async function startServer(options: StartServerOptions = {}): Promise<StartedServer> {
+  // Codexレビュー指摘#6（2回目レビュー）: registerGracefulShutdown() の呼び出しを
+  // close の定義（＝初回XML取得を含む長い初期化のawait完了後）まで遅らせると、その間に
+  // 届いたSIGTERM/SIGINTはリスナー未登録のままNodeの既定動作で即終了してしまい、
+  // 停止処理・B5記録・停止通知が一切行われない。そこで、シグナル購読そのものは
+  // 初期化より前に行い、実体（close）はまだ無い間は「シグナルを受け取った」ことだけを
+  // 記録しておく。close が確定した時点（＝初期化完了時点）で、保留していたシグナルが
+  // あれば直ちに close を呼ぶ。
+  //
+  // 「初期化完了を待ってから close を呼ぶ」を選んだ理由: 初期化処理（DB初期化・
+  // スケジューラ生成・初回XML取得等）は多数のリソース確保を伴い、初期化を中断して
+  // 即座にclose相当の処理を行う設計は、未確定なリソース（scheduler/pollingService等が
+  // 部分的にしか代入されていない状態）の後始末を個別に作り込む必要があり複雑・高リスクに
+  // なる。一方、初期化完了後にcloseを呼ぶ方式は、既存のcloseが前提とする
+  // 「全リソースが揃っている」という不変条件を壊さずに済み、安全側に倒せる。
+  // 初期化の完了を待つ分だけ停止が遅れるが、初期化自体の中断は本Issueの対象外
+  // （異常終了検知はAD-H068で対象外と確定済み）であり、正常終了の記録が「初期化完了後」に
+  // なることは許容する。
+  const deferredCloseRef: {
+    current:
+      | ((closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => Promise<void>)
+      | undefined;
+  } = { current: undefined };
+  let shutdownSignalPending = false;
+  if (options.shutdownSignalSource) {
+    registerGracefulShutdown(options.shutdownSignalSource, () => {
+      if (deferredCloseRef.current) {
+        return deferredCloseRef.current({ reason: 'signal' });
+      }
+      // close はまだ定義されていない（初期化中）。初期化完了後に呼び出すよう保留する。
+      shutdownSignalPending = true;
+      return Promise.resolve();
+    });
+  }
+
   // DB初期化・HTTP待受より前に設定を読み込み検証する（失敗時はDBや待受を起動しない）
   const schedule = validatePollingScheduleConfig(
     options.pollingSchedule ?? loadPollingScheduleConfig(options.configUrl),
@@ -493,11 +527,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     console.error(error);
   });
 
-  // レビュー指摘 #6: close は上の const 定義まで初期化されない。close 定義前に登録すると、
-  // 初期取得中(実測17分超かかりうる await の間)にシグナルが届いた場合、TDZ により
-  // ReferenceError で失敗する。close 定義後に登録することで安全にする。
-  if (options.shutdownSignalSource) {
-    registerGracefulShutdown(options.shutdownSignalSource, () => close({ reason: 'signal' }));
+  // Codexレビュー指摘#6（2回目レビュー）: シグナル購読自体は関数冒頭で既に行っている。
+  // ここでは close の実体を確定させ、初期化中に届いていたシグナル（shutdownSignalPending）が
+  // あれば直ちに反映する。
+  deferredCloseRef.current = close;
+  if (shutdownSignalPending) {
+    void close({ reason: 'signal' }).catch((closeError: unknown) => {
+      console.error('保留していたgraceful shutdownの処理に失敗しました:', closeError);
+    });
   }
 
   return {
@@ -517,6 +554,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 }
 
 async function main(): Promise<void> {
+  // Codexレビュー指摘#6（2回目レビュー）: startServer() と同様、実プロセスのエントリでも
+  // シグナル購読を初期化より前に行い、close 確定前に届いたシグナルは保留して
+  // 初期化完了後に反映する。
+  const deferredCloseRef: {
+    current:
+      | ((closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => Promise<void>)
+      | undefined;
+  } = { current: undefined };
+  let shutdownSignalPending = false;
+  registerGracefulShutdown(process, () => {
+    if (deferredCloseRef.current) {
+      return deferredCloseRef.current({ reason: 'signal' });
+    }
+    shutdownSignalPending = true;
+    return Promise.resolve();
+  });
+
   // DB初期化・HTTP待受より前に設定を読み込み検証する
   const schedule = loadPollingScheduleConfig();
 
@@ -758,7 +812,15 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     });
   });
-  registerGracefulShutdown(process, () => close({ reason: 'signal' }));
+
+  // Codexレビュー指摘#6（2回目レビュー）: シグナル購読は関数冒頭で済ませてある。
+  // ここで close の実体を確定させ、初期化中に保留していたシグナルがあれば直ちに反映する。
+  deferredCloseRef.current = close;
+  if (shutdownSignalPending) {
+    void close({ reason: 'signal' }).catch((closeError: unknown) => {
+      console.error('保留していたgraceful shutdownの処理に失敗しました:', closeError);
+    });
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
