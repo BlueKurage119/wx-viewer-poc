@@ -36,16 +36,6 @@ export function getSwapKey(frame: WeatherTileOverlayFrame): string {
   return `${frame.id} ${frame.urlTemplate}`;
 }
 
-/** タイル読込完了・タイムアウト時の swap 結果を通知する。 */
-// eslint-disable-next-line react-refresh/only-export-components -- タイムアウト通知のペイロードを単体テストで直接検証するため同ファイルからexportする
-export function notifySwapSettled(
-  onSwapSettled: WeatherTileOverlayProps['onSwapSettled'],
-  frameId: string,
-  complete: boolean,
-): void {
-  onSwapSettled?.({ frameId, complete });
-}
-
 /**
  * 気象タイルレイヤーの重ね描画コンポーネント (共通モジュール 3)
  *
@@ -338,7 +328,7 @@ export function WeatherTileOverlay({
       activeSwapKeyRef.current = targetSwapKey;
       pendingSwapKeyRef.current = null;
 
-      notifySwapSettled(onSwapSettledRef.current, targetFrameId, complete);
+      onSwapSettledRef.current?.({ frameId: targetFrameId, complete });
     };
 
     targetEntry.layer.once('load', () => {

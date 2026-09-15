@@ -3,17 +3,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import L from 'leaflet';
 import { buildNowcastCatalog } from '../src/map/nowcast/nowcastCatalog.ts';
 import {
   usePlayback,
   computePrefetchFrames,
   type UsePlaybackResult,
 } from '../src/map/nowcast/usePlayback.ts';
-import {
-  WeatherTileOverlay,
-  getSwapKey,
-  notifySwapSettled,
-} from '../src/map/tiles/WeatherTileOverlay.tsx';
+import { WeatherTileOverlay, getSwapKey } from '../src/map/tiles/WeatherTileOverlay.tsx';
 import { createSampleNowcastResponse } from './fixtures/nowcastFixtures.ts';
 
 const el = React.createElement;
@@ -146,9 +143,80 @@ test('WeatherTileOverlay: id が同一で urlTemplate が異なる場合に swap
   );
 });
 
-test('WeatherTileOverlay: タイムアウト時に complete: false で swap 完了を通知すること (§9.3, §11.4)', () => {
+test('WeatherTileOverlay: タイムアウト時に complete: false で swap 完了を通知すること (§9.3, §11.4)', async () => {
+  const documentForClient = globalThis.document as unknown as {
+    addEventListener: () => void;
+    removeEventListener: () => void;
+    createElement: () => { setAttribute: () => void; removeAttribute: () => void };
+    defaultView: typeof globalThis.window;
+    documentElement: object;
+    activeElement: null;
+  };
+  const element = {
+    nodeType: 1,
+    nodeName: 'DIV',
+    tagName: 'DIV',
+    namespaceURI: 'http://www.w3.org/1999/xhtml',
+    ownerDocument: documentForClient,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  Object.assign(documentForClient, {
+    addEventListener() {},
+    removeEventListener() {},
+    createElement() {
+      return { style: {}, setAttribute() {}, removeAttribute() {} };
+    },
+    defaultView: globalThis.window,
+    documentElement: element,
+    activeElement: null,
+  });
+  Object.assign(globalThis.window, { HTMLIFrameElement: class {} });
+
+  const { createRoot } = await import('react-dom/client');
   const notifications: { frameId: string; complete: boolean }[] = [];
-  notifySwapSettled((result) => notifications.push(result), 'timeout-frame', false);
+  const layer = {
+    addTo() {
+      return layer;
+    },
+    once() {
+      return layer;
+    },
+    on() {
+      return layer;
+    },
+    remove() {
+      return layer;
+    },
+    setOpacity() {
+      return layer;
+    },
+  };
+  const originalTileLayer = L.tileLayer;
+  L.tileLayer = (() => layer) as unknown as typeof L.tileLayer;
+
+  const root = createRoot(element as unknown as Element);
+  try {
+    root.render(
+      el(WeatherTileOverlay, {
+        map: {
+          getZoom: () => 10,
+          hasLayer: () => true,
+          on() {},
+          off() {},
+        } as unknown as L.Map,
+        frame: { id: 'timeout-frame', urlTemplate: '/tiles/{z}/{x}/{y}.png' },
+        allowedZooms: [10],
+        opacity: 0.8,
+        swapTimeoutMs: 1,
+        onSwapSettled: (result) => notifications.push(result),
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  } finally {
+    root.unmount();
+    L.tileLayer = originalTileLayer;
+  }
 
   assert.deepEqual(notifications, [{ frameId: 'timeout-frame', complete: false }]);
 });
