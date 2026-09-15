@@ -61,12 +61,18 @@ export function applyMd3Theme(
 ): void {
   const theme = themeForSeed(seed);
   const scheme = dark ? theme.schemes.dark : theme.schemes.light;
+  const lightSchemeJson = theme.schemes.light.toJSON();
 
   // 1. scheme.toJSON()の全キーを --md-sys-color-{kebab} で書き出す
   const schemeJson = scheme.toJSON();
   for (const [key, value] of Object.entries(schemeJson)) {
     root.style.setProperty(`--md-sys-color-${kebabCase(key)}`, hexFromArgb(value));
   }
+
+  // 地図上の会場ピンは淡色地図・ダーク操作面のどちらからも識別できるよう、
+  // light scheme の error を専用 MD3 トークンとして常時公開する。
+  root.style.setProperty('--md-sys-color-error-light', hexFromArgb(lightSchemeJson.error));
+  root.style.setProperty('--md-sys-color-on-error-light', hexFromArgb(lightSchemeJson.onError));
 
   // 2. neutral paletteからsurface-container系8トークンを現行MD3仕様のトーンで合成する
   const neutral = theme.palettes.neutral;
