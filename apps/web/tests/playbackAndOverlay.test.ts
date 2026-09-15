@@ -9,7 +9,7 @@ import {
   computePrefetchFrames,
   type UsePlaybackResult,
 } from '../src/map/nowcast/usePlayback.ts';
-import { WeatherTileOverlay } from '../src/map/tiles/WeatherTileOverlay.tsx';
+import { WeatherTileOverlay, getSwapKey } from '../src/map/tiles/WeatherTileOverlay.tsx';
 import { createSampleNowcastResponse } from './fixtures/nowcastFixtures.ts';
 
 const el = React.createElement;
@@ -129,9 +129,8 @@ test('WeatherTileOverlay: id が同一で urlTemplate が異なる場合に swap
   };
 
   assert.equal(frame1.id, frame2.id, 'id は同一');
-  const makeSwapKey = (f: { id: string; urlTemplate: string }) => `${f.id} ${f.urlTemplate}`;
-  const key1 = makeSwapKey(frame1);
-  const key2 = makeSwapKey(frame2);
+  const key1 = getSwapKey(frame1);
+  const key2 = getSwapKey(frame2);
   assert.notEqual(key1, key2, 'swapKey は urlTemplate の差により異なること');
   assert.equal(
     key1,

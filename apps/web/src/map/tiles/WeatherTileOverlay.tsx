@@ -31,7 +31,8 @@ interface OverlayLayerEntry {
 }
 
 /** 差し替え判定キー: id と urlTemplate の組み合わせ (§8.3) */
-function getSwapKey(frame: WeatherTileOverlayFrame): string {
+// eslint-disable-next-line react-refresh/only-export-components -- WeatherTileOverlayの差し替え判定純関数を単体テストで直接検証するため同ファイルからexportする
+export function getSwapKey(frame: WeatherTileOverlayFrame): string {
   return `${frame.id} ${frame.urlTemplate}`;
 }
 
