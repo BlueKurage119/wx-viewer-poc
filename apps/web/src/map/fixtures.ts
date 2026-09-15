@@ -9,20 +9,24 @@ export const LAYER_PRESENTATIONS: Readonly<Record<MapLayerId, LayerPresentation>
     legendTitle: '大雨警報（浸水害）の危険度分布',
     legendItems: [
       {
-        label: '極めて危険 (警戒レベル5相当)',
-        swatchToken: 'var(--wx-alert-level-5-container, var(--md-sys-color-error))',
+        label: '災害切迫',
+        swatchToken: 'var(--wx-data-kikikuru-imminent)',
       },
       {
-        label: '非常に危険 (警戒レベル4相当)',
-        swatchToken: 'var(--wx-alert-level-4-container, var(--md-sys-color-error))',
+        label: '危険',
+        swatchToken: 'var(--wx-data-kikikuru-danger)',
       },
       {
-        label: '警戒 (警戒レベル3相当)',
-        swatchToken: 'var(--wx-alert-level-3-container, var(--md-sys-color-tertiary))',
+        label: '警戒',
+        swatchToken: 'var(--wx-data-kikikuru-warning)',
       },
       {
-        label: '注意 (警戒レベル2相当)',
-        swatchToken: 'var(--wx-alert-level-2-container, var(--md-sys-color-secondary))',
+        label: '注意',
+        swatchToken: 'var(--wx-data-kikikuru-caution)',
+      },
+      {
+        label: '今後の情報等に留意',
+        swatchToken: 'var(--wx-data-kikikuru-none)',
       },
     ],
     sourceLabel: '気象庁',
@@ -33,20 +37,24 @@ export const LAYER_PRESENTATIONS: Readonly<Record<MapLayerId, LayerPresentation>
     legendTitle: '浸水害危険度分布',
     legendItems: [
       {
-        label: '極めて危険 (警戒レベル5相当)',
-        swatchToken: 'var(--wx-alert-level-5-container, var(--md-sys-color-error))',
+        label: '災害切迫 (警戒レベル5相当)',
+        swatchToken: 'var(--wx-data-kikikuru-imminent)',
       },
       {
-        label: '非常に危険 (警戒レベル4相当)',
-        swatchToken: 'var(--wx-alert-level-4-container, var(--md-sys-color-error))',
+        label: '危険',
+        swatchToken: 'var(--wx-data-kikikuru-danger)',
       },
       {
-        label: '警戒 (警戒レベル3相当)',
-        swatchToken: 'var(--wx-alert-level-3-container, var(--md-sys-color-tertiary))',
+        label: '警戒',
+        swatchToken: 'var(--wx-data-kikikuru-warning)',
       },
       {
-        label: '注意 (警戒レベル2相当)',
-        swatchToken: 'var(--wx-alert-level-2-container, var(--md-sys-color-secondary))',
+        label: '注意',
+        swatchToken: 'var(--wx-data-kikikuru-caution)',
+      },
+      {
+        label: '今後の情報等に留意',
+        swatchToken: 'var(--wx-data-kikikuru-none)',
       },
     ],
     sourceLabel: '気象庁',
@@ -57,20 +65,24 @@ export const LAYER_PRESENTATIONS: Readonly<Record<MapLayerId, LayerPresentation>
     legendTitle: '土砂災害警戒判定メッシュ',
     legendItems: [
       {
-        label: '極めて危険 (警戒レベル5相当)',
-        swatchToken: 'var(--wx-alert-level-5-container, var(--md-sys-color-error))',
+        label: '災害切迫 (警戒レベル5相当)',
+        swatchToken: 'var(--wx-data-kikikuru-imminent)',
       },
       {
-        label: '非常に危険 (警戒レベル4相当)',
-        swatchToken: 'var(--wx-alert-level-4-container, var(--md-sys-color-error))',
+        label: '危険 (警戒レベル4相当)',
+        swatchToken: 'var(--wx-data-kikikuru-danger)',
       },
       {
         label: '警戒 (警戒レベル3相当)',
-        swatchToken: 'var(--wx-alert-level-3-container, var(--md-sys-color-tertiary))',
+        swatchToken: 'var(--wx-data-kikikuru-warning)',
       },
       {
         label: '注意 (警戒レベル2相当)',
-        swatchToken: 'var(--wx-alert-level-2-container, var(--md-sys-color-secondary))',
+        swatchToken: 'var(--wx-data-kikikuru-caution)',
+      },
+      {
+        label: '今後の情報等に留意',
+        swatchToken: 'var(--wx-data-kikikuru-none)',
       },
     ],
     sourceLabel: '気象庁',
@@ -102,15 +114,15 @@ export const sampleNowcastTimeline: TimelineViewModel = {
 
 const kikikuruFrames: readonly TimelineFrame[] = [
   { id: 'kk-ref', displayTime: '01:00', kind: 'reference', enabled: true },
-  { id: 'kk-01', displayTime: '01:10', kind: 'observed', enabled: true },
-  { id: 'kk-02', displayTime: '01:20', kind: 'observed', enabled: true },
-  { id: 'kk-03', displayTime: '01:30', kind: 'observed', enabled: true },
+  { id: 'kk-01', displayTime: '01:10', kind: 'reference', enabled: true },
+  { id: 'kk-02', displayTime: '01:20', kind: 'reference', enabled: true },
+  { id: 'kk-03', displayTime: '01:30', kind: 'reference', enabled: true },
 ];
 
 export const sampleKikikuruTimeline: TimelineViewModel = {
   layerLabel: 'キキクル（大雨）',
   selectedFrameId: 'kk-03',
-  selectedFrameLabel: '09/15 01:30',
+  selectedFrameLabel: '危険度判定 基準時刻 09/15 01:30',
   frames: kikikuruFrames,
   playing: false,
   latestAvailable: true,

@@ -14,3 +14,4 @@ export {
   type SemanticColorRole,
   type SemanticColorToken,
 } from './semanticColors';
+export { KIKIKURU_DATA_COLORS, KIKIKURU_COLOR_TOKENS, applyDataColors } from './dataColors';
