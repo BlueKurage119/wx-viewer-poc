@@ -173,6 +173,17 @@ function isValidUtcIso8601(raw: unknown): raw is string {
   return !Number.isNaN(Date.parse(raw));
 }
 
+/**
+ * レビュー指摘 #5（2回目レビュー）: isValidUtcIso8601 は小数部0〜3桁を受理するが、
+ * DB保存形式（Date.prototype.toISOString() 相当）は3桁固定である。桁数が異なると
+ * SQLiteでの文字列比較（`>= ?` / `<= ?`）の辞書順がずれ、境界上の行が誤って
+ * 除外/包含され得る。SQLへ渡す前に toISOString() 相当の3桁固定小数へ正規化する。
+ * isValidUtcIso8601 で形式・実在日時をすでに検証済みの値だけを受け取る前提。
+ */
+function normalizeUtcIso8601(value: string): UtcIso8601String {
+  return new Date(value).toISOString() as UtcIso8601String;
+}
+
 function parseNonEmptyString(raw: unknown): string | null {
   if (typeof raw !== 'string' || raw.length === 0) {
     return null;
@@ -263,19 +274,19 @@ export function parseMonitoringReceptionQuery(query: unknown): MonitoringRecepti
   }
   if ('receivedAtFrom' in query) {
     if (!isValidUtcIso8601(query.receivedAtFrom)) return null;
-    result.receivedAtFrom = query.receivedAtFrom;
+    result.receivedAtFrom = normalizeUtcIso8601(query.receivedAtFrom);
   }
   if ('receivedAtTo' in query) {
     if (!isValidUtcIso8601(query.receivedAtTo)) return null;
-    result.receivedAtTo = query.receivedAtTo;
+    result.receivedAtTo = normalizeUtcIso8601(query.receivedAtTo);
   }
   if ('reportDateTimeFrom' in query) {
     if (!isValidUtcIso8601(query.reportDateTimeFrom)) return null;
-    result.reportDateTimeFrom = query.reportDateTimeFrom;
+    result.reportDateTimeFrom = normalizeUtcIso8601(query.reportDateTimeFrom);
   }
   if ('reportDateTimeTo' in query) {
     if (!isValidUtcIso8601(query.reportDateTimeTo)) return null;
-    result.reportDateTimeTo = query.reportDateTimeTo;
+    result.reportDateTimeTo = normalizeUtcIso8601(query.reportDateTimeTo);
   }
 
   const limit = parseLimit(query.limit);
@@ -376,11 +387,11 @@ export function parseMonitoringNotificationOutputQuery(
   }
   if ('detectedAtFrom' in query) {
     if (!isValidUtcIso8601(query.detectedAtFrom)) return null;
-    result.detectedAtFrom = query.detectedAtFrom;
+    result.detectedAtFrom = normalizeUtcIso8601(query.detectedAtFrom);
   }
   if ('detectedAtTo' in query) {
     if (!isValidUtcIso8601(query.detectedAtTo)) return null;
-    result.detectedAtTo = query.detectedAtTo;
+    result.detectedAtTo = normalizeUtcIso8601(query.detectedAtTo);
   }
 
   const limit = parseLimit(query.limit);
@@ -444,19 +455,19 @@ export function parseMonitoringOperationQuery(query: unknown): MonitoringOperati
   }
   if ('requestedAtFrom' in query) {
     if (!isValidUtcIso8601(query.requestedAtFrom)) return null;
-    result.requestedAtFrom = query.requestedAtFrom;
+    result.requestedAtFrom = normalizeUtcIso8601(query.requestedAtFrom);
   }
   if ('requestedAtTo' in query) {
     if (!isValidUtcIso8601(query.requestedAtTo)) return null;
-    result.requestedAtTo = query.requestedAtTo;
+    result.requestedAtTo = normalizeUtcIso8601(query.requestedAtTo);
   }
   if ('completedAtFrom' in query) {
     if (!isValidUtcIso8601(query.completedAtFrom)) return null;
-    result.completedAtFrom = query.completedAtFrom;
+    result.completedAtFrom = normalizeUtcIso8601(query.completedAtFrom);
   }
   if ('completedAtTo' in query) {
     if (!isValidUtcIso8601(query.completedAtTo)) return null;
-    result.completedAtTo = query.completedAtTo;
+    result.completedAtTo = normalizeUtcIso8601(query.completedAtTo);
   }
 
   const limit = parseLimit(query.limit);
