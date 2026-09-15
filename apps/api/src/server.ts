@@ -18,6 +18,7 @@ import {
   type FetchControlTargets,
 } from './services/fetchControlService.js';
 import { registerGracefulShutdown, type SignalSource } from './gracefulShutdown.js';
+import { InMemoryStartupProgressTracker } from './monitoring/startupProgressTracker.js';
 import {
   createMonitoringStatusService,
   type MonitoringStatusService,
@@ -120,11 +121,15 @@ function createStartupNotificationRuntime(
     serverGenerationId,
     now: clock,
   });
+  const progressTracker = new InMemoryStartupProgressTracker(() => clock() as UtcIso8601String);
   const evaluateVenues = async () => {
     recoverLegacyVphwBulletinAreas(connection);
     for (const venueId of VENUE_IDS) {
       const venue = resolveVenueWarningContext(venueId);
-      await reprocessPendingWarningTelegramReceptions(connection, venue, clock, warningEmitDeps);
+      await reprocessPendingWarningTelegramReceptions(connection, venue, clock, warningEmitDeps, {
+        logger: console.log,
+        progressTracker,
+      });
       rebuildWarningCurrentFromReceptions(connection, venue.targetArea);
       emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps);
       emitInitialBosaiBulletinNotifications(connection, venueId, bosaiEmitDeps);
@@ -132,8 +137,21 @@ function createStartupNotificationRuntime(
     }
   };
   const connectPolling = (pollingService: JmaXmlPollingService) => {
+    let initialFetchStartMs: number | null = null;
     pollingService.onInitialFetchPhaseChange((phase) => {
       initialization.setInitialFetchPhase(phase);
+      if (phase === 'running') {
+        initialFetchStartMs = Date.now();
+        console.log('[api] starting initial JMA XML feed fetch...');
+      } else if (phase === 'completed') {
+        const elapsedMs =
+          initialFetchStartMs !== null ? Math.max(0, Date.now() - initialFetchStartMs) : 0;
+        console.log(`[api] completed initial JMA XML feed fetch (${elapsedMs}ms)`);
+      } else if (phase === 'failed') {
+        const elapsedMs =
+          initialFetchStartMs !== null ? Math.max(0, Date.now() - initialFetchStartMs) : 0;
+        console.error(`[api] failed initial JMA XML feed fetch (${elapsedMs}ms)`);
+      }
     });
     pollingService.onInitialFetchCompleted(evaluateVenues);
   };
@@ -144,6 +162,7 @@ function createStartupNotificationRuntime(
     notificationDelta,
     warningEmitDeps,
     bosaiEmitDeps,
+    progressTracker,
     connectPolling,
     evaluateVenues,
   };
@@ -332,6 +351,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
     },
     startupInitialization: startupRuntime.initialization,
+    progressTracker: startupRuntime.progressTracker,
     weatherApi,
     nowcastApi,
     kikikuruApi,
@@ -393,6 +413,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
               venue,
               clock,
               startupRuntime.warningEmitDeps,
+              { logger: console.log, progressTracker: startupRuntime.progressTracker },
             );
             rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
             emitInitialWarningNotifications(
@@ -668,6 +689,7 @@ async function main(): Promise<void> {
       getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
     },
     startupInitialization: startupRuntime.initialization,
+    progressTracker: startupRuntime.progressTracker,
     weatherApi,
     nowcastApi,
     kikikuruApi,
@@ -746,6 +768,7 @@ async function main(): Promise<void> {
               venue,
               clock,
               startupRuntime.warningEmitDeps,
+              { logger: console.log, progressTracker: startupRuntime.progressTracker },
             );
             rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
             emitInitialWarningNotifications(
