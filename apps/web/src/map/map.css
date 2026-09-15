@@ -1,0 +1,554 @@
+/* ==========================================================================
+   地図基盤および操作コントロール スタイル (Issue #44・#47〜#49)
+   ========================================================================== */
+
+:root {
+  --wx-map-z-viewport: 1;
+  --wx-map-z-column: 400;
+  --wx-map-z-attribution: 405;
+  --wx-map-z-controls: 410;
+  --wx-map-z-timeline: 420;
+  --wx-map-z-legend: 430;
+  --wx-map-right-column-width: clamp(18rem, 25vw, 28rem);
+}
+
+/* 防災気象情報ビュー表示時はメイン主領域の余白・スクロールを無効化 (設計書 §3) */
+.view-content:has(.weather-map-view),
+.view-content.view-content-map {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* 統括ビューコンテナ */
+.weather-map-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--md-sys-color-surface-dim);
+}
+
+/* Leaflet 地図コンテナ */
+.map-viewport {
+  position: absolute;
+  inset: 0;
+  z-index: var(--wx-map-z-viewport);
+  outline: none;
+}
+
+/* 会場マーカーピン */
+.wx-venue-marker-container {
+  background: transparent;
+  border: none;
+}
+
+.wx-venue-marker-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--md-sys-color-shadow) 40%, transparent));
+  pointer-events: none;
+}
+
+/* 右側情報列予約スロット (F1 / G1) */
+.map-information-column-slot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--wx-map-right-column-width);
+  z-index: var(--wx-map-z-column);
+  overflow-y: auto;
+  pointer-events: none;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+}
+
+.map-info-placeholder-card {
+  pointer-events: auto;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface-variant);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 96px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-info-placeholder-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* 地図左上凡例 (F5) */
+.map-legend {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: var(--wx-map-z-legend);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--md-sys-color-shadow) 35%, transparent);
+  min-width: 220px;
+  max-width: 280px;
+}
+
+/* 凡例を閉じた後の元の左上位置にある再表示ボタン (F5 §6, §9.4) */
+.map-legend-reopen-button {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: var(--wx-map-z-legend);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.15s ease;
+}
+
+.map-legend-reopen-button:hover {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.legend-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.legend-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface);
+}
+
+.legend-close-button {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  padding: 0;
+}
+
+.legend-close-button:hover {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+}
+
+.legend-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.legend-label {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.legend-footer {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  font-size: 11px;
+  color: var(--md-sys-color-outline);
+}
+
+/* 地図右下出典 (F5) - 背景カードなしの下線付きリンク */
+.map-attribution {
+  position: absolute;
+  bottom: 8px;
+  right: calc(var(--wx-map-right-column-width) + 8px);
+  z-index: var(--wx-map-z-attribution);
+  padding: 0;
+}
+
+.attribution-link {
+  color: var(--md-sys-color-primary);
+  text-decoration: underline;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+
+.attribution-link:hover {
+  color: var(--md-sys-color-primary);
+  text-decoration: underline;
+}
+
+.attribution-link:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+}
+
+/* 左下独立フローティングレイヤー選択 (F5 §6, §9.4) */
+.map-layer-selector-floating {
+  position: absolute;
+  bottom: 172px;
+  left: 16px;
+  z-index: var(--wx-map-z-controls);
+}
+
+.map-layer-selector-fab {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.15s ease;
+}
+
+.map-layer-selector-fab:hover {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.map-layer-selector-fab:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+}
+
+.map-layer-selector-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  min-width: 176px;
+  padding: 6px;
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--md-sys-color-shadow) 35%, transparent);
+}
+
+.map-layer-selector-option {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.map-layer-selector-option:hover,
+.map-layer-selector-option[aria-checked='true'] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+/* 左下ズームおよび会場復帰 (F6) */
+.map-zoom-controls {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: var(--wx-map-z-controls);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.map-zoom-button {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+  padding: 0;
+  transition: background-color 0.15s ease;
+}
+
+.map-zoom-button:hover:not(:disabled) {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.map-zoom-button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.map-return-button {
+  margin-top: 4px;
+}
+
+/* 下部中央時間操作カード (F4) */
+.timeline-card-wrapper {
+  position: absolute;
+  bottom: 16px;
+  left: calc(16px + 44px + 16px); /* 左下の FAB・ズーム群と重ならない安全余白 */
+  right: calc(var(--wx-map-right-column-width) + 16px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: var(--wx-map-z-timeline);
+}
+
+.timeline-control-card {
+  pointer-events: auto;
+  width: 100%;
+  max-width: min(24rem, 100%); /* 1024x768 相当でも左下と重ならない幅に縮小 */
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--md-sys-color-shadow) 40%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 上段: サマリー */
+.timeline-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+}
+
+.timeline-frame-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+}
+
+.timeline-empty-message {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+}
+
+.timeline-kind-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.timeline-kind-badge.kind-observed {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.timeline-kind-badge.kind-forecast {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.timeline-kind-badge.kind-reference {
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+}
+
+.timeline-selected-time {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--md-sys-color-on-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 中段: スライダー */
+.timeline-slider-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.timeline-slider-track-wrapper {
+  position: relative;
+  width: 100%;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.timeline-slider {
+  position: absolute;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  opacity: 1;
+  z-index: 2;
+  accent-color: var(--md-sys-color-primary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.timeline-slider:disabled {
+  cursor: default;
+}
+
+.timeline-slider-empty {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--md-sys-color-outline-variant);
+  opacity: 0.38;
+}
+
+.timeline-track-segments {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  display: flex;
+  border-radius: 3px;
+  overflow: hidden;
+  z-index: 1;
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.timeline-segment {
+  flex: 1;
+  height: 100%;
+  transition: opacity 0.15s ease;
+}
+
+.timeline-segment.segment-observed {
+  background: var(--md-sys-color-primary);
+  opacity: 0.6;
+}
+
+.timeline-segment.segment-forecast {
+  background: var(--md-sys-color-secondary);
+  opacity: 0.6;
+}
+
+.timeline-segment.segment-reference {
+  background: var(--md-sys-color-tertiary);
+  opacity: 0.6;
+}
+
+.timeline-segment.is-active {
+  opacity: 1;
+}
+
+/* 下段: トランスポート操作 */
+.timeline-transport-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.timeline-transport-button {
+  min-width: 40px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 6px;
+  padding: 0 10px;
+  transition: background-color 0.15s ease;
+}
+
+.timeline-transport-button:hover:not(:disabled) {
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.timeline-transport-button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.timeline-play-button {
+  min-width: 48px;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  border-color: var(--md-sys-color-primary);
+}
+
+.timeline-play-button:hover:not(:disabled) {
+  background: var(--md-sys-color-primary);
+  filter: brightness(1.1);
+}
+
+/* 狭小画面対応 (レスポンシブ) */
+@media (max-width: 1024px) {
+  .timeline-control-card {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .timeline-transport-row {
+    gap: 8px;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --wx-map-right-column-width: 16rem;
+  }
+
+  .timeline-summary-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .timeline-transport-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+}
