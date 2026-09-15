@@ -63,6 +63,7 @@ test('server.ts起動時、再起動前から継続する異常はsuspendedに�
     const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
       source,
       runScheduled: async () => {},
+      runManual: async () => {},
     });
 
     const server = await startServer({

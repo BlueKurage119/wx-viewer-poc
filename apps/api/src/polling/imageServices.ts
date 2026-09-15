@@ -81,6 +81,26 @@ export function createImageServices(options: CreateImageServicesOptions): ImageS
     };
   };
 
+  // Issue #43 §9-A: 手動強制更新のときだけ夜間帯の索引取得ゲートを迂回する。
+  // 迂回できるのは時間帯由来の停止（isClosed||!enablePolling）だけであり、
+  // クローズ後・ポーリング無効起動は迂回できない。
+  const getManualCatalogAccess = (): UpstreamAccess => {
+    const now = nowFn();
+    const period = resolvePollingPeriod(now, options.schedule);
+    if (isClosed || !enablePolling) {
+      return {
+        allowed: false,
+        period,
+        nextAllowedAt: null,
+      };
+    }
+    return {
+      allowed: true,
+      period,
+      nextAllowedAt: now.toISOString() as UtcIso8601String,
+    };
+  };
+
   const getImageAccess = (source: OnDemandSource): UpstreamAccess => {
     const now = nowFn();
     const period = resolvePollingPeriod(now, options.schedule);
@@ -108,6 +128,7 @@ export function createImageServices(options: CreateImageServicesOptions): ImageS
     freshnessPolicy: options.schedule.freshness.imageCatalog,
     fetchFn: options.fetchFn,
     clock: () => nowFn().toISOString() as UtcIso8601String,
+    getManualCatalogAccess,
   });
 
   const rawKikikuru = new KikikuruService(options.connection, {
@@ -118,6 +139,7 @@ export function createImageServices(options: CreateImageServicesOptions): ImageS
     freshnessPolicy: options.schedule.freshness.imageCatalog,
     fetchFn: options.fetchFn,
     clock: () => nowFn().toISOString() as UtcIso8601String,
+    getManualCatalogAccess,
   });
 
   const guardedNowcast = createClosedGuardProxy(rawNowcast, () => isClosed);

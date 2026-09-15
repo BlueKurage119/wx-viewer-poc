@@ -34,6 +34,11 @@ export class KikikuruService {
   private queueInund: Promise<unknown> = Promise.resolve();
   private queueLand: Promise<unknown> = Promise.resolve();
   private queueTimes: Promise<unknown> = Promise.resolve();
+  /**
+   * 直近の refreshTimes() 呼び出しで、上流取得または解析が失敗したか。
+   * Issue #43 レビュー指摘 #1 参照（nowcastService.ts と同じ理由）。
+   */
+  private lastRefreshFailed = false;
 
   constructor(connection: DatabaseConnection, options: KikikuruOptions) {
     this.connection = connection;
@@ -91,8 +96,13 @@ export class KikikuruService {
   }
 
   async refreshTimes(options?: KikikuruAttemptOptions): Promise<KikikuruCatalog> {
-    const catalogAccess = this.options.getCatalogAccess();
+    const catalogAccess =
+      options?.bypassScheduleStop === true && this.options.getManualCatalogAccess
+        ? this.options.getManualCatalogAccess()
+        : this.options.getCatalogAccess();
     if (!catalogAccess.allowed) {
+      // 取得自体を行っていない（夜間停止等の意図的スキップ）ため失敗として扱わない。
+      this.lastRefreshFailed = false;
       return this.readCatalog();
     }
 
@@ -276,6 +286,7 @@ export class KikikuruService {
         ),
       );
 
+      this.lastRefreshFailed = outcome === 'failure';
       return this.readCatalog();
     };
 
@@ -285,6 +296,13 @@ export class KikikuruService {
       () => {},
     );
     return next;
+  }
+
+  /**
+   * 直近の refreshTimes() 呼び出しが失敗したか。Issue #43 §4.3 の強制更新失敗検知に使う。
+   */
+  hasLastRefreshFailed(): boolean {
+    return this.lastRefreshFailed;
   }
 
   readCatalog(): KikikuruCatalog {

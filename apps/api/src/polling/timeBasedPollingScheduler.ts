@@ -27,6 +27,20 @@ import { resolveAmedasTarget } from '../venueForecastTargets.js';
 export interface ScheduledPollAdapter {
   readonly source: ScheduledSource;
   runScheduled(): Promise<void>;
+  /** 強制更新用の単発実行。未実装のアダプタは runScheduled と同じ取得を triggerKind:'manual' で行う。 */
+  runManual(): Promise<void>;
+  /**
+   * Codexレビュー指摘#1（2回目レビュー）: 直近の runScheduled() が実質的に失敗していたか。
+   * runScheduled() は上流の取得・解析失敗でも例外を投げない実装があるため（結果を内部状態
+   * として保持するだけ）、runManual() が使うのと同じ判断基準で成否を問い合わせる。
+   * 未実装なら「例外を投げなければ成功」とみなす（省略時 false）。
+   */
+  hasLastRunFailed?(): boolean;
+}
+
+export interface ManualRunResult {
+  /** 例外が起きた取得元（順不同）。空なら全件正常終了。 */
+  readonly failedSources: readonly (ScheduledSource | 'xml')[];
 }
 
 export interface TimeBasedPollingSchedulerOptions {
@@ -57,6 +71,37 @@ const REQUIRED_ADAPTER_SOURCES: readonly ScheduledSource[] = [
   'kikikuru',
   'amedas',
 ] as const;
+
+const ALL_SCHEDULED_SOURCES: readonly ScheduledSource[] = ['xml', 'nowcast', 'kikikuru', 'amedas'];
+
+/**
+ * Issue #42/#43 レビュー指摘 #2: ポーリング無効起動時・初期化中は scheduler インスタンスが
+ * 存在しない。監視状態APIがその間も「停止中」を安全に表現できるよう、
+ * scheduler.getStatus() が !isRunning のときに返す形と同じ形の既定値を、
+ * インスタンスなしで構築する。
+ */
+export function buildStoppedPollingStatus(
+  now: Date,
+  schedule: PollingScheduleConfig,
+): TimeBasedPollingStatus {
+  const period = resolvePollingPeriod(now, schedule);
+  const nextPeriodChangeAt = getNextPeriodChangeAt(now, schedule).toISOString() as UtcIso8601String;
+
+  const sources = Object.fromEntries(
+    ALL_SCHEDULED_SOURCES.map((source) => [
+      source,
+      {
+        source,
+        period,
+        state: 'scheduled_stopped' as const,
+        intervalSeconds: getIntervalSecondsForSource(period, source),
+        nextRunAt: null,
+      },
+    ]),
+  ) as Record<ScheduledSource, ScheduledPollStatus>;
+
+  return { period, nextPeriodChangeAt, sources };
+}
 
 export function getIntervalSecondsForSource(
   period: PollingPeriod,
@@ -92,6 +137,14 @@ export class TimeBasedPollingScheduler {
     'waiting' | 'running' | 'scheduled_stopped'
   >();
   private readonly lastCompletedAtMap = new Map<ScheduledSource, number>();
+  /**
+   * Codexレビュー指摘#1（2回目レビュー）: runManualOnce() が実行中の定期取得（inFlight）へ
+   * 合流するとき、合流先の定期実行が実際に成功したか失敗したかを判定するための記録。
+   * triggerSourcePoll() 内で各実行の成否を記録し、合流側はこれを検査して failedSources へ
+   * 反映する（NowcastScheduledAdapter.runScheduled() 等はHTTP・解析失敗でも例外を投げず
+   * resolve するため、Promise の成否だけでは判定できない）。
+   */
+  private readonly lastScheduledRunFailedMap = new Map<ScheduledSource, boolean>();
   private xmlInitialStarted = false;
 
   constructor(options: TimeBasedPollingSchedulerOptions) {
@@ -135,6 +188,78 @@ export class TimeBasedPollingScheduler {
       options.setTimer ?? ((cb: () => void, ms: number) => setTimeout(cb, ms) as unknown);
     this.clearTimerFn =
       options.clearTimer ?? ((id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>));
+  }
+
+  /**
+   * Issue #43 §4.3: 定期タイマー・世代・lastCompletedAt を一切変更せずに全取得元を1回実行する。
+   * 夜間帯でも実行する（索引の夜間ゲート迂回は各アダプタの runManual 実装が担う）。
+   */
+  async runManualOnce(): Promise<ManualRunResult> {
+    const failedSources: (ScheduledSource | 'xml')[] = [];
+
+    const xmlTask = (async () => {
+      try {
+        const result = await this.xmlPollingService.pollOnce('manual');
+        // レビュー指摘 #1: pollOnce は上流の取得失敗（HTTP異常・不正JSON等）で例外を
+        // 投げず、feedResults に失敗を記録するだけの場合がある。ここを検査しないと
+        // failedSources が常に空になり、強制更新APIが誤って success を返してしまう。
+        const hasFailedFeed = result.feedResults.some(
+          (feedResult) => feedResult.feedFetchOutcome === 'failure',
+        );
+        if (hasFailedFeed) {
+          failedSources.push('xml');
+        }
+      } catch (err) {
+        failedSources.push('xml');
+        console.error('[TimeBasedPollingScheduler] manual xml poll failed:', err);
+      }
+    })();
+
+    const nonXmlTasks = REQUIRED_ADAPTER_SOURCES.map((source) =>
+      (async () => {
+        try {
+          // 定期実行中のものがあれば合流し、上流取得を1回にまとめる。
+          const inFlight = this.inFlightPromises.get(source);
+          if (inFlight) {
+            await inFlight;
+            // Codexレビュー指摘#1（2回目レビュー）: inFlight は例外を外へ投げない実装のため
+            // (triggerSourcePoll が catch している)、await が成功しても合流先の定期取得が
+            // 実際には失敗している場合がある。runManual() と同じ判断基準
+            // (hasLastRunFailed()/結果オブジェクト) で記録された成否を検査し、失敗していれば
+            // 強制更新側にも伝播する。
+            if (this.lastScheduledRunFailedMap.get(source)) {
+              failedSources.push(source);
+            }
+            return;
+          }
+          const adapter = this.adapterMap.get(source);
+          if (!adapter) {
+            return;
+          }
+          await adapter.runManual();
+        } catch (err) {
+          failedSources.push(source);
+          console.error(`[TimeBasedPollingScheduler] manual ${source} poll failed:`, err);
+        }
+      })(),
+    );
+
+    await Promise.allSettled([xmlTask, ...nonXmlTasks]);
+
+    return { failedSources };
+  }
+
+  /**
+   * Issue #43 §4.3・§9-B: 長期フィードを含む復旧取得を1回行う（XMLのみ）。
+   * 定期タイマー・世代・nextRunAt を変更しない。
+   */
+  async runRecoveryOnce(): Promise<void> {
+    await this.xmlPollingService.pollFeeds('recovery');
+  }
+
+  /** Issue #43: FetchControlTargets.isRunning() の実体。全体の運転状態を返す。 */
+  isRunningNow(): boolean {
+    return this.isRunning;
   }
 
   getStatus(): TimeBasedPollingStatus {
@@ -443,12 +568,18 @@ export class TimeBasedPollingScheduler {
     this.sourceStates.set(source, 'running');
 
     const pollPromise = (async () => {
+      let failed = false;
       try {
         await adapter.runScheduled();
+        failed = adapter.hasLastRunFailed?.() ?? false;
       } catch (err) {
+        failed = true;
         console.error(`[TimeBasedPollingScheduler] ${source} scheduled poll failed:`, err);
       } finally {
         this.inFlightPromises.delete(source);
+        // Codexレビュー指摘#1（2回目レビュー）: runManualOnce() の合流経路が、この定期実行の
+        // 実際の成否を検査できるようにする。
+        this.lastScheduledRunFailedMap.set(source, failed);
         this.onPollCompleted(source, generation);
       }
     })();
@@ -509,6 +640,24 @@ export class NowcastScheduledAdapter implements ScheduledPollAdapter {
   async runScheduled(): Promise<void> {
     await this.service.refreshTimes({ triggerKind: 'scheduled' });
   }
+
+  /**
+   * Issue #43 §9-A: 手動強制更新は夜間帯の索引取得ゲートを迂回する。
+   * レビュー指摘 #1: 上流取得・解析が失敗していれば例外を投げ、runManualOnce() の
+   * failedSources 検知が機能するようにする（NowcastCatalog は前回正常値を保持し
+   * 縮退させないため、catalog の availability だけでは今回の失敗を判定できない）。
+   */
+  async runManual(): Promise<void> {
+    await this.service.refreshTimes({ triggerKind: 'manual', bypassScheduleStop: true });
+    if (this.service.hasLastRefreshFailed()) {
+      throw new Error('nowcast の時刻一覧取得または解析に失敗しました');
+    }
+  }
+
+  /** Codexレビュー指摘#1（2回目レビュー）: runManual() と同じ判断基準。 */
+  hasLastRunFailed(): boolean {
+    return this.service.hasLastRefreshFailed();
+  }
 }
 
 export class KikikuruScheduledAdapter implements ScheduledPollAdapter {
@@ -517,6 +666,22 @@ export class KikikuruScheduledAdapter implements ScheduledPollAdapter {
 
   async runScheduled(): Promise<void> {
     await this.service.refreshTimes({ triggerKind: 'scheduled' });
+  }
+
+  /**
+   * Issue #43 §9-A: 手動強制更新は夜間帯の索引取得ゲートを迂回する。
+   * レビュー指摘 #1: 失敗時に例外を投げ、runManualOnce() の failedSources 検知を機能させる。
+   */
+  async runManual(): Promise<void> {
+    await this.service.refreshTimes({ triggerKind: 'manual', bypassScheduleStop: true });
+    if (this.service.hasLastRefreshFailed()) {
+      throw new Error('kikikuru の時刻一覧取得または解析に失敗しました');
+    }
+  }
+
+  /** Codexレビュー指摘#1（2回目レビュー）: runManual() と同じ判断基準。 */
+  hasLastRunFailed(): boolean {
+    return this.service.hasLastRefreshFailed();
   }
 }
 
@@ -528,6 +693,8 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
   private readonly nowFn: () => number;
   private readonly fetchOptions?: AmedasFetchOptions;
   private lastPointFetchStartedAtMs: number | null = null;
+  /** Codexレビュー指摘#1（2回目レビュー）: 直近の runScheduled() の成否（runManual() と同じ判定式）。 */
+  private lastRunFailed = false;
 
   constructor(
     connection: DatabaseConnection,
@@ -565,6 +732,41 @@ export class AmedasScheduledAdapter implements ScheduledPollAdapter {
     if (result.pointData.attempted) {
       this.lastPointFetchStartedAtMs = currentNowMs;
     }
+
+    // Codexレビュー指摘#1（2回目レビュー）: runManual() と同じ判断基準で成否を記録する。
+    this.lastRunFailed =
+      !result.latestTime.succeeded || (result.pointData.attempted && !result.pointData.succeeded);
+  }
+
+  /** Codexレビュー指摘#1（2回目レビュー）: runManual() と同じ判断基準。 */
+  hasLastRunFailed(): boolean {
+    return this.lastRunFailed;
+  }
+
+  /**
+   * Issue #43 §4.3: lastPointFetchStartedAtMs を更新しない単発実行。
+   * レビュー指摘 #1: 最新時刻・地点データのいずれかが失敗していれば例外を投げ、
+   * runManualOnce() の failedSources 検知が機能するようにする。
+   * pointData は latest_time 失敗時のみ意図的に未試行（skipReason: 'latest_time_failed'）
+   * になるため、attempted な場合だけ succeeded を確認する。
+   */
+  async runManual(): Promise<void> {
+    const result = await runAmedasFetchCycle(this.connection, this.state, {
+      ...this.fetchOptions,
+      triggerKind: 'manual',
+      backfillBlocks: 0,
+      pointFetchPolicy: 'always',
+    });
+    if (!result.latestTime.succeeded) {
+      throw new Error(
+        `アメダス最新時刻の取得に失敗しました: ${result.latestTime.errorMessage ?? '不明なエラー'}`,
+      );
+    }
+    if (result.pointData.attempted && !result.pointData.succeeded) {
+      throw new Error(
+        `アメダス地点データの取得に失敗しました: ${result.pointData.errorMessage ?? '不明なエラー'}`,
+      );
+    }
   }
 }
 
@@ -576,6 +778,25 @@ export class MultiVenueAmedasScheduledAdapter implements ScheduledPollAdapter {
     const results = await Promise.allSettled(
       this.adapters.map((adapter) => adapter.runScheduled()),
     );
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (rejected.length > 0) {
+      if (rejected.length === 1) {
+        throw rejected[0]!.reason;
+      }
+      throw new AggregateError(
+        rejected.map((r) => r.reason),
+        `${rejected.length} 件のアメダスアダプター実行で例外が発生しました`,
+      );
+    }
+  }
+
+  /** Codexレビュー指摘#1（2回目レビュー）: いずれかの会場が失敗していれば失敗とみなす。 */
+  hasLastRunFailed(): boolean {
+    return this.adapters.some((adapter) => adapter.hasLastRunFailed());
+  }
+
+  async runManual(): Promise<void> {
+    const results = await Promise.allSettled(this.adapters.map((adapter) => adapter.runManual()));
     const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
     if (rejected.length > 0) {
       if (rejected.length === 1) {

@@ -1,12 +1,9 @@
+import type { MonitoredFetchSourceId } from '@wx-viewer-poc/shared';
 import type { ScheduledSource } from '../config/pollingSchedule.js';
 
-export type MonitoredFetchSourceId =
-  | 'xml_regular'
-  | 'xml_extra'
-  | 'nowcast_target_times'
-  | 'kikikuru_target_times'
-  | 'amedas_latest_time'
-  | 'amedas_point';
+// MonitoredFetchSourceId の定義は packages/shared/src/monitoringStatus.ts に一本化した
+// (E10 監視APIが apps/api から独立して参照できるようにするため)。値は変更していない。
+export type { MonitoredFetchSourceId };
 
 export interface MonitoredFetchSourceDefinition {
   readonly id: MonitoredFetchSourceId;

@@ -667,3 +667,123 @@ export function hasTelegramReception(connection: DatabaseConnection, documentUrl
     .get(documentUrl);
   return row !== undefined;
 }
+
+// --- E10 監視API §7 向け集計（telegram_reception_adoption を横断する読み取り専用関数） ---
+
+interface AdoptionSummaryRow {
+  readonly venue_id: string;
+  readonly adoption_result: string | null;
+  readonly count: number;
+}
+
+/**
+ * sinceIso 以降に受信した電文の会場別・adoption_result 別件数を返す（確定事項6: 全会場分）。
+ * adoption_result が NULL（未採点）の行は除く。
+ */
+export function summarizeAdoptionResults(
+  connection: DatabaseConnection,
+  sinceIso: string,
+): readonly {
+  readonly venueId: VenueId;
+  readonly adoptionResult: string;
+  readonly count: number;
+}[] {
+  const rows = connection
+    .prepare(
+      `SELECT a.venue_id AS venue_id, a.adoption_result AS adoption_result, COUNT(*) AS count
+       FROM telegram_reception_adoption a
+       JOIN telegram_reception t ON t.id = a.reception_id
+       WHERE t.received_at >= ? AND a.adoption_result IS NOT NULL
+       GROUP BY a.venue_id, a.adoption_result
+       ORDER BY a.venue_id ASC, a.adoption_result ASC`,
+    )
+    .all(sinceIso) as AdoptionSummaryRow[];
+
+  return rows
+    .filter((row): row is AdoptionSummaryRow & { adoption_result: string } => {
+      return row.adoption_result !== null && isVenueId(row.venue_id);
+    })
+    .map((row) => ({
+      venueId: row.venue_id as VenueId,
+      adoptionResult: row.adoption_result,
+      count: row.count,
+    }));
+}
+
+interface RecentAdoptionFailureRow {
+  readonly reception_id: number;
+  readonly venue_id: string;
+  readonly adoption_result: string;
+  readonly adoption_reason: string | null;
+  readonly adoption_decided_at: string | null;
+  readonly telegram_type: string | null;
+  readonly document_url: string;
+  readonly received_at: string;
+  readonly raw_body: string | null;
+  readonly body_bytes: number | null;
+}
+
+export interface RecentAdoptionFailure {
+  readonly receptionId: number;
+  readonly venueId: VenueId;
+  readonly adoptionResult: string;
+  readonly adoptionReason: string | null;
+  readonly adoptionDecidedAt: string | null;
+  readonly telegramType: string | null;
+  readonly documentUrl: string;
+  readonly receivedAt: string;
+  readonly rawBody: string | null;
+  readonly bodyBytes: number | null;
+}
+
+const ADOPTION_FAILURE_RESULTS = ['未対応構造', '未対応形式'] as const;
+
+/**
+ * sinceIso 以降に受信した「処理できなかった電文」（未対応構造・未対応形式）の直近サンプルを返す。
+ * adoption_decided_at 降順で最大 limit 件。全会場分（確定事項6）。
+ */
+export function listRecentAdoptionFailures(
+  connection: DatabaseConnection,
+  sinceIso: string,
+  limit: number,
+): readonly RecentAdoptionFailure[] {
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error(`limit must be a positive integer: ${limit}`);
+  }
+  const placeholders = ADOPTION_FAILURE_RESULTS.map(() => '?').join(', ');
+  const rows = connection
+    .prepare(
+      `SELECT
+         a.reception_id AS reception_id,
+         a.venue_id AS venue_id,
+         a.adoption_result AS adoption_result,
+         a.adoption_reason AS adoption_reason,
+         a.adoption_decided_at AS adoption_decided_at,
+         t.telegram_type AS telegram_type,
+         t.document_url AS document_url,
+         t.received_at AS received_at,
+         t.raw_body AS raw_body,
+         t.body_bytes AS body_bytes
+       FROM telegram_reception_adoption a
+       JOIN telegram_reception t ON t.id = a.reception_id
+       WHERE t.received_at >= ? AND a.adoption_result IN (${placeholders})
+       ORDER BY a.adoption_decided_at DESC, a.reception_id DESC
+       LIMIT ?`,
+    )
+    .all(sinceIso, ...ADOPTION_FAILURE_RESULTS, limit) as RecentAdoptionFailureRow[];
+
+  return rows
+    .filter((row) => isVenueId(row.venue_id))
+    .map((row) => ({
+      receptionId: row.reception_id,
+      venueId: row.venue_id as VenueId,
+      adoptionResult: row.adoption_result,
+      adoptionReason: row.adoption_reason,
+      adoptionDecidedAt: row.adoption_decided_at,
+      telegramType: row.telegram_type,
+      documentUrl: row.document_url,
+      receivedAt: row.received_at,
+      rawBody: row.raw_body,
+      bodyBytes: row.body_bytes,
+    }));
+}

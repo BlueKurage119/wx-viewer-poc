@@ -1,6 +1,12 @@
 import express, { type Express } from 'express';
 import {
   parseKikikuruTileRequest,
+  parseMonitoringNotificationOutputQuery,
+  parseMonitoringOperationQuery,
+  parseMonitoringProcessingQuery,
+  parseMonitoringReceptionIdParam,
+  parseMonitoringReceptionQuery,
+  parseMonitoringStatusQuery,
   parseNowcastTileRequest,
   parseNotificationDeltaQuery,
   parseStartupNotificationRequest,
@@ -16,6 +22,11 @@ import type { WeatherApiService } from './services/weatherApiService.js';
 import type { NowcastApiService } from './services/nowcastApiService.js';
 import type { KikikuruApiService } from './services/kikikuruApiService.js';
 import { ImageServicesInitializingError } from './services/tileApiSupport.js';
+import type { MonitoringStatusService } from './monitoring/monitoringStatusService.js';
+import type { MonitoringProcessingService } from './monitoring/monitoringProcessingService.js';
+import type { MonitoringHistoryService } from './monitoring/monitoringHistoryService.js';
+import type { FetchControlService } from './services/fetchControlService.js';
+import { isFetchControlRequestId, parseFetchControlRequest } from '@wx-viewer-poc/shared';
 
 export interface AppDependencies {
   readonly startupNotifications?: StartupNotificationService;
@@ -23,6 +34,10 @@ export interface AppDependencies {
   readonly weatherApi?: WeatherApiService;
   readonly nowcastApi?: NowcastApiService;
   readonly kikikuruApi?: KikikuruApiService;
+  readonly monitoringStatus?: MonitoringStatusService;
+  readonly monitoringProcessing?: MonitoringProcessingService;
+  readonly monitoringHistory?: MonitoringHistoryService;
+  readonly fetchControl?: FetchControlService;
 }
 
 function sendJsonNoStore(res: express.Response, status: number, body: unknown): void {
@@ -364,6 +379,185 @@ export function createApp(dependencies: AppDependencies = {}): Express {
           return;
         }
         sendJsonNoStore(res, 500, { status: 'error', code: 'tile_read_failed' });
+      }
+    });
+  }
+
+  if (dependencies.monitoringStatus) {
+    const monitoringStatus = dependencies.monitoringStatus;
+    app.get('/api/monitoring/status', (req, res) => {
+      const parsed = parseMonitoringStatusQuery(req.query);
+      if (parsed === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.terminalId);
+      if (terminal === null) {
+        sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      try {
+        const result = monitoringStatus.getStatus(terminal);
+        sendJsonNoStore(res, 200, result);
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_status_failed' });
+      }
+    });
+  }
+
+  if (dependencies.monitoringProcessing) {
+    const monitoringProcessing = dependencies.monitoringProcessing;
+    app.get('/api/monitoring/processing', (req, res) => {
+      const parsed = parseMonitoringProcessingQuery(req.query);
+      if (parsed === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const terminal = resolveTerminalDefinition(parsed.terminalId);
+      if (terminal === null) {
+        sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
+        return;
+      }
+      try {
+        const result = monitoringProcessing.getProcessing(terminal);
+        sendJsonNoStore(res, 200, result);
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_processing_failed' });
+      }
+    });
+  }
+
+  if (dependencies.monitoringHistory) {
+    const monitoringHistory = dependencies.monitoringHistory;
+
+    app.get('/api/monitoring/receptions', (req, res) => {
+      const parsed = parseMonitoringReceptionQuery(req.query);
+      if (parsed === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const result = monitoringHistory.listReceptions(parsed);
+        sendJsonNoStore(res, 200, result);
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+      }
+    });
+
+    app.get('/api/monitoring/receptions/:id', (req, res) => {
+      const id = parseMonitoringReceptionIdParam(req.params.id);
+      if (Object.keys(req.query).length > 0) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      if (id === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const result = monitoringHistory.getReceptionById(id);
+        if (result === null) {
+          sendJsonNoStore(res, 404, { status: 'error', code: 'reception_not_found' });
+          return;
+        }
+        sendJsonNoStore(res, 200, result);
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+      }
+    });
+
+    app.get('/api/monitoring/notification-outputs', (req, res) => {
+      const parsed = parseMonitoringNotificationOutputQuery(req.query);
+      if (parsed === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const result = monitoringHistory.listNotificationOutputs(parsed);
+        sendJsonNoStore(res, 200, result);
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+      }
+    });
+
+    app.get('/api/monitoring/operations', (req, res) => {
+      const parsed = parseMonitoringOperationQuery(req.query);
+      if (parsed === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const result = monitoringHistory.listOperations(parsed);
+        sendJsonNoStore(res, 200, result);
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+      }
+    });
+  }
+
+  if (dependencies.fetchControl) {
+    const fetchControl = dependencies.fetchControl;
+
+    const handleOperation = (kind: 'start' | 'stop' | 'force_refresh'): express.RequestHandler => {
+      return (req, res) => {
+        void (async () => {
+          if (!fetchControl.isAvailable()) {
+            sendJsonNoStore(res, 503, { status: 'error', code: 'fetch_control_unavailable' });
+            return;
+          }
+          const parsed = parseFetchControlRequest(req.body);
+          if (parsed === null) {
+            sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+            return;
+          }
+          try {
+            const outcome = await fetchControl.request(kind, parsed.requestId);
+            if (outcome.kind === 'completed') {
+              sendJsonNoStore(res, 200, outcome.response);
+              return;
+            }
+            if (outcome.kind === 'in_progress') {
+              sendJsonNoStore(res, 202, outcome.response);
+              return;
+            }
+            if (outcome.kind === 'conflict') {
+              sendJsonNoStore(res, 409, { status: 'error', code: 'operation_kind_conflict' });
+              return;
+            }
+            sendJsonNoStore(res, 404, { status: 'error', code: 'unknown_request' });
+          } catch {
+            sendJsonNoStore(res, 500, { status: 'error', code: 'fetch_control_failed' });
+          }
+        })();
+      };
+    };
+
+    app.post('/api/control/fetch/start', handleOperation('start'));
+    app.post('/api/control/fetch/stop', handleOperation('stop'));
+    app.post('/api/control/fetch/force-refresh', handleOperation('force_refresh'));
+
+    app.get('/api/control/operations/:requestId', (req, res) => {
+      if (!fetchControl.isAvailable()) {
+        sendJsonNoStore(res, 503, { status: 'error', code: 'fetch_control_unavailable' });
+        return;
+      }
+      if (!isFetchControlRequestId(req.params.requestId) || Object.keys(req.query).length > 0) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const outcome = fetchControl.find(req.params.requestId);
+        if (outcome.kind === 'completed') {
+          sendJsonNoStore(res, 200, outcome.response);
+          return;
+        }
+        if (outcome.kind === 'in_progress') {
+          sendJsonNoStore(res, 202, outcome.response);
+          return;
+        }
+        sendJsonNoStore(res, 404, { status: 'error', code: 'unknown_request' });
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'fetch_control_failed' });
       }
     });
   }

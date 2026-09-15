@@ -2,19 +2,40 @@ import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
 import crypto from 'node:crypto';
 
-import { VENUE_IDS } from '@wx-viewer-poc/shared';
+import { VENUE_IDS, type UtcIso8601String } from '@wx-viewer-poc/shared';
 import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
 import {
   loadPollingScheduleConfig,
+  resolvePollingPeriod,
   validatePollingScheduleConfig,
   type PollingScheduleConfig,
 } from './config/index.js';
+import {
+  createFetchControlService,
+  ForceRefreshFailedError,
+  type FetchControlService,
+  type FetchControlTargets,
+} from './services/fetchControlService.js';
+import { registerGracefulShutdown, type SignalSource } from './gracefulShutdown.js';
+import {
+  createMonitoringStatusService,
+  type MonitoringStatusService,
+} from './monitoring/monitoringStatusService.js';
+import {
+  createMonitoringProcessingService,
+  type MonitoringProcessingService,
+} from './monitoring/monitoringProcessingService.js';
+import {
+  createMonitoringHistoryService,
+  type MonitoringHistoryService,
+} from './monitoring/monitoringHistoryService.js';
 import {
   JmaXmlPollingService,
   TimeBasedPollingScheduler,
   createScheduledAdapters,
   createImageServices,
+  buildStoppedPollingStatus,
   type ImageServices,
   type JmaXmlPollingServiceOptions,
   type TimeBasedPollingSchedulerOptions,
@@ -46,11 +67,12 @@ export interface StartedServer {
   readonly pollingService?: JmaXmlPollingService;
   readonly scheduler?: TimeBasedPollingScheduler;
   readonly fetchHealthMonitorService?: FetchHealthMonitorService;
+  readonly fetchControlService?: FetchControlService;
   readonly imageServices?: {
     readonly nowcast: NowcastService;
     readonly kikikuru: KikikuruService;
   };
-  close(): Promise<void>;
+  close(options?: { readonly reason?: 'signal' | 'programmatic' }): Promise<void>;
 }
 
 export interface StartServerOptions {
@@ -64,6 +86,9 @@ export interface StartServerOptions {
   readonly pollingSchedule?: PollingScheduleConfig;
   readonly configUrl?: URL;
   readonly imageServices?: ImageServices;
+  /** Issue #43 §6.1: graceful shutdown の検証用。指定すると SIGTERM/SIGINT を購読する。 */
+  readonly shutdownSignalSource?: SignalSource;
+  readonly fetchControlNotificationIdFactory?: () => string;
 }
 
 const DEFAULT_PORT = 3001;
@@ -113,6 +138,8 @@ function createStartupNotificationRuntime(
     pollingService.onInitialFetchCompleted(evaluateVenues);
   };
   return {
+    serverGenerationId,
+    initialization,
     startupNotifications,
     notificationDelta,
     warningEmitDeps,
@@ -172,6 +199,40 @@ function monitorServerErrors(server: Server): {
 }
 
 export async function startServer(options: StartServerOptions = {}): Promise<StartedServer> {
+  // Codexレビュー指摘#6（2回目レビュー）: registerGracefulShutdown() の呼び出しを
+  // close の定義（＝初回XML取得を含む長い初期化のawait完了後）まで遅らせると、その間に
+  // 届いたSIGTERM/SIGINTはリスナー未登録のままNodeの既定動作で即終了してしまい、
+  // 停止処理・B5記録・停止通知が一切行われない。そこで、シグナル購読そのものは
+  // 初期化より前に行い、実体（close）はまだ無い間は「シグナルを受け取った」ことだけを
+  // 記録しておく。close が確定した時点（＝初期化完了時点）で、保留していたシグナルが
+  // あれば直ちに close を呼ぶ。
+  //
+  // 「初期化完了を待ってから close を呼ぶ」を選んだ理由: 初期化処理（DB初期化・
+  // スケジューラ生成・初回XML取得等）は多数のリソース確保を伴い、初期化を中断して
+  // 即座にclose相当の処理を行う設計は、未確定なリソース（scheduler/pollingService等が
+  // 部分的にしか代入されていない状態）の後始末を個別に作り込む必要があり複雑・高リスクに
+  // なる。一方、初期化完了後にcloseを呼ぶ方式は、既存のcloseが前提とする
+  // 「全リソースが揃っている」という不変条件を壊さずに済み、安全側に倒せる。
+  // 初期化の完了を待つ分だけ停止が遅れるが、初期化自体の中断は本Issueの対象外
+  // （異常終了検知はAD-H068で対象外と確定済み）であり、正常終了の記録が「初期化完了後」に
+  // なることは許容する。
+  const deferredCloseRef: {
+    current:
+      | ((closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => Promise<void>)
+      | undefined;
+  } = { current: undefined };
+  let shutdownSignalPending = false;
+  if (options.shutdownSignalSource) {
+    registerGracefulShutdown(options.shutdownSignalSource, () => {
+      if (deferredCloseRef.current) {
+        return deferredCloseRef.current({ reason: 'signal' });
+      }
+      // close はまだ定義されていない（初期化中）。初期化完了後に呼び出すよう保留する。
+      shutdownSignalPending = true;
+      return Promise.resolve();
+    });
+  }
+
   // DB初期化・HTTP待受より前に設定を読み込み検証する（失敗時はDBや待受を起動しない）
   const schedule = validatePollingScheduleConfig(
     options.pollingSchedule ?? loadPollingScheduleConfig(options.configUrl),
@@ -193,6 +254,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   });
   const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
   let imageServices: ImageServices | undefined;
+  let scheduler: TimeBasedPollingScheduler | undefined;
+  let nowFnHolder: () => Date = () => new Date();
 
   const nowcastApi = createNowcastApiService({
     getService: () => imageServices?.nowcast ?? null,
@@ -205,18 +268,92 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     clock,
   });
 
+  const fetchControlTargets: FetchControlTargets | null = enablePolling
+    ? {
+        start: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.start();
+        },
+        stop: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.stop();
+        },
+        forceRefresh: async () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          const result = await scheduler.runManualOnce();
+          if (result.failedSources.length > 0) {
+            throw new ForceRefreshFailedError(result.failedSources);
+          }
+        },
+        runRecovery: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.runRecoveryOnce();
+        },
+        isRunning: () => (scheduler ? scheduler.isRunningNow() : false),
+        isUpstreamAllowedNow: () =>
+          resolvePollingPeriod(nowFnHolder(), schedule).xmlSeconds !== null,
+      }
+    : null;
+
+  const fetchControlService = createFetchControlService({
+    connection: database.connection,
+    targets: fetchControlTargets,
+    now: () => clock() as UtcIso8601String,
+    notificationIdFactory: options.fetchControlNotificationIdFactory,
+  });
+
+  const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
+    connection: database.connection,
+    now: () => clock() as UtcIso8601String,
+  });
+  const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
+    connection: database.connection,
+    serverGenerationId: startupRuntime.serverGenerationId,
+    now: () => clock() as UtcIso8601String,
+  });
+  const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
+    connection: database.connection,
+    // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
+    // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
+    // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
+    scheduler: {
+      getStatus: () => scheduler?.getStatus() ?? buildStoppedPollingStatus(nowFnHolder(), schedule),
+      isRunningNow: () => scheduler?.isRunningNow() ?? false,
+    },
+    xmlPollingService: {
+      getStatus: () => ({
+        initialFetch: pollingService?.getStatus().initialFetch ?? {
+          phase: 'not_started',
+          result: null,
+        },
+      }),
+    },
+    fetchHealthMonitor: {
+      getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+    },
+    startupInitialization: startupRuntime.initialization,
+    weatherApi,
+    nowcastApi,
+    kikikuruApi,
+    fetchHealthConfig: schedule.fetchHealth,
+    serverGenerationId: startupRuntime.serverGenerationId,
+    now: () => clock() as UtcIso8601String,
+  });
+
   const app = createApp({
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
     nowcastApi,
     kikikuruApi,
+    monitoringStatus,
+    monitoringProcessing,
+    monitoringHistory,
+    fetchControl: fetchControlService,
   });
   const actualServer = app.listen(options.port ?? DEFAULT_PORT);
 
   const serverListeningPromise = waitForServerListening(actualServer);
-
-  let scheduler: TimeBasedPollingScheduler | undefined;
 
   try {
     // 初期取得より先に待受失敗を監視する。失敗時は直ちに catch で全資源を解放する。
@@ -231,6 +368,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             ? () => new Date(options.pollingServiceOptions!.clock!())
             : () => new Date();
           const nowFn = options.schedulerOptions?.now ?? defaultNow;
+          nowFnHolder = nowFn;
 
           // 索引・画像共用サービスの作成（テスト等で注入がない場合）
           imageServices =
@@ -354,7 +492,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   }
 
   let closed = false;
-  const close = async () => {
+  const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
     if (!closed) {
       closed = true;
       if (fetchHealthMonitorService) {
@@ -369,6 +507,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       if (pollingService) {
         await pollingService.stop();
       }
+      // Issue #43 §6.1: シグナル由来の停止のときだけB5記録+サービス停止通知を行う。
+      // 既存テストのDBに停止行が混ざるのを避けるため、programmatic な close では記録しない。
+      if (closeOptions?.reason === 'signal') {
+        try {
+          await fetchControlService.recordShutdown();
+        } catch (error) {
+          console.error('graceful shutdown の記録に失敗しました:', error);
+        }
+      }
       await closeServer(actualServer);
       database.close();
     }
@@ -380,11 +527,22 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     console.error(error);
   });
 
+  // Codexレビュー指摘#6（2回目レビュー）: シグナル購読自体は関数冒頭で既に行っている。
+  // ここでは close の実体を確定させ、初期化中に届いていたシグナル（shutdownSignalPending）が
+  // あれば直ちに反映する。
+  deferredCloseRef.current = close;
+  if (shutdownSignalPending) {
+    void close({ reason: 'signal' }).catch((closeError: unknown) => {
+      console.error('保留していたgraceful shutdownの処理に失敗しました:', closeError);
+    });
+  }
+
   return {
     port: address.port,
     pollingService,
     scheduler,
     fetchHealthMonitorService,
+    fetchControlService,
     imageServices: imageServices
       ? {
           nowcast: imageServices.nowcast,
@@ -396,6 +554,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 }
 
 async function main(): Promise<void> {
+  // Codexレビュー指摘#6（2回目レビュー）: startServer() と同様、実プロセスのエントリでも
+  // シグナル購読を初期化より前に行い、close 確定前に届いたシグナルは保留して
+  // 初期化完了後に反映する。
+  const deferredCloseRef: {
+    current:
+      | ((closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => Promise<void>)
+      | undefined;
+  } = { current: undefined };
+  let shutdownSignalPending = false;
+  registerGracefulShutdown(process, () => {
+    if (deferredCloseRef.current) {
+      return deferredCloseRef.current({ reason: 'signal' });
+    }
+    shutdownSignalPending = true;
+    return Promise.resolve();
+  });
+
   // DB初期化・HTTP待受より前に設定を読み込み検証する
   const schedule = loadPollingScheduleConfig();
 
@@ -416,6 +591,8 @@ async function main(): Promise<void> {
   });
   const enablePolling = process.env.DISABLE_POLLING !== 'true';
   let imageServices: ImageServices | undefined;
+  let scheduler: TimeBasedPollingScheduler | undefined;
+  const nowFnHolder: () => Date = () => new Date();
 
   const nowcastApi = createNowcastApiService({
     getService: () => imageServices?.nowcast ?? null,
@@ -428,18 +605,92 @@ async function main(): Promise<void> {
     clock,
   });
 
+  const fetchControlTargets: FetchControlTargets | null = enablePolling
+    ? {
+        start: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.start();
+        },
+        stop: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.stop();
+        },
+        forceRefresh: async () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          const result = await scheduler.runManualOnce();
+          if (result.failedSources.length > 0) {
+            throw new ForceRefreshFailedError(result.failedSources);
+          }
+        },
+        runRecovery: () => {
+          if (!scheduler) throw new Error('scheduler is not ready');
+          return scheduler.runRecoveryOnce();
+        },
+        isRunning: () => (scheduler ? scheduler.isRunningNow() : false),
+        isUpstreamAllowedNow: () =>
+          resolvePollingPeriod(nowFnHolder(), schedule).xmlSeconds !== null,
+      }
+    : null;
+
+  const fetchControlService = createFetchControlService({
+    connection: database.connection,
+    targets: fetchControlTargets,
+    now: () => clock() as UtcIso8601String,
+  });
+
+  const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
+    connection: database.connection,
+    now: () => clock() as UtcIso8601String,
+  });
+  const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
+    connection: database.connection,
+    serverGenerationId: startupRuntime.serverGenerationId,
+    now: () => clock() as UtcIso8601String,
+  });
+  const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
+    connection: database.connection,
+    // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
+    // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
+    // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
+    scheduler: {
+      getStatus: () => scheduler?.getStatus() ?? buildStoppedPollingStatus(nowFnHolder(), schedule),
+      isRunningNow: () => scheduler?.isRunningNow() ?? false,
+    },
+    xmlPollingService: {
+      getStatus: () => ({
+        initialFetch: pollingService?.getStatus().initialFetch ?? {
+          phase: 'not_started',
+          result: null,
+        },
+      }),
+    },
+    fetchHealthMonitor: {
+      getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+    },
+    startupInitialization: startupRuntime.initialization,
+    weatherApi,
+    nowcastApi,
+    kikikuruApi,
+    fetchHealthConfig: schedule.fetchHealth,
+    serverGenerationId: startupRuntime.serverGenerationId,
+    now: () => clock() as UtcIso8601String,
+  });
+
   const app = createApp({
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
     nowcastApi,
     kikikuruApi,
+    monitoringStatus,
+    monitoringProcessing,
+    monitoringHistory,
+    fetchControl: fetchControlService,
   });
   const server = app.listen(port);
-  let scheduler: TimeBasedPollingScheduler | undefined;
 
   let closed = false;
-  const close = async () => {
+  const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
     if (closed) {
       return;
     }
@@ -455,6 +706,13 @@ async function main(): Promise<void> {
     }
     if (pollingService) {
       await pollingService.stop();
+    }
+    if (closeOptions?.reason === 'signal') {
+      try {
+        await fetchControlService.recordShutdown();
+      } catch (error) {
+        console.error('graceful shutdown の記録に失敗しました:', error);
+      }
     }
     await closeServer(server);
     database.close();
@@ -554,8 +812,15 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     });
   });
-  process.once('SIGINT', () => void close());
-  process.once('SIGTERM', () => void close());
+
+  // Codexレビュー指摘#6（2回目レビュー）: シグナル購読は関数冒頭で済ませてある。
+  // ここで close の実体を確定させ、初期化中に保留していたシグナルがあれば直ちに反映する。
+  deferredCloseRef.current = close;
+  if (shutdownSignalPending) {
+    void close({ reason: 'signal' }).catch((closeError: unknown) => {
+      console.error('保留していたgraceful shutdownの処理に失敗しました:', closeError);
+    });
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

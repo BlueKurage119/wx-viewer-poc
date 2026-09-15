@@ -478,6 +478,7 @@ test('受け入れ条件 15: startServer経由のimageServices結線、日中/�
     const createDummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
       source,
       runScheduled: async () => {},
+      runManual: async () => {},
     });
     const schedulerSafeOptions = {
       adapters: [
