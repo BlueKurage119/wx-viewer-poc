@@ -26,16 +26,14 @@ export interface WarningTelegramProcessResult {
 }
 
 /**
- * 1 会場分の警報・注意報電文を採用判定する。パース結果は会場に依存するため
- * （C2 は targetArea.municipalCode で Item を絞る）、会場ごとに parse をやり直す。
+ * 通知送信を分離した内部処理関数。トランザクション内で実行可能。
  */
-export function processWarningTelegramReception(
+export function processWarningTelegramReceptionCore(
   connection: DatabaseConnection,
   reception: TelegramReception,
   decidedAt: UtcIso8601String,
   venue: VenueWarningContext,
-  emitDeps?: WarningNotificationEmitDeps,
-): WarningTelegramParseResult {
+): WarningTelegramProcessResult {
   const result =
     reception.rawBody === null
       ? {
@@ -46,10 +44,11 @@ export function processWarningTelegramReception(
       : parseWarningTelegram(reception.rawBody, reception, venue.targetArea);
   let adoptionResult = result.ok ? '警報・注意報として解析済み' : result.disposition;
   let adoptionReason = result.ok ? null : result.reason;
+  let currentResult: WarningCurrentApplyResult | null = null;
 
   if (result.ok) {
     try {
-      const currentResult = applyWarningCurrentReception(
+      currentResult = applyWarningCurrentReception(
         connection,
         reception,
         result.value,
@@ -58,18 +57,6 @@ export function processWarningTelegramReception(
       if (!currentResult.applied && currentResult.reason === 'unsupported_code') {
         adoptionResult = '未対応コード';
         adoptionReason = currentResult.detail;
-      } else if (currentResult.applied) {
-        const resolvedDeps: WarningNotificationEmitDeps = emitDeps ?? {
-          tracker: new InitialWarningNotificationTracker(),
-          now: () => decidedAt,
-        };
-        emitWarningNotificationsForReception(
-          connection,
-          reception,
-          currentResult,
-          result.value,
-          resolvedDeps,
-        );
       }
     } catch (error) {
       // C3 の例外によって C2 の解析成功を取り消さない
@@ -87,7 +74,42 @@ export function processWarningTelegramReception(
   });
   transaction();
 
-  return result;
+  return { parseResult: result, currentResult };
+}
+
+/**
+ * 1 会場分の警報・注意報電文を採用判定する。パース結果は会場に依存するため
+ * （C2 は targetArea.municipalCode で Item を絞る）、会場ごとに parse をやり直す。
+ */
+export function processWarningTelegramReception(
+  connection: DatabaseConnection,
+  reception: TelegramReception,
+  decidedAt: UtcIso8601String,
+  venue: VenueWarningContext,
+  emitDeps?: WarningNotificationEmitDeps,
+): WarningTelegramParseResult {
+  const { parseResult, currentResult } = processWarningTelegramReceptionCore(
+    connection,
+    reception,
+    decidedAt,
+    venue,
+  );
+
+  if (parseResult.ok && currentResult?.applied) {
+    const resolvedDeps: WarningNotificationEmitDeps = emitDeps ?? {
+      tracker: new InitialWarningNotificationTracker(),
+      now: () => decidedAt,
+    };
+    emitWarningNotificationsForReception(
+      connection,
+      reception,
+      currentResult,
+      parseResult.value,
+      resolvedDeps,
+    );
+  }
+
+  return parseResult;
 }
 
 /** VENUE_IDS を毎回ループする。ポーリング本線はこちらを呼ぶ（確定事項3）。 */
@@ -163,10 +185,44 @@ export async function reprocessPendingWarningTelegramReceptions(
       after,
       limit: 100,
     });
-    for (const reception of page.receptions) {
-      processWarningTelegramReception(connection, reception, clock(), venue, emitDeps);
-      processedCount += 1;
 
+    const pageResults: Array<{
+      reception: TelegramReception;
+      parseResult: WarningTelegramParseResult;
+      currentResult: WarningCurrentApplyResult | null;
+    }> = [];
+
+    const processPageTransaction = connection.transaction(() => {
+      for (const reception of page.receptions) {
+        const { parseResult, currentResult } = processWarningTelegramReceptionCore(
+          connection,
+          reception,
+          clock(),
+          venue,
+        );
+        pageResults.push({ reception, parseResult, currentResult });
+      }
+    });
+
+    processPageTransaction();
+
+    const resolvedDeps: WarningNotificationEmitDeps = emitDeps ?? {
+      tracker: new InitialWarningNotificationTracker(),
+      now: clock,
+    };
+
+    for (const { reception, parseResult, currentResult } of pageResults) {
+      if (parseResult.ok && currentResult?.applied) {
+        emitWarningNotificationsForReception(
+          connection,
+          reception,
+          currentResult,
+          parseResult.value,
+          resolvedDeps,
+        );
+      }
+
+      processedCount += 1;
       // 100件ごとの進捗ログとトラッカー更新（最終件数未満）
       if (processedCount % batchLogInterval === 0 && processedCount < total) {
         logger?.(
@@ -175,6 +231,7 @@ export async function reprocessPendingWarningTelegramReceptions(
         tracker?.updateVenueReprocessing(venueId, processedCount);
       }
     }
+
     after = page.nextCursor ?? undefined;
     if (after) {
       await yieldEventLoop();
