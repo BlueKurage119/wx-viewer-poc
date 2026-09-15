@@ -1,5 +1,6 @@
 import { forwardRef, type ReactNode, type ChangeEvent, type KeyboardEvent } from 'react';
 import type { TimelineViewModel, TimelineIntent, TimelineFrameKind } from './types';
+import { findEnabledFrameIndex } from './timelineNavigation';
 
 export interface TimelineControlCardProps {
   viewModel: TimelineViewModel;
@@ -45,18 +46,27 @@ export const TimelineControlCard = forwardRef<HTMLDivElement, TimelineControlCar
 
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
       if (isEmpty) return;
-      if (event.key === 'Home') {
-        const first = frames[0];
-        if (first) {
-          event.preventDefault();
-          onIntent({ type: 'select-frame', frameId: first.id });
-        }
-      } else if (event.key === 'End') {
-        const last = frames[frames.length - 1];
-        if (last) {
-          event.preventDefault();
-          onIntent({ type: 'select-frame', frameId: last.id });
-        }
+      const direction =
+        event.key === 'ArrowRight' || event.key === 'ArrowUp'
+          ? 1
+          : event.key === 'ArrowLeft' || event.key === 'ArrowDown'
+            ? -1
+            : null;
+      const targetIndex =
+        event.key === 'Home'
+          ? findEnabledFrameIndex(frames, -1, 1)
+          : event.key === 'End'
+            ? findEnabledFrameIndex(frames, frames.length, -1)
+            : direction === null
+              ? null
+              : findEnabledFrameIndex(frames, safeIndex, direction);
+
+      const targetFrame = targetIndex === null ? undefined : frames[targetIndex];
+      if (targetFrame) {
+        event.preventDefault();
+        onIntent({ type: 'select-frame', frameId: targetFrame.id });
+      } else if (event.key === 'Home' || event.key === 'End' || direction !== null) {
+        event.preventDefault();
       }
     };
 

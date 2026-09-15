@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 (globalThis as unknown as { React: typeof React }).React = React;
 
 import { TimelineControlCard } from '../src/map/TimelineControlCard.tsx';
+import { findEnabledFrameIndex } from '../src/map/timelineNavigation.ts';
 import { LayerSelector } from '../src/map/LayerSelector.tsx';
 import { MapLegend } from '../src/map/MapLegend.tsx';
 import { MapAttribution } from '../src/map/MapAttribution.tsx';
@@ -84,6 +85,22 @@ test('F4: キキクルの reference フレームで基準バッジと時刻が�
   assert.ok(html.includes('09/15 01:00'));
   assert.ok(html.includes('基準'));
   assert.ok(html.includes('aria-valuetext="基準 01:00"'));
+});
+
+test('F4: キーボード選択は無効コマを飛び越え、Home/Endは最寄りの有効コマを選ぶ', () => {
+  const frames = [
+    { id: 'disabled-first', displayTime: '00:00', kind: 'observed' as const, enabled: false },
+    { id: 'enabled-first', displayTime: '00:10', kind: 'observed' as const, enabled: true },
+    { id: 'disabled-middle', displayTime: '00:20', kind: 'observed' as const, enabled: false },
+    { id: 'enabled-last', displayTime: '00:30', kind: 'forecast' as const, enabled: true },
+    { id: 'disabled-last', displayTime: '00:40', kind: 'forecast' as const, enabled: false },
+  ];
+
+  assert.equal(findEnabledFrameIndex(frames, 1, 1), 3);
+  assert.equal(findEnabledFrameIndex(frames, 3, -1), 1);
+  assert.equal(findEnabledFrameIndex(frames, -1, 1), 1);
+  assert.equal(findEnabledFrameIndex(frames, frames.length, -1), 3);
+  assert.equal(findEnabledFrameIndex(frames, 3, 1), null);
 });
 
 test('F5: レイヤー選択にナウキャストとキキクル3種のみが含まれ、洪水・雷・竜巻が含まれない', () => {
