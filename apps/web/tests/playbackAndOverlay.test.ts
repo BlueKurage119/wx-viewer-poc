@@ -9,7 +9,11 @@ import {
   computePrefetchFrames,
   type UsePlaybackResult,
 } from '../src/map/nowcast/usePlayback.ts';
-import { WeatherTileOverlay, getSwapKey } from '../src/map/tiles/WeatherTileOverlay.tsx';
+import {
+  WeatherTileOverlay,
+  getSwapKey,
+  notifySwapSettled,
+} from '../src/map/tiles/WeatherTileOverlay.tsx';
 import { createSampleNowcastResponse } from './fixtures/nowcastFixtures.ts';
 
 const el = React.createElement;
@@ -140,6 +144,13 @@ test('WeatherTileOverlay: id が同一で urlTemplate が異なる場合に swap
     key2,
     '2026-09-15T03:00:00.000Z /api/weather/kikikuru/inund/tiles/{z}/{x}/{y}.png?terminalId=hkeagh01',
   );
+});
+
+test('WeatherTileOverlay: タイムアウト時に complete: false で swap 完了を通知すること (§9.3, §11.4)', () => {
+  const notifications: { frameId: string; complete: boolean }[] = [];
+  notifySwapSettled((result) => notifications.push(result), 'timeout-frame', false);
+
+  assert.deepEqual(notifications, [{ frameId: 'timeout-frame', complete: false }]);
 });
 
 test('WeatherTileOverlay: レンダリングおよびプロパティ契約の検証 (§8.3, §9.3, §11.6)', () => {
