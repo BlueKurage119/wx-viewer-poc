@@ -19,7 +19,7 @@ export interface AtomFeedEntry {
 
 export interface FeedPollResult {
   readonly feedKind: JmaXmlFeedKind;
-  readonly feedFetchOutcome: 'success' | 'failure';
+  readonly feedFetchOutcome: 'success' | 'failure' | 'aborted';
   readonly discoveredCount: number;
   readonly skippedDuplicateCount: number;
   readonly downloadedCount: number;
