@@ -74,10 +74,11 @@ POST /api/control/fetch/force-refresh
 
 | ファイル | 変更内容 |
 | --- | --- |
-| `apps/api/src/polling/jmaXmlPollingService.ts` | 手動サイクル専用の `FetchAbortController` を追加。`executePollCycle()` が trigger に応じて使うシグナルを選ぶ。`pollFeeds()` の合流条件に中断状態を加える。`stop()` は両方を `abort()`。シャットダウン要求時は手動サイクルを開始しない |
-| `apps/api/src/polling/timeBasedPollingScheduler.ts` | `ManualRunResult` に `abortedSources` を追加。`runManualOnce()` の XML 判定に「空」「`aborted` を含む」を追加 |
+| `apps/api/src/polling/jmaXmlPollingService.ts` | 手動サイクル専用の `FetchAbortController` を追加。`executePollCycle()` が trigger に応じて使うシグナルを選ぶ。`stop()` は両方を `abort()`。シャットダウン要求時は手動サイクルを開始しない。**`inFlightPollTrigger` を保持し、合流可否を実行中サイクル自身のシグナルで判定する（§4.4）**。**`executePollCycle()` が `aborted` を返す（§4.5.1）** |
+| `apps/api/src/polling/jmaXmlFeeds.ts` | **`PollCycleResult` に必須フィールド `aborted: boolean` を追加（§4.5.1）** |
+| `apps/api/src/polling/timeBasedPollingScheduler.ts` | `ManualRunResult` に `abortedSources` を追加。`runManualOnce()` の XML 判定を `result.aborted` に集約（§4.5.2） |
 | `apps/api/src/services/fetchControlService.ts` | `ForceRefreshAbortedError` を新設・export。`runForceRefresh()` で捕捉し `errorCode: 'force_refresh_aborted'` を返す。`planOperationNotification()` の呼び出し（L332付近）へ `errorCode` を渡す |
-| `apps/api/src/server.ts` | 強制更新の2か所（L304-309 / L647-653）で `abortedSources` を検査し `ForceRefreshAbortedError` を投げる |
+| `apps/api/src/server.ts` | 強制更新の2か所（L304-309 / L647-653）で `abortedSources` を検査し `ForceRefreshAbortedError` を投げる。**`startServer()` の `close` で `reason === 'signal'` のとき `scheduler.stop()` より前に `pollingService.stop('shutdown')` を呼ぶ（§4.3.1）** |
 | `packages/shared/src/notificationMessageDefinitions.ts` | 定義ID型ユニオンと `MESSAGE_DEFINITIONS` に `system-force-fetch-aborted` を追加（§4.6.2） |
 | `apps/api/src/notifications/operationNotificationPlanner.ts` | `PlanOperationNotificationInput` に `errorCode` を追加し、`force_refresh_aborted` の分岐で新定義を選ぶ（§4.6.3） |
 | `packages/shared/tests/notificationMessageDefinitions.test.ts` | 新定義のテストを追加（§5） |
@@ -141,32 +142,94 @@ start(startOptions?): Promise<InitialFetchResult> {
 - `abort()` は冪等で理由を上書きしないため、`close()` の `pollingService.stop('shutdown')` → `scheduler.stop()`（既定 `'stop'`）の順でも理由は `'shutdown'` のまま保たれる（#174 §4.4 と同じ性質）。
 - `shutdownRequested` を `start()` で解除するのは、テスト等で `stop('shutdown')` 後に `start()` する経路を壊さないため。本番の graceful shutdown 経路では `start()` は呼ばれない。
 
-### 4.4 `pollFeeds()` の合流ルール
+#### 4.3.1 `startServer()` の `close` に `'shutdown'` を伝える（**PR #181 レビュー#3 で追加**）
 
-現行は「実行中サイクルがあれば無条件に in-flight Promise を返す」。これを次の表のとおりにする。
+`shutdownRequested` は `pollingService.stop('shutdown')` が呼ばれたときだけ立つ。`apps/api/src/server.ts` には `close` の実装が**2か所**あり、シグナル理由の扱いが揃っていない。
+
+| 実装 | 現状 | 本Issueでの扱い |
+| --- | --- | --- |
+| `main()` 経路の `close`（L723付近） | `reason === 'signal'` のとき `scheduler.stop()` の**前に** `pollingService.stop('shutdown')` を呼ぶ | 変更しない（正しい） |
+| `startServer()` 経路の `close`（L528付近） | `scheduler.stop()` の後に `pollingService.stop()`（既定 `'stop'`）を呼ぶだけで、`'shutdown'` を伝えない | **修正する** |
+
+`startServer()` 経路では `reason === 'signal'` でも `shutdownRequested` が立たず、シャットダウン中に届いた強制更新が手動サイクルを開始してしまう。`main()` の実装に揃え、`close` の先頭側（`fetchHealthMonitorService.stop()` の後、`scheduler.stop()` の**前**）に次を追加する。
+
+```ts
+if (pollingService && closeOptions?.reason === 'signal') {
+  await pollingService.stop('shutdown');
+}
+```
+
+- **`scheduler.stop()` より前**でなければならない。`scheduler.stop()` は内部で `xmlPollingService.stop()`（既定 `'stop'`）を呼び、`abort()` は冪等で理由を上書きしないため、後から `'shutdown'` を渡しても `shutdownRequested` は立つが**中断理由が `'stop'` で確定してしまう**。順序を揃えることで両経路の理由が一致する。
+- `programmatic` な `close`（既存テストが使う）では従来どおり `'shutdown'` を渡さない。既存テストのDBに停止行が混ざるのを避ける現行方針（同ファイルのコメント参照）と整合する。
+
+### 4.4 `pollFeeds()` の合流ルール（**PR #181 レビュー#1 で改訂**）
+
+> **改訂の理由**: 改訂前の表は合流可否を「`abortController` **または** `manualAbortController` のどちらかが中断済みか」で判定すると読め、実装（`startManualCycle()`）もそのとおりになっていた。しかし通常の `stop()` 後は自動用 `abortController` が次の `start()` まで中断済みのまま留まるため、**停止中に始まった正常な手動サイクルが実行中でも合流判定が常に「合流しない」になり**、2本目の `pollOnce('manual')` が同じ上流取得を連続して行ってしまう（#43 の「上流取得を1回にまとめる」意図に反する）。判定対象を**実行中サイクル自身のシグナル**に限定する。
+
+#### 4.4.1 実行中サイクルのトリガを保持する
+
+`JmaXmlPollingService` に、in-flight スロットと**必ず対で**更新されるフィールドを追加する。
+
+```ts
+private inFlightPollPromise: Promise<PollCycleResult> | null = null;
+/** inFlightPollPromise と対。実行中サイクルのトリガ。スロットが null のときは null。 */
+private inFlightPollTrigger: JmaXmlPollTrigger | null = null;
+```
+
+- スロットへ登録する箇所（`pollFeeds()` の非手動経路・`startManualCycle()`）で、**同じ同期ブロック内で両方を設定する**。
+- 解放は現行の `if (this.inFlightPollPromise === pollPromise)` ガード内で行い、**そのガードの中で `inFlightPollTrigger` も `null` に戻す**。ガードは「自分が登録した Promise が今もスロットにいるときだけ解放する」ためのもので、後から登録された別サイクルのスロットを誤って消さないために必要である。トリガもガードの中で戻すことで、スロットとトリガが食い違わないことが保証される。
+
+実行中サイクルのシグナルは `abortSignalFor(this.inFlightPollTrigger)` で得る（`abortSignalFor()` はトリガから同一のシングルトン `FetchAbortSignal` を返すため、保持したトリガから常に正しいシグナルへ解決できる）。
+
+#### 4.4.2 合流ルール
 
 | 状況 | 手動サイクル（`trigger === 'manual'`）の挙動 |
 | --- | --- |
-| `shutdownRequested === true` | **サイクルを開始しない。** 空の `PollCycleResult`（`feedResults: []`、`trigger: 'manual'`）を即座に返す。§4.5 により強制更新は中断扱いになる |
-| 実行中サイクルがあり、そのサイクルが中断されていない | **現行どおり合流**する（上流取得を重複させない。#43 の意図を維持） |
-| 実行中サイクルがあり、中断済み（`abortController.signal.aborted` または `manualAbortController.signal.aborted`） | **合流しない。** 実行中サイクルの解決を待ってから（失敗は握りつぶす）、新規の手動サイクルを開始する |
+| `shutdownRequested === true` | **サイクルを開始しない。** 中断済みを表す空の `PollCycleResult`（`feedResults: []`, `aborted: true`, `trigger: 'manual'`）を即座に返す（§4.5.1） |
+| 実行中サイクルがあり、**そのサイクル自身のシグナル**（`abortSignalFor(inFlightPollTrigger)`）が中断されていない | **合流する**（上流取得を重複させない。#43 の意図を維持）。実行中が手動サイクルなら `manualAbortController` のみを、自動サイクル（`initial` / `scheduled` / `recovery`）なら `abortController` のみを見る |
+| 実行中サイクルがあり、**そのサイクル自身のシグナル**が中断済み | **合流しない。** 実行中サイクルの解決を待ってから（失敗は握りつぶす）、新規の手動サイクルを開始する |
 | 実行中サイクルなし | 新規の手動サイクルを開始する |
 
-手動サイクル以外のトリガ（`initial` / `scheduled` / `recovery`）の合流条件は**変更しない**（現行どおり in-flight があれば合流）。停止中は自動サイクルが起動しないため、手動サイクルへ自動サイクルが合流する状況は停止中には発生しない。
+**改訂前との差**: 停止後に始めた手動サイクルの実行中は、`abortController` が中断済みでも `manualAbortController` は未中断なので、2本目以降の `pollOnce('manual')` は**合流する**。自動サイクルの実行中に `stop()` が来た場合は `abortController` が中断済みになるため、従来どおり合流せず待ってから新規手動サイクルを開始する。
 
-新規の手動サイクルを開始する直前に、
+手動サイクル以外のトリガの合流条件は**変更しない**（現行どおり in-flight があれば無条件に合流）。停止中は自動サイクルが起動しないため、手動サイクルへ自動サイクルが合流する状況は停止中には発生しない。
 
+#### 4.4.3 待機ループとスロット登録
+
+「中断済みの in-flight を待ってから新規サイクルを開始する」ため、手動トリガの経路だけ内部の非同期ヘルパ `startManualCycle()` へ委譲する（実装済み）。待機は `while (this.inFlightPollPromise)` のループとし、`await` から戻るたびに**合流条件を再評価する**（待っている間に別の手動サイクルが始まっていれば、それへ合流する）。また `await` から戻った直後に `shutdownRequested` を再検査する（待機中にシャットダウンが始まりうる）。
+
+新規サイクルを開始する直前に `this.manualAbortController.reset()` を行ってから `executePollCycle('manual', ...)` を呼ぶ。**合流した場合は `reset()` しない**（実行中サイクルの中断状態を他者が壊さないため）。`inFlightPollPromise` と `inFlightPollTrigger` への登録は、`await` をまたいだ二重起動を防ぐため、待機解除後に**同期的に**（`reset()` から `executePollCycle()` 呼び出し・スロット登録までの間に `await` を挟まずに）行うこと。
+
+### 4.5 中断判定と `runManualOnce()` の結果判定（確定事項(3)・**PR #181 レビュー#2 で改訂**）
+
+> **改訂の理由**: 改訂前は「`feedResults` が空」または「`feedFetchOutcome === 'aborted'` を含む」で中断を判定していたが、これでは**一部のフィードを省略した中断を取りこぼす**。`regular` の最後の電文を取得している最中に `stop` が届くと、`pollSingleFeed()` はループ先頭でしか中断を検査しないため `regular: 'success'` を返し、続く `extra` は `executePollCycle()` のフィードループ先頭で `break` されて `feedResults` に積まれない。結果は「`success` 1件」となり、空でも `'aborted'` 混在でもないため、**`extra` を1件も取得していないのに強制更新が `success` になる**。サイクル側が「打ち切られたか」を直接記録する必要がある。
+
+#### 4.5.1 `PollCycleResult.aborted` の新設
+
+`apps/api/src/polling/jmaXmlFeeds.ts` の `PollCycleResult` に**必須フィールド**を追加する。
+
+```ts
+export interface PollCycleResult {
+  readonly trigger: JmaXmlPollTrigger;
+  readonly startedAt: UtcIso8601String;
+  readonly finishedAt: UtcIso8601String;
+  readonly feedResults: readonly FeedPollResult[];
+  /**
+   * このサイクルが中断で打ち切られたか。
+   * 次のいずれかで true になる:
+   *   (a) executePollCycle() のフィードループ先頭の中断検査で break した（＝未着手のフィードが残った）
+   *   (b) feedResults に feedFetchOutcome === 'aborted' のフィードがある（＝フィード内で電文を残した）
+   *   (c) シャットダウン要求によりサイクル自体を開始しなかった（feedResults は空）
+   */
+  readonly aborted: boolean;
+}
 ```
-this.manualAbortController.reset();
-```
 
-を行ってから `executePollCycle('manual', ...)` を呼ぶ。**合流した場合は `reset()` しない**（実行中サイクルの中断状態を他者が壊さないため）。
+- **任意フィールド（`?`）ではなく必須にする。** `PollCycleResult` を構築しているのは `jmaXmlPollingService.ts` の2か所（`executePollCycle()` の戻り値と `startManualCycle()` のシャットダウン時の空結果）だけであり（`grep -rn "PollCycleResult" apps/api/src apps/api/tests` で確認済み。テスト側はオブジェクト同一性の比較に使っているのみで、リテラル構築はしていない）、必須にしても修正箇所は2か所で済む。任意にすると未設定の構築箇所が `undefined`（＝falsy＝「中断していない」）として素通りし、本Issueと同種の取りこぼしが将来また起きる。**型検査で全構築箇所を強制的に洗い出せること**を優先する。
+- `executePollCycle()` では、フィードループを `break` したかを表すローカル変数（例 `cycleAborted`）を立て、戻り値で `aborted: cycleAborted || feedResults.some((r) => r.feedFetchOutcome === 'aborted')` とする。
+- **自動サイクル（`initial` / `scheduled` / `recovery`）も同じフィールドを持つ。** 既存の判定ロジック（`start()` 内の `this.abortController.signal.aborted` を見る箇所、`successfulInitialFeedKinds` への追加条件、バックオフの記録条件）は**変更しない**。`aborted` は追加の情報であり、既存の挙動を置き換えない。`lastCycleResult` を読む箇所（`getStatus()` → `/api/monitoring/*`）は `PollCycleResult` をそのまま返すため、レスポンスに `aborted` が増える。これは追加フィールドであり既存の契約を壊さない（フロントは未知フィールドを無視する）。
 
-補足（実装ディテール、設計担当判断）: `pollFeeds()` は現在同期関数として in-flight Promise を返す。「中断済みの in-flight を待ってから新規サイクルを開始する」分岐を入れるため、手動トリガの経路だけ内部の非同期ヘルパ（例 `startManualCycle()`）へ委譲し、`inFlightPollPromise` スロットへの登録タイミングが `await` をまたいでも二重起動しないよう、スロット登録は待機解除後に**同期的に**行うこと。
-
-### 4.5 `runManualOnce()` の結果判定（確定事項(3)）
-
-`ManualRunResult` を拡張する。
+#### 4.5.2 `ManualRunResult` の拡張
 
 ```ts
 export interface ManualRunResult {
@@ -187,15 +250,16 @@ XMLタスクの判定を次の順序にする。
 result = await xmlPollingService.pollOnce('manual')
 
 1) result.feedResults.some(r => r.feedFetchOutcome === 'failure')  → failedSources.push('xml')
-2) else if (result.feedResults.length === 0
-            || result.feedResults.some(r => r.feedFetchOutcome === 'aborted'))
-                                                                    → abortedSources.push('xml')
-3) else                                                             → 正常
-例外                                                                → failedSources.push('xml')（現行どおり）
+2) else if (result.aborted)                                        → abortedSources.push('xml')
+3) else                                                            → 正常
+例外                                                               → failedSources.push('xml')（現行どおり）
 ```
 
-- **取得失敗を中断より優先する**（1 が 2 より先）。上流障害という運用上重要な事実を、中断で覆い隠さないため。
-- **`feedResults` が空**は「1件も取得に着手しなかった」＝本Issueの症状そのものであり、中断扱いとする。シャットダウン中の拒否（§4.4 第1行）もここに合流する。
+- **取得失敗を中断より優先する**（1 が 2 より先）。上流障害という運用上重要な事実を、中断で覆い隠さないため。この規則は改訂前から維持する。
+- **判定は `result.aborted` の1つに集約する。** 改訂前の「`feedResults.length === 0`」「`feedResults.some(... === 'aborted')`」という2つの間接的な判定は、§4.5.1 の (a)(b)(c) すべてを `aborted` が包含するため**不要になる。残さず置き換える**（残すと、同じことを2通りに書いた分だけ将来ずれる）。
+  - 旧「空判定」が拾っていたケース: (c) シャットダウン拒否の空結果、および停止中に全フィードが未着手のまま break したケース → どちらも `aborted: true` で表現される。
+  - 旧「`'aborted'` 混在判定」が拾っていたケース → (b) として `aborted: true` に含まれる。
+  - **旧判定が取りこぼしていたケース**（本レビュー指摘）: 先行フィードが `success` で終わり後続フィードが未着手 → (a) として新たに拾える。
 - 非XML取得元は判定を変更しない。`abortedSources` には現状 `'xml'` しか入らない。
 
 ### 4.6 強制更新APIの結果と通知（確定事項(3)(7)）
@@ -353,15 +417,44 @@ else                                             → system-force-fetch-failed  
 
 | # | テスト | 検証内容 |
 | --- | --- | --- |
-| T1 | 停止中の手動サイクルがXML取得を行う | `start()` で初回同期させた後 `stop()` し、`pollOnce('manual')` を実行。`fetchFn` の呼び出し回数が停止前より増え、`feedResults` が2件（`regular`・`extra`）で全て `feedFetchOutcome: 'success'` |
+| T1 | 停止中の手動サイクルがXML取得を行う | `start()` で初回同期させた後 `stop()` し、`pollOnce('manual')` を実行。`fetchFn` の呼び出し回数が停止前より増え、`feedResults` が2件（`regular`・`extra`）で全て `feedFetchOutcome: 'success'`、かつ `result.aborted === false`。**スタブのフィード索引は各フィードに未取得の電文エントリを2件以上持たせること**（§5.1） |
 | T2 | 手動サイクル後も自動取得が再開しない | T1 の後、タイマースタブに登録された `setTimeout` が増えていない。`getStatus().isRunning === false`、`getNextRunAt() === null` |
 | T3 | 手動サイクル中の `stop()` が電文境界で中断する | `fetchFn` を1件ごとに待機させ、2件目の処理中に `stop()` を呼ぶ。以降の電文 GET が発生せず、該当フィードが `feedFetchOutcome: 'aborted'` |
 | T4 | シャットダウン後は手動サイクルを開始しない | `stop('shutdown')` 後の `pollOnce('manual')` が `feedResults: []` を返し、`fetchFn` が1回も呼ばれない |
-| T5 | 中断済み in-flight へ合流しない | 実行中サイクルを中断させた状態で `pollOnce('manual')` を呼び、返る `PollCycleResult` が in-flight のものと別オブジェクトで、`feedResults` に `'success'` が含まれる |
-| T6 | `runManualOnce()` の中断判定 | フェイク `xmlPollingService` で (a) `feedResults: []`、(b) `'aborted'` を含む、(c) `'failure'` と `'aborted'` の両方、の3ケース。(a)(b) は `abortedSources: ['xml']` かつ `failedSources: []`、(c) は `failedSources: ['xml']` かつ `abortedSources: []` |
+| T5 | 中断済み in-flight へ合流しない | **自動**サイクル（`initial`）の実行中に `stop()` を呼んで中断させ、その解決前に `pollOnce('manual')` を呼ぶ。返る `PollCycleResult` が in-flight のものと別オブジェクトで、`feedResults` に `'success'` が含まれる |
+| T6 | `runManualOnce()` の中断判定 | フェイク `xmlPollingService` で (a) `aborted: true` / `feedResults: []`、(b) `aborted: true` かつ `'aborted'` フィードを含む、(c) **`aborted: true` かつ全フィードが `'success'`**（＝後続フィード未着手のケース）、(d) `'failure'` と `aborted: true` の両方、の4ケース。(a)(b)(c) は `abortedSources: ['xml']` かつ `failedSources: []`、(d) は `failedSources: ['xml']` かつ `abortedSources: []` |
 | T7 | 強制更新APIの `errorCode` | `fetchControlService` 経由で中断する強制更新を実行し、`operation_history` の `result='failure'`, `error_code='force_refresh_aborted'`。取得失敗ケースでは `'force_refresh_failed'` のままであること |
 | T8 | 中断時の通知が中断専用定義になる | T7 と同じ中断ケースで `notification_output_history` を検査。`message_definition_id === 'system-force-fetch-aborted'`、`ack_required === 0`、`change_type === 'force_fetch_aborted'`、`summary === '強制取得中断'`。同一 `request_id` に対して `system-force-fetch-failed` の行が**存在しない** |
 | T9 | 取得失敗時の通知が退行しない | `errorCode: 'force_refresh_failed'` の強制更新失敗で `message_definition_id === 'system-force-fetch-failed'`、`ack_required === 1` のまま |
+
+#### 5.1 PR #181 レビュー指摘の再現テスト（必須）
+
+3件それぞれについて、**修正前のコードでは失敗し、修正後に通る**テストを追加する。既存テストの期待値変更で済ませてはならない。
+
+| # | 対応する指摘 | テスト | 修正前に失敗する理由 |
+| --- | --- | --- | --- |
+| R1 | #1 合流判定（§4.4） | `stop()` 済みの状態で1本目の `pollOnce('manual')` を開始し（`fetchFn` を1件目の電文で待たせる）、その実行中に2本目の `pollOnce('manual')` を呼ぶ。**2本とも同一の `PollCycleResult` オブジェクトを返し**、`fetchFn`（フィード索引＋電文）の総呼び出し回数がサイクル1本分のままであること | 修正前は `abortController.signal.aborted === true` のため合流せず、2本目が1本目の完了を待ってから**もう1サイクル走る**ので、呼び出し回数がサイクル2本分になり失敗する |
+| R2 | #2 一部フィード省略の中断（§4.5） | フィード索引スタブを `regular`・`extra` の2フィードにし、`regular` の**最後の電文**の `fetchFn` が解決する直前に `stop()` を呼ぶ。`regular` は `feedFetchOutcome: 'success'` で終わり、`extra` は `feedResults` に現れない。この結果で `runManualOnce()` → `forceRefresh()` → `fetchControlService` を通し、`operation_history` が `result='failure'` / `error_code='force_refresh_aborted'` になること | 修正前は `feedResults` が「`success` 1件」で空でも `'aborted'` 混在でもないため、`abortedSources` が空になり `result='success'` が記録されて失敗する |
+| R3 | #3 `startServer()` のシグナル停止（§4.3.1） | `startServer()` で起動し、`close({ reason: 'signal' })` を呼んだ後に `pollingService.pollOnce('manual')` を実行。`fetchFn` が1回も呼ばれず、返る結果が `feedResults: []` / `aborted: true` であること | 修正前は `startServer()` の `close` が `'shutdown'` を伝えないため `shutdownRequested` が立たず、手動サイクルが開始されて `fetchFn` が呼ばれ失敗する |
+
+**製造担当は、R1〜R3 を追加した時点で対応するプロダクトコード修正を一時的に戻し、3件が実際に失敗することを確認してから修正を適用すること。** 確認結果（どのアサーションがどう失敗したか）を検収担当へ報告する。
+
+#### 5.2 ミューテーション観点（この変更の要点を壊したら何が落ちるか）
+
+前回検収で、T1 のスタブフィードが**電文エントリ0件**だったため `pollSingleFeed()` の電文ループの中断検査（#174 で入れた本質的な検査点）を一度も通らず、そこを壊しても T1 が落ちないことが判明した。テストは次の対応を持つこと。
+
+| 壊す箇所 | 落ちるべきテスト |
+| --- | --- |
+| `executePollCycle()` のフィードループ先頭の中断検査を削る | R2（`extra` が取得されてしまい `aborted` が false になる） |
+| `pollSingleFeed()` の電文ループ先頭の中断検査を削る | T3（電文 GET が止まらない）。**T1 を電文エントリ2件以上のフィードで組むことで、この検査点を必ず踏む経路にする** |
+| `abortSignalFor()` を常に `abortController.signal` にする（手動専用シグナルの無効化） | T1（停止中の手動サイクルが1件も取得しない） |
+| 合流判定を「どちらかのシグナルが中断済み」に戻す | R1 |
+| `aborted` を `feedResults.some(... === 'aborted')` だけで立てる | R2 |
+| `shutdownRequested` を立てない / `startServer()` の `'shutdown'` 伝達を外す | T4 / R3 |
+| `runManualOnce()` の failure 優先順を入れ替える | T6-(d) |
+| 通知プランナの中断分岐を消す | T8 |
+
+#### 5.3 `packages/shared` 側のテスト
 
 `packages/shared/tests/notificationMessageDefinitions.test.ts` に追加するテスト:
 
@@ -370,9 +463,11 @@ else                                             → system-force-fetch-failed  
 | T10 | 新定義の解決 | `origin: 'system'` / `category: 'warning'` の通知に対し `resolveNotificationMessage(n, { definitionId: 'system-force-fetch-aborted', omitTarget: true })` が `ackRequired: false`、`summary: '強制取得中断'`、`messageDefinition.id/version` が `'system-force-fetch-aborted'` / `'1'` を返す |
 | T11 | category 不一致の拒否 | `category: 'question'` の通知に同定義を適用すると `NotificationMessageResolutionError('notification_mismatch')` になる |
 
-既存テストへの影響（製造時に必ず確認すること）:
+#### 5.4 既存テストへの影響（製造時に必ず確認すること）
 
-- **`apps/api/tests/issue43FetchControlApi.test.ts`**: フェイクの `xmlPollingService.pollOnce()` が空の `feedResults` を返している箇所があると、本変更で強制更新が**中断＝失敗**になり、成功を期待するテストが落ちる。フェイクが `feedFetchOutcome: 'success'` のフィード結果を少なくとも1件返すよう修正する（テストの期待値ではなくフェイクを直すこと。空を失敗にするのが本Issueの目的）。
+- **`PollCycleResult` を必須フィールド付きにするため、`PollCycleResult` をリテラルで構築しているフェイク・モックがあれば型エラーになる。** これは意図した検出であり、`aborted: false`（中断していないケース）を明示的に足して直す。`grep -rn "PollCycleResult\|feedResults:" apps packages --include=*.ts` で洗い出すこと。
+- **`apps/api/tests/issue43FetchControlApi.test.ts`**: フェイクの `xmlPollingService.pollOnce()` が空の `feedResults` を返している箇所があると、本変更で強制更新が**中断＝失敗**になり、成功を期待するテストが落ちる。フェイクが `feedFetchOutcome: 'success'` のフィード結果を少なくとも1件返し、`aborted: false` を持つよう修正する（テストの期待値ではなくフェイクを直すこと。空を失敗にするのが本Issueの目的）。
+- **`apps/api/tests/issue178ManualRefreshWhileStopped.test.ts`（既存コミット 286b1a0 で追加済み）**: T1 のスタブフィードを電文エントリ2件以上に強化し（§5.2）、T5 を自動サイクル中断のケースへ組み替え、T6 に (c) のケースを足すこと。既に通っているテストでも、§5.2 の対応表を満たさないものは補強の対象とする。
 - `apps/api/tests/fetchAbort.test.ts`（#174）・`jmaXmlPolling.test.ts`・`serverGracefulShutdownTiming.test.ts` は期待値変更が不要であることを確認する。
 - `ManualRunResult` にフィールドを足すため、`runManualOnce()` の戻り値をオブジェクトリテラルで組み立てる箇所・モックがあれば型エラーになる。`grep -rn "ManualRunResult\|runManualOnce" apps packages` で洗い出すこと。
 - **`NotificationMessageDefinitionId` を網羅列挙しているテスト・コードがあれば型エラーになる**（`MESSAGE_DEFINITIONS` は `satisfies Record<…>` で網羅が強制される）。`grep -rn "NotificationMessageDefinitionId\|system-force-fetch" apps packages --include=*.ts` で洗い出すこと。`packages/shared` を変更するため、**`npm run build`（shared→api→web）を通してから** api のテストを実行すること。
@@ -405,8 +500,12 @@ count() { sqlite3 "$SP/t.db" "select count(*) from fetch_attempt where target_ki
 | AC7 | **#174 の中断機構が退行しない（初回同期中の停止が15秒以内）** | 新しい一時DBで起動し、初回同期中（起動20秒後）に `T0=$(date +%s); kill -INT $APIPID; wait $APIPID; echo $(( $(date +%s) - T0 ))` | 出力が **15以下**。`$SP/t.log` 末尾に `[api] aborted initial JMA XML feed fetch (Nms)` が出ている |
 | AC8 | **#174 の停止APIが退行しない** | 新しい一時DBで起動し、初回同期中に `time curl -s -m 30 -X POST -H 'Content-Type: application/json' -d "{\"requestId\":\"$(uuidgen)\"}" http://localhost:3922/api/control/fetch/stop` | **15秒以内に HTTP 200**、本文の `result` が `"success"`、`fetchControlState` が `"stopped"` |
 | AC9 | **中断で電文データが壊れない** | AC4 後の `$SP/t.db` に対し `sqlite3 "$SP/t.db" "select count(*) from telegram_reception where raw_body is null or content_hash is null;"` と `sqlite3 "$SP/t.db" "select count(*), count(distinct document_url) from telegram_reception;"` | 前者が **0**、後者の2つの値が**一致** |
+| AC9b | **PR #181 レビュー#1 の再現テストが通る（合流判定）** | R1 を実行 | 停止後に始めた手動サイクルの実行中に呼んだ2本目の `pollOnce('manual')` が**同一の `PollCycleResult` オブジェクト**を返し、`fetchFn` の総呼び出し回数がサイクル1本分のままである |
+| AC9c | **PR #181 レビュー#2 の再現テストが通る（一部フィード省略の中断）** | R2 を実行 | `regular` が `'success'`・`extra` が未着手で終わったサイクルの結果が `aborted: true` になり、`operation_history` が `result='failure'` / `error_code='force_refresh_aborted'` になる |
+| AC9d | **PR #181 レビュー#3 の再現テストが通る（`startServer()` のシグナル停止）** | R3 を実行 | `close({reason:'signal'})` の後の `pollOnce('manual')` で `fetchFn` が**1回も呼ばれず**、結果が `feedResults: []` / `aborted: true` |
+| AC9e | **再現テストが修正前に失敗することを確認済み** | 製造担当の報告（§5.1 末尾）を確認し、疑義があれば検収担当が該当のプロダクトコード修正を一時的に戻して R1〜R3 を実行する | R1〜R3 が修正前は失敗し、修正後に通ることが確認できている。一時的に戻した変更は必ず復旧する |
 | AC10 | **既存テストが退行しない** | `npm run build` の後に `npm run test -w apps/api` と `npm run test -w packages/shared` | 全通過。特に `fetchAbort.test.ts` / `issue43FetchControlApi.test.ts` / `jmaXmlPolling.test.ts` / `serverGracefulShutdownTiming.test.ts` / `timeBasedPollingScheduler*.test.ts` / `notificationMessageDefinitions.test.ts` |
-| AC11 | **新規テストが存在し通る** | `apps/api/tests/issue178ManualRefreshWhileStopped.test.ts` と `packages/shared/tests/notificationMessageDefinitions.test.ts` を実行 | §5 の T1〜T11 に対応するテストが全て存在し、通過する |
+| AC11 | **新規テストが存在し通る** | `apps/api/tests/issue178ManualRefreshWhileStopped.test.ts` と `packages/shared/tests/notificationMessageDefinitions.test.ts` を実行 | §5 の T1〜T11 および R1〜R3 に対応するテストが全て存在し、通過する。T1 のスタブフィードが電文エントリを2件以上持つ（§5.2）ことをテストコードで確認する |
 | AC12 | **静的検査** | `npm run lint && npm run typecheck && npm run format:check` | エラー0 |
 | AC13 | **変更範囲が設計どおりである** | `git diff --stat main -- apps/api/src/database apps/api/src/repositories apps/web packages/shared` | `apps/api/src/database`・`apps/api/src/repositories`・`apps/web` の差分が**0件**（DB・migration・リポジトリ・フロントは無変更）。`packages/shared` の差分は **`src/notificationMessageDefinitions.ts` と `tests/notificationMessageDefinitions.test.ts` のみ**（確定事項(4)(7)） |
 | AC14 | **#103 設計書への追記がある** | `git diff main -- docs/design/issue-103-notification-message-definitions.md` | §4.6.4 の 1.〜3. のとおり、定義ID型ユニオンの引用と §5.2 の表に `system-force-fetch-aborted` の行が追加されている |
@@ -422,19 +521,37 @@ count() { sqlite3 "$SP/t.db" "select count(*) from fetch_attempt where target_ki
 
 ## 8. ユーザーの判断を要する点（統括担当へ差し戻す論点）
 
-> 1回目の3論点（`lane` 直列化・中断通知の扱い・`errorCode` の分割）は確定事項(6)(7)(8)として回答済み。以下は**本改訂で新たに生じた論点**のみである。
+> 1回目の3論点（`lane` 直列化・中断通知の扱い・`errorCode` の分割）は確定事項(6)(7)(8)として回答済み。2回目の4論点（通知の `category`・本文・シャットダウン時の通知・`title`）は実装済み（コミット e3a53f9）の内容で据え置かれている。以下は**PR #181 レビュー対応の本改訂で新たに生じた論点**のみである。
 
-1. **中断通知の `category` と確認応答の要否**（§4.6.2）。本設計は `category: 'warning'` / `actionResolution: 'none'`（確認応答不要）を採り、`ackRequired: false` となる。これは「停止・終了指示に従った正常動作なので運用者の対応は不要」という解釈に基づく。一方で「強制更新を押したのに完了しなかった」という**運用者が気づくべき事象**でもあり、確認応答を求める（`category: 'question'` / `actionResolution: 'acknowledge'`）余地がある。現案（`warning`・確認不要）でよいか。
-2. **通知本文（`detail`）を出さないこと**（§4.6.2）。本設計は `detail` を渡さず、summary を `'強制取得中断'` の1行にする。理由は、渡せる値が内部識別子 `'xml'` しかなく日本語UIに不適切であるため。中断された取得元を運用者に見せたいなら、`'気象庁XML'` のような**日本語の表示名への変換表**を新たに設ける必要がある（`ScheduledSource` → 日本語名の対応は本Issueの範囲外）。1行のままでよいか。
-3. **シャットダウン中の拒否でも同じ通知が出ること**（§4.4・§4.6.1）。確定事項(8)により `errorCode` は分けないため、シャットダウン中に届いた強制更新も `system-force-fetch-aborted` の通知を1件生成する。ただしその直後にプロセスは終了するため、この通知は運用者の目に触れないまま `notification_output_history` に残る可能性が高い（`recordShutdown()` によるサービス停止通知と並んで記録される）。(a) このまま記録する、(b) シャットダウン中の拒否では通知を生成しない（`planOperationNotification` が `null` を返す分岐を追加する）、のいずれを採るか。(b) を採る場合は `errorCode` を分けずに判別する手段（例: `PlanOperationNotificationInput` に `shuttingDown` フラグを追加）が別途必要になる。
-4. **`title` の文言**（§4.6.2）。`'強制取得中断'` は既存の `'強制取得完了'` / `'強制取得失敗'` と字数・体言止めを揃えたもの。運用上の呼称として妥当か。
+1. **`PollCycleResult.aborted` を監視APIのレスポンスへ露出させてよいか**（§4.5.1）。`lastCycleResult` は `getStatus()` 経由で `/api/monitoring/*` のレスポンスに含まれるため、`aborted` が新しいフィールドとして外へ出る。(a) このまま出す（追加フィールドであり既存の契約は壊れない。運用者が「前回のサイクルは打ち切られた」と分かる利点がある）、(b) API 応答からは落とす（`monitoringStatus` のマッパで除去する）、のいずれを採るか。本設計は **(a)** を前提に書いている。
+2. **停止中に手動サイクルが実行中のとき、2本目の強制更新が「合流して同じ結果を返す」こと**（§4.4.2）。レビュー#1 の修正により、停止中でも2本目の `pollOnce('manual')` は1本目へ合流する。`fetchControlService` の `activeForceRefresh` による合流と二重になるが、意味論は「両者とも同じ取得結果を共有する」で一致する。ただし**1本目が中断で終わった場合、合流した2本目も中断扱いになる**（実際には2本目の要求時点ではまだ取得できたかもしれない）。(a) 現案どおり合流させる（上流への負荷を優先）、(b) 1本目が中断で終わったら2本目だけ再試行する、のいずれを採るか。本設計は **(a)** を前提に書いている。
 
 ## 9. 判断を先送りにした点・残留リスク
 
 - **非XML取得元（ナウキャスト・キキクル・アメダス）は中断機構の対象外のまま**（確定事項(5)）。停止中の強制更新でもこれらは `adapter.runManual()` で従来どおり取得し、停止・シャットダウンで中断されない。強制更新全体の所要は非XML側の完了にも律速される。
 - **`lastCycleResult` が手動サイクルで上書きされること**は現行どおりで変更しない。停止中の強制更新により `/api/monitoring/*` の「最後のサイクル結果」が `trigger: 'manual'` になる。停止中に表示上のサイクル結果が動くことを問題視するなら別Issueとする。
 - **バックオフ状態が停止中の強制更新で更新される**（§4.7）。停止中に強制更新を繰り返すと `lastSuccessAt` が進み、XML取得元の鮮度（availability）が「正常」に見え続ける。停止中の availability の扱いは #168 系の監視Issueの範疇であり、本Issueでは変更しない。
-- **`pollFeeds()` の手動分岐で `await` をまたぐことによる二重起動リスク**（§4.4 補足）。`inFlightPollPromise` スロットへの登録を待機解除後に同期的に行う実装でなければ、稀に手動サイクルが2本走りうる。T5 で検出できるとは限らないため、製造時のコードレビュー観点として明記する。
+- **`pollFeeds()` の手動分岐で `await` をまたぐことによる二重起動リスク**（§4.4.3）。`inFlightPollPromise` と `inFlightPollTrigger` の登録を待機解除後に同期的に行う実装でなければ、稀に手動サイクルが2本走りうる。T5・R1 で検出できるとは限らないため、製造時のコードレビュー観点として明記する。
+- **`inFlightPollTrigger` とスロットの同期がコードの規律に依存する**（§4.4.1）。2つのフィールドを対で更新する約束を破ると、合流判定が誤ったシグナルを見る。将来は `{ promise, trigger }` の1オブジェクトにまとめる方が安全だが、既存の `=== pollPromise` ガードの書き換えを伴うため本Issueでは行わない。
+- **`aborted` が「どこまで取得したか」までは表さない**（§4.5.1）。true/false の2値であり、「`regular` は完了したが `extra` は未着手」といった内訳は `feedResults` を見ないと分からない。強制更新の結果を取得元単位で運用者へ見せる必要が生じたら、`abortedSources` をフィード単位へ細分化する拡張が要る。
+- **自動サイクル（`initial` / `scheduled` / `recovery`）の合流条件は従来どおり無条件**（§4.4.2）。停止中は自動サイクルが起動しないため現状は問題にならないが、将来「停止中でも走る自動サイクル」を足すと、レビュー#1 と同種の取りこぼしが自動側で再発しうる。
 - **`packages/shared` の変更を伴うため、ビルド順に注意**。`npm run build`（shared→api→web）を通さずに `npm run test -w apps/api` を実行すると、`dist` が古いままで新定義が見つからず `definition_not_found` で落ちうる。§5 に明記済み。
 - **中断通知の実挙動未確認**: `system-force-fetch-aborted` が実際に `notification_output_history` へ記録されるか（AC6b）は設計時点で未確認。特に `notification_delta` API 経由でフロントへ配信される際、未知の `changeType` を落とす実装がないかを製造時に確認すること（`grep -rn "force_fetch_" apps packages`）。
 - **実挙動未確認**: 本設計書の作成時点でサーバーの起動・実測は行っていない（§3）。AC1・AC2・AC4・AC6b・AC7〜AC9 は実データを伴う検証であり、検収担当が初めて実挙動を確認する。特に AC1 の所要時間（停止中のDBが不完全な場合、手動サイクルが `regular`+`extra` の未取得分をまとめて取りにいくため数分かかりうる）は未測定であり、`curl -m 180` としたタイムアウト値が不足する可能性がある。不足した場合は `-m` を延ばして再測し、実測値を検収報告に記録すること。
+- **本改訂（PR #181 レビュー対応）の3件はいずれも実挙動未確認。** 設計担当はコードを読んで指摘の成立を確認したのみで、再現の実行はしていない。R1〜R3 が修正前に実際に失敗することの確認は製造担当が行い（§5.1 末尾）、検収担当が AC9b〜AC9e で検証する。
+
+## 10. 改訂履歴
+
+| 日付 | 改訂内容 | 理由 |
+| --- | --- | --- |
+| 初版 | §1〜§9 | ヒアリング済み確定事項(1)〜(5)に基づく設計 |
+| 2回目 | §4.6 を 4.6.1〜4.6.4 へ再構成（中断専用通知定義 `system-force-fetch-aborted` の新設）、§4.8 を決定済みへ、AC6b・AC14 追加 | 確定事項(6)(7)(8)（`lane` 維持／中断専用通知を新設／`errorCode` はまとめる）の反映 |
+| 3回目（本改訂） | §4.1・§4.3.1・§4.4・§4.5・§5.1・§5.2・§5.4・AC9b〜AC9e・§8・§9 | **PR #181 の自動レビュー（Codex）指摘3件への対応**。内容は下記 |
+
+本改訂で反映した PR #181 レビュー指摘:
+
+1. **合流判定の誤り（§4.4）** — 改訂前の設計は合流可否を「自動用・手動用のどちらかのシグナルが中断済みか」で判定するよう読め、実装もそうなっていた。通常の `stop()` 後は自動用シグナルが `start()` まで中断済みのまま留まるため、停止中に始まった正常な手動サイクルの実行中でも合流できず、2本目の強制更新が同じ上流取得を重複して行っていた。**判定対象を実行中サイクル自身のシグナルへ限定**し、そのために `inFlightPollTrigger` を導入した。
+2. **一部フィードを省略した中断が成功になる（§4.5）** — 改訂前の「`feedResults` が空」「`'aborted'` を含む」という間接的な中断判定では、先行フィードが `success` で終わり後続フィードが未着手のまま `break` されたケースを拾えなかった。**`PollCycleResult` に必須フィールド `aborted: boolean` を新設**し、`runManualOnce()` の判定をこれ1つに集約した。
+3. **`startServer()` のシグナル停止で `shutdownRequested` が立たない（§4.3.1）** — `close` の実装が `main()` と `startServer()` の2か所にあり、後者だけ `pollingService.stop('shutdown')` を呼んでいなかった。`main()` の実装に揃え、`scheduler.stop()` より前に呼ぶようにした（`abort()` が理由を上書きしないため順序が重要）。
+
+いずれも、再現テスト R1〜R3（§5.1）を「修正前に失敗すること」を確認したうえで追加することを必須とした。あわせて、前回検収で判明した T1 の弱点（スタブフィードの電文エントリが0件で電文ループの中断検査を踏まない）を §5.2 のミューテーション対応表として整理した。
