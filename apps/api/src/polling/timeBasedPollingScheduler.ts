@@ -39,8 +39,14 @@ export interface ScheduledPollAdapter {
 }
 
 export interface ManualRunResult {
-  /** 例外が起きた取得元（順不同）。空なら全件正常終了。 */
+  /** 例外・取得失敗が起きた取得元（順不同）。空なら取得失敗なし。 */
   readonly failedSources: readonly (ScheduledSource | 'xml')[];
+  /**
+   * 中断により取得を完了できなかった取得元（順不同）。failedSources とは排他で、
+   * 同一取得元が両方に入ることはない（取得失敗を優先する）。
+   * 現状 'xml' のみが入りうる（確定事項(5): 非XMLは中断機構の対象外）。
+   */
+  readonly abortedSources: readonly (ScheduledSource | 'xml')[];
 }
 
 export interface TimeBasedPollingSchedulerOptions {
@@ -196,6 +202,7 @@ export class TimeBasedPollingScheduler {
    */
   async runManualOnce(): Promise<ManualRunResult> {
     const failedSources: (ScheduledSource | 'xml')[] = [];
+    const abortedSources: (ScheduledSource | 'xml')[] = [];
 
     const xmlTask = (async () => {
       try {
@@ -208,6 +215,11 @@ export class TimeBasedPollingScheduler {
         );
         if (hasFailedFeed) {
           failedSources.push('xml');
+        } else if (
+          result.feedResults.length === 0 ||
+          result.feedResults.some((feedResult) => feedResult.feedFetchOutcome === 'aborted')
+        ) {
+          abortedSources.push('xml');
         }
       } catch (err) {
         failedSources.push('xml');
@@ -246,7 +258,7 @@ export class TimeBasedPollingScheduler {
 
     await Promise.allSettled([xmlTask, ...nonXmlTasks]);
 
-    return { failedSources };
+    return { failedSources, abortedSources };
   }
 
   /**

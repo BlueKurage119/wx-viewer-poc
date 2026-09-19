@@ -11,7 +11,11 @@ import {
 } from './jmaXmlFeeds.js';
 import { pollSingleFeed, type PollerContextOptions } from './jmaXmlPoller.js';
 import { FeedBackoffManager, type FeedBackoffStatus } from './retryBackoff.js';
-import { FetchAbortController, type FetchAbortReason } from './fetchAbort.js';
+import {
+  FetchAbortController,
+  type FetchAbortReason,
+  type FetchAbortSignal,
+} from './fetchAbort.js';
 
 export type InitialFetchPhase = 'not_started' | 'running' | 'completed' | 'failed';
 
@@ -139,8 +143,17 @@ export class JmaXmlPollingService {
   private readonly initialFetchPhaseListeners: Array<(phase: InitialFetchPhase) => void> = [];
   private readonly initialFetchCompletedListeners: Array<() => void | Promise<void>> = [];
   private initialFetchCompletedListenersPending = false;
+  /** 自動取得（initial / scheduled / recovery）用。stop() で abort、start() で reset。既存。 */
   private readonly abortController = new FetchAbortController();
+  /** 手動サイクル（trigger='manual'）専用。手動サイクル開始時に reset、stop() で abort。 */
+  private readonly manualAbortController = new FetchAbortController();
+  /** stop('shutdown') を受けたか。以後の手動サイクルを開始しない。start() で解除する。 */
+  private shutdownRequested = false;
   private initialFetchAborted = false;
+
+  private abortSignalFor(trigger: JmaXmlPollTrigger): FetchAbortSignal {
+    return trigger === 'manual' ? this.manualAbortController.signal : this.abortController.signal;
+  }
 
   constructor(connection: DatabaseConnection, options: JmaXmlPollingServiceOptions) {
     if (!options || !options.freshnessPolicy) {
@@ -328,6 +341,10 @@ export class JmaXmlPollingService {
     trigger: JmaXmlPollTrigger,
     targetFeedKinds?: readonly JmaXmlFeedKind[],
   ): Promise<PollCycleResult> {
+    if (trigger === 'manual') {
+      return this.startManualCycle(targetFeedKinds);
+    }
+
     // 同一サービス内でサイクルが実行中なら同じ in-flight Promise を返す（集約）
     if (this.inFlightPollPromise) {
       return this.inFlightPollPromise;
@@ -339,7 +356,61 @@ export class JmaXmlPollingService {
         return result;
       })
       .finally(() => {
-        this.inFlightPollPromise = null;
+        if (this.inFlightPollPromise === pollPromise) {
+          this.inFlightPollPromise = null;
+        }
+      });
+
+    this.inFlightPollPromise = pollPromise;
+    return pollPromise;
+  }
+
+  private async startManualCycle(
+    targetFeedKinds?: readonly JmaXmlFeedKind[],
+  ): Promise<PollCycleResult> {
+    if (this.shutdownRequested) {
+      const nowFn = this.options.clock ?? (() => new Date().toISOString());
+      const now = nowFn();
+      return {
+        trigger: 'manual',
+        startedAt: now,
+        finishedAt: now,
+        feedResults: [],
+      };
+    }
+
+    while (this.inFlightPollPromise) {
+      if (!this.abortController.signal.aborted && !this.manualAbortController.signal.aborted) {
+        return this.inFlightPollPromise;
+      }
+      try {
+        await this.inFlightPollPromise;
+      } catch {
+        // 失敗は握りつぶす
+      }
+      if (this.shutdownRequested) {
+        const nowFn = this.options.clock ?? (() => new Date().toISOString());
+        const now = nowFn();
+        return {
+          trigger: 'manual',
+          startedAt: now,
+          finishedAt: now,
+          feedResults: [],
+        };
+      }
+    }
+
+    this.manualAbortController.reset();
+
+    const pollPromise = this.executePollCycle('manual', targetFeedKinds)
+      .then((result) => {
+        this.lastCycleResult = result;
+        return result;
+      })
+      .finally(() => {
+        if (this.inFlightPollPromise === pollPromise) {
+          this.inFlightPollPromise = null;
+        }
       });
 
     this.inFlightPollPromise = pollPromise;
@@ -362,7 +433,7 @@ export class JmaXmlPollingService {
     const processedUrlsInCycle = new Set<string>();
 
     for (const feedDef of feedDefs) {
-      if (this.abortController.signal.aborted) {
+      if (this.abortSignalFor(trigger).aborted) {
         break;
       }
 
@@ -391,7 +462,7 @@ export class JmaXmlPollingService {
         attemptNo,
         processedUrlsInCycle,
         this.options,
-        this.abortController.signal,
+        this.abortSignalFor(trigger),
       );
 
       feedResults.push(singleResult.feedResult);
@@ -420,6 +491,8 @@ export class JmaXmlPollingService {
 
   start(startOptions?: { immediateScheduled?: boolean }): Promise<InitialFetchResult> {
     this.abortController.reset();
+    this.manualAbortController.reset();
+    this.shutdownRequested = false;
     this.initialFetchAborted = false;
 
     if (this.isRunning) {
@@ -674,6 +747,10 @@ export class JmaXmlPollingService {
 
   async stop(reason: FetchAbortReason = 'stop'): Promise<void> {
     this.abortController.abort(reason);
+    this.manualAbortController.abort(reason);
+    if (reason === 'shutdown') {
+      this.shutdownRequested = true;
+    }
     this.isRunning = false;
 
     if (this.timerId !== null) {
