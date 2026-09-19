@@ -274,7 +274,9 @@ test('AC11-(c): 中断フィードが feedFetchOutcome: "aborted" になり succ
     assert.equal(extraResult.feedFetchOutcome, 'aborted');
 
     // regular フィードの結果は 'success' であること
-    const regularResult = initialResult.cycleResult?.feedResults.find((r) => r.feedKind === 'regular');
+    const regularResult = initialResult.cycleResult?.feedResults.find(
+      (r) => r.feedKind === 'regular',
+    );
     assert.ok(regularResult);
     assert.equal(regularResult.feedFetchOutcome, 'success');
 
@@ -351,4 +353,3 @@ test('AC11-(d): 中断でバックオフの consecutiveFailures が増えない'
     tempDb.cleanup();
   }
 });
-
