@@ -36,7 +36,7 @@ export class ForceRefreshFailedError extends Error {
 export interface FetchControlTargets {
   /** scheduler.start() 相当。冪等。 */
   start(): Promise<void>;
-  /** scheduler.stop() 相当。実行中ジョブの完了を待つ。冪等。 */
+  /** scheduler.stop() 相当。新規投入を止め、実行中のXML取得サイクルを電文境界で打ち切ってから戻る。非XMLの実行中ジョブは完了を待つ。冪等。 */
   stop(): Promise<void>;
   /** 定期予定に影響しない全取得元の単発実行。夜間帯でも実行する（§9-A）。失敗時は ForceRefreshFailedError を投げる。 */
   forceRefresh(): Promise<void>;

@@ -11,6 +11,7 @@ import {
 } from './jmaXmlFeeds.js';
 import { pollSingleFeed, type PollerContextOptions } from './jmaXmlPoller.js';
 import { FeedBackoffManager, type FeedBackoffStatus } from './retryBackoff.js';
+import { FetchAbortController, type FetchAbortReason } from './fetchAbort.js';
 
 export type InitialFetchPhase = 'not_started' | 'running' | 'completed' | 'failed';
 
@@ -138,6 +139,8 @@ export class JmaXmlPollingService {
   private readonly initialFetchPhaseListeners: Array<(phase: InitialFetchPhase) => void> = [];
   private readonly initialFetchCompletedListeners: Array<() => void | Promise<void>> = [];
   private initialFetchCompletedListenersPending = false;
+  private readonly abortController = new FetchAbortController();
+  private initialFetchAborted = false;
 
   constructor(connection: DatabaseConnection, options: JmaXmlPollingServiceOptions) {
     if (!options || !options.freshnessPolicy) {
@@ -206,6 +209,10 @@ export class JmaXmlPollingService {
       }
     }
     this.initialFetchCompletedListenersPending = failed;
+  }
+
+  wasInitialFetchAborted(): boolean {
+    return this.initialFetchAborted;
   }
 
   isExecuting(): boolean {
@@ -355,6 +362,10 @@ export class JmaXmlPollingService {
     const processedUrlsInCycle = new Set<string>();
 
     for (const feedDef of feedDefs) {
+      if (this.abortController.signal.aborted) {
+        break;
+      }
+
       const currentNow = nowFn();
 
       // scheduled または recovery の場合、バックオフ待機中のフィードはスキップ
@@ -380,6 +391,7 @@ export class JmaXmlPollingService {
         attemptNo,
         processedUrlsInCycle,
         this.options,
+        this.abortController.signal,
       );
 
       feedResults.push(singleResult.feedResult);
@@ -387,7 +399,7 @@ export class JmaXmlPollingService {
       const finishedNow = nowFn();
       if (singleResult.feedResult.feedFetchOutcome === 'success') {
         this.backoffManager.recordSuccess(feedDef.kind, finishedNow);
-      } else {
+      } else if (singleResult.feedResult.feedFetchOutcome === 'failure') {
         this.backoffManager.recordFailure(
           feedDef.kind,
           finishedNow,
@@ -407,6 +419,9 @@ export class JmaXmlPollingService {
   }
 
   start(startOptions?: { immediateScheduled?: boolean }): Promise<InitialFetchResult> {
+    this.abortController.reset();
+    this.initialFetchAborted = false;
+
     if (this.isRunning) {
       if (this.inFlightStartPromise) {
         return this.inFlightStartPromise;
@@ -454,13 +469,18 @@ export class JmaXmlPollingService {
         );
         const completed = failedFeedKinds.length === 0;
 
+        const isAborted = this.abortController.signal.aborted;
+        if (isAborted && !completed) {
+          this.initialFetchAborted = true;
+        }
+
         const initialResult: InitialFetchResult = {
           completed,
           startedAt,
           finishedAt,
           failedFeedKinds,
           cycleResult,
-          errorReason: null,
+          errorReason: isAborted && !completed ? '停止指示により中断' : null,
         };
 
         this.initialFetchPhase = completed ? 'completed' : 'failed';
@@ -652,7 +672,8 @@ export class JmaXmlPollingService {
     }
   }
 
-  async stop(): Promise<void> {
+  async stop(reason: FetchAbortReason = 'stop'): Promise<void> {
+    this.abortController.abort(reason);
     this.isRunning = false;
 
     if (this.timerId !== null) {
@@ -663,6 +684,14 @@ export class JmaXmlPollingService {
     if (this.inFlightPollPromise) {
       try {
         await this.inFlightPollPromise;
+      } catch {
+        // エラーは無視して終了
+      }
+    }
+
+    if (this.inFlightStartPromise) {
+      try {
+        await this.inFlightStartPromise;
       } catch {
         // エラーは無視して終了
       }

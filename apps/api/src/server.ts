@@ -150,7 +150,11 @@ function createStartupNotificationRuntime(
       } else if (phase === 'failed') {
         const elapsedMs =
           initialFetchStartMs !== null ? Math.max(0, Date.now() - initialFetchStartMs) : 0;
-        console.error(`[api] failed initial JMA XML feed fetch (${elapsedMs}ms)`);
+        if (pollingService.wasInitialFetchAborted?.()) {
+          console.log(`[api] aborted initial JMA XML feed fetch (${elapsedMs}ms)`);
+        } else {
+          console.error(`[api] failed initial JMA XML feed fetch (${elapsedMs}ms)`);
+        }
       }
     });
     pollingService.onInitialFetchCompleted(evaluateVenues);
@@ -723,6 +727,9 @@ async function main(): Promise<void> {
     closed = true;
     if (fetchHealthMonitorService) {
       fetchHealthMonitorService.stop();
+    }
+    if (pollingService && closeOptions?.reason === 'signal') {
+      await pollingService.stop('shutdown');
     }
     if (scheduler) {
       await scheduler.stop();
