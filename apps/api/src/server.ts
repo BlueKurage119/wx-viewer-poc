@@ -13,6 +13,7 @@ import {
 } from './config/index.js';
 import {
   createFetchControlService,
+  ForceRefreshAbortedError,
   ForceRefreshFailedError,
   type FetchControlService,
   type FetchControlTargets,
@@ -306,6 +307,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
           const result = await scheduler.runManualOnce();
           if (result.failedSources.length > 0) {
             throw new ForceRefreshFailedError(result.failedSources);
+          }
+          if (result.abortedSources.length > 0) {
+            throw new ForceRefreshAbortedError(result.abortedSources);
           }
         },
         runRecovery: () => {
@@ -649,6 +653,9 @@ async function main(): Promise<void> {
           const result = await scheduler.runManualOnce();
           if (result.failedSources.length > 0) {
             throw new ForceRefreshFailedError(result.failedSources);
+          }
+          if (result.abortedSources.length > 0) {
+            throw new ForceRefreshAbortedError(result.abortedSources);
           }
         },
         runRecovery: () => {

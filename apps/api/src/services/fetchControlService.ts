@@ -25,6 +25,14 @@ export const RESUME_RECOVERY_THRESHOLD_MS = 30 * 60_000;
 const MAX_ERROR_MESSAGE_LENGTH = 200;
 const COMPLETED_MEMORY_LIMIT = 200;
 
+/** §4.6: 強制更新が停止・シャットダウンによる中断で完了しなかったときの専用エラー。 */
+export class ForceRefreshAbortedError extends Error {
+  constructor(readonly abortedSources: readonly string[]) {
+    super(`force refresh aborted for: ${abortedSources.join(',')}`);
+    this.name = 'ForceRefreshAbortedError';
+  }
+}
+
 /** §5.6: 強制更新が失敗したとき、失敗した取得元を運ぶための専用エラー。 */
 export class ForceRefreshFailedError extends Error {
   constructor(readonly failedSources: readonly string[]) {
@@ -265,6 +273,14 @@ export function createFetchControlService(
       return { completedAt, result: 'success', errorCode: null, errorMessage: null };
     } catch (error) {
       const completedAt = deps.now();
+      if (error instanceof ForceRefreshAbortedError) {
+        return {
+          completedAt,
+          result: 'failure',
+          errorCode: 'force_refresh_aborted',
+          errorMessage: truncate(error.abortedSources.join(','), MAX_ERROR_MESSAGE_LENGTH),
+        };
+      }
       if (error instanceof ForceRefreshFailedError) {
         return {
           completedAt,
@@ -336,6 +352,7 @@ export function createFetchControlService(
       completedAt: outcome.completedAt,
       notificationIdFactory,
       failureDetail: outcome.errorMessage ?? undefined,
+      errorCode: outcome.errorCode,
     });
     emitOperationNotification(deps.connection, planned);
 
