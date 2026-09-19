@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
+import { startServer } from '../src/server.js';
 import { JmaXmlPollingService } from '../src/polling/jmaXmlPollingService.js';
 import {
   TimeBasedPollingScheduler,
@@ -130,24 +131,66 @@ const sampleTelegramXml = `<?xml version="1.0" encoding="utf-8"?>
   <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/"/>
 </Report>`;
 
+/** 指定URLの電文エントリを持つ Atom フィードを組み立てる */
+function feedWithEntries(urls: readonly string[]): string {
+  const entries = urls
+    .map(
+      (url, i) => `  <entry>
+    <title>気象警報・注意報（東京都）${i + 1}</title>
+    <id>entry-${url}</id>
+    <updated>2026-09-19T00:0${i}:00Z</updated>
+    <link rel="alternate" type="application/xml" href="${url}"/>
+  </entry>`,
+    )
+    .join('\n');
+  return `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>気象警報・注意報</title>
+  <updated>2026-09-19T00:00:00Z</updated>
+  <id>feed-id</id>
+${entries}
+</feed>`;
+}
+
+const DATA_BASE = 'https://www.data.jma.go.jp/developer/xml/data/';
+
+function xmlResponse(body: string, contentType = 'application/xml'): Response {
+  return new Response(body, { status: 200, headers: { 'content-type': contentType } });
+}
+
+function urlOf(input: Parameters<typeof fetch>[0]): string {
+  return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+}
+
 test('T1: 停止中の手動サイクルがXML取得を行う', async () => {
   const tempDb = createTempDb();
   try {
     const db = initializeDatabase({ databasePath: tempDb.databasePath, migrationsDirectory });
     let fetchCount = 0;
+    // 停止前は空フィード、停止後の手動サイクルでは各フィードに未取得の電文を2件ずつ返す
+    let manualPhase = false;
+    const telegramUrls: string[] = [];
     const mockFetch: typeof fetch = async (input) => {
       fetchCount += 1;
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (url.endsWith('.xml') || url.includes('/feed/')) {
-        return new Response(emptyAtomXml, {
-          status: 200,
-          headers: { 'content-type': 'application/atom+xml' },
-        });
+      const url = urlOf(input);
+      if (url.includes('/feed/regular.xml')) {
+        return xmlResponse(
+          manualPhase
+            ? feedWithEntries([`${DATA_BASE}reg-1.xml`, `${DATA_BASE}reg-2.xml`])
+            : emptyAtomXml,
+          'application/atom+xml',
+        );
       }
-      return new Response(sampleTelegramXml, {
-        status: 200,
-        headers: { 'content-type': 'application/xml' },
-      });
+      if (url.includes('/feed/extra.xml')) {
+        return xmlResponse(
+          manualPhase
+            ? feedWithEntries([`${DATA_BASE}ext-1.xml`, `${DATA_BASE}ext-2.xml`])
+            : emptyAtomXml,
+          'application/atom+xml',
+        );
+      }
+      if (url.startsWith(DATA_BASE)) telegramUrls.push(url);
+      return xmlResponse(sampleTelegramXml);
     };
 
     const service = new JmaXmlPollingService(db.connection, {
@@ -158,17 +201,20 @@ test('T1: 停止中の手動サイクルがXML取得を行う', async () => {
     await service.start();
     await service.stop();
     const countAfterStop = fetchCount;
+    manualPhase = true;
 
     // 停止中に手動サイクル実行
     const result = await service.pollOnce('manual');
 
-    // fetchFn の呼び出し回数が増加し、2フィード（regular, extra）で全て success
     assert.ok(fetchCount > countAfterStop, 'fetchCount should increase after manual poll');
     assert.equal(result.feedResults.length, 2);
     assert.equal(result.feedResults[0]!.feedKind, 'regular');
     assert.equal(result.feedResults[0]!.feedFetchOutcome, 'success');
     assert.equal(result.feedResults[1]!.feedKind, 'extra');
     assert.equal(result.feedResults[1]!.feedFetchOutcome, 'success');
+    assert.equal(result.aborted, false);
+    // 電文ループ(電文境界の中断検査を含む)を各フィードで2件ずつ通っている
+    assert.equal(telegramUrls.length, 4, 'all 4 telegram entries should be fetched');
 
     db.close();
   } finally {
@@ -328,6 +374,7 @@ test('T4: シャットダウン後は手動サイクルを開始しない', asyn
     assert.equal(fetchCount, 0, 'fetchFn should not be called at all');
     assert.deepEqual(result.feedResults, [], 'feedResults should be empty array');
     assert.equal(result.trigger, 'manual');
+    assert.equal(result.aborted, true);
 
     db.close();
   } finally {
@@ -335,48 +382,34 @@ test('T4: シャットダウン後は手動サイクルを開始しない', asyn
   }
 });
 
-test('T5: 中断済み in-flight へ合流しない', async () => {
+test('T5: 中断済みの自動サイクルには合流しない', async () => {
   const tempDb = createTempDb();
   try {
     const db = initializeDatabase({ databasePath: tempDb.databasePath, migrationsDirectory });
     let service: JmaXmlPollingService | null = null;
     const deferred = makeDeferred<void>();
+    let firstCycle = true;
 
-    let cycleCount = 0;
     const mockFetch: typeof fetch = async (input) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const url = urlOf(input);
       if (url.includes('/feed/regular.xml')) {
-        cycleCount += 1;
-        if (cycleCount === 1) {
-          return new Response(sampleAtomXmlWith3Entries, {
-            status: 200,
-            headers: { 'content-type': 'application/atom+xml' },
-          });
+        if (firstCycle) {
+          return xmlResponse(
+            feedWithEntries([`${DATA_BASE}auto-1.xml`, `${DATA_BASE}auto-2.xml`]),
+            'application/atom+xml',
+          );
         }
-        return new Response(emptyAtomXml, {
-          status: 200,
-          headers: { 'content-type': 'application/atom+xml' },
-        });
+        return xmlResponse(feedWithEntries([`${DATA_BASE}man-1.xml`]), 'application/atom+xml');
       }
-      if (url.includes('/feed/extra.xml')) {
-        return new Response(emptyAtomXml, {
-          status: 200,
-          headers: { 'content-type': 'application/atom+xml' },
-        });
+      if (url.includes('/feed/')) {
+        return xmlResponse(emptyAtomXml, 'application/atom+xml');
       }
-      if (url === 'https://www.data.jma.go.jp/developer/xml/data/doc1.xml') {
-        // 1件目取得中に stop() を呼んで中断させる
+      if (url === `${DATA_BASE}auto-1.xml`) {
+        // 自動(initial)サイクルの1件目取得中に stop() を呼んで中断させる
         void service?.stop('stop');
         await deferred.promise;
-        return new Response(sampleTelegramXml, {
-          status: 200,
-          headers: { 'content-type': 'application/xml' },
-        });
       }
-      return new Response(sampleTelegramXml, {
-        status: 200,
-        headers: { 'content-type': 'application/xml' },
-      });
+      return xmlResponse(sampleTelegramXml);
     };
 
     service = new JmaXmlPollingService(db.connection, {
@@ -384,22 +417,24 @@ test('T5: 中断済み in-flight へ合流しない', async () => {
       fetchFn: mockFetch,
     });
 
-    const firstCyclePromise = service.pollOnce('manual');
-    // doc1.xml 中に stop() が走るまで少し待機
+    const startPromise = service.start();
     await new Promise((resolve) => setTimeout(resolve, 50));
+    const autoInFlight = service.pollOnce('initial');
 
-    // 中断中の in-flight がある状態で第2の手動サイクルを呼ぶ
-    const secondCyclePromise = service.pollOnce('manual');
-
-    // 1件目の待機を解除
+    // 中断済みの自動サイクルが in-flight の状態で手動サイクルを呼ぶ
+    firstCycle = false;
+    const manualPromise = service.pollOnce('manual');
     deferred.resolve();
 
-    const [firstResult, secondResult] = await Promise.all([firstCyclePromise, secondCyclePromise]);
+    const [autoResult, manualResult] = await Promise.all([autoInFlight, manualPromise]);
+    await startPromise;
 
-    assert.notEqual(firstResult, secondResult, 'PollCycleResult should be distinct objects');
-    assert.equal(firstResult.feedResults[0]!.feedFetchOutcome, 'aborted');
+    assert.notEqual(autoResult, manualResult, 'manual cycle must not join the aborted auto cycle');
+    assert.equal(autoResult.trigger, 'initial');
+    assert.equal(autoResult.aborted, true);
+    assert.equal(manualResult.trigger, 'manual');
     assert.equal(
-      secondResult.feedResults.some((r) => r.feedFetchOutcome === 'success'),
+      manualResult.feedResults.some((r) => r.feedFetchOutcome === 'success'),
       true,
     );
 
@@ -412,98 +447,62 @@ test('T5: 中断済み in-flight へ合流しない', async () => {
 test('T6: runManualOnce() の中断判定', async () => {
   const dummySchedule: PollingScheduleConfig = loadPollingScheduleConfig();
 
-  // (a) feedResults: []
-  {
+  const feed = (kind: 'regular' | 'extra', outcome: 'success' | 'failure' | 'aborted') => ({
+    feedKind: kind,
+    feedFetchOutcome: outcome,
+    feedTitle: kind,
+    discoveredCount: 0,
+    downloadedCount: 0,
+    failedDocumentCount: outcome === 'failure' ? 1 : 0,
+    skippedDocumentCount: 0,
+  });
+
+  const runWith = async (feedResults: unknown[], aborted: boolean) => {
     const fakeXmlService = {
       pollOnce: async () => ({
         trigger: 'manual' as const,
         startedAt: '2026-09-19T00:00:00Z',
         finishedAt: '2026-09-19T00:00:01Z',
-        feedResults: [],
+        feedResults,
+        aborted,
       }),
     } as unknown as JmaXmlPollingService;
-
     const scheduler = new TimeBasedPollingScheduler({
       schedule: dummySchedule,
       adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
       xmlPollingService: fakeXmlService,
     });
+    return scheduler.runManualOnce();
+  };
 
-    const result = await scheduler.runManualOnce();
+  // (a) aborted かつ feedResults 空
+  {
+    const result = await runWith([], true);
     assert.deepEqual(result.abortedSources, ['xml']);
     assert.deepEqual(result.failedSources, []);
   }
-
-  // (b) 'aborted' を含む
+  // (b) aborted かつ 'aborted' フィードを含む
   {
-    const fakeXmlService = {
-      pollOnce: async () => ({
-        trigger: 'manual' as const,
-        startedAt: '2026-09-19T00:00:00Z',
-        finishedAt: '2026-09-19T00:00:01Z',
-        feedResults: [
-          {
-            feedKind: 'regular' as const,
-            feedFetchOutcome: 'aborted' as const,
-            feedTitle: 'regular',
-            discoveredCount: 0,
-            downloadedCount: 0,
-            failedDocumentCount: 0,
-            skippedDocumentCount: 0,
-          },
-        ],
-      }),
-    } as unknown as JmaXmlPollingService;
-
-    const scheduler = new TimeBasedPollingScheduler({
-      schedule: dummySchedule,
-      adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
-      xmlPollingService: fakeXmlService,
-    });
-
-    const result = await scheduler.runManualOnce();
+    const result = await runWith([feed('regular', 'aborted')], true);
     assert.deepEqual(result.abortedSources, ['xml']);
     assert.deepEqual(result.failedSources, []);
   }
-
-  // (c) 'failure' と 'aborted' の両方
+  // (c) aborted かつ全フィードが success(後続フィード未着手)
   {
-    const fakeXmlService = {
-      pollOnce: async () => ({
-        trigger: 'manual' as const,
-        startedAt: '2026-09-19T00:00:00Z',
-        finishedAt: '2026-09-19T00:00:01Z',
-        feedResults: [
-          {
-            feedKind: 'regular' as const,
-            feedFetchOutcome: 'failure' as const,
-            feedTitle: 'regular',
-            discoveredCount: 0,
-            downloadedCount: 0,
-            failedDocumentCount: 1,
-            skippedDocumentCount: 0,
-          },
-          {
-            feedKind: 'extra' as const,
-            feedFetchOutcome: 'aborted' as const,
-            feedTitle: 'extra',
-            discoveredCount: 0,
-            downloadedCount: 0,
-            failedDocumentCount: 0,
-            skippedDocumentCount: 0,
-          },
-        ],
-      }),
-    } as unknown as JmaXmlPollingService;
-
-    const scheduler = new TimeBasedPollingScheduler({
-      schedule: dummySchedule,
-      adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
-      xmlPollingService: fakeXmlService,
-    });
-
-    const result = await scheduler.runManualOnce();
+    const result = await runWith([feed('regular', 'success')], true);
+    assert.deepEqual(result.abortedSources, ['xml']);
+    assert.deepEqual(result.failedSources, []);
+  }
+  // (d) failure と aborted の両方 → 取得失敗を優先
+  {
+    const result = await runWith([feed('regular', 'failure'), feed('extra', 'aborted')], true);
     assert.deepEqual(result.failedSources, ['xml']);
+    assert.deepEqual(result.abortedSources, []);
+  }
+  // 対照: aborted でなく全て success なら正常
+  {
+    const result = await runWith([feed('regular', 'success'), feed('extra', 'success')], false);
+    assert.deepEqual(result.failedSources, []);
     assert.deepEqual(result.abortedSources, []);
   }
 });
@@ -677,6 +676,156 @@ test('T9: 取得失敗時の通知が退行しない', async () => {
     assert.equal(rowFailed.ack_required, 1);
 
     db.close();
+  } finally {
+    tempDb.cleanup();
+  }
+});
+
+/** server.ts の強制更新ターゲットと同じ判定で FetchControlTargets を組む */
+function buildForceRefreshTargets(scheduler: TimeBasedPollingScheduler): FetchControlTargets {
+  return {
+    start: async () => {},
+    stop: async () => {},
+    forceRefresh: async () => {
+      const result = await scheduler.runManualOnce();
+      if (result.failedSources.length > 0) {
+        throw new ForceRefreshFailedError(result.failedSources);
+      }
+      if (result.abortedSources.length > 0) {
+        throw new ForceRefreshAbortedError(result.abortedSources);
+      }
+    },
+    runRecovery: async () => {},
+    isRunning: () => false,
+    isUpstreamAllowedNow: () => true,
+  };
+}
+
+test('R1: 停止後に始めた手動サイクルの実行中、2本目の手動サイクルは合流する', async () => {
+  const tempDb = createTempDb();
+  try {
+    const db = initializeDatabase({ databasePath: tempDb.databasePath, migrationsDirectory });
+    const deferred = makeDeferred<void>();
+    let regularFeedFetchCount = 0;
+    const mockFetch: typeof fetch = async (input) => {
+      const url = urlOf(input);
+      if (url.includes('/feed/regular.xml')) {
+        regularFeedFetchCount += 1;
+        return xmlResponse(
+          feedWithEntries([`${DATA_BASE}r1-1.xml`, `${DATA_BASE}r1-2.xml`]),
+          'application/atom+xml',
+        );
+      }
+      if (url.includes('/feed/')) {
+        return xmlResponse(emptyAtomXml, 'application/atom+xml');
+      }
+      if (url === `${DATA_BASE}r1-1.xml`) {
+        await deferred.promise;
+      }
+      return xmlResponse(sampleTelegramXml);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: { staleAfterSeconds: 300 },
+      fetchFn: mockFetch,
+    });
+
+    await service.stop();
+    const first = service.pollOnce('manual');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const second = service.pollOnce('manual');
+    deferred.resolve();
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    assert.equal(firstResult, secondResult, 'both manual polls must share one PollCycleResult');
+    assert.equal(regularFeedFetchCount, 1, 'upstream feed must be fetched once');
+    assert.equal(firstResult.aborted, false);
+
+    db.close();
+  } finally {
+    tempDb.cleanup();
+  }
+});
+
+test('R2: 先行フィード完了後・後続フィード未着手の中断は force_refresh_aborted になる', async () => {
+  const tempDb = createTempDb();
+  try {
+    const db = initializeDatabase({ databasePath: tempDb.databasePath, migrationsDirectory });
+    let service: JmaXmlPollingService | null = null;
+    const mockFetch: typeof fetch = async (input) => {
+      const url = urlOf(input);
+      if (url.includes('/feed/regular.xml')) {
+        return xmlResponse(
+          feedWithEntries([`${DATA_BASE}p-1.xml`, `${DATA_BASE}p-2.xml`]),
+          'application/atom+xml',
+        );
+      }
+      if (url.includes('/feed/extra.xml')) {
+        return xmlResponse(feedWithEntries([`${DATA_BASE}q-1.xml`]), 'application/atom+xml');
+      }
+      if (url === `${DATA_BASE}p-2.xml`) {
+        // regular の最後の電文の取得中に stop() が届く
+        void service?.stop('stop');
+      }
+      return xmlResponse(sampleTelegramXml);
+    };
+
+    service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: { staleAfterSeconds: 300 },
+      fetchFn: mockFetch,
+    });
+    const scheduler = new TimeBasedPollingScheduler({
+      schedule: loadPollingScheduleConfig(),
+      adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+      xmlPollingService: service,
+    });
+
+    const fetchControl = createFetchControlService({
+      connection: db.connection,
+      targets: buildForceRefreshTargets(scheduler),
+      now: () => '2026-09-19T00:00:00.000Z' as UtcIso8601String,
+    });
+    const outcome = await fetchControl.request('force_refresh', 'req-r2');
+    assert.equal(outcome.kind, 'completed');
+    const op = findOperationHistoryByRequestId(db.connection, 'req-r2');
+    assert.ok(op);
+    assert.equal(op.result, 'failure');
+    assert.equal(op.errorCode, 'force_refresh_aborted');
+
+    db.close();
+  } finally {
+    tempDb.cleanup();
+  }
+});
+
+test('R3: startServer() のシグナル停止後は手動サイクルを開始しない', async () => {
+  const tempDb = createTempDb();
+  try {
+    let fetchCount = 0;
+    const mockFetch: typeof fetch = async () => {
+      fetchCount += 1;
+      return xmlResponse(emptyAtomXml, 'application/atom+xml');
+    };
+    const server = await startServer({
+      config: {
+        databasePath: tempDb.databasePath,
+        migrationsDirectory,
+      },
+      port: 0,
+      enablePolling: true,
+      pollingServiceOptions: { fetchFn: mockFetch },
+      schedulerOptions: {
+        adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+      },
+    });
+
+    await server.close({ reason: 'signal' });
+    const countAfterClose = fetchCount;
+
+    const result = await server.pollingService!.pollOnce('manual');
+    assert.equal(fetchCount, countAfterClose, 'fetchFn must not be called after signal close');
+    assert.deepEqual(result.feedResults, []);
+    assert.equal(result.aborted, true);
   } finally {
     tempDb.cleanup();
   }

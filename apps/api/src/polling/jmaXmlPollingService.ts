@@ -131,6 +131,8 @@ export class JmaXmlPollingService {
   private isRunning = false;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private inFlightPollPromise: Promise<PollCycleResult> | null = null;
+  /** inFlightPollPromise と対。実行中サイクルのトリガ。スロットが null のときは null。 */
+  private inFlightPollTrigger: JmaXmlPollTrigger | null = null;
   private lastCycleResult: PollCycleResult | null = null;
 
   private initialFetchPhase: InitialFetchPhase = 'not_started';
@@ -358,29 +360,32 @@ export class JmaXmlPollingService {
       .finally(() => {
         if (this.inFlightPollPromise === pollPromise) {
           this.inFlightPollPromise = null;
+          this.inFlightPollTrigger = null;
         }
       });
 
     this.inFlightPollPromise = pollPromise;
+    this.inFlightPollTrigger = trigger;
     return pollPromise;
+  }
+
+  private createShutdownRejectedResult(): PollCycleResult {
+    const nowFn = this.options.clock ?? (() => new Date().toISOString());
+    const now = nowFn();
+    return { trigger: 'manual', startedAt: now, finishedAt: now, feedResults: [], aborted: true };
   }
 
   private async startManualCycle(
     targetFeedKinds?: readonly JmaXmlFeedKind[],
   ): Promise<PollCycleResult> {
     if (this.shutdownRequested) {
-      const nowFn = this.options.clock ?? (() => new Date().toISOString());
-      const now = nowFn();
-      return {
-        trigger: 'manual',
-        startedAt: now,
-        finishedAt: now,
-        feedResults: [],
-      };
+      return this.createShutdownRejectedResult();
     }
 
     while (this.inFlightPollPromise) {
-      if (!this.abortController.signal.aborted && !this.manualAbortController.signal.aborted) {
+      // 合流可否は実行中サイクル自身のシグナルだけで判定する(停止後の自動用シグナルは見ない)
+      const inFlightTrigger = this.inFlightPollTrigger;
+      if (inFlightTrigger !== null && !this.abortSignalFor(inFlightTrigger).aborted) {
         return this.inFlightPollPromise;
       }
       try {
@@ -389,14 +394,7 @@ export class JmaXmlPollingService {
         // 失敗は握りつぶす
       }
       if (this.shutdownRequested) {
-        const nowFn = this.options.clock ?? (() => new Date().toISOString());
-        const now = nowFn();
-        return {
-          trigger: 'manual',
-          startedAt: now,
-          finishedAt: now,
-          feedResults: [],
-        };
+        return this.createShutdownRejectedResult();
       }
     }
 
@@ -410,10 +408,12 @@ export class JmaXmlPollingService {
       .finally(() => {
         if (this.inFlightPollPromise === pollPromise) {
           this.inFlightPollPromise = null;
+          this.inFlightPollTrigger = null;
         }
       });
 
     this.inFlightPollPromise = pollPromise;
+    this.inFlightPollTrigger = 'manual';
     return pollPromise;
   }
 
@@ -431,9 +431,11 @@ export class JmaXmlPollingService {
 
     const feedResults: FeedPollResult[] = [];
     const processedUrlsInCycle = new Set<string>();
+    let cycleAborted = false;
 
     for (const feedDef of feedDefs) {
       if (this.abortSignalFor(trigger).aborted) {
+        cycleAborted = true;
         break;
       }
 
@@ -486,6 +488,7 @@ export class JmaXmlPollingService {
       startedAt: cycleStartedAt,
       finishedAt: cycleFinishedAt,
       feedResults,
+      aborted: cycleAborted || feedResults.some((r) => r.feedFetchOutcome === 'aborted'),
     };
   }
 

@@ -31,6 +31,13 @@ export interface PollCycleResult {
   readonly startedAt: UtcIso8601String;
   readonly finishedAt: UtcIso8601String;
   readonly feedResults: readonly FeedPollResult[];
+  /**
+   * このサイクルが中断で打ち切られたか。次のいずれかで true になる。
+   *  (a) executePollCycle() のフィードループ先頭の中断検査で break した(未着手のフィードが残った)
+   *  (b) feedResults に feedFetchOutcome === 'aborted' のフィードがある
+   *  (c) シャットダウン要求によりサイクル自体を開始しなかった(feedResults は空)
+   */
+  readonly aborted: boolean;
 }
 
 export const JMA_XML_FEED_DEFINITIONS: readonly JmaXmlFeedDefinition[] = [

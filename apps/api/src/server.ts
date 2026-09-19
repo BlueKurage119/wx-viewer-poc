@@ -531,6 +531,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       if (fetchHealthMonitorService) {
         fetchHealthMonitorService.stop();
       }
+      // scheduler.stop() は既定理由 'stop' で abort するため、シャットダウン理由はその前に伝える
+      if (pollingService && closeOptions?.reason === 'signal') {
+        await pollingService.stop('shutdown');
+      }
       if (scheduler) {
         await scheduler.stop();
       }

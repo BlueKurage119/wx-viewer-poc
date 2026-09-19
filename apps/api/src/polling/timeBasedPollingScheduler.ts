@@ -215,10 +215,7 @@ export class TimeBasedPollingScheduler {
         );
         if (hasFailedFeed) {
           failedSources.push('xml');
-        } else if (
-          result.feedResults.length === 0 ||
-          result.feedResults.some((feedResult) => feedResult.feedFetchOutcome === 'aborted')
-        ) {
+        } else if (result.aborted) {
           abortedSources.push('xml');
         }
       } catch (err) {
