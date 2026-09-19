@@ -381,6 +381,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
     const serverErrorMonitor = monitorServerErrors(actualServer);
     try {
+      // Issue #171: main() は待受直後に listening ログを出力し初回同期をバックグラウンド化したが、
+      // startServer() は初回同期の完了を待って resolve する契約を維持する。
+      // 既存テストが「resolve 時点で初回取得・再処理が完了している」ことに依存しているため、
+      // 意図的に main() と構造が異なる。
       await Promise.race([
         serverErrorMonitor.promise,
         (async () => {
