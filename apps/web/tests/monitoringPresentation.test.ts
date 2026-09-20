@@ -10,6 +10,7 @@ import {
   abnormalMonitoringResponseFixture,
   createDefaultSources,
   delayedMonitoringResponseFixture,
+  manualStoppedMonitoringResponseFixture,
   monitoringResponseFixture,
   normalMonitoringResponseFixture,
   scheduledStoppedMonitoringResponseFixture,
