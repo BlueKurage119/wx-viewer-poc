@@ -4,6 +4,7 @@ import type {
   MonitoringScheduledSourceStatus,
   MonitoringStatusResponse,
 } from '@wx-viewer-poc/shared';
+import { createDefaultInformation } from './monitoringInformationFixture.ts';
 
 export function createHealthSource(
   sourceId: MonitoredFetchSourceId,
@@ -140,7 +141,7 @@ export const normalMonitoringResponseFixture: MonitoringStatusResponse = {
       adoptionWindowHours: 24,
     },
   ],
-  information: [],
+  information: createDefaultInformation(),
   tiles: { healthMonitored: false, healthCriteriaStatus: 'undecided', layers: [] },
 };
 

@@ -301,3 +301,7 @@
     margin-inline-start: 0;
   }
 }
+
+.monitoring-information-state {
+  font-weight: 500;
+}
