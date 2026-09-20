@@ -36,7 +36,7 @@
 
 - 開始・停止・強制更新は選択後に送信。履歴・状態診断は直接開き、送信不要。送信は右端、未選択時は無効。
 - K1は4カードと全体配置、下段表の静的な列見出し・行名・未接続値「ー」、ツールバー占有領域まで。表の詳細判定・実データ接続はK6/K7、取得操作はK2、診断内容はK8。
-- 【確定・レイアウト調整】取得健全性の状態アイコンは Material Symbols の `check`・`check_alert`・`close` の3段階とする。表の列幅は内容文字数で変動させない。黄・赤状態の表行は行全体を強調する。ツールバーボタンは全角5文字を収める固定幅、角丸なしのスクエア型とする。
+- 【確定・レイアウト調整】取得健全性の状態アイコンは Material Symbols の `check`・`check_alert`・`close` の3段階とする。表は列比率を保って利用可能な横幅を使い、内容文字数で列幅を変動させない。黄・赤状態の表行は行全体を強調する。ツールバーボタンは全角5文字を収める固定幅、M3 Expressiveのスクエア型とする。
 
 ### 1.3 既存資料との差分
 
@@ -99,18 +99,18 @@
 
 取得元6系列・情報8種は既存DTOと基本設計の契約に対応する。列見出しは基本設計§8.2をもとにした配置用であり、APIに全列の値が存在することを意味しない。会場・種別の内訳、実際の値の対応と不足APIはK6/K7で設計する。情報時刻の発表／観測／基準時刻の区別もK7へ引き継ぐ。見出しセルは `th` と `scope` で対応付ける。
 
-表は `table-layout: fixed` とし、各 `table` の先頭に `colgroup` を置いて以下のCSS px幅を指定する。セル内容は列幅を広げず、既存の横スクロールコンテナ内に収める。時刻・数値を含むセルは `white-space: nowrap` を維持し、幅不足時に情報を改変・省略しない。取得元表は合計946 px、情報表は合計900 pxとし、表の最小幅もそれぞれの合計幅と一致させる。
+表は `table-layout: fixed` とし、各 `table` の先頭に `colgroup` を置いて、次の列比率をCSS `%` で指定する。`width: 100%` により横スクロールコンテナの利用可能な横幅をすべて使い、現行の表示比率を保ったまま拡縮する。狭幅時は既存の `min-width: 920px` と横スクロールを維持する。セル内容は列幅を広げず、時刻・数値を含むセルは `white-space: nowrap` を維持する。幅不足時に情報を改変・省略しない。
 
-| 表 | 列幅（左から順） |
+| 表 | 列比率（左から順） |
 | --- | --- |
-| 取得元別の稼働状況 | 110 / 80 / 96 / 140 / 140 / 140 / 120 / 120 px |
-| 情報別の反映状況 | 160 / 220 / 110 / 140 / 140 / 130 px |
+| 取得元別の稼働状況 | 11.63 / 8.46 / 10.15 / 14.80 / 14.80 / 14.80 / 12.68 / 12.68 % |
+| 情報別の反映状況 | 17.78 / 24.44 / 12.22 / 15.56 / 15.56 / 14.44 % |
 
 取得元・情報のいずれも状態が `attention` または `error` の行へ、それぞれ `monitoring-row-attention` / `monitoring-row-error` を付与する。行内の全セルを対応する `*-container` 背景と `*-on-container` 前景で描画し、状態列だけを着色する現行の見せ方を置き換える。通常・動作中・停止・判定待ちの行背景は既存surfaceのままとする。コンテナ色と対応するon-containerの組合せ以外の混色・HEX直書きは行わない。
 
 監視ツールバーに限定したCSSで既存のmin-height 60 px・上下padding 8 pxを48 px・4 pxへ上書きする。他画面のツールバー寸法は維持する。
 
-各 `md-filled-button` は `inline-size: 120px`（ラベルlarge 14 px、全角5文字と既存左右24 px余白を収める値）とする。`--md-filled-button-container-height: 40px` を維持し、`--md-filled-button-container-shape: 0px` で角丸をなくす。幅はラベル文字数で変化させず、既存のグループ間隔・狭幅時の折返し・右端の送信配置を維持する。
+各 `md-gb-button` は `inline-size: 120px`（全角5文字を収める固定幅）とする。Material Web 2.5.0のM3 Expressive Labsボタンを型付きラッパー経由で使用し、`color="filled"`、`size="sm"`、`square` を指定する。`square` は角丸を0 pxへ上書きするものではなく、同コンポーネントが定義するExpressiveのsquare shapeと状態遷移を使用する。幅はラベル文字数で変化させず、既存のグループ間隔・狭幅時の折返し・右端の送信配置を維持する。
 
 ## 4. データ契約とカード表示【承認済み設計】
 
@@ -222,7 +222,8 @@ function createSystemStatusColors(dark: boolean): Record<SystemStatusColorToken,
 | `apps/web/src/monitoring/useMonitoringStatus.ts` | 購読・直列取得・タイムアウト・離脱・可視性変更 |
 | `apps/web/src/monitoring/monitoringPresentation.ts` | DTOからカードへの純粋な表示変換、JST書式 |
 | `apps/web/src/monitoring/MonitoringDashboard.tsx` | 更新行、4カード、下段2表の静的骨格 |
-| `apps/web/src/monitoring/MonitoringToolbar.tsx` | 固定ツールバーの配置見本。後続から機能を接続できる境界 |
+| `apps/web/src/monitoring/MonitoringToolbar.tsx` | 固定ツールバーの配置見本。M3 Expressiveの`GbButton`を使用し、後続から機能を接続できる境界 |
+| `apps/web/src/components/md/GbButton.tsx`、`components/md/index.ts` | `@material/web/labs/gb/components/button` の`md-gb-button`を登録し、`color`・`size`・`square`を型付きReact propsとして公開 |
 | `apps/web/src/monitoring/monitoring.css` | 監視専用の寸法・状態トークン参照・レスポンシブ |
 | `apps/web/src/theme/systemStatusColors.ts`、`theme/applyTheme.ts` | シードの集中定義・MCU明暗スキームから状態色を生成・テーマ適用 |
 | `apps/web/src/App.tsx`、`shell/AppShell.tsx` | monitor分岐・toolbar接続・mainの監視用クラス |
@@ -249,9 +250,9 @@ function MonitoringDashboard(props: { terminalId: string }): React.JSX.Element;
 function MonitoringToolbar(): React.JSX.Element;
 ```
 
-`MonitoringDashboard.tsx` は、健全性カードのアイコン名を `card.id` 固定ではなく、`card.id === 'health'` のとき `worstStatus` から選ぶ関数へ分離する。各値は上表の文字列を返し、`null` / `suspended` は `remove` を返す。両表には上記列幅順の `colgroup` を追加し、各実データ行の状態toneから行の強調クラスを決定する。`MonitoringToolbar.tsx` の構造・無効状態は変更せず、専用CSSで固定幅と形状を適用する。
+`MonitoringDashboard.tsx` は、健全性カードのアイコン名を `card.id` 固定ではなく、`card.id === 'health'` のとき `worstStatus` から選ぶ関数へ分離する。各値は上表の文字列を返し、`null` / `suspended` は `remove` を返す。両表には上記列比率順の `colgroup` を追加し、各実データ行の状態toneから行の強調クラスを決定する。`MonitoringToolbar.tsx` は既存のグループ構造・無効状態を維持して`GbButton`へ置換し、専用CSSで固定幅だけを適用する。
 
-Materialボタンは既存 `components/md` の型付きexportを利用する。生mdタグ・CSS以外のbare import・依存追加は不要。既存shellPreviewは監視ツールバーと衝突させず、通知確認機能が失われないよう検証する。
+`md-gb-button` は既存バレルに未登録であるため、上記型付きラッパーを追加してから利用する。生mdタグ・CSS以外のbare import・依存追加は不要。既存shellPreviewは監視ツールバーと衝突させず、通知確認機能が失われないよう検証する。
 
 ## 7. 設計承認の記録
 
@@ -276,9 +277,10 @@ Materialボタンは既存 `components/md` の型付きexportを利用する。�
 - [ ] 通常画面の下段には§3.2の列見出し・6系列/8種の行名があり、それ以外の未接続セルはすべて「ー」。正常・ゼロ件・架空地域・時刻を表示しない。ツールバーの順序と余白を確認し、全ボタン無効、クリックで制御POSTやダイアログが発生しない。
 - [ ] healthのnormal/delayed/abnormal/suspended/null fixtureを順に表示し、承認済み状態色と文字の対応、nullが正常に化けないことを確認する。
 - [ ] healthのnormal/delayed/abnormal fixtureを順にサーバー描画し、取得健全性カードのMaterial Symbols名が順に `check` / `check_alert` / `close` となること、SVGを描画しないことを確認する。suspended/null fixtureでは `remove` が描画され、状態文字と無彩色で停止中／判定待ちを判別できることを確認する。
-- [ ] 取得元表と情報表の `colgroup` を検査し、指定した列順・px幅、`table-layout: fixed`、最小幅946 px / 900 pxが適用されていることを確認する。各列へ最長の既知表示値を入れても同一列の幅が変化せず、狭い本体幅では表コンテナだけが横スクロールしてヘッダー・カード・ツールバーが横溢れしないことを、フォント読込完了後に確認する。
+- [ ] 取得元表と情報表の `colgroup` を検査し、指定した列順・%比率、`table-layout: fixed`、`width: 100%`、既存の最小幅920 pxが適用されていることを確認する。各列へ最長の既知表示値を入れても同一列の比率が変化せず、横幅920 px超では表が利用可能な横幅をすべて使うことを、フォント読込完了後に確認する。狭い本体幅では表コンテナだけが横スクロールしてヘッダー・カード・ツールバーが横溢れしないことを確認する。
 - [ ] delayed / abnormal の取得元行とattention / errorの情報行をfixtureで表示し、該当行の全セルがそれぞれ黄／赤の `container` 背景と対応する `on-container` 前景になること、通常・停止・判定待ち行の背景が変化しないことを確認する。通常文字と背景のコントラストを4.5:1以上で計測する。
-- [ ] 1920×1080 CSS px・100%および760 px未満で、各ツールバーボタンが120 px × 40 px、角丸0 pxであり、ラベル文字数にかかわらず同じ幅であることを確認する。既存のグループ間隔、折返し、右端の送信配置（狭幅では最後のグループ）が維持されることを確認する。
+- [ ] `md-gb-button` の型付きラッパーが`@material/web/labs/gb/components/button`を登録し、`color="filled"`、`size="sm"`、`square`、`disabled`をReact propsとして渡せることを型検査と本番ビルドで確認する。生タグ・CSS以外のbare importがないことを確認する。
+- [ ] 1920×1080 CSS px・100%および760 px未満で、各ツールバーボタンが120 px幅、`size="sm"`の40 px高、`square`プロパティによるM3 Expressive square shapeであり、ラベル文字数にかかわらず同じ幅であることを確認する。未選択・選択・押下の各状態でLabsコンポーネント本来の形状遷移を妨げないこと、既存のグループ間隔、折返し、右端の送信配置（狭幅では最後のグループ）が維持されることを確認する。
 - [ ] schedulerRunning=falseと初回同期の4状態を組み合わせ、「手動停止」「停止処理完了」と断定せず、初回同期失敗が見えることを確認する。
 - [ ] 会場Aが再処理完了・会場Bが再処理中、全会場idle、完了0件を表示し、会場別の状態と「起動時再処理」が確認できる。総数からライブキュー数を捏造しない。
 - [ ] 時間帯設定を変更したfixtureで時間帯と次の切替がそのまま変わり、固定時刻・通常/低頻度の推測表示がない。
@@ -289,7 +291,7 @@ Materialボタンは既存 `components/md` の型付きexportを利用する。�
 - [ ] 指定3色がシードとして1箇所に定義され、MCU 0.3.0の明暗スキームのprimary系から対応トークンが生成されること、赤だけerror系へ差し替えられていないこと、コンポーネント・CSS・fixtureにHEX直書きがなく、警戒レベル色・通知色を変更していないことを確認する。正常/動作中/遅延/異常/停止/未評価fixtureで色と文言の対応を確認する。
 - [ ] 使用する明暗テーマと各状態について、実際の前景・背景の組合せで通常文字4.5:1以上、大きな文字3:1以上、意味を持つ図形と背景3:1以上を計測する。生成色の直接上書きやシード値の表示色固定で対処せず、対応するスキームの前景・背景ペアと実際のテーマ適用範囲を確認し、不足が残る場合は統括へ戻す。正常と動作中は色覚に依存せず状態文字で区別できる。
 - [ ] キーボードでナビから本文へ移動でき、失敗状態は文字で判別できる。アイコン単独の意味伝達や大量の反復読み上げがない。
-- [ ] `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run test -w apps/web`、`npm run build`を実行して通過する。本番ビルドでもMaterialボタンが描画されることを確認する。
+- [ ] `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run test -w apps/web`、`npm run build`を実行して通過する。本番ビルドでも`md-gb-button`が描画され、開発時だけに登録が依存しないことを確認する。
 
 ## 9. 後続Issueへの引き継ぎ
 
@@ -299,12 +301,12 @@ Materialボタンは既存 `components/md` の型付きexportを利用する。�
 - K3/K4/K5：受信履歴・電文履歴・出力履歴・操作記録の入口と実体の担当を整理する。出力履歴だけでは通知されない現在の問題を網羅できない。
 - K6 #79：取得元表骨格へ実データを接続。6系列・停止・評価待ち・再試行・タイル別判定を扱う。カードの健全性を独自に再評価しない。
 - K7 #80：情報表骨格へ実データを接続。会場別要素、availabilityの3状態、保存値、一部未確認の扱いを決める。8行予約を理由に情報を欠落させない。
-- K6 #79/K7 #80：本書で定めた `colgroup` の列幅と、attention/errorの行全体を状態コンテナで強調する規則を維持する。新規列の追加・既存列の幅変更は表示内容と横スクロール幅への影響を明記して別途設計する。
+- K6 #79/K7 #80：本書で定めた `colgroup` の列比率と、attention/errorの行全体を状態コンテナで強調する規則を維持する。新規列の追加・既存列の比率変更は利用可能幅に対する表示への影響を明記して別途設計する。
 - K8 #81：常設パネルではなくツールバー「状態診断」から開く。現時点の未解消問題とブラウザ疎通・上流異常を区別し、原因・影響・再試行予定のAPI充足性を点検する。
 - K9：H端末の装置異常系通知の表示除外は本書の対象外。
 
 ## 10. 設計時点の検証状況
 
-コード・DTO・既存CSSの静的調査を実施。統括担当によりMCU 0.3.0で指定3シードからdarkのprimary / primaryContainer / onPrimaryContainerを生成できることは実行確認済み。UIの実背景に対する可読性の確認とは区別する。devサーバー起動、実API接続、ブラウザでの実寸計測、Materialボタン配置、タイマー・可視性切替は**実挙動未確認**。列幅・ボタン幅は既存CSS、Material Webの公開CSSカスタムプロパティ、ラベルlarge 14 pxと既存左右24 px余白からの設計値であり、フルHDへ収まることは製造・検収で確認する。
+コード・DTO・既存CSSの静的調査を実施。統括担当によりMCU 0.3.0で指定3シードからdarkのprimary / primaryContainer / onPrimaryContainerを生成できることは実行確認済み。UIの実背景に対する可読性の確認とは区別する。Material Web 2.5.0の`@material/web/labs/gb/components/button`に`md-gb-button`、`color`・`size`・`square` props、およびExpressive square shapeが存在することを静的確認した。devサーバー起動、実API接続、ブラウザでの実寸計測、Labsボタンの状態遷移、タイマー・可視性切替は**実挙動未確認**。列比率・ボタン幅は既存CSSと表示構成からの設計値であり、フルHDへ収まることは製造・検収で確認する。
 
 着手時の `git -c core.fsmonitor=false status --porcelain` は差分なし。本フェーズの成果物は本設計書1本のみ。製造・コミット・PR作成は実施しない。
