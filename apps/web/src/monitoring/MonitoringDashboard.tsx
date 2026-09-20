@@ -1,10 +1,11 @@
+import { memo, useMemo } from 'react';
+import type { MonitoringLoadState } from './useMonitoringStatus';
 import {
   buildMonitoringCards,
   formatJstDateTime,
   type MonitoringCard,
 } from './monitoringPresentation';
 import { useMonitoringStatus } from './useMonitoringStatus';
-import './monitoring.css';
 
 const SOURCE_HEADERS = [
   '取得元',
@@ -30,7 +31,7 @@ const INFORMATION_HEADERS = [
   '反映状態',
   '情報時刻',
   '反映時刻',
-  '要約',
+  '有効な情報件数',
 ] as const;
 const INFORMATION_ROWS = [
   '気象防災速報',
@@ -58,7 +59,13 @@ function CardIcon({ id }: { id: MonitoringCard['id'] }) {
   return <path d="M5 4h10l4 4v12H5Zm10 0v5h4M8 13h8m-8 3h6" />;
 }
 
-function MonitoringCardView({ card, stale }: { card: MonitoringCard; stale: boolean }) {
+const MonitoringCardView = memo(function MonitoringCardView({
+  card,
+  stale,
+}: {
+  card: MonitoringCard;
+  stale: boolean;
+}) {
   return (
     <article
       className={`monitoring-card monitoring-tone-${card.tone}${stale ? ' monitoring-stale' : ''}`}
@@ -89,9 +96,9 @@ function MonitoringCardView({ card, stale }: { card: MonitoringCard; stale: bool
       </div>
     </article>
   );
-}
+});
 
-function SkeletonTable({
+const SkeletonTable = memo(function SkeletonTable({
   title,
   headers,
   rows,
@@ -130,11 +137,11 @@ function SkeletonTable({
       </div>
     </section>
   );
-}
+});
 
-export function MonitoringDashboard({ terminalId }: { terminalId: string }) {
-  const state = useMonitoringStatus(terminalId);
-  const cards = state.data ? buildMonitoringCards(state.data) : null;
+export function MonitoringDashboardView({ state }: { state: MonitoringLoadState }) {
+  // 更新中は既存データを維持し、更新行だけを差し替える。
+  const cards = useMemo(() => (state.data ? buildMonitoringCards(state.data) : null), [state.data]);
   const failed = state.phase === 'failed';
   const refreshing = state.phase === 'refreshing';
   const message =
@@ -151,7 +158,7 @@ export function MonitoringDashboard({ terminalId }: { terminalId: string }) {
   return (
     <div className="monitoring-dashboard" aria-label="取得監視">
       <div className="monitoring-update-row" role="status" aria-live="polite">
-        <span>{message}</span>
+        {message && <span>{message}</span>}
         <span>
           最終表示更新{' '}
           {state.data ? (
@@ -165,9 +172,7 @@ export function MonitoringDashboard({ terminalId }: { terminalId: string }) {
       </div>
       <section className="monitoring-cards" aria-label="監視の概要">
         {cards ? (
-          cards.map((card) => (
-            <MonitoringCardView card={card} stale={failed || refreshing} key={card.id} />
-          ))
+          cards.map((card) => <MonitoringCardView card={card} stale={failed} key={card.id} />)
         ) : (
           <>
             <MonitoringCardView
@@ -221,4 +226,9 @@ export function MonitoringDashboard({ terminalId }: { terminalId: string }) {
       />
     </div>
   );
+}
+
+export function MonitoringDashboard({ terminalId }: { terminalId: string }) {
+  const state = useMonitoringStatus(terminalId);
+  return <MonitoringDashboardView state={state} />;
 }
