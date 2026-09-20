@@ -959,3 +959,57 @@ test('weather-bosai-bulletin-cancelled: 速報取消用の定義が正しく解�
     },
   });
 });
+
+test('T10: system-force-fetch-aborted: 強制取得中断用の定義が正しく解決される (warning, omitTarget, action=none, ackRequired=false)', () => {
+  const notif = createSystemNotification({
+    category: 'warning',
+    changeType: 'force_fetch_aborted',
+    sourceType: 'fetch_control',
+  });
+
+  const resolved = resolveNotificationMessage(notif, {
+    definitionId: 'system-force-fetch-aborted',
+    omitTarget: true,
+  });
+
+  const snapshot: ResolvedNotificationOutputSnapshot = resolved;
+  assert.equal(snapshot.messageDefinition.id, 'system-force-fetch-aborted');
+
+  assert.deepEqual(resolved, {
+    display: {
+      title: '強制取得中断',
+      target: null,
+      content: null,
+    },
+    action: null,
+    ackRequired: false,
+    summary: '強制取得中断',
+    messageDefinition: {
+      id: 'system-force-fetch-aborted',
+      version: '1',
+    },
+  });
+});
+
+test('T11: system-force-fetch-aborted: category 不一致 (question) の通知に同定義を適用すると notification_mismatch で例外になる', () => {
+  const notif = createSystemNotification({
+    category: 'question',
+    changeType: 'force_fetch_aborted',
+    sourceType: 'fetch_control',
+  });
+
+  assert.throws(
+    () => {
+      resolveNotificationMessage(notif, {
+        definitionId: 'system-force-fetch-aborted',
+        omitTarget: true,
+      });
+    },
+    (err: unknown) => {
+      assert.ok(err instanceof NotificationMessageResolutionError);
+      assert.equal(err.code, 'notification_mismatch');
+      assert.equal(err.definitionId, 'system-force-fetch-aborted');
+      return true;
+    },
+  );
+});

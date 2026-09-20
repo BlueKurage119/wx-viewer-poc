@@ -175,6 +175,7 @@ export type NotificationMessageDefinitionId =
   | 'system-fetch-manually-stopped'
   | 'system-fetch-manually-started'
   | 'system-force-fetch-completed'
+  | 'system-force-fetch-aborted'
   | 'system-force-fetch-failed';
 
 export interface ResolveNotificationMessageInput {
@@ -256,7 +257,10 @@ TypeScript の union はコンパイル時の入力を制限するが、JavaScri
 | `system-fetch-manually-stopped` | warning | 取得手動停止 | 通知対象（区分名、全部の場合は省略可） | なし | なし |
 | `system-fetch-manually-started` | warning | 取得手動開始 | 通知対象（区分名、全部の場合は省略可） | なし | なし |
 | `system-force-fetch-completed` | warning | 強制取得完了 | 通知対象（区分名、全部の場合は省略可） | なし | なし |
+| `system-force-fetch-aborted` | warning | 強制取得中断 | 通知対象（区分名、全部の場合は省略可） | なし | なし |
 | `system-force-fetch-failed` | question | 強制取得失敗 | 通知対象（区分名） | なし | 確認 |
+
+※ `system-force-fetch-aborted` は Issue #178 にて停止中・終了時の強制取得中断専用通知として追加。
 
 システム通知はいずれも `origin: 'system'` を必須とする。装置系 `changeType` の正式値が確定していないため、初期 matcher は `changeType` を固定しない。各通知を発生させる後続実装は、独自の詳細文を必須とせず、必要な場合だけ `detail` を渡す。
 

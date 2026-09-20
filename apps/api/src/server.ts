@@ -13,6 +13,7 @@ import {
 } from './config/index.js';
 import {
   createFetchControlService,
+  ForceRefreshAbortedError,
   ForceRefreshFailedError,
   type FetchControlService,
   type FetchControlTargets,
@@ -307,6 +308,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
           if (result.failedSources.length > 0) {
             throw new ForceRefreshFailedError(result.failedSources);
           }
+          if (result.abortedSources.length > 0) {
+            throw new ForceRefreshAbortedError(result.abortedSources);
+          }
         },
         runRecovery: () => {
           if (!scheduler) throw new Error('scheduler is not ready');
@@ -527,6 +531,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       if (fetchHealthMonitorService) {
         fetchHealthMonitorService.stop();
       }
+      // scheduler.stop() は既定理由 'stop' で abort するため、シャットダウン理由はその前に伝える
+      if (pollingService && closeOptions?.reason === 'signal') {
+        await pollingService.stop('shutdown');
+      }
       if (scheduler) {
         await scheduler.stop();
       }
@@ -649,6 +657,9 @@ async function main(): Promise<void> {
           const result = await scheduler.runManualOnce();
           if (result.failedSources.length > 0) {
             throw new ForceRefreshFailedError(result.failedSources);
+          }
+          if (result.abortedSources.length > 0) {
+            throw new ForceRefreshAbortedError(result.abortedSources);
           }
         },
         runRecovery: () => {
