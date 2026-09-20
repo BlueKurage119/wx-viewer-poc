@@ -162,6 +162,44 @@ test('buildInformationRows: 会場フィルタと固定8行順序 (AC-1, AC-2)',
   assert.equal(targets.includes('羽田'), false);
 });
 
+test('buildInformationRows: 他会場の値を混ぜず、端末の会場の値だけを表示する (AC-1)', () => {
+  // 他会場の値は、状態・件数とも端末の会場と異なる値にして区別できるようにする
+  const eastInformation = createDefaultVenueInformation('east');
+  const trcInformation = createDefaultVenueInformation('trc').map((section) => ({
+    ...section,
+    availability: 'unavailable' as const,
+    summaryCount: 999,
+  }));
+
+  // 端末の会場が east のとき、後ろに並ぶ trc の値で上書きされない
+  const eastRows = buildInformationRows({
+    ...normalMonitoringResponseFixture,
+    requestedVenueId: 'east',
+    information: [...eastInformation, ...trcInformation],
+  });
+  const eastWarning = eastRows.find((r) => r.kind === 'warning')!;
+  assert.equal(eastWarning.stateLabel, '利用可能');
+  assert.equal(eastWarning.summaryCountText, '2');
+  assert.equal(
+    eastRows.some((r) => r.summaryCountText === '999'),
+    false,
+  );
+
+  // 端末の会場が trc のとき、後ろに並ぶ east の値で上書きされない
+  const trcRows = buildInformationRows({
+    ...normalMonitoringResponseFixture,
+    requestedVenueId: 'trc',
+    information: [...trcInformation, ...eastInformation],
+  });
+  const trcWarning = trcRows.find((r) => r.kind === 'warning')!;
+  assert.equal(trcWarning.stateLabel, '未取得');
+  assert.equal(trcWarning.summaryCountText, '999');
+  assert.equal(
+    trcRows.every((r) => r.summaryCountText === '999'),
+    true,
+  );
+});
+
 test('buildInformationRows: 反映状態3値の1対1マッピングと縮退なし (AC-3)', () => {
   const availabilities = ['available', 'stale', 'unavailable'] as const;
   const expectedLabels = ['利用可能', '情報なし', '未取得'];
