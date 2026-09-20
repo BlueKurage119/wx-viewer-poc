@@ -1,6 +1,6 @@
 # Issue #74 K1：取得監視ダッシュボードの基本レイアウト
 
-- 状態：レイアウト調整の設計更新・承認待ち
+- 状態：設計承認済み・製造開始待ち
 - 対象：K1 #74のみ。設計担当：Codex
 - 設計日：2026-09-21
 - 設計時点ではコード・設定・ブランチ・コミットを変更しない。
@@ -72,7 +72,7 @@
 | ヘッダー | 現行48 pxを維持 |
 | ナビレール | 現行72 pxを維持 |
 | 通知領域 | 現行96 px（32 px×3行）を維持 |
-| ツールバー | 48 px程度、ボタン40 px、上下4 px・左右16 px |
+| ツールバー | 1行時48 px程度、ボタン40 px、上下4 px・左右16 px。120 px固定幅の全ボタンが1行に収まらないときは必要な行数へ拡張 |
 | 監視本体 | 1080時888 px、960時768 px。上下16 px・左右24 px |
 | 最終表示更新行 | 24 px。失敗メッセージを左、時刻を右 |
 | カード | 112 px以上、4等分・間隔16 px。アイコン48 px、本文14〜16 px、主要値24 px |
@@ -110,7 +110,9 @@
 
 監視ツールバーに限定したCSSで既存のmin-height 60 px・上下padding 8 pxを48 px・4 pxへ上書きする。他画面のツールバー寸法は維持する。
 
-各 `md-gb-button` は `inline-size: 120px`（全角5文字を収める固定幅）とする。Material Web 2.5.0のM3 Expressive Labsボタンを型付きラッパー経由で使用し、`color="filled"`、`size="sm"`、`square` を指定する。`square` は角丸を0 pxへ上書きするものではなく、同コンポーネントが定義するExpressiveのsquare shapeと状態遷移を使用する。幅はラベル文字数で変化させず、既存のグループ間隔・狭幅時の折返し・右端の送信配置を維持する。
+各 `md-gb-button` は `inline-size: 120px`（全角5文字を収める固定幅）とする。Material Web 2.5.0のM3 Expressive Labsボタンを型付き`GbButton`ラッパーおよび`components/md`バレル経由で使用し、`color="filled"`、`size="sm"`、`square` を指定する。`square` は角丸を0 pxへ上書きするものではなく、同コンポーネントが定義するExpressiveのsquare shapeと状態遷移を使用する。幅はラベル文字数で変化させない。
+
+8ボタンの合計960 px、グループ内間隔24 px、5グループ間の間隔96 pxにより、ツールバー内容の1行必要幅は1080 pxである。`.monitoring-toolbar` は常に `flex-wrap: wrap` を指定し、利用可能な内容幅が1080 px未満になった時点からグループ単位で折り返す。`.view-toolbar-monitor` は固定`height`を使わず `min-height: 48px; height: auto` とし、折返した行を内包する。各グループは分割せず、`monitoring-toolbar-submit` は折返し後も最後の行の右端に配置する。シェル外への横溢れ・ボタンの縮小・スクロールによる回避は行わない。他画面のツールバー寸法・折返し規則は維持する。
 
 ## 4. データ契約とカード表示【承認済み設計】
 
@@ -223,7 +225,7 @@ function createSystemStatusColors(dark: boolean): Record<SystemStatusColorToken,
 | `apps/web/src/monitoring/monitoringPresentation.ts` | DTOからカードへの純粋な表示変換、JST書式 |
 | `apps/web/src/monitoring/MonitoringDashboard.tsx` | 更新行、4カード、下段2表の静的骨格 |
 | `apps/web/src/monitoring/MonitoringToolbar.tsx` | 固定ツールバーの配置見本。M3 Expressiveの`GbButton`を使用し、後続から機能を接続できる境界 |
-| `apps/web/src/components/md/GbButton.tsx`、`components/md/index.ts` | `@material/web/labs/gb/components/button` の`md-gb-button`を登録し、`color`・`size`・`square`を型付きReact propsとして公開 |
+| `apps/web/src/components/md/GbButton.tsx`、`components/md/index.ts` | `GbButton.tsx` が`@material/web/labs/gb/components/button/md-gb-button.js`を登録し、`color`・`size`・`square`を型付きReact propsとして公開する。利用側は必ず`components/md`バレルからimportする |
 | `apps/web/src/monitoring/monitoring.css` | 監視専用の寸法・状態トークン参照・レスポンシブ |
 | `apps/web/src/theme/systemStatusColors.ts`、`theme/applyTheme.ts` | シードの集中定義・MCU明暗スキームから状態色を生成・テーマ適用 |
 | `apps/web/src/App.tsx`、`shell/AppShell.tsx` | monitor分岐・toolbar接続・mainの監視用クラス |
@@ -250,9 +252,9 @@ function MonitoringDashboard(props: { terminalId: string }): React.JSX.Element;
 function MonitoringToolbar(): React.JSX.Element;
 ```
 
-`MonitoringDashboard.tsx` は、健全性カードのアイコン名を `card.id` 固定ではなく、`card.id === 'health'` のとき `worstStatus` から選ぶ関数へ分離する。各値は上表の文字列を返し、`null` / `suspended` は `remove` を返す。両表には上記列比率順の `colgroup` を追加し、各実データ行の状態toneから行の強調クラスを決定する。`MonitoringToolbar.tsx` は既存のグループ構造・無効状態を維持して`GbButton`へ置換し、専用CSSで固定幅だけを適用する。
+`MonitoringDashboard.tsx` は、健全性カードのアイコン名を `card.id` 固定ではなく、`card.id === 'health'` のとき `worstStatus` から選ぶ関数へ分離する。各値は上表の文字列を返し、`null` / `suspended` は `remove` を返す。両表には上記列比率順の `colgroup` を追加し、各実データ行の状態toneから行の強調クラスを決定する。`MonitoringToolbar.tsx` は既存のグループ構造・無効状態を維持して、`../components/md`のバレルから`GbButton`をimportする。専用CSSで固定幅とグループ単位の自然な折返しを適用する。
 
-`md-gb-button` は既存バレルに未登録であるため、上記型付きラッパーを追加してから利用する。生mdタグ・CSS以外のbare import・依存追加は不要。既存shellPreviewは監視ツールバーと衝突させず、通知確認機能が失われないよう検証する。
+`md-gb-button` は既存バレルに未登録であるため、`GbButton.tsx` 内の`createComponent`でカスタム要素を登録し、`components/md/index.ts`から公開してから利用する。登録用のbare importを`main.tsx`などのアプリ起動側へ置かない。生mdタグ・CSS以外のbare import・依存追加は不要。既存shellPreviewは監視ツールバーと衝突させず、通知確認機能が失われないよう検証する。
 
 ## 7. 設計承認の記録
 
@@ -272,15 +274,15 @@ function MonitoringToolbar(): React.JSX.Element;
 §7の承認内容を前提として、検収担当が以下を項目ごとに実施する。
 
 - [ ] K端末 `#monitor` を開き、4カード→取得元表骨格→情報表骨格の順、固定ツールバー、既存通知3行を確認する。「現在の異常」常設パネルがない。
-- [ ] 1920×1080および1920×960 CSS px・100%で通常画面の6行/8行の静的表骨格を表示し、本体のscrollHeightがclientHeight以内、横溢れなし、全ボタンと通知欄が見える。ツールバーが48 px程度であることを含め実測値を記録する。
+- [ ] 1920×1080および1920×960 CSS px・100%で通常画面の6行/8行の静的表骨格を表示し、本体のscrollHeightがclientHeight以内、横溢れなし、全ボタンと通知欄が見える。ツールバーが1行時48 px程度であることを含め実測値を記録する。
 - [ ] 基本行数を超える追加行、1280×720、文字拡大200%で本体をスクロールし、ヘッダー・ツールバー・通知欄が本体と一緒に流れず、主要値や送信が切れない。
 - [ ] 通常画面の下段には§3.2の列見出し・6系列/8種の行名があり、それ以外の未接続セルはすべて「ー」。正常・ゼロ件・架空地域・時刻を表示しない。ツールバーの順序と余白を確認し、全ボタン無効、クリックで制御POSTやダイアログが発生しない。
 - [ ] healthのnormal/delayed/abnormal/suspended/null fixtureを順に表示し、承認済み状態色と文字の対応、nullが正常に化けないことを確認する。
 - [ ] healthのnormal/delayed/abnormal fixtureを順にサーバー描画し、取得健全性カードのMaterial Symbols名が順に `check` / `check_alert` / `close` となること、SVGを描画しないことを確認する。suspended/null fixtureでは `remove` が描画され、状態文字と無彩色で停止中／判定待ちを判別できることを確認する。
 - [ ] 取得元表と情報表の `colgroup` を検査し、指定した列順・%比率、`table-layout: fixed`、`width: 100%`、既存の最小幅920 pxが適用されていることを確認する。各列へ最長の既知表示値を入れても同一列の比率が変化せず、横幅920 px超では表が利用可能な横幅をすべて使うことを、フォント読込完了後に確認する。狭い本体幅では表コンテナだけが横スクロールしてヘッダー・カード・ツールバーが横溢れしないことを確認する。
 - [ ] delayed / abnormal の取得元行とattention / errorの情報行をfixtureで表示し、該当行の全セルがそれぞれ黄／赤の `container` 背景と対応する `on-container` 前景になること、通常・停止・判定待ち行の背景が変化しないことを確認する。通常文字と背景のコントラストを4.5:1以上で計測する。
-- [ ] `md-gb-button` の型付きラッパーが`@material/web/labs/gb/components/button`を登録し、`color="filled"`、`size="sm"`、`square`、`disabled`をReact propsとして渡せることを型検査と本番ビルドで確認する。生タグ・CSS以外のbare importがないことを確認する。
-- [ ] 1920×1080 CSS px・100%および760 px未満で、各ツールバーボタンが120 px幅、`size="sm"`の40 px高、`square`プロパティによるM3 Expressive square shapeであり、ラベル文字数にかかわらず同じ幅であることを確認する。未選択・選択・押下の各状態でLabsコンポーネント本来の形状遷移を妨げないこと、既存のグループ間隔、折返し、右端の送信配置（狭幅では最後のグループ）が維持されることを確認する。
+- [ ] `GbButton.tsx` の型付きラッパーが`@material/web/labs/gb/components/button/md-gb-button.js`を登録し、`components/md/index.ts`から`GbButton`を公開することを確認する。`MonitoringToolbar.tsx`がこのバレルからのみimportし、`main.tsx`などに登録用bare import、生`md-gb-button`タグ、個別ラッパーへの直接importがないことを型検査と本番ビルドで確認する。`color="filled"`、`size="sm"`、`square`、`disabled`をReact propsとして渡せることを確認する。
+- [ ] 内容幅1080 px以上、1079 px、760 px未満でツールバーを表示する。1080 px以上では各ボタンが120 px幅・`size="sm"`の40 px高・`square`プロパティによるM3 Expressive square shapeの1行であり、ラベル文字数にかかわらず同じ幅であることを確認する。1079 px以下ではグループを分割せず折り返し、toolbar自身が必要な高さへ拡張し、シェル外への横溢れ・横スクロール・ボタン縮小がないことを確認する。送信は折返し後も最後の行の右端にあり、未選択・選択・押下でLabsコンポーネント本来の形状遷移を妨げないことを確認する。
 - [ ] schedulerRunning=falseと初回同期の4状態を組み合わせ、「手動停止」「停止処理完了」と断定せず、初回同期失敗が見えることを確認する。
 - [ ] 会場Aが再処理完了・会場Bが再処理中、全会場idle、完了0件を表示し、会場別の状態と「起動時再処理」が確認できる。総数からライブキュー数を捏造しない。
 - [ ] 時間帯設定を変更したfixtureで時間帯と次の切替がそのまま変わり、固定時刻・通常/低頻度の推測表示がない。
@@ -307,6 +309,6 @@ function MonitoringToolbar(): React.JSX.Element;
 
 ## 10. 設計時点の検証状況
 
-コード・DTO・既存CSSの静的調査を実施。統括担当によりMCU 0.3.0で指定3シードからdarkのprimary / primaryContainer / onPrimaryContainerを生成できることは実行確認済み。UIの実背景に対する可読性の確認とは区別する。Material Web 2.5.0の`@material/web/labs/gb/components/button`に`md-gb-button`、`color`・`size`・`square` props、およびExpressive square shapeが存在することを静的確認した。devサーバー起動、実API接続、ブラウザでの実寸計測、Labsボタンの状態遷移、タイマー・可視性切替は**実挙動未確認**。列比率・ボタン幅は既存CSSと表示構成からの設計値であり、フルHDへ収まることは製造・検収で確認する。
+コード・DTO・既存CSSの静的調査を実施。統括担当によりMCU 0.3.0で指定3シードからdarkのprimary / primaryContainer / onPrimaryContainerを生成できることは実行確認済み。UIの実背景に対する可読性の確認とは区別する。Material Web 2.5.0の`@material/web/labs/gb/components/button`に`md-gb-button`、`color`・`size`・`square` props、およびExpressive square shapeが存在することを静的確認した。レビュー時点の実装には`GbButton`バレルを介さない直接import、`main.tsx`での登録用bare import、760 px未満に限った折返しがあり、本設計と差異がある。devサーバー起動、実API接続、ブラウザでの実寸計測、Labsボタンの状態遷移、タイマー・可視性切替は**実挙動未確認**。列比率・ボタン幅は既存CSSと表示構成からの設計値であり、フルHDへ収まることは製造・検収で確認する。
 
 着手時の `git -c core.fsmonitor=false status --porcelain` は差分なし。本フェーズの成果物は本設計書1本のみ。製造・コミット・PR作成は実施しない。
