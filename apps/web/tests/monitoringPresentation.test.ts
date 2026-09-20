@@ -153,7 +153,7 @@ test('buildSourceStatusRows: 状態語の優先順位と文字による区別', 
   for (const r of scheduleStoppedRows) {
     assert.equal(r.state.text, 'スケジュール停止');
   }
-  
+
   // 6. schedulerRunning: false かつ status === 'abnormal' -> 異常が優先（停止で上書きされない）
   const stoppedWithAbnormal = buildSourceStatusRows({
     ...stoppedSchedulerMonitoringResponseFixture,
