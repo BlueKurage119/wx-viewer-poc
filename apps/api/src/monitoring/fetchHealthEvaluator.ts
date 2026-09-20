@@ -44,6 +44,7 @@ export interface FetchSourceHealthResult {
   readonly lastSuccessAt: UtcIso8601String | null;
   readonly maxConsecutiveFailures: number;
   readonly intervalSeconds: number | null;
+  readonly lastDurationMs: number | null;
 }
 
 function formatElapsedText(elapsedSeconds: number): string {
@@ -61,6 +62,7 @@ export function evaluateFetchSourceHealth(
   let latestAttemptAt: UtcIso8601String | null = null;
   let latestSuccessAt: UtcIso8601String | null = null;
   let maxConsecutiveFailures = 0;
+  let lastDurationMs: number | null = null;
 
   for (const stream of input.streams) {
     if (stream.lastAttemptAt !== null) {
@@ -69,6 +71,7 @@ export function evaluateFetchSourceHealth(
         Date.parse(stream.lastAttemptAt) > Date.parse(latestAttemptAt)
       ) {
         latestAttemptAt = stream.lastAttemptAt;
+        lastDurationMs = stream.lastDurationMs;
       }
     }
     if (stream.lastSuccessAt !== null) {
@@ -93,6 +96,7 @@ export function evaluateFetchSourceHealth(
       lastSuccessAt: latestSuccessAt,
       maxConsecutiveFailures,
       intervalSeconds: input.intervalSeconds,
+      lastDurationMs,
     };
   }
 
@@ -195,6 +199,7 @@ export function evaluateFetchSourceHealth(
     lastSuccessAt: latestSuccessAt,
     maxConsecutiveFailures,
     intervalSeconds: input.intervalSeconds,
+    lastDurationMs,
   };
 }
 

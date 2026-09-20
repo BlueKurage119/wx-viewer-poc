@@ -130,6 +130,7 @@ function buildHealthSection(
       consecutiveFailures: null,
       intervalSeconds: null,
       appliesElapsedCondition: def.appliesElapsedCondition,
+      lastDurationMs: null,
       reasons: [],
     }));
     return {
@@ -154,6 +155,7 @@ function buildHealthSection(
         consecutiveFailures: null,
         intervalSeconds: null,
         appliesElapsedCondition: def.appliesElapsedCondition,
+        lastDurationMs: null,
         reasons: [],
       };
     }
@@ -166,6 +168,7 @@ function buildHealthSection(
       consecutiveFailures: r.maxConsecutiveFailures,
       intervalSeconds: r.intervalSeconds,
       appliesElapsedCondition: def.appliesElapsedCondition,
+      lastDurationMs: r.lastDurationMs,
       reasons: r.reasons.map((reason) => ({
         kind: reason.kind,
         status: reason.status,

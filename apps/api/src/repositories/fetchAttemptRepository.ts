@@ -263,7 +263,7 @@ export function summarizeFetchStreamHealth(
   }
 
   const sql = `
-    SELECT id, started_at, outcome
+    SELECT id, started_at, outcome, duration_ms
     FROM fetch_attempt
     WHERE source_kind = ?
     ORDER BY started_at DESC, id DESC
@@ -274,6 +274,7 @@ export function summarizeFetchStreamHealth(
     readonly id: number;
     readonly started_at: string;
     readonly outcome: string;
+    readonly duration_ms: number;
   }
 
   const rows = connection.prepare(sql).all(sourceKind, maxScanAttempts) as WindowRow[];
@@ -285,6 +286,7 @@ export function summarizeFetchStreamHealth(
       lastSuccessAt: null,
       consecutiveFailures: 0,
       consecutiveFailuresCapped: false,
+      lastDurationMs: null,
     };
   }
 
@@ -306,9 +308,11 @@ export function summarizeFetchStreamHealth(
       lastSuccessAt: null,
       consecutiveFailures: 0,
       consecutiveFailuresCapped: false,
+      lastDurationMs: null,
     };
   }
   const lastAttemptAt = firstRow.started_at as UtcIso8601String;
+  const lastDurationMs = firstRow.duration_ms;
 
   let consecutiveFailures = 0;
   for (const row of sorted) {
@@ -348,5 +352,6 @@ export function summarizeFetchStreamHealth(
     lastSuccessAt,
     consecutiveFailures,
     consecutiveFailuresCapped,
+    lastDurationMs,
   };
 }

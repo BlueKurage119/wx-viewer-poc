@@ -33,6 +33,7 @@ test('evaluateFetchSourceHealth: 正常系（連続失敗 0 回、経過時間�
         lastSuccessAt: '2026-09-09T00:00:50.000Z' as UtcIso8601String,
         consecutiveFailures: 0,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 120,
       },
     ],
   };
@@ -60,6 +61,7 @@ test('evaluateFetchSourceHealth: 連続失敗 1 回は正常', () => {
         lastSuccessAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
         consecutiveFailures: 1,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 250,
       },
     ],
   };
@@ -82,9 +84,10 @@ test('evaluateFetchSourceHealth: 連続失敗 2 回で遅延', () => {
       {
         sourceKind: 'xml_feed_regular',
         lastAttemptAt: '2026-09-09T00:00:50.000Z' as UtcIso8601String,
-        lastSuccessAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
+        lastSuccessAt: '2026-09-09T00:00:50.000Z' as UtcIso8601String,
         consecutiveFailures: 2,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 300,
       },
     ],
   };
@@ -109,9 +112,10 @@ test('evaluateFetchSourceHealth: 連続失敗 5 回で異常', () => {
       {
         sourceKind: 'xml_feed_regular',
         lastAttemptAt: '2026-09-09T00:00:50.000Z' as UtcIso8601String,
-        lastSuccessAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
+        lastSuccessAt: '2026-09-09T00:00:50.000Z' as UtcIso8601String,
         consecutiveFailures: 5,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 400,
       },
     ],
   };
@@ -143,6 +147,7 @@ test('evaluateFetchSourceHealth: 経過時間による遅延（適用周期×3 �
         lastSuccessAt,
         consecutiveFailures: 0,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 120,
       },
     ],
   };
@@ -173,6 +178,7 @@ test('evaluateFetchSourceHealth: 経過時間による異常（固定 10 分超�
         lastSuccessAt,
         consecutiveFailures: 0,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 120,
       },
     ],
   };
@@ -203,6 +209,7 @@ test('evaluateFetchSourceHealth: appliesElapsedCondition: false（amedas_point�
         lastSuccessAt,
         consecutiveFailures: 0,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 150,
       },
     ],
   };
@@ -259,6 +266,7 @@ test('evaluateFetchSourceHealth: suspended: true のときは status: "suspended
         lastSuccessAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
         consecutiveFailures: 10,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 500,
       },
     ],
   };
@@ -268,6 +276,7 @@ test('evaluateFetchSourceHealth: suspended: true のときは status: "suspended
   assert.equal(result.reasons.length, 0);
   assert.equal(result.maxConsecutiveFailures, 10);
   assert.equal(result.intervalSeconds, null);
+  assert.equal(result.lastDurationMs, 500);
 });
 
 test('evaluateFetchSourceHealth: activeSinceAt による経過時間の下限（夜間停止明け誤検知防止）', () => {
@@ -290,6 +299,7 @@ test('evaluateFetchSourceHealth: activeSinceAt による経過時間の下限（
         lastSuccessAt,
         consecutiveFailures: 0,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 80,
       },
     ],
   };
@@ -314,13 +324,15 @@ test('evaluateFetchSourceHealth: 複数ストリーム（雨雲 N1/N2）の最�
         lastSuccessAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
         consecutiveFailures: 5,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 700,
       },
       {
         sourceKind: 'radar_times_N2',
         lastAttemptAt: '2026-09-09T00:00:50.000Z' as UtcIso8601String,
-        lastSuccessAt: '2026-09-09T00:00:50.000Z' as UtcIso8601String,
+        lastSuccessAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
         consecutiveFailures: 0,
         consecutiveFailuresCapped: false,
+        lastDurationMs: 600,
       },
     ],
   };
@@ -330,6 +342,100 @@ test('evaluateFetchSourceHealth: 複数ストリーム（雨雲 N1/N2）の最�
   assert.equal(result.maxConsecutiveFailures, 5);
   assert.equal(result.reasons.length, 1);
   assert.equal(result.reasons[0]!.sourceKind, 'radar_times_N1');
+});
+
+test('evaluateFetchSourceHealth: lastDurationMs は lastAttemptAt が新しいストリームの値を採る', () => {
+  const input: EvaluateFetchSourceInput = {
+    sourceId: 'nowcast_target_times',
+    now: '2026-09-09T00:02:00.000Z' as UtcIso8601String,
+    suspended: false,
+    intervalSeconds: 60,
+    appliesElapsedCondition: true,
+    activeSinceAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
+    streams: [
+      {
+        sourceKind: 'radar_times_N1',
+        lastAttemptAt: '2026-09-09T00:01:00.000Z' as UtcIso8601String,
+        lastSuccessAt: '2026-09-09T00:01:00.000Z' as UtcIso8601String,
+        consecutiveFailures: 0,
+        consecutiveFailuresCapped: false,
+        lastDurationMs: 110,
+      },
+      {
+        sourceKind: 'radar_times_N2',
+        lastAttemptAt: '2026-09-09T00:01:30.000Z' as UtcIso8601String,
+        lastSuccessAt: '2026-09-09T00:01:30.000Z' as UtcIso8601String,
+        consecutiveFailures: 0,
+        consecutiveFailuresCapped: false,
+        lastDurationMs: 220,
+      },
+    ],
+  };
+
+  const result = evaluateFetchSourceHealth(input, sampleConfig);
+  assert.equal(result.lastAttemptAt, '2026-09-09T00:01:30.000Z');
+  assert.equal(result.lastDurationMs, 220);
+});
+
+test('evaluateFetchSourceHealth: suspended でも lastDurationMs が残る', () => {
+  const input: EvaluateFetchSourceInput = {
+    sourceId: 'xml_regular',
+    now: '2026-09-09T00:05:00.000Z' as UtcIso8601String,
+    suspended: true,
+    intervalSeconds: null,
+    appliesElapsedCondition: true,
+    activeSinceAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
+    streams: [
+      {
+        sourceKind: 'xml_feed_regular',
+        lastAttemptAt: '2026-09-09T00:04:00.000Z' as UtcIso8601String,
+        lastSuccessAt: '2026-09-09T00:04:00.000Z' as UtcIso8601String,
+        consecutiveFailures: 0,
+        consecutiveFailuresCapped: false,
+        lastDurationMs: 345,
+      },
+    ],
+  };
+
+  const result = evaluateFetchSourceHealth(input, sampleConfig);
+  assert.equal(result.status, 'suspended');
+  assert.equal(result.lastDurationMs, 345);
+});
+
+test('evaluateFetchSourceHealth: lastDurationMs を変更しても status と reasons は変わらない', () => {
+  const baseInput: EvaluateFetchSourceInput = {
+    sourceId: 'xml_regular',
+    now: '2026-09-09T00:01:00.000Z' as UtcIso8601String,
+    suspended: false,
+    intervalSeconds: 60,
+    appliesElapsedCondition: true,
+    activeSinceAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
+    streams: [
+      {
+        sourceKind: 'xml_feed_regular',
+        lastAttemptAt: '2026-09-09T00:00:50.000Z' as UtcIso8601String,
+        lastSuccessAt: '2026-09-09T00:00:50.000Z' as UtcIso8601String,
+        consecutiveFailures: 2,
+        consecutiveFailuresCapped: false,
+        lastDurationMs: 10,
+      },
+    ],
+  };
+
+  const res1 = evaluateFetchSourceHealth(baseInput, sampleConfig);
+  const res2 = evaluateFetchSourceHealth(
+    {
+      ...baseInput,
+      streams: [{ ...baseInput.streams[0]!, lastDurationMs: 99999 }],
+    },
+    sampleConfig,
+  );
+
+  assert.equal(res1.status, res2.status);
+  assert.deepEqual(res1.reasons, res2.reasons);
+  assert.equal(res1.status, 'delayed');
+  assert.equal(res1.lastDurationMs, 10);
+  assert.equal(res2.lastDurationMs, 99999);
 });
 
 test('aggregateFetchHealth: 表示用集約の最悪値と順序固定', () => {
@@ -346,6 +452,7 @@ test('aggregateFetchHealth: 表示用集約の最悪値と順序固定', () => {
     lastSuccessAt: null,
     maxConsecutiveFailures: 0,
     intervalSeconds: 60,
+    lastDurationMs: null,
   });
 
   const results: FetchSourceHealthResult[] = [
@@ -387,6 +494,7 @@ test('aggregateFetchHealth: 全件 suspended の場合は status: "suspended"', 
     lastSuccessAt: null,
     maxConsecutiveFailures: 0,
     intervalSeconds: null,
+    lastDurationMs: null,
   });
 
   const results: FetchSourceHealthResult[] = [
