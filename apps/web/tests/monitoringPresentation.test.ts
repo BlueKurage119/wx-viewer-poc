@@ -190,6 +190,33 @@ test('buildSourceStatusRows: 次回予定の特例（確定事項1）', () => {
   assert.equal(amedasPoint.nextRun.text, '—');
 });
 
+test('buildSourceStatusRows: 適用周期は health 側の値を表示し、scheduledSources 側の値を使わない（§4.3）', () => {
+  const data = {
+    ...normalMonitoringResponseFixture,
+    health: {
+      ...normalMonitoringResponseFixture.health,
+      sources: normalMonitoringResponseFixture.health.sources.map((source) =>
+        source.sourceId === 'xml_regular' ? { ...source, intervalSeconds: 120 } : source,
+      ),
+    },
+    operation: {
+      ...normalMonitoringResponseFixture.operation,
+      scheduledSources: normalMonitoringResponseFixture.operation.scheduledSources.map((source) =>
+        source.source === 'xml' ? { ...source, intervalSeconds: 600 } : source,
+      ),
+    },
+  };
+
+  const rows = buildSourceStatusRows(data);
+  const xmlRegular = rows.find((r) => r.sourceId === 'xml_regular')!;
+  const xmlExtra = rows.find((r) => r.sourceId === 'xml_extra')!;
+
+  // health 側の 120 秒（2分）が表示され、scheduledSources 側の 600 秒（10分）は使われない
+  assert.equal(xmlRegular.interval.text, '2分');
+  // 値を変えていない随時フィードは health 側の 60 秒のまま
+  assert.equal(xmlExtra.interval.text, '1分');
+});
+
 test('buildSourceStatusRows: タイル行の列限定（確定事項3）', () => {
   const rows = buildSourceStatusRows(normalMonitoringResponseFixture);
   const nowcastRow = rows.find((r) => r.sourceId === 'nowcast_target_times')!;

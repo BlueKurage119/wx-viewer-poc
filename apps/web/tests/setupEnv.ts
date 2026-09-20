@@ -1,9 +1,3 @@
-import React from 'react';
-
-if (typeof (globalThis as unknown as { React?: typeof React }).React === 'undefined') {
-  (globalThis as unknown as { React: typeof React }).React = React;
-}
-
 if (typeof globalThis.window === 'undefined') {
   const dummyDoc = {
     createElement: () => ({ style: {} }),

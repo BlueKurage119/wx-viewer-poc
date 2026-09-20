@@ -1551,7 +1551,7 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
         ],
         lastAttemptAt: fixedNowIso,
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
-        maxConsecutiveFailures: idx < 3 ? 2 : 3,
+        maxConsecutiveFailures: 1,
         intervalSeconds: 60,
         lastDurationMs: 100,
       })),
