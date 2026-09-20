@@ -259,13 +259,14 @@ export function buildSourceStatusRows(
     } else if (healthSource.status === 'abnormal') {
       stateCell = { text: '異常', tone: 'error' };
     } else if (healthSource.status === 'delayed') {
+    } else if (healthSource.status === 'delayed') {
       stateCell = { text: '遅延', tone: 'attention' };
+    } else if (!data.operation.schedulerRunning) {
+      stateCell = { text: '停止', tone: 'neutral' };
     } else if (
       healthSource.status === 'suspended' ||
       scheduledSource?.state === 'scheduled_stopped'
     ) {
-      stateCell = { text: '停止', tone: 'neutral' };
-    } else if (!data.operation.schedulerRunning) {
       stateCell = { text: 'スケジュール停止', tone: 'neutral' };
     } else if (scheduledSource?.state === 'running') {
       stateCell = { text: '取得中', tone: 'active' };
