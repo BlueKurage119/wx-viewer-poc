@@ -112,12 +112,15 @@ export function AppShell({
       <main
         id="view-content"
         tabIndex={-1}
-        className={`view-content ${view === 'weather' ? 'view-content-map' : ''}`}
+        className={`view-content ${view === 'weather' ? 'view-content-map' : ''} ${view === 'monitor' ? 'view-content-monitor' : ''}`}
       >
         {children}
       </main>
       {toolbar && (
-        <div className="view-toolbar" aria-label="画面操作">
+        <div
+          className={`view-toolbar ${view === 'monitor' ? 'view-toolbar-monitor' : ''}`}
+          aria-label="画面操作"
+        >
           {toolbar}
         </div>
       )}

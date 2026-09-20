@@ -1,0 +1,258 @@
+.view-content-monitor {
+  padding: 16px 24px;
+}
+
+.monitoring-dashboard {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.monitoring-update-row {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: 16px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.monitoring-update-row span:last-child {
+  white-space: nowrap;
+}
+
+.monitoring-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.monitoring-card {
+  min-height: 112px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 4px;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+}
+
+.monitoring-card-icon {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.monitoring-card-icon-symbol {
+  width: 24px;
+  height: 24px;
+  font-family: 'Material Symbols Outlined', 'Material Icons', sans-serif;
+  font-size: 24px;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.monitoring-card-content {
+  min-width: 0;
+}
+
+.monitoring-card h2,
+.monitoring-table-section h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.monitoring-card-value {
+  margin: 5px 0 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.monitoring-card-detail {
+  margin: 4px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.monitoring-tone-normal .monitoring-card-value,
+.monitoring-tone-normal .monitoring-card-icon {
+  color: var(--wx-system-status-green-foreground);
+}
+
+.monitoring-tone-active {
+  background: var(--wx-system-status-green-container);
+  border-color: var(--wx-system-status-green-container);
+  color: var(--wx-system-status-green-on-container);
+}
+
+.monitoring-tone-active .monitoring-card-icon {
+  background: var(--wx-system-status-green-foreground);
+  color: var(--wx-system-status-green-on-foreground);
+}
+
+.monitoring-tone-active .monitoring-card-detail {
+  color: var(--wx-system-status-green-on-container);
+}
+
+.monitoring-tone-attention .monitoring-card-value,
+.monitoring-tone-attention .monitoring-card-icon {
+  color: var(--wx-system-status-yellow-foreground);
+}
+
+.monitoring-tone-error .monitoring-card-value,
+.monitoring-tone-error .monitoring-card-icon {
+  color: var(--wx-system-status-red-foreground);
+}
+
+.monitoring-detail-normal,
+.monitoring-detail-active {
+  color: var(--wx-system-status-green-foreground);
+}
+
+.monitoring-detail-attention {
+  color: var(--wx-system-status-yellow-foreground);
+}
+
+.monitoring-detail-error {
+  color: var(--wx-system-status-red-foreground);
+}
+
+.monitoring-table-section {
+  min-width: 0;
+}
+
+.monitoring-table-section h2 {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.monitoring-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 4px;
+}
+
+.monitoring-table-section table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.monitoring-table-section th,
+.monitoring-table-section td {
+  height: 30px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  border-right: 1px solid var(--md-sys-color-outline-variant);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.monitoring-table-section thead th {
+  height: 32px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.monitoring-table-section tbody th {
+  font-weight: 500;
+}
+
+.monitoring-table-section tr > :last-child {
+  border-right: 0;
+}
+
+.monitoring-table-section tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.monitoring-unavailable {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.view-toolbar-monitor {
+  min-height: 48px;
+  height: 48px;
+  padding: 4px 16px;
+}
+
+.monitoring-toolbar {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.monitoring-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.monitoring-toolbar-group md-filled-button {
+  --md-filled-button-container-height: 40px;
+}
+
+.monitoring-toolbar-submit {
+  margin-inline-start: auto;
+}
+
+@media (max-width: 1279px) {
+  .monitoring-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .view-content-monitor {
+    padding: 16px;
+  }
+
+  .monitoring-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monitoring-update-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .view-toolbar-monitor {
+    height: auto;
+    min-height: 48px;
+  }
+
+  .monitoring-toolbar {
+    flex-wrap: wrap;
+    gap: 8px 24px;
+  }
+
+  .monitoring-toolbar-submit {
+    margin-inline-start: 0;
+  }
+}
