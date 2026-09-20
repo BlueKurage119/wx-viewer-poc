@@ -164,12 +164,13 @@ Issue本文および基本設計 §8.2 にある「初期化・復旧用の長�
 | 1 | `health.sources[i].status === null`（未評価） | 判定待ち | neutral |
 | 2 | `status === 'abnormal'` | 異常 | error |
 | 3 | `status === 'delayed'` | 遅延 | attention |
-| 4 | `status === 'suspended'` または 対応する `scheduledSources.state === 'scheduled_stopped'` | スケジュール停止 | neutral |
-| 5 | `operation.schedulerRunning === false` | 停止 | neutral |
+| 4 | `operation.schedulerRunning === false` | 停止 | neutral |
+| 5 | `status === 'suspended'` または 対応する `scheduledSources.state === 'scheduled_stopped'` | スケジュール停止 | neutral |
 | 6 | `scheduledSources.state === 'running'` | 取得中 | active |
 | 7 | 上記以外（`state === 'waiting'` かつ `status === 'normal'`） | 待機 | normal |
 
 - 「停止」と「スケジュール停止」は別の表示語にする（Issue受け入れ条件「停止と失敗が色だけでなく文字でも区別される」は、この表の文字表示で満たす）。
+- **「停止」は「スケジュール停止」より先に判定する**（PR #185 レビュー指摘による訂正）。手動停止では、スケジューラが全取得元の `state` を `scheduled_stopped` にし（`timeBasedPollingScheduler.ts` の `!isRunning` 分岐）、健全性評価の `status` も `suspended` になる（`fetchHealthMonitorService.ts` が `state === 'scheduled_stopped'` から導出）。このため順序を逆にすると、実APIでは手動停止が常に「スケジュール停止」と表示され、「停止」に到達しない。時間帯による停止（`schedulerRunning: true` のまま `scheduled_stopped`）だけが「スケジュール停止」になる。
 - 異常・遅延を停止で上書きしない（順序2・3を4・5より先に評価する）。K1設計§4.2「取得停止直後の古い異常評価を『正常』で上書きしない」と整合する。
 - 「再試行待ち」はAPIに項目がないため**表示しない**（§4.7・§10）。
 - 色だけで区別せず、必ず上表の文字を出す。色は `--wx-system-status-*` トークンのみ使用し、HEXを書かない。
@@ -376,6 +377,8 @@ function isHealthSource(value: unknown): boolean;
 
 - [ ] `health.sources[*].status` を `null / normal / delayed / abnormal / suspended` に変えたfixtureを順に表示し、状態列が「判定待ち／待機／遅延／異常／スケジュール停止」と**文字で**変わることを確認する。CSSを無効化（DevToolsで `color`/`background` を切る、またはグレースケール表示）しても5状態が文字だけで区別できることを確認する。
 - [ ] `operation.schedulerRunning: false`・全系列 `state: 'waiting'`・`status: 'normal'` のfixtureで、状態列が全行「停止」になることを確認する。
+- [ ] 手動停止の実APIの組み合わせ（`schedulerRunning: false`・全グループ `scheduled_stopped`・全系列 `suspended`）のfixtureで、状態列が全行「停止」になり、「スケジュール停止」に化けないことを確認する（§4.2 順序4が5より先）。
+- [ ] 上記と同じfixtureで `schedulerRunning: true` にした（時間帯による停止の）場合に、状態列が全行「スケジュール停止」のままであることを確認する。
 - [ ] `schedulerRunning: false` かつ `status: 'abnormal'` のfixtureで、状態列が「異常」であり「停止」に上書きされないことを確認する（§4.2 順序2が4・5より先）。
 - [ ] `scheduledSources` の `nowcast` だけ `state: 'scheduled_stopped'` にしたfixtureで、雨雲時刻一覧の行だけが「スケジュール停止」、他の行が変わらないことを確認する。
 - [ ] `state: 'running'` のfixtureで該当行が「取得中」になることを確認する。

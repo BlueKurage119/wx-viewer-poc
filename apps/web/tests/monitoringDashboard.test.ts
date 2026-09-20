@@ -119,3 +119,110 @@ test('K6: state.data === null（読込中・初回失敗）のときは取得元
   assert.equal(html.includes('正常'), false);
   assert.equal(html.includes('0 / 5'), false);
 });
+
+test('K7: 情報別の反映状況表のレンダリング（th scope、6列見出し、8行名、実データ、アクセシビリティ）', () => {
+  const html = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'ready', data: normalMonitoringResponseFixture },
+    }),
+  );
+
+  assert.ok(html.includes('id="monitoring-information-status-heading">情報別の反映状況</h2>'));
+
+  // 6列の見出し (th scope="col") (AC-18)
+  for (const header of [
+    '情報名',
+    '対象地域・地点',
+    '反映状態',
+    '情報時刻',
+    '反映時刻',
+    '有効な情報件数',
+  ]) {
+    assert.ok(html.includes(`<th scope="col">${header}</th>`));
+  }
+
+  // 8行の見出し (th scope="row") (AC-2, AC-18)
+  for (const row of [
+    '気象防災速報',
+    '気象警報・注意報',
+    '警報等時系列',
+    '警報級の可能性',
+    'アメダス',
+    '地域時系列予報',
+    '雨雲',
+    'キキクル',
+  ]) {
+    assert.ok(html.includes(`<th scope="row">${row}</th>`));
+  }
+
+  // 実データと案C（江東区、東京地方、江戸川臨海、雨雲・キキクルは「—」） (AC-1, AC-9)
+  assert.ok(html.includes('<td>江東区</td>'));
+  assert.ok(html.includes('<td>東京地方</td>'));
+  assert.ok(html.includes('<td>江戸川臨海</td>'));
+  assert.equal(html.includes('大田区'), false);
+  assert.equal(html.includes('羽田'), false);
+
+  // 反映状態（利用可能）
+  assert.ok(html.includes('monitoring-information-state monitoring-tone-normal">利用可能</td>'));
+
+  // 時刻セルと <time dateTime> (AC-5, AC-18)
+  assert.ok(
+    html.includes(
+      '<td class="monitoring-time"><time dateTime="2026-09-20T05:25:00.000Z">09/20 14:25:00</time></td>',
+    ),
+  );
+  assert.ok(
+    html.includes(
+      '<td class="monitoring-time"><time dateTime="2026-09-20T05:25:15.000Z">09/20 14:25:15</time></td>',
+    ),
+  );
+
+  // 気象防災速報は時刻が null で「—」、<time> 要素が出ない (AC-7, AC-8)
+  // row.name が 気象防災速報 の行を検証
+  const bulletinRowMatch = html.match(/<th scope="row">気象防災速報<\/th>(.*?)<\/tr>/);
+  assert.ok(bulletinRowMatch);
+  const bulletinRowHtml = bulletinRowMatch[1];
+  assert.ok(bulletinRowHtml.includes('<td>江東区</td>'));
+  assert.ok(bulletinRowHtml.includes('<td class="monitoring-time">—</td>'));
+  assert.equal(bulletinRowHtml.includes('<time'), false);
+  assert.ok(bulletinRowHtml.includes('<td class="monitoring-numeric">3</td>'));
+});
+
+test('K7: state.data === null（読込中・初回失敗）のときは情報表が全セル「—」のSkeletonTableになる (AC-12)', () => {
+  const html = renderToStaticMarkup(
+    el(MonitoringDashboardView, { state: { phase: 'loading', data: null } }),
+  );
+
+  assert.ok(html.includes('id="monitoring-情報別の反映状況">情報別の反映状況</h2>'));
+
+  // 8行の見出しは存在する
+  for (const row of [
+    '気象防災速報',
+    '気象警報・注意報',
+    '警報等時系列',
+    '警報級の可能性',
+    'アメダス',
+    '地域時系列予報',
+    '雨雲',
+    'キキクル',
+  ]) {
+    assert.ok(html.includes(`<th scope="row">${row}</th>`));
+  }
+
+  // 実データではなく skeleton の monitoring-unavailable
+  assert.equal(html.includes('monitoring-information-state'), false);
+  assert.equal(html.includes('利用可能'), false);
+  assert.equal(html.includes('江東区'), false);
+});
+
+test('K7: state.phase: "failed" かつ前回値ありのとき、前回値の行が保持される (AC-12)', () => {
+  const html = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'failed', data: normalMonitoringResponseFixture },
+    }),
+  );
+
+  assert.ok(html.includes('id="monitoring-information-status-heading">情報別の反映状況</h2>'));
+  assert.ok(html.includes('<td>江東区</td>'));
+  assert.ok(html.includes('利用可能'));
+});

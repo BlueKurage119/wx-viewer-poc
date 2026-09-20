@@ -19,7 +19,7 @@ import {
   unevaluatedMonitoringResponseFixture,
 } from './monitoringFixture.ts';
 
-test('K1: 停止・判定待ち・初回同期失敗と会場別再処理を断定せず表示する', () => {
+test('K1: 停止・判定待ち・初回同期失敗と自会場再処理を断定せず表示する', () => {
   const cards = buildMonitoringCards(monitoringResponseFixture);
 
   assert.deepEqual(cards, [
@@ -49,8 +49,8 @@ test('K1: 停止・判定待ち・初回同期失敗と会場別再処理を断�
       id: 'processing',
       title: '処理待ち',
       value: '起動時再処理',
-      details: ['東地区 再処理完了 0件', 'TRC 再処理中 3 / 8'],
-      tone: 'active',
+      details: ['再処理完了 0件'],
+      tone: 'normal',
     },
   ]);
 });
@@ -320,4 +320,56 @@ test('formatDurationMs: ミリ秒から文字列表現への変換（nullは—�
   assert.equal(formatDurationMs(999), '999 ms');
   assert.equal(formatDurationMs(1000), '1.0 秒');
   assert.equal(formatDurationMs(1500), '1.5 秒');
+});
+
+test('K7: 処理待ちカードは自端末会場のみを表示し、他会場の文字列が現れない (AC-13)', () => {
+  const cards = buildMonitoringCards(monitoringResponseFixture);
+  const processingCard = cards.find((c) => c.id === 'processing')!;
+  assert.equal(processingCard.value, '起動時再処理');
+  assert.deepEqual(processingCard.details, ['再処理完了 0件']);
+  assert.equal(processingCard.tone, 'normal');
+  // 他会場（TRC）の情報や会場名プレフィックスが含まれない
+  const allDetailsText = processingCard.details.join(' ');
+  assert.equal(allDetailsText.includes('東地区'), false);
+  assert.equal(allDetailsText.includes('TRC'), false);
+  assert.equal(allDetailsText.includes('3 / 8'), false);
+});
+
+test('K7: 処理待ちカードの欠落・進行中（自会場欠落で「—」、自会場runningで「再処理中 n / N」） (AC-14)', () => {
+  // 自会場欠落
+  const missingData: MonitoringStatusResponse = {
+    ...monitoringResponseFixture,
+    requestedVenueId: 'east',
+    venues: monitoringResponseFixture.venues.filter((v) => v.venueId !== 'east'),
+  };
+  const missingCards = buildMonitoringCards(missingData);
+  const missingProcessing = missingCards.find((c) => c.id === 'processing')!;
+  assert.deepEqual(missingProcessing.details, ['—']);
+  assert.equal(missingProcessing.tone, 'neutral');
+
+  // 自会場が running
+  const runningData: MonitoringStatusResponse = {
+    ...monitoringResponseFixture,
+    requestedVenueId: 'east',
+    venues: [
+      {
+        venueId: 'east',
+        startupEvaluated: false,
+        reprocessing: {
+          status: 'running',
+          total: 10,
+          processedCount: 4,
+          startedAt: '2026-09-20T05:00:00.000Z',
+          finishedAt: null,
+          elapsedMs: null,
+        },
+        recentAdoptions: [],
+        adoptionWindowHours: 24,
+      },
+    ],
+  };
+  const runningCards = buildMonitoringCards(runningData);
+  const runningProcessing = runningCards.find((c) => c.id === 'processing')!;
+  assert.deepEqual(runningProcessing.details, ['再処理中 4 / 10']);
+  assert.equal(runningProcessing.tone, 'active');
 });

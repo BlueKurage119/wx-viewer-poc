@@ -8,6 +8,7 @@ import {
   type MonitoringCard,
   type SourceStatusRow,
 } from './monitoringPresentation';
+import { buildInformationRows, type InformationRow } from './monitoringInformationRows';
 import { useMonitoringStatus } from './useMonitoringStatus';
 
 const SOURCE_HEADERS = [
@@ -195,10 +196,74 @@ const SourceStatusTable = memo(function SourceStatusTable({
   );
 });
 
+const InformationTable = memo(function InformationTable({
+  rows,
+}: {
+  readonly rows: readonly InformationRow[];
+}) {
+  return (
+    <section
+      className="monitoring-table-section"
+      aria-labelledby="monitoring-information-status-heading"
+    >
+      <h2 id="monitoring-information-status-heading">情報別の反映状況</h2>
+      <div className="monitoring-table-scroll">
+        <table>
+          <thead>
+            <tr>
+              {INFORMATION_HEADERS.map((header) => (
+                <th scope="col" key={header}>
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.kind}>
+                <th scope="row">{row.name}</th>
+                <td>{row.target}</td>
+                <td
+                  className={
+                    row.stateTone === 'unknown'
+                      ? 'monitoring-unavailable'
+                      : `monitoring-information-state monitoring-tone-${row.stateTone}`
+                  }
+                >
+                  {row.stateLabel}
+                </td>
+                <td className="monitoring-time">
+                  {row.validAt ? (
+                    <time dateTime={row.validAt}>{row.validAtText}</time>
+                  ) : (
+                    row.validAtText
+                  )}
+                </td>
+                <td className="monitoring-time">
+                  {row.fetchedAt ? (
+                    <time dateTime={row.fetchedAt}>{row.fetchedAtText}</time>
+                  ) : (
+                    row.fetchedAtText
+                  )}
+                </td>
+                <td className="monitoring-numeric">{row.summaryCountText}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+});
+
 export function MonitoringDashboardView({ state }: { state: MonitoringLoadState }) {
   // 更新中は既存データを維持し、最終表示更新だけを継続表示する。
   const cards = useMemo(() => (state.data ? buildMonitoringCards(state.data) : null), [state.data]);
   const sourceRows = useMemo(() => buildSourceStatusRows(state.data), [state.data]);
+  const informationRows = useMemo(
+    () => (state.data ? buildInformationRows(state.data) : null),
+    [state.data],
+  );
 
   return (
     <div className="monitoring-dashboard" aria-label="取得監視">
@@ -259,11 +324,15 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
         )}
       </section>
       <SourceStatusTable rows={sourceRows} />
-      <SkeletonTable
-        title="情報別の反映状況"
-        headers={INFORMATION_HEADERS}
-        rows={INFORMATION_ROWS}
-      />
+      {state.data !== null && informationRows !== null ? (
+        <InformationTable rows={informationRows} />
+      ) : (
+        <SkeletonTable
+          title="情報別の反映状況"
+          headers={INFORMATION_HEADERS}
+          rows={INFORMATION_ROWS}
+        />
+      )}
     </div>
   );
 }
