@@ -180,11 +180,11 @@
   font-weight: 500;
 }
 
-.monitoring-table-section tr> :last-child {
+.monitoring-table-section tr > :last-child {
   border-right: 0;
 }
 
-.monitoring-table-section tbody tr:last-child>* {
+.monitoring-table-section tbody tr:last-child > * {
   border-bottom: 0;
 }
 
