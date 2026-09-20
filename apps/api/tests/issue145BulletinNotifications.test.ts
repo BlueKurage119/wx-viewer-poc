@@ -1513,6 +1513,7 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
         maxConsecutiveFailures: 3,
         intervalSeconds: 60,
+        lastDurationMs: 100,
       })),
     };
 
@@ -1552,6 +1553,7 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
         maxConsecutiveFailures: 1,
         intervalSeconds: 60,
+        lastDurationMs: 100,
       })),
     };
 
@@ -1633,6 +1635,7 @@ test('AC10: system normal/suspended/未評価・過去に復帰済みの状態�
         lastSuccessAt: fixedNowIso,
         maxConsecutiveFailures: 0,
         intervalSeconds: 60,
+        lastDurationMs: 100,
       })),
     };
 
@@ -1721,6 +1724,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
         lastSuccessAt: '2026-09-13T11:00:00.000Z',
         maxConsecutiveFailures: idx === 1 ? 3 : 0,
         intervalSeconds: 60,
+        lastDurationMs: 100,
       })),
     };
 
@@ -1983,6 +1987,7 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
             lastSuccessAt: '2026-09-13T11:00:00.000Z',
             maxConsecutiveFailures: id === 'xml_regular' ? 1 : 0,
             intervalSeconds: 60,
+            lastDurationMs: 100,
           })),
         };
       },

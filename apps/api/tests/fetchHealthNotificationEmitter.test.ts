@@ -53,6 +53,7 @@ function createResult(
     lastSuccessAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
     maxConsecutiveFailures: status === 'abnormal' ? 5 : status === 'delayed' ? 2 : 0,
     intervalSeconds: 60,
+    lastDurationMs: 100,
   };
 }
 

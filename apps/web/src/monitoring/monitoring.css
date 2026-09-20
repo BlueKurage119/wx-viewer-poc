@@ -192,6 +192,51 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+.monitoring-table-section td.monitoring-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.monitoring-table-section td.monitoring-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.monitoring-source-state {
+  font-weight: 500;
+}
+
+.monitoring-table-section td.monitoring-tone-normal {
+  color: var(--wx-system-status-green-foreground);
+}
+
+.monitoring-table-section td.monitoring-tone-active {
+  color: var(--wx-system-status-green-foreground);
+}
+
+.monitoring-table-section td.monitoring-tone-attention {
+  color: var(--wx-system-status-yellow-foreground);
+}
+
+.monitoring-table-section td.monitoring-tone-error {
+  color: var(--wx-system-status-red-foreground);
+}
+
+.monitoring-table-section td.monitoring-tone-neutral {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.monitoring-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .view-toolbar-monitor {
   min-height: 48px;
   height: 48px;

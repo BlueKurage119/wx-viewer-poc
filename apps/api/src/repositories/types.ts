@@ -649,6 +649,7 @@ export interface FetchStreamHealthSummary {
   readonly lastSuccessAt: UtcIso8601String | null;
   readonly consecutiveFailures: number;
   readonly consecutiveFailuresCapped: boolean;
+  readonly lastDurationMs: number | null;
 }
 
 export const KNOWN_FETCH_SOURCE_KINDS = [

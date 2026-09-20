@@ -2,8 +2,11 @@ import { memo, useMemo } from 'react';
 import type { MonitoringLoadState } from './useMonitoringStatus';
 import {
   buildMonitoringCards,
+  buildSourceStatusRows,
   formatJstDateTime,
+  SOURCE_ROW_DEFINITIONS,
   type MonitoringCard,
+  type SourceStatusRow,
 } from './monitoringPresentation';
 import { useMonitoringStatus } from './useMonitoringStatus';
 
@@ -17,14 +20,7 @@ const SOURCE_HEADERS = [
   '直近処理時間',
   '連続失敗回数',
 ] as const;
-const SOURCE_ROWS = [
-  'XML定時フィード',
-  'XML随時フィード',
-  '雨雲時刻一覧',
-  'キキクル時刻一覧',
-  'アメダス最新時刻',
-  'アメダス地点データ',
-] as const;
+export const SOURCE_ROWS = SOURCE_ROW_DEFINITIONS.map((def) => def.name);
 const INFORMATION_HEADERS = [
   '情報名',
   '対象地域・地点',
@@ -114,9 +110,95 @@ const SkeletonTable = memo(function SkeletonTable({
   );
 });
 
+const SourceStatusTable = memo(function SourceStatusTable({
+  rows,
+}: {
+  readonly rows: readonly SourceStatusRow[];
+}) {
+  return (
+    <section
+      className="monitoring-table-section"
+      aria-labelledby="monitoring-source-status-heading"
+    >
+      <h2 id="monitoring-source-status-heading">取得元別の稼働状況</h2>
+      <div className="monitoring-table-scroll">
+        <table>
+          <thead>
+            <tr>
+              {SOURCE_HEADERS.map((header) => (
+                <th scope="col" key={header}>
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.sourceId}>
+                <th scope="row">{row.name}</th>
+                <td
+                  className={`monitoring-source-state${row.state.tone ? ` monitoring-tone-${row.state.tone}` : ''}`}
+                  title={row.state.note}
+                >
+                  {row.state.text}
+                  {row.state.note ? (
+                    <span className="monitoring-visually-hidden">{row.state.note}</span>
+                  ) : null}
+                </td>
+                <td className="monitoring-numeric" title={row.interval.note}>
+                  {row.interval.text}
+                  {row.interval.note ? (
+                    <span className="monitoring-visually-hidden">{row.interval.note}</span>
+                  ) : null}
+                </td>
+                <td className="monitoring-time" title={row.lastAttempt.note}>
+                  {row.lastAttempt.text}
+                  {row.lastAttempt.note ? (
+                    <span className="monitoring-visually-hidden">{row.lastAttempt.note}</span>
+                  ) : null}
+                </td>
+                <td className="monitoring-time" title={row.lastSuccess.note}>
+                  {row.lastSuccess.text}
+                  {row.lastSuccess.note ? (
+                    <span className="monitoring-visually-hidden">{row.lastSuccess.note}</span>
+                  ) : null}
+                </td>
+                <td className="monitoring-time" title={row.nextRun.note}>
+                  {row.nextRun.text}
+                  {row.nextRun.note ? (
+                    <span className="monitoring-visually-hidden">{row.nextRun.note}</span>
+                  ) : null}
+                </td>
+                <td className="monitoring-numeric" title={row.duration.note}>
+                  {row.duration.text}
+                  {row.duration.note ? (
+                    <span className="monitoring-visually-hidden">{row.duration.note}</span>
+                  ) : null}
+                </td>
+                <td
+                  className={`monitoring-numeric${row.consecutiveFailures.tone ? ` monitoring-tone-${row.consecutiveFailures.tone}` : ''}`}
+                  title={row.consecutiveFailures.note}
+                >
+                  {row.consecutiveFailures.text}
+                  {row.consecutiveFailures.note ? (
+                    <span className="monitoring-visually-hidden">
+                      {row.consecutiveFailures.note}
+                    </span>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+});
+
 export function MonitoringDashboardView({ state }: { state: MonitoringLoadState }) {
   // 更新中は既存データを維持し、最終表示更新だけを継続表示する。
   const cards = useMemo(() => (state.data ? buildMonitoringCards(state.data) : null), [state.data]);
+  const sourceRows = useMemo(() => buildSourceStatusRows(state.data), [state.data]);
 
   return (
     <div className="monitoring-dashboard" aria-label="取得監視">
@@ -176,7 +258,7 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
           </>
         )}
       </section>
-      <SkeletonTable title="取得元別の稼働状況" headers={SOURCE_HEADERS} rows={SOURCE_ROWS} />
+      <SourceStatusTable rows={sourceRows} />
       <SkeletonTable
         title="情報別の反映状況"
         headers={INFORMATION_HEADERS}

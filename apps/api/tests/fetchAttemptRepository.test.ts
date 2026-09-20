@@ -58,6 +58,7 @@ test('summarizeFetchStreamHealth: 行が 1 件もない場合は初期値を返�
       lastSuccessAt: null,
       consecutiveFailures: 0,
       consecutiveFailuresCapped: false,
+      lastDurationMs: null,
     });
     database.close();
   } finally {
@@ -91,6 +92,7 @@ test('summarizeFetchStreamHealth: 成功のみの場合', () => {
       lastSuccessAt: '2026-09-09T00:01:00.000Z',
       consecutiveFailures: 0,
       consecutiveFailuresCapped: false,
+      lastDurationMs: 1000,
     });
     database.close();
   } finally {
@@ -124,6 +126,7 @@ test('summarizeFetchStreamHealth: 失敗のみの場合', () => {
       lastSuccessAt: null,
       consecutiveFailures: 2,
       consecutiveFailuresCapped: false,
+      lastDurationMs: 1000,
     });
     database.close();
   } finally {
@@ -176,6 +179,7 @@ test('summarizeFetchStreamHealth: 成功と失敗が混在する場合', () => {
       lastSuccessAt: '2026-09-09T00:01:00.000Z',
       consecutiveFailures: 2,
       consecutiveFailuresCapped: false,
+      lastDurationMs: 1000,
     });
     database.close();
   } finally {
@@ -226,6 +230,7 @@ test('summarizeFetchStreamHealth: 窓超過 (全件失敗で capped=true、窓�
       lastSuccessAt: '2026-09-09T00:00:00.000Z',
       consecutiveFailures: 3,
       consecutiveFailuresCapped: true,
+      lastDurationMs: 1000,
     });
     database.close();
   } finally {
@@ -261,6 +266,7 @@ test('summarizeFetchStreamHealth: ミリ秒混在での実時刻順ソート', (
       lastSuccessAt: '2026-09-09T00:00:00Z',
       consecutiveFailures: 1,
       consecutiveFailuresCapped: false,
+      lastDurationMs: 1000,
     });
     database.close();
   } finally {
@@ -276,6 +282,67 @@ test('summarizeFetchStreamHealth: 不正な引数で例外', () => {
     assert.throws(() => summarizeFetchStreamHealth(database.connection, 'xml_feed_regular', 0));
     assert.throws(() => summarizeFetchStreamHealth(database.connection, 'xml_feed_regular', -1));
     assert.throws(() => summarizeFetchStreamHealth(database.connection, 'xml_feed_regular', 1.5));
+    database.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test('summarizeFetchStreamHealth: 直近試行が失敗でもその失敗試行の durationMs が lastDurationMs に入る', () => {
+  const { databasePath, cleanup } = createTempDb();
+  try {
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    recordFetchAttempt(
+      database.connection,
+      createSampleAttempt({
+        startedAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
+        outcome: 'success',
+        durationMs: 800,
+      }),
+    );
+    recordFetchAttempt(
+      database.connection,
+      createSampleAttempt({
+        startedAt: '2026-09-09T00:01:00.000Z' as UtcIso8601String,
+        outcome: 'failure',
+        durationMs: 450,
+      }),
+    );
+
+    const summary = summarizeFetchStreamHealth(database.connection, 'xml_feed_regular', 50);
+    assert.equal(summary.lastAttemptAt, '2026-09-09T00:01:00.000Z');
+    assert.equal(summary.lastSuccessAt, '2026-09-09T00:00:00.000Z');
+    assert.equal(summary.lastDurationMs, 450);
+    database.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test('summarizeFetchStreamHealth: started_at が同値で id 違いのとき id 降順タイブレークと同じ行の durationMs を採る', () => {
+  const { databasePath, cleanup } = createTempDb();
+  try {
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    recordFetchAttempt(
+      database.connection,
+      createSampleAttempt({
+        startedAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
+        outcome: 'success',
+        durationMs: 123,
+      }),
+    );
+    recordFetchAttempt(
+      database.connection,
+      createSampleAttempt({
+        startedAt: '2026-09-09T00:00:00.000Z' as UtcIso8601String,
+        outcome: 'failure',
+        durationMs: 789,
+      }),
+    );
+
+    const summary = summarizeFetchStreamHealth(database.connection, 'xml_feed_regular', 50);
+    assert.equal(summary.lastAttemptAt, '2026-09-09T00:00:00.000Z');
+    assert.equal(summary.lastDurationMs, 789);
     database.close();
   } finally {
     cleanup();

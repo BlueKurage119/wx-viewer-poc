@@ -62,6 +62,13 @@ export interface MonitoringHealthSource {
    * amedas_point だけ false。AD-H003 のとおり到達時間は保証されない（K6/L2 で判断）。
    */
   readonly appliesElapsedCondition: boolean;
+  /**
+   * 直近の試行 1 件の所要時間（ミリ秒）。K6 #79 で追加。
+   * 直近試行が無い／健全性未評価の場合は null。null を 0 に丸めない。
+   * 平均・合計ではなく「最後の 1 回」。複数 sourceKind を持つ系列は
+   * lastAttemptAt が最も新しいストリームの値を採る。
+   */
+  readonly lastDurationMs: number | null;
   readonly reasons: readonly MonitoringHealthReason[];
 }
 
