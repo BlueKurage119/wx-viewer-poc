@@ -27,8 +27,51 @@ function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
+const KNOWN_SOURCE_IDS = new Set([
+  'xml_regular',
+  'xml_extra',
+  'nowcast_target_times',
+  'kikikuru_target_times',
+  'amedas_latest_time',
+  'amedas_point',
+]);
+
+const KNOWN_SCHEDULED_SOURCES = new Set(['xml', 'nowcast', 'kikikuru', 'amedas']);
+const KNOWN_SCHEDULED_STATES = new Set(['waiting', 'running', 'scheduled_stopped']);
+
 function isHealthStatus(value: unknown): boolean {
   return value === 'normal' || value === 'delayed' || value === 'abnormal' || value === 'suspended';
+}
+
+function isNullableNonNegativeInteger(value: unknown): boolean {
+  return value === null || isNonNegativeInteger(value);
+}
+
+function isHealthSource(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.sourceId !== 'string' || !KNOWN_SOURCE_IDS.has(value.sourceId)) return false;
+  if (typeof value.displayName !== 'string') return false;
+  if (value.status !== null && !isHealthStatus(value.status)) return false;
+  if (!isNullableIsoDate(value.lastAttemptAt) || !isNullableIsoDate(value.lastSuccessAt))
+    return false;
+  if (
+    !isNullableNonNegativeInteger(value.consecutiveFailures) ||
+    !isNullableNonNegativeInteger(value.intervalSeconds) ||
+    !isNullableNonNegativeInteger(value.lastDurationMs)
+  )
+    return false;
+  if (typeof value.appliesElapsedCondition !== 'boolean') return false;
+  if (!Array.isArray(value.reasons)) return false;
+  return true;
+}
+
+function isScheduledSource(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.source !== 'string' || !KNOWN_SCHEDULED_SOURCES.has(value.source)) return false;
+  if (typeof value.state !== 'string' || !KNOWN_SCHEDULED_STATES.has(value.state)) return false;
+  if (!isNullableIsoDate(value.nextRunAt)) return false;
+  if (!isNullableNonNegativeInteger(value.intervalSeconds)) return false;
+  return true;
 }
 
 function isMonitoringResponse(value: unknown): value is MonitoringStatusResponse {
@@ -47,7 +90,8 @@ function isMonitoringResponse(value: unknown): value is MonitoringStatusResponse
     typeof value.operation.period.start !== 'string' ||
     typeof value.operation.period.end !== 'string' ||
     !isIsoDate(value.operation.nextPeriodChangeAt) ||
-    !Array.isArray(value.operation.scheduledSources)
+    !Array.isArray(value.operation.scheduledSources) ||
+    !value.operation.scheduledSources.every(isScheduledSource)
   )
     return false;
   if (
@@ -55,8 +99,11 @@ function isMonitoringResponse(value: unknown): value is MonitoringStatusResponse
     !isNullableIsoDate(value.health.evaluatedAt) ||
     (value.health.worstStatus !== null && !isHealthStatus(value.health.worstStatus)) ||
     !Array.isArray(value.health.sources) ||
+    !value.health.sources.every(isHealthSource) ||
     !Array.isArray(value.health.worstSourceIds) ||
-    !isRecord(value.health.thresholds)
+    !isRecord(value.health.thresholds) ||
+    !isNonNegativeInteger(value.health.thresholds.abnormalConsecutiveFailures) ||
+    !isNonNegativeInteger(value.health.thresholds.delayedConsecutiveFailures)
   )
     return false;
   if (

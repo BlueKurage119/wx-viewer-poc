@@ -627,6 +627,7 @@ test('AC5 健全性の未評価を正常に丸めないこと', async () => {
             status: string | null;
             appliesElapsedCondition: boolean;
             sourceId: string;
+            lastDurationMs: number | null;
           }[];
         };
       };
