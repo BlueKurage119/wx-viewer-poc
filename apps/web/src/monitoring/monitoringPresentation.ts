@@ -259,7 +259,6 @@ export function buildSourceStatusRows(
     } else if (healthSource.status === 'abnormal') {
       stateCell = { text: '異常', tone: 'error' };
     } else if (healthSource.status === 'delayed') {
-    } else if (healthSource.status === 'delayed') {
       stateCell = { text: '遅延', tone: 'attention' };
     } else if (!data.operation.schedulerRunning) {
       stateCell = { text: '停止', tone: 'neutral' };
