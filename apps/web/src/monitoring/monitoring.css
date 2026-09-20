@@ -1,4 +1,4 @@
-.view-content-monitor {
+.view-content.view-content-monitor {
   padding: 16px 24px;
 }
 
@@ -154,6 +154,7 @@
 .monitoring-table-section table {
   width: 100%;
   min-width: 920px;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
 }
@@ -225,6 +226,16 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+.monitoring-table-section tbody tr.monitoring-row-attention > * {
+  background: var(--wx-system-status-yellow-container);
+  color: var(--wx-system-status-yellow-on-container);
+}
+
+.monitoring-table-section tbody tr.monitoring-row-error > * {
+  background: var(--wx-system-status-red-container);
+  color: var(--wx-system-status-red-on-container);
+}
+
 .monitoring-visually-hidden {
   position: absolute;
   width: 1px;
@@ -237,9 +248,9 @@
   border: 0;
 }
 
-.view-toolbar-monitor {
+.view-toolbar.view-toolbar-monitor {
   min-height: 48px;
-  height: 48px;
+  height: auto;
   padding: 4px 16px;
 }
 
@@ -247,6 +258,7 @@
   min-width: 0;
   width: 100%;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 24px;
 }
@@ -258,8 +270,8 @@
   white-space: nowrap;
 }
 
-.monitoring-toolbar-group md-filled-button {
-  --md-filled-button-container-height: 40px;
+.monitoring-toolbar-group md-gb-button {
+  inline-size: 120px;
 }
 
 .monitoring-toolbar-submit {
@@ -287,7 +299,7 @@
     gap: 4px;
   }
 
-  .view-toolbar-monitor {
+  .view-toolbar.view-toolbar-monitor {
     height: auto;
     min-height: 48px;
   }

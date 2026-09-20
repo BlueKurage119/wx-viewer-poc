@@ -342,3 +342,12 @@ test('§5-5 書き出し: applyMd3Theme で21トークンが書き出され、�
     );
   }
 });
+
+test('Issue #74: M3 Expressive squareボタンの形状トークンをテーマへ書き出す', () => {
+  const root = createRootStub();
+
+  applyMd3Theme('#1A73E8', false, root);
+
+  assert.equal(root.properties.get('--md-sys-shape-corner-md'), '12px');
+  assert.equal(root.properties.get('--md-sys-shape-corner-sm'), '8px');
+});

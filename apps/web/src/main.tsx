@@ -8,11 +8,16 @@ const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error('#root element not found');
 }
+const appRoot = rootElement;
 
-createRoot(rootElement).render(
-  <StrictMode>
-    <ThemeProvider fixedMode="dark">
-      <App />
-    </ThemeProvider>
-  </StrictMode>,
-);
+function bootstrap() {
+  createRoot(appRoot).render(
+    <StrictMode>
+      <ThemeProvider fixedMode="dark">
+        <App />
+      </ThemeProvider>
+    </StrictMode>,
+  );
+}
+
+void bootstrap();

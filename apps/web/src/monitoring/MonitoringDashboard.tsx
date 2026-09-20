@@ -41,18 +41,36 @@ const INFORMATION_ROWS = [
   'キキクル',
 ] as const;
 
+const SOURCE_COLUMN_WIDTHS = [11.63, 8.46, 10.15, 14.8, 14.8, 14.8, 12.68, 12.68] as const;
+const INFORMATION_COLUMN_WIDTHS = [17.78, 24.44, 12.22, 15.56, 15.56, 14.44] as const;
+
 const CARD_ICON_NAMES: Readonly<Record<MonitoringCard['id'], string>> = {
   operation: 'settings',
-  health: 'check_circle',
   schedule: 'schedule',
   processing: 'article',
+  health: 'remove',
 };
+
+function healthIconName(value: MonitoringCard['value']): string {
+  switch (value) {
+    case '正常':
+      return 'check';
+    case '遅延':
+      return 'check_alert';
+    case '異常':
+      return 'close';
+    default:
+      return 'remove';
+  }
+}
 
 const MonitoringCardView = memo(function MonitoringCardView({ card }: { card: MonitoringCard }) {
   return (
     <article className={`monitoring-card monitoring-tone-${card.tone}`}>
       <span className="monitoring-card-icon" aria-hidden="true">
-        <span className="monitoring-card-icon-symbol">{CARD_ICON_NAMES[card.id]}</span>
+        <span className="monitoring-card-icon-symbol">
+          {card.id === 'health' ? healthIconName(card.value) : CARD_ICON_NAMES[card.id]}
+        </span>
       </span>
       <div className="monitoring-card-content">
         <h2>{card.title}</h2>
@@ -74,16 +92,25 @@ const SkeletonTable = memo(function SkeletonTable({
   title,
   headers,
   rows,
+  columnWidths,
+  tableClassName,
 }: {
   readonly title: string;
   readonly headers: readonly string[];
   readonly rows: readonly string[];
+  readonly columnWidths: readonly number[];
+  readonly tableClassName: string;
 }) {
   return (
     <section className="monitoring-table-section" aria-labelledby={`monitoring-${title}`}>
       <h2 id={`monitoring-${title}`}>{title}</h2>
       <div className="monitoring-table-scroll">
-        <table>
+        <table className={tableClassName}>
+          <colgroup>
+            {columnWidths.map((width, index) => (
+              <col key={index} style={{ width: `${width}%` }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
               {headers.map((header) => (
@@ -123,7 +150,12 @@ const SourceStatusTable = memo(function SourceStatusTable({
     >
       <h2 id="monitoring-source-status-heading">取得元別の稼働状況</h2>
       <div className="monitoring-table-scroll">
-        <table>
+        <table className="monitoring-source-table">
+          <colgroup>
+            {SOURCE_COLUMN_WIDTHS.map((width, index) => (
+              <col key={index} style={{ width: `${width}%` }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
               {SOURCE_HEADERS.map((header) => (
@@ -135,7 +167,14 @@ const SourceStatusTable = memo(function SourceStatusTable({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.sourceId}>
+              <tr
+                className={
+                  row.state.tone === 'attention' || row.state.tone === 'error'
+                    ? `monitoring-row-${row.state.tone}`
+                    : undefined
+                }
+                key={row.sourceId}
+              >
                 <th scope="row">{row.name}</th>
                 <td
                   className={`monitoring-source-state${row.state.tone ? ` monitoring-tone-${row.state.tone}` : ''}`}
@@ -208,7 +247,12 @@ const InformationTable = memo(function InformationTable({
     >
       <h2 id="monitoring-information-status-heading">情報別の反映状況</h2>
       <div className="monitoring-table-scroll">
-        <table>
+        <table className="monitoring-information-table">
+          <colgroup>
+            {INFORMATION_COLUMN_WIDTHS.map((width, index) => (
+              <col key={index} style={{ width: `${width}%` }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
               {INFORMATION_HEADERS.map((header) => (
@@ -220,7 +264,14 @@ const InformationTable = memo(function InformationTable({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.kind}>
+              <tr
+                className={
+                  row.stateTone === 'attention' || row.stateTone === 'error'
+                    ? `monitoring-row-${row.stateTone}`
+                    : undefined
+                }
+                key={row.kind}
+              >
                 <th scope="row">{row.name}</th>
                 <td>{row.target}</td>
                 <td
@@ -331,6 +382,8 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
           title="情報別の反映状況"
           headers={INFORMATION_HEADERS}
           rows={INFORMATION_ROWS}
+          columnWidths={INFORMATION_COLUMN_WIDTHS}
+          tableClassName="monitoring-information-table"
         />
       )}
     </div>

@@ -51,6 +51,11 @@ const SURFACE_CONTAINER_TONES = {
   },
 } as const;
 
+const EXPRESSIVE_SHAPE_TOKENS = {
+  '--md-sys-shape-corner-sm': '8px',
+  '--md-sys-shape-corner-md': '12px',
+} as const;
+
 /**
  * シードからlight/dark片方のスキームを生成し、:root(document.documentElement)へ
  * `--md-sys-color-*` CSSカスタムプロパティとして反映する。
@@ -113,6 +118,11 @@ export function applyMd3Theme(
   const surfaceHex = hexFromArgb(neutral.tone(surfaceTone));
   root.style.setProperty('--md-sys-color-surface', surfaceHex);
   root.style.setProperty('--md-sys-color-background', surfaceHex);
+
+  // M3 Expressive Labsのsquareボタンが参照する形状トークンを定義する。
+  for (const [token, value] of Object.entries(EXPRESSIVE_SHAPE_TOKENS)) {
+    root.style.setProperty(token, value);
+  }
 
   // 5. 警戒レベル・通知区分のセマンティックトークン書き出し(設計書 §4.1)
   const semanticColors = createSemanticColors(dark);

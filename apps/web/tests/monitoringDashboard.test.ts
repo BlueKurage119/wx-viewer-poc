@@ -4,7 +4,15 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MonitoringDashboardView } from '../src/monitoring/MonitoringDashboard.tsx';
-import { monitoringResponseFixture, normalMonitoringResponseFixture } from './monitoringFixture.ts';
+import { MonitoringToolbar } from '../src/monitoring/MonitoringToolbar.tsx';
+import {
+  abnormalMonitoringResponseFixture,
+  delayedMonitoringResponseFixture,
+  monitoringResponseFixture,
+  normalMonitoringResponseFixture,
+  suspendedMonitoringResponseFixture,
+  unevaluatedMonitoringResponseFixture,
+} from './monitoringFixture.ts';
 
 const el = React.createElement;
 
@@ -39,11 +47,60 @@ test('K1: カードアイコンはMaterial Symbolsの名前をspanで描画し�
     el(MonitoringDashboardView, { state: { phase: 'ready', data: monitoringResponseFixture } }),
   );
 
-  for (const name of ['settings', 'check_circle', 'schedule', 'article']) {
+  for (const name of ['settings', 'remove', 'schedule', 'article']) {
     assert.ok(html.includes(`>${name}</span>`));
   }
   assert.ok(html.includes('class="monitoring-card-icon-symbol"'));
   assert.equal(html.includes('<svg'), false);
+});
+
+test('Issue #74: 取得健全性は状態ごとに承認済みのMaterial Symbols名を表示する', () => {
+  const cases = [
+    [normalMonitoringResponseFixture, 'check'],
+    [delayedMonitoringResponseFixture, 'check_alert'],
+    [abnormalMonitoringResponseFixture, 'close'],
+    [suspendedMonitoringResponseFixture, 'remove'],
+    [unevaluatedMonitoringResponseFixture, 'remove'],
+  ] as const;
+
+  for (const [fixture, iconName] of cases) {
+    const html = renderToStaticMarkup(
+      el(MonitoringDashboardView, { state: { phase: 'ready', data: fixture } }),
+    );
+    assert.ok(html.includes(`>${iconName}</span>`));
+  }
+});
+
+test('Issue #74: 表は固定比率のcolgroupを持ち、注意行と異常行を行全体で強調する', () => {
+  const delayedHtml = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'ready', data: delayedMonitoringResponseFixture },
+    }),
+  );
+  const abnormalHtml = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'ready', data: abnormalMonitoringResponseFixture },
+    }),
+  );
+
+  for (const width of [
+    11.63, 8.46, 10.15, 14.8, 14.8, 14.8, 12.68, 12.68, 17.78, 24.44, 12.22, 15.56, 15.56, 14.44,
+  ]) {
+    assert.ok(delayedHtml.includes(`<col style="width:${width}%"/>`));
+  }
+  assert.ok(delayedHtml.includes('<tr class="monitoring-row-attention">'));
+  assert.ok(abnormalHtml.includes('<tr class="monitoring-row-error">'));
+});
+
+test('Issue #74: 監視ツールバーはM3 Expressiveのスクエア型ボタンを使用する', () => {
+  const html = renderToStaticMarkup(el(MonitoringToolbar));
+
+  assert.equal((html.match(/<md-gb-button/g) ?? []).length, 8);
+  assert.equal(html.includes('md-filled-button'), false);
+  assert.equal((html.match(/color="filled"/g) ?? []).length, 8);
+  assert.equal((html.match(/size="sm"/g) ?? []).length, 8);
+  assert.equal((html.match(/square=""/g) ?? []).length, 8);
+  assert.equal((html.match(/disabled=""/g) ?? []).length, 8);
 });
 
 test('K6: 取得元別の稼働状況表のレンダリング（th scope、8列見出し、6行名、実データ）', () => {

@@ -1,4 +1,4 @@
-import { FilledButton } from '../components/md';
+import { GbButton } from '../components/md';
 
 const buttonGroups = [
   ['取得開始', '取得停止'],
@@ -14,14 +14,16 @@ export function MonitoringToolbar() {
       {buttonGroups.map((group) => (
         <div className="monitoring-toolbar-group" key={group.join('-')}>
           {group.map((label) => (
-            <FilledButton key={label} disabled>
+            <GbButton color="filled" disabled size="sm" square key={label}>
               {label}
-            </FilledButton>
+            </GbButton>
           ))}
         </div>
       ))}
       <div className="monitoring-toolbar-group monitoring-toolbar-submit">
-        <FilledButton disabled>送信</FilledButton>
+        <GbButton color="filled" disabled size="sm" square>
+          送信
+        </GbButton>
       </div>
     </div>
   );
