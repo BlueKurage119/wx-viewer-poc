@@ -5,6 +5,7 @@ import {
   type Theme,
 } from '@material/material-color-utilities';
 import { createSemanticColors } from './semanticColors';
+import { createSystemStatusColors } from './systemStatusColors';
 
 /**
  * `@material/material-color-utilities` 0.3.0 の `applyTheme()` は
@@ -116,6 +117,11 @@ export function applyMd3Theme(
   // 5. 警戒レベル・通知区分のセマンティックトークン書き出し(設計書 §4.1)
   const semanticColors = createSemanticColors(dark);
   for (const [token, color] of Object.entries(semanticColors)) {
+    root.style.setProperty(token, color);
+  }
+
+  const systemStatusColors = createSystemStatusColors(dark);
+  for (const [token, color] of Object.entries(systemStatusColors)) {
     root.style.setProperty(token, color);
   }
 

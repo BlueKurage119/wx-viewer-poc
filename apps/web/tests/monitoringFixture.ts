@@ -1,0 +1,76 @@
+import type { MonitoringStatusResponse } from '@wx-viewer-poc/shared';
+
+export const monitoringResponseFixture: MonitoringStatusResponse = {
+  status: 'ready',
+  terminalId: 'kkeagh01',
+  requestedVenueId: 'east',
+  serverGenerationId: 'generation-a',
+  generatedAt: '2026-09-20T05:25:28.000Z',
+  operation: {
+    schedulerRunning: false,
+    period: {
+      start: '09:00',
+      end: '18:00',
+      xmlSeconds: 600,
+      imageCatalogSeconds: null,
+      amedasSeconds: null,
+      nowcastEnabled: false,
+      kikikuruEnabled: false,
+    },
+    nextPeriodChangeAt: '2026-09-20T09:00:00.000Z',
+    scheduledSources: [],
+  },
+  health: {
+    evaluatedAt: null,
+    worstStatus: null,
+    worstSourceIds: [],
+    sources: [],
+    thresholds: {
+      evaluationIntervalSeconds: 60,
+      delayedConsecutiveFailures: 2,
+      delayedIntervalMultiplier: 3,
+      abnormalConsecutiveFailures: 3,
+      abnormalElapsedSeconds: 600,
+      maxScanAttempts: 10,
+    },
+  },
+  readiness: {
+    initialFetchPhase: 'failed',
+    startedAt: null,
+    finishedAt: null,
+    feeds: [],
+    errorReason: '接続できません',
+  },
+  venues: [
+    {
+      venueId: 'east',
+      startupEvaluated: false,
+      reprocessing: {
+        status: 'completed',
+        total: 0,
+        processedCount: 0,
+        startedAt: null,
+        finishedAt: null,
+        elapsedMs: 0,
+      },
+      recentAdoptions: [],
+      adoptionWindowHours: 24,
+    },
+    {
+      venueId: 'trc',
+      startupEvaluated: false,
+      reprocessing: {
+        status: 'running',
+        total: 8,
+        processedCount: 3,
+        startedAt: '2026-09-20T05:00:00.000Z',
+        finishedAt: null,
+        elapsedMs: null,
+      },
+      recentAdoptions: [],
+      adoptionWindowHours: 24,
+    },
+  ],
+  information: [],
+  tiles: { healthMonitored: false, healthCriteriaStatus: 'undecided', layers: [] },
+};

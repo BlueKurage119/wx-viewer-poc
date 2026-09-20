@@ -1,4 +1,10 @@
 export { applyMd3Theme } from './applyTheme';
+export {
+  createSystemStatusColors,
+  type SystemStatusColor,
+  type SystemStatusColorRole,
+  type SystemStatusColorToken,
+} from './systemStatusColors';
 export { DEFAULT_THEME_SEED } from './seeds';
 export {
   ThemeProvider,

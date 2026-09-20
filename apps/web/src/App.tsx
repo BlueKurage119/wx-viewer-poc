@@ -7,6 +7,8 @@ import { visibleNotices } from './shell/notifications';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
 import { fetchStartupNotifications } from './api/startupNotifications';
 import { WeatherMapView } from './map/WeatherMapView';
+import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
+import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
 
 const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
   weather: {
@@ -99,7 +101,9 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       connection={{ failed: preview && scenario === 'connection', lastSuccessAt: null }}
       notifications={<NotificationArea notices={displayed} operation={operation} />}
       toolbar={
-        preview ? (
+        view === 'monitor' ? (
+          <MonitoringToolbar />
+        ) : preview ? (
           <>
             <span className="preview-label">表示確認用</span>
             <label>
@@ -126,6 +130,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     >
       {view === 'weather' ? (
         <WeatherMapView venue={terminal.venue} />
+      ) : view === 'monitor' ? (
+        <MonitoringDashboard terminalId={terminal.id} />
       ) : (
         <div className="view-placeholder">
           <span className="placeholder-symbol" aria-hidden="true">
