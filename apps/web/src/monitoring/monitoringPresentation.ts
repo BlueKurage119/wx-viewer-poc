@@ -264,9 +264,9 @@ export function buildSourceStatusRows(
       healthSource.status === 'suspended' ||
       scheduledSource?.state === 'scheduled_stopped'
     ) {
-      stateCell = { text: 'スケジュール停止', tone: 'neutral' };
-    } else if (!data.operation.schedulerRunning) {
       stateCell = { text: '停止', tone: 'neutral' };
+    } else if (!data.operation.schedulerRunning) {
+      stateCell = { text: 'スケジュール停止', tone: 'neutral' };
     } else if (scheduledSource?.state === 'running') {
       stateCell = { text: '取得中', tone: 'active' };
     } else {
