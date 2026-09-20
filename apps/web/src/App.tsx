@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FilledButton } from './components/md';
+import { FilledButton } from './components/md/Button';
 import { AppShell } from './shell/AppShell';
 import { resolveTerminal, resolveView, views, type Terminal, type ViewId } from './shell/config';
 import { NotificationArea } from './shell/NotificationArea';

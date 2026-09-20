@@ -1,4 +1,4 @@
-import { GbButton } from '../components/md/GbButton';
+import { GbButton } from '../components/md';
 
 const buttonGroups = [
   ['取得開始', '取得停止'],

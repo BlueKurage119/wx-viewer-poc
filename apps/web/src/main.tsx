@@ -10,11 +10,7 @@ if (!rootElement) {
 }
 const appRoot = rootElement;
 
-async function bootstrap() {
-  if (typeof document.createTreeWalker === 'function') {
-    await import('@material/web/labs/gb/components/button/md-gb-button.js');
-  }
-
+function bootstrap() {
   createRoot(appRoot).render(
     <StrictMode>
       <ThemeProvider fixedMode="dark">
