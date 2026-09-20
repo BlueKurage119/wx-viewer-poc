@@ -149,7 +149,7 @@ export class JmaXmlPollingService {
   private readonly abortController = new FetchAbortController();
   /** 手動サイクル（trigger='manual'）専用。手動サイクル開始時に reset、stop() で abort。 */
   private readonly manualAbortController = new FetchAbortController();
-  /** stop('shutdown') を受けたか。以後の手動サイクルを開始しない。start() で解除する。 */
+  /** stop('shutdown') を受けたか。以後の手動サイクルを開始しない。不可逆で、start() でも解除しない。 */
   private shutdownRequested = false;
   private initialFetchAborted = false;
 
@@ -495,7 +495,6 @@ export class JmaXmlPollingService {
   start(startOptions?: { immediateScheduled?: boolean }): Promise<InitialFetchResult> {
     this.abortController.reset();
     this.manualAbortController.reset();
-    this.shutdownRequested = false;
     this.initialFetchAborted = false;
 
     if (this.isRunning) {

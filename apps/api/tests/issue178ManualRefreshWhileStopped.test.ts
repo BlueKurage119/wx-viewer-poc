@@ -382,6 +382,43 @@ test('T4: シャットダウン後は手動サイクルを開始しない', asyn
   }
 });
 
+test('R4: シャットダウン後に start() が届いても手動サイクルを開始しない', async () => {
+  const tempDb = createTempDb();
+  try {
+    const db = initializeDatabase({ databasePath: tempDb.databasePath, migrationsDirectory });
+    let fetchCount = 0;
+    const mockFetch: typeof fetch = async () => {
+      fetchCount += 1;
+      return new Response(emptyAtomXml, {
+        status: 200,
+        headers: { 'content-type': 'application/atom+xml' },
+      });
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: { staleAfterSeconds: 300 },
+      fetchFn: mockFetch,
+    });
+
+    await service.stop('shutdown');
+    try {
+      // シャットダウン中も HTTP は接続されたままなので、取得開始APIが届きうる。
+      await service.start();
+      const fetchCountAfterStart = fetchCount;
+
+      const result = await service.pollOnce('manual');
+      assert.equal(fetchCount, fetchCountAfterStart, 'manual cycle must not fetch after shutdown');
+      assert.deepEqual(result.feedResults, []);
+      assert.equal(result.aborted, true);
+    } finally {
+      await service.stop();
+    }
+    db.close();
+  } finally {
+    tempDb.cleanup();
+  }
+});
+
 test('T5: 中断済みの自動サイクルには合流しない', async () => {
   const tempDb = createTempDb();
   try {

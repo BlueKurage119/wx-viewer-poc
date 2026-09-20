@@ -97,7 +97,7 @@ private readonly abortController = new FetchAbortController();
 /** 手動サイクル（trigger='manual'）専用。手動サイクル開始時に reset、stop() で abort。 */
 private readonly manualAbortController = new FetchAbortController();
 
-/** stop('shutdown') を受けたか。以後の手動サイクルを開始しない。start() で解除する。 */
+/** stop('shutdown') を受けたか。以後の手動サイクルを開始しない。不可逆で、start() でも解除しない。 */
 private shutdownRequested = false;
 ```
 
@@ -132,7 +132,6 @@ async stop(reason: FetchAbortReason = 'stop'): Promise<void> {
 start(startOptions?): Promise<InitialFetchResult> {
   this.abortController.reset();
   this.manualAbortController.reset();         // ★追加（防御的。手動サイクル開始時にも reset する）
-  this.shutdownRequested = false;             // ★追加
   this.initialFetchAborted = false;
   // 以下現行のまま
 }
@@ -140,7 +139,8 @@ start(startOptions?): Promise<InitialFetchResult> {
 
 - `manualAbortController` は**手動サイクルを開始する直前にも必ず `reset()` する**（§4.4）。`stop()` → 手動サイクル開始、という順序でも中断状態を持ち越さないための本質的な担保はこちらであり、`start()` 側の `reset()` は防御的な措置である。
 - `abort()` は冪等で理由を上書きしないため、`close()` の `pollingService.stop('shutdown')` → `scheduler.stop()`（既定 `'stop'`）の順でも理由は `'shutdown'` のまま保たれる（#174 §4.4 と同じ性質）。
-- `shutdownRequested` を `start()` で解除するのは、テスト等で `stop('shutdown')` 後に `start()` する経路を壊さないため。本番の graceful shutdown 経路では `start()` は呼ばれない。
+- `shutdownRequested` は**不可逆**とし、`start()` でも解除しない（PR #181 の再レビュー指摘で改訂）。シグナル由来の `close()` は `pollingService.stop('shutdown')` の後も `closeServer()` まで HTTP を受け付けるため、その間に取得開始API が届いて `start()` が呼ばれうる。ここで解除すると、後続の `scheduler.stop()` / 既定理由の `stop()` はフラグを再設定しないので、シャットダウン中に届いた強制更新が再び手動サイクルを開始し、DBクローズと競合する。以前の記述「本番の graceful shutdown 経路では `start()` は呼ばれない」は誤りだった。
+- 既知の制約（本Issueの対象外）: シャットダウン後の `start()` は、自動用の `abortController` の reset や初回同期の開始までは止めない。これは #174 から続く別の隙間であり、`start()` 自体の拒否は #174 の意味論と取得開始APIの応答に波及するため、別Issueで扱う。
 
 #### 4.3.1 `startServer()` の `close` に `'shutdown'` を伝える（**PR #181 レビュー#3 で追加**）
 
@@ -436,8 +436,9 @@ else                                             → system-force-fetch-failed  
 | R1 | #1 合流判定（§4.4） | `stop()` 済みの状態で1本目の `pollOnce('manual')` を開始し（`fetchFn` を1件目の電文で待たせる）、その実行中に2本目の `pollOnce('manual')` を呼ぶ。**2本とも同一の `PollCycleResult` オブジェクトを返し**、`fetchFn`（フィード索引＋電文）の総呼び出し回数がサイクル1本分のままであること | 修正前は `abortController.signal.aborted === true` のため合流せず、2本目が1本目の完了を待ってから**もう1サイクル走る**ので、呼び出し回数がサイクル2本分になり失敗する |
 | R2 | #2 一部フィード省略の中断（§4.5） | フィード索引スタブを `regular`・`extra` の2フィードにし、`regular` の**最後の電文**の `fetchFn` が解決する直前に `stop()` を呼ぶ。`regular` は `feedFetchOutcome: 'success'` で終わり、`extra` は `feedResults` に現れない。この結果で `runManualOnce()` → `forceRefresh()` → `fetchControlService` を通し、`operation_history` が `result='failure'` / `error_code='force_refresh_aborted'` になること | 修正前は `feedResults` が「`success` 1件」で空でも `'aborted'` 混在でもないため、`abortedSources` が空になり `result='success'` が記録されて失敗する |
 | R3 | #3 `startServer()` のシグナル停止（§4.3.1） | `startServer()` で起動し、`close({ reason: 'signal' })` を呼んだ後に `pollingService.pollOnce('manual')` を実行。`fetchFn` が1回も呼ばれず、返る結果が `feedResults: []` / `aborted: true` であること | 修正前は `startServer()` の `close` が `'shutdown'` を伝えないため `shutdownRequested` が立たず、手動サイクルが開始されて `fetchFn` が呼ばれ失敗する |
+| R4 | 再レビュー指摘 `start()` による `shutdownRequested` の解除（§4.3） | `stop('shutdown')` の後に `start()` を呼び、その後の `pollOnce('manual')` で `fetchFn` が `start()` 直後の呼び出し回数から増えず、結果が `feedResults: []` / `aborted: true` であること。`start()` が始める初回同期の取得は回数の基準線に含める | 修正前は `start()` が `shutdownRequested` を false に戻すため、手動サイクルが開始されて `fetchFn` が呼ばれ失敗する |
 
-**製造担当は、R1〜R3 を追加した時点で対応するプロダクトコード修正を一時的に戻し、3件が実際に失敗することを確認してから修正を適用すること。** 確認結果（どのアサーションがどう失敗したか）を検収担当へ報告する。
+**製造担当は、R1〜R4 を追加した時点で対応するプロダクトコード修正を一時的に戻し、4件が実際に失敗することを確認してから修正を適用すること。** 確認結果（どのアサーションがどう失敗したか）を検収担当へ報告する。
 
 #### 5.2 ミューテーション観点（この変更の要点を壊したら何が落ちるか）
 
@@ -451,6 +452,7 @@ else                                             → system-force-fetch-failed  
 | 合流判定を「どちらかのシグナルが中断済み」に戻す | R1 |
 | `aborted` を `feedResults.some(... === 'aborted')` だけで立てる | R2 |
 | `shutdownRequested` を立てない / `startServer()` の `'shutdown'` 伝達を外す | T4 / R3 |
+| `start()` で `shutdownRequested` を false に戻す | R4 |
 | `runManualOnce()` の failure 優先順を入れ替える | T6-(d) |
 | 通知プランナの中断分岐を消す | T8 |
 
@@ -503,7 +505,8 @@ count() { sqlite3 "$SP/t.db" "select count(*) from fetch_attempt where target_ki
 | AC9b | **PR #181 レビュー#1 の再現テストが通る（合流判定）** | R1 を実行 | 停止後に始めた手動サイクルの実行中に呼んだ2本目の `pollOnce('manual')` が**同一の `PollCycleResult` オブジェクト**を返し、`fetchFn` の総呼び出し回数がサイクル1本分のままである |
 | AC9c | **PR #181 レビュー#2 の再現テストが通る（一部フィード省略の中断）** | R2 を実行 | `regular` が `'success'`・`extra` が未着手で終わったサイクルの結果が `aborted: true` になり、`operation_history` が `result='failure'` / `error_code='force_refresh_aborted'` になる |
 | AC9d | **PR #181 レビュー#3 の再現テストが通る（`startServer()` のシグナル停止）** | R3 を実行 | `close({reason:'signal'})` の後の `pollOnce('manual')` で `fetchFn` が**1回も呼ばれず**、結果が `feedResults: []` / `aborted: true` |
-| AC9e | **再現テストが修正前に失敗することを確認済み** | 製造担当の報告（§5.1 末尾）を確認し、疑義があれば検収担当が該当のプロダクトコード修正を一時的に戻して R1〜R3 を実行する | R1〜R3 が修正前は失敗し、修正後に通ることが確認できている。一時的に戻した変更は必ず復旧する |
+| AC9f | **再レビュー指摘の再現テストが通る（`start()` による解除）** | R4 を実行 | `stop('shutdown')` → `start()` の後の `pollOnce('manual')` で `fetchFn` が増えず、結果が `feedResults: []` / `aborted: true`。修正前（`start()` に `this.shutdownRequested = false` を戻す）は失敗すること。戻した変更は必ず復旧する |
+| AC9e | **再現テストが修正前に失敗することを確認済み** | 製造担当の報告（§5.1 末尾）を確認し、疑義があれば検収担当が該当のプロダクトコード修正を一時的に戻して R1〜R3 を実行する | R1〜R4 が修正前は失敗し、修正後に通ることが確認できている。一時的に戻した変更は必ず復旧する |
 | AC10 | **既存テストが退行しない** | `npm run build` の後に `npm run test -w apps/api` と `npm run test -w packages/shared` | 全通過。特に `fetchAbort.test.ts` / `issue43FetchControlApi.test.ts` / `jmaXmlPolling.test.ts` / `serverGracefulShutdownTiming.test.ts` / `timeBasedPollingScheduler*.test.ts` / `notificationMessageDefinitions.test.ts` |
 | AC11 | **新規テストが存在し通る** | `apps/api/tests/issue178ManualRefreshWhileStopped.test.ts` と `packages/shared/tests/notificationMessageDefinitions.test.ts` を実行 | §5 の T1〜T11 および R1〜R3 に対応するテストが全て存在し、通過する。T1 のスタブフィードが電文エントリを2件以上持つ（§5.2）ことをテストコードで確認する |
 | AC12 | **静的検査** | `npm run lint && npm run typecheck && npm run format:check` | エラー0 |
@@ -546,7 +549,8 @@ count() { sqlite3 "$SP/t.db" "select count(*) from fetch_attempt where target_ki
 | --- | --- | --- |
 | 初版 | §1〜§9 | ヒアリング済み確定事項(1)〜(5)に基づく設計 |
 | 2回目 | §4.6 を 4.6.1〜4.6.4 へ再構成（中断専用通知定義 `system-force-fetch-aborted` の新設）、§4.8 を決定済みへ、AC6b・AC14 追加 | 確定事項(6)(7)(8)（`lane` 維持／中断専用通知を新設／`errorCode` はまとめる）の反映 |
-| 3回目（本改訂） | §4.1・§4.3.1・§4.4・§4.5・§5.1・§5.2・§5.4・AC9b〜AC9e・§8・§9 | **PR #181 の自動レビュー（Codex）指摘3件への対応**。内容は下記 |
+| 3回目 | §4.1・§4.3.1・§4.4・§4.5・§5.1・§5.2・§5.4・AC9b〜AC9e・§8・§9 | **PR #181 の自動レビュー（Codex）指摘3件への対応**。内容は下記 |
+| 4回目（本改訂） | §4.3（`start()` で `shutdownRequested` を解除しない）、§5.1・§5.2（R4）、AC9f | **PR #181 再レビュー（Codex, P2）指摘への対応**。取得開始API がシャットダウン中も届き `start()` が呼ばれうるため、解除するとシャットダウンガードが外れる。統括担当が軽微な修正として設計・製造を直接行った（ユーザー承認済み） |
 
 本改訂で反映した PR #181 レビュー指摘:
 
