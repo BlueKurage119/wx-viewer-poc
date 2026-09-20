@@ -29,8 +29,22 @@ const terminalRoutes = (): Plugin => ({
   },
 });
 
+/** Labs配布物のCSS import assertionを、同梱のLit用CSSResultへ解決する。 */
+const materialWebLabsCssResult = (): Plugin => ({
+  name: 'material-web-labs-css-result',
+  transform(code, id) {
+    if (id.includes('/node_modules/@material/web/labs/gb/') && id.endsWith('.js')) {
+      return {
+        code: code.replaceAll(".css' with { type: 'css' }", ".cssresult.js'"),
+        map: null,
+      };
+    }
+    return null;
+  },
+});
+
 export default defineConfig({
-  plugins: [react(), terminalRoutes()],
+  plugins: [materialWebLabsCssResult(), react(), terminalRoutes()],
   server: {
     port: WEB_DEV_PORT,
     strictPort: true,

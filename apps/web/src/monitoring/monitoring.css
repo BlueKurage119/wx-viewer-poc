@@ -152,19 +152,11 @@
 }
 
 .monitoring-table-section table {
+  width: 100%;
+  min-width: 920px;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
-}
-
-table.monitoring-source-table {
-  width: 946px;
-  min-width: 946px;
-}
-
-table.monitoring-information-table {
-  width: 900px;
-  min-width: 900px;
 }
 
 .monitoring-table-section th,
@@ -277,10 +269,8 @@ table.monitoring-information-table {
   white-space: nowrap;
 }
 
-.monitoring-toolbar-group md-filled-button {
+.monitoring-toolbar-group md-gb-button {
   inline-size: 120px;
-  --md-filled-button-container-height: 40px;
-  --md-filled-button-container-shape: 0px;
 }
 
 .monitoring-toolbar-submit {

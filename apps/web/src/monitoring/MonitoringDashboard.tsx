@@ -41,8 +41,8 @@ const INFORMATION_ROWS = [
   'キキクル',
 ] as const;
 
-const SOURCE_COLUMN_WIDTHS = [110, 80, 96, 140, 140, 140, 120, 120] as const;
-const INFORMATION_COLUMN_WIDTHS = [160, 220, 110, 140, 140, 130] as const;
+const SOURCE_COLUMN_WIDTHS = [11.63, 8.46, 10.15, 14.8, 14.8, 14.8, 12.68, 12.68] as const;
+const INFORMATION_COLUMN_WIDTHS = [17.78, 24.44, 12.22, 15.56, 15.56, 14.44] as const;
 
 const CARD_ICON_NAMES: Readonly<Record<MonitoringCard['id'], string>> = {
   operation: 'settings',
@@ -108,7 +108,7 @@ const SkeletonTable = memo(function SkeletonTable({
         <table className={tableClassName}>
           <colgroup>
             {columnWidths.map((width) => (
-              <col key={width} style={{ width: `${width}px` }} />
+              <col key={width} style={{ width: `${width}%` }} />
             ))}
           </colgroup>
           <thead>
@@ -153,7 +153,7 @@ const SourceStatusTable = memo(function SourceStatusTable({
         <table className="monitoring-source-table">
           <colgroup>
             {SOURCE_COLUMN_WIDTHS.map((width) => (
-              <col key={width} style={{ width: `${width}px` }} />
+              <col key={width} style={{ width: `${width}%` }} />
             ))}
           </colgroup>
           <thead>
@@ -250,7 +250,7 @@ const InformationTable = memo(function InformationTable({
         <table className="monitoring-information-table">
           <colgroup>
             {INFORMATION_COLUMN_WIDTHS.map((width) => (
-              <col key={width} style={{ width: `${width}px` }} />
+              <col key={width} style={{ width: `${width}%` }} />
             ))}
           </colgroup>
           <thead>

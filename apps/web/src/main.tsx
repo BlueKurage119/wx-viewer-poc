@@ -8,11 +8,20 @@ const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error('#root element not found');
 }
+const appRoot = rootElement;
 
-createRoot(rootElement).render(
-  <StrictMode>
-    <ThemeProvider fixedMode="dark">
-      <App />
-    </ThemeProvider>
-  </StrictMode>,
-);
+async function bootstrap() {
+  if (typeof document.createTreeWalker === 'function') {
+    await import('@material/web/labs/gb/components/button/md-gb-button.js');
+  }
+
+  createRoot(appRoot).render(
+    <StrictMode>
+      <ThemeProvider fixedMode="dark">
+        <App />
+      </ThemeProvider>
+    </StrictMode>,
+  );
+}
+
+void bootstrap();
