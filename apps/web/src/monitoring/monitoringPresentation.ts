@@ -2,7 +2,6 @@ import type {
   MonitoredFetchSourceId,
   MonitoringHealthStatus,
   MonitoringStatusResponse,
-  VenueId,
 } from '@wx-viewer-poc/shared';
 import {
   formatJstDateTime,
@@ -22,11 +21,6 @@ export interface MonitoringCard {
   readonly tone: MonitoringTone;
   readonly detailTone?: MonitoringTone;
 }
-
-const VENUE_NAMES: Readonly<Record<VenueId, string>> = {
-  east: '東地区',
-  trc: 'TRC',
-};
 
 function healthPresentation(status: MonitoringHealthStatus | null): {
   readonly value: string;
@@ -65,27 +59,30 @@ function readinessPresentation(phase: MonitoringStatusResponse['readiness']['ini
 function processingPresentation(
   response: MonitoringStatusResponse,
 ): Pick<MonitoringCard, 'value' | 'details' | 'tone'> {
-  const details = response.venues.map((venue) => {
-    const name = VENUE_NAMES[venue.venueId];
-    const { reprocessing } = venue;
-    switch (reprocessing.status) {
-      case 'idle':
-        return `${name} 未開始`;
-      case 'running':
-        return `${name} 再処理中 ${reprocessing.processedCount} / ${reprocessing.total}`;
-      case 'completed':
-        return `${name} 再処理完了 ${reprocessing.processedCount}件`;
-    }
-  });
-  const tone: MonitoringTone = response.venues.some(
-    (venue) => venue.reprocessing.status === 'running',
-  )
-    ? 'active'
-    : response.venues.length > 0 &&
-        response.venues.every((venue) => venue.reprocessing.status === 'completed')
-      ? 'normal'
-      : 'neutral';
-  return { value: '起動時再処理', details, tone };
+  const venue = response.venues.find((v) => v.venueId === response.requestedVenueId);
+  if (!venue) {
+    return { value: '起動時再処理', details: ['—'], tone: 'neutral' };
+  }
+
+  const { reprocessing } = venue;
+  let detail: string;
+  let tone: MonitoringTone;
+  switch (reprocessing.status) {
+    case 'idle':
+      detail = '未開始';
+      tone = 'neutral';
+      break;
+    case 'running':
+      detail = `再処理中 ${reprocessing.processedCount} / ${reprocessing.total}`;
+      tone = 'active';
+      break;
+    case 'completed':
+      detail = `再処理完了 ${reprocessing.processedCount}件`;
+      tone = 'normal';
+      break;
+  }
+
+  return { value: '起動時再処理', details: [detail], tone };
 }
 
 /** DTOの状態をカード向けの表示語へ変換する。閾値や時刻からの再判定は行わない。 */
