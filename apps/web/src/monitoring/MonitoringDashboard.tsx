@@ -44,43 +44,18 @@ const INFORMATION_ROWS = [
   'キキクル',
 ] as const;
 
-function CardIcon({ id }: { id: MonitoringCard['id'] }) {
-  if (id === 'operation') {
-    return (
-      <path d="M12 3v4m0 10v4m9-9h-4M7 12H3m15.4-6.4-2.8 2.8M8.4 15.6l-2.8 2.8m0-12.8 2.8 2.8m7.2 7.2 2.8 2.8M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" />
-    );
-  }
-  if (id === 'health') {
-    return <path d="m4 12 4 4 8-9m4-2v4m0 6v4M3 4h4m10 0h4M3 20h4m10 0h4" />;
-  }
-  if (id === 'schedule') {
-    return <path d="M12 7v5l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />;
-  }
-  return <path d="M5 4h10l4 4v12H5Zm10 0v5h4M8 13h8m-8 3h6" />;
-}
+const CARD_ICON_NAMES: Readonly<Record<MonitoringCard['id'], string>> = {
+  operation: 'settings',
+  health: 'check_circle',
+  schedule: 'schedule',
+  processing: 'article',
+};
 
-const MonitoringCardView = memo(function MonitoringCardView({
-  card,
-  stale,
-}: {
-  card: MonitoringCard;
-  stale: boolean;
-}) {
+const MonitoringCardView = memo(function MonitoringCardView({ card }: { card: MonitoringCard }) {
   return (
-    <article
-      className={`monitoring-card monitoring-tone-${card.tone}${stale ? ' monitoring-stale' : ''}`}
-    >
+    <article className={`monitoring-card monitoring-tone-${card.tone}`}>
       <span className="monitoring-card-icon" aria-hidden="true">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <CardIcon id={card.id} />
-        </svg>
+        <span className="monitoring-card-icon-symbol">{CARD_ICON_NAMES[card.id]}</span>
       </span>
       <div className="monitoring-card-content">
         <h2>{card.title}</h2>
@@ -140,25 +115,12 @@ const SkeletonTable = memo(function SkeletonTable({
 });
 
 export function MonitoringDashboardView({ state }: { state: MonitoringLoadState }) {
-  // 更新中は既存データを維持し、更新行だけを差し替える。
+  // 更新中は既存データを維持し、最終表示更新だけを継続表示する。
   const cards = useMemo(() => (state.data ? buildMonitoringCards(state.data) : null), [state.data]);
-  const failed = state.phase === 'failed';
-  const refreshing = state.phase === 'refreshing';
-  const message =
-    state.phase === 'loading'
-      ? '監視情報を取得中'
-      : failed
-        ? state.data
-          ? '監視情報を更新できません（前回値を表示）'
-          : '監視情報を更新できません（通信成功なし）'
-        : refreshing
-          ? '監視情報を確認中'
-          : '';
 
   return (
     <div className="monitoring-dashboard" aria-label="取得監視">
-      <div className="monitoring-update-row" role="status" aria-live="polite">
-        {message && <span>{message}</span>}
+      <div className="monitoring-update-row">
         <span>
           最終表示更新{' '}
           {state.data ? (
@@ -172,7 +134,7 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
       </div>
       <section className="monitoring-cards" aria-label="監視の概要">
         {cards ? (
-          cards.map((card) => <MonitoringCardView card={card} stale={failed} key={card.id} />)
+          cards.map((card) => <MonitoringCardView card={card} key={card.id} />)
         ) : (
           <>
             <MonitoringCardView
@@ -183,7 +145,6 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
                 details: ['—'],
                 tone: 'neutral',
               }}
-              stale={false}
             />
             <MonitoringCardView
               card={{
@@ -193,7 +154,6 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
                 details: ['—'],
                 tone: 'neutral',
               }}
-              stale={false}
             />
             <MonitoringCardView
               card={{
@@ -203,7 +163,6 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
                 details: ['—'],
                 tone: 'neutral',
               }}
-              stale={false}
             />
             <MonitoringCardView
               card={{
@@ -213,7 +172,6 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
                 details: ['—'],
                 tone: 'neutral',
               }}
-              stale={false}
             />
           </>
         )}

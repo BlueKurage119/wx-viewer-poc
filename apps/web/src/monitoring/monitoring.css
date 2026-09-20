@@ -53,9 +53,18 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
-.monitoring-card-icon svg {
+.monitoring-card-icon-symbol {
   width: 24px;
   height: 24px;
+  font-family: 'Material Symbols Outlined', 'Material Icons', sans-serif;
+  font-size: 24px;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .monitoring-card-content {
@@ -124,20 +133,6 @@
 
 .monitoring-detail-error {
   color: var(--wx-system-status-red-foreground);
-}
-
-.monitoring-stale .monitoring-card-value,
-.monitoring-stale .monitoring-card-icon {
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-.monitoring-stale.monitoring-tone-active {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-low);
-}
-
-.monitoring-stale.monitoring-tone-active .monitoring-card-detail {
-  color: var(--md-sys-color-on-surface-variant);
 }
 
 .monitoring-table-section {
