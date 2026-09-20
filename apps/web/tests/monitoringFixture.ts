@@ -245,6 +245,26 @@ export const stoppedSchedulerMonitoringResponseFixture: MonitoringStatusResponse
   },
 };
 
+/** 手動停止時に実APIが返す組み合わせ（全グループ scheduled_stopped・全系列 suspended）。 */
+export const manualStoppedMonitoringResponseFixture: MonitoringStatusResponse = {
+  ...normalMonitoringResponseFixture,
+  operation: {
+    ...normalMonitoringResponseFixture.operation,
+    schedulerRunning: false,
+    scheduledSources: createDefaultScheduledSources().map((s) => ({
+      ...s,
+      state: 'scheduled_stopped' as const,
+      nextRunAt: null,
+    })),
+  },
+  health: {
+    ...normalMonitoringResponseFixture.health,
+    worstStatus: 'suspended',
+    worstSourceIds: [],
+    sources: createDefaultSources().map((s) => ({ ...s, status: 'suspended' })),
+  },
+};
+
 export const monitoringResponseFixture: MonitoringStatusResponse = {
   status: 'ready',
   terminalId: 'kkeagh01',
