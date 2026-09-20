@@ -137,6 +137,22 @@ test('buildSourceStatusRows: 状態語の優先順位と文字による区別', 
     assert.equal(r.state.tone, 'neutral');
   }
 
+  // 5b. 手動停止（実APIの組み合わせ）-> 全行「停止」。スケジュール停止に化けない
+  const manualStoppedRows = buildSourceStatusRows(manualStoppedMonitoringResponseFixture);
+  for (const r of manualStoppedRows) {
+    assert.equal(r.state.text, '停止');
+    assert.equal(r.state.tone, 'neutral');
+  }
+
+  // 5c. 時間帯による停止（schedulerRunning: true）-> 全行「スケジュール停止」のまま
+  const scheduleStoppedRows = buildSourceStatusRows({
+    ...manualStoppedMonitoringResponseFixture,
+    operation: { ...manualStoppedMonitoringResponseFixture.operation, schedulerRunning: true },
+  });
+  for (const r of scheduleStoppedRows) {
+    assert.equal(r.state.text, 'スケジュール停止');
+  }
+  
   // 6. schedulerRunning: false かつ status === 'abnormal' -> 異常が優先（停止で上書きされない）
   const stoppedWithAbnormal = buildSourceStatusRows({
     ...stoppedSchedulerMonitoringResponseFixture,
