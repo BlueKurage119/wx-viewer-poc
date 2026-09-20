@@ -249,8 +249,8 @@ export function buildSourceStatusRows(
     // 1. health.sources[i].status === null -> 判定待ち (neutral)
     // 2. status === 'abnormal' -> 異常 (error)
     // 3. status === 'delayed' -> 遅延 (attention)
-    // 4. status === 'suspended' または scheduledSources.state === 'scheduled_stopped' -> スケジュール停止 (neutral)
-    // 5. operation.schedulerRunning === false -> 停止 (neutral)
+    // 4. operation.schedulerRunning === false -> 停止 (neutral)
+    // 5. status === 'suspended' または scheduledSources.state === 'scheduled_stopped' -> スケジュール停止 (neutral)
     // 6. scheduledSources.state === 'running' -> 取得中 (active)
     // 7. それ以外 -> 待機 (normal)
     let stateCell: SourceStatusCell;
