@@ -39,19 +39,19 @@ const sampleAtomXmlWith3Entries = `<?xml version="1.0" encoding="utf-8"?>
     <title>気象警報・注意報（東京都）1</title>
     <id>entry-1</id>
     <updated>2026-09-19T00:00:00Z</updated>
-    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/doc1.xml"/>
+    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc1.xml"/>
   </entry>
   <entry>
     <title>気象警報・注意報（東京都）2</title>
     <id>entry-2</id>
     <updated>2026-09-19T00:01:00Z</updated>
-    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/doc2.xml"/>
+    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc2.xml"/>
   </entry>
   <entry>
     <title>気象警報・注意報（東京都）3</title>
     <id>entry-3</id>
     <updated>2026-09-19T00:02:00Z</updated>
-    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/doc3.xml"/>
+    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc3.xml"/>
   </entry>
 </feed>`;
 
@@ -157,7 +157,10 @@ test('AC11-(b): 中断後の pollSingleFeed が残りの電文を GET しない�
         });
       }
 
-      if (url === 'https://www.data.jma.go.jp/developer/xml/data/doc1.xml') {
+      if (
+        url ===
+        'https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc1.xml'
+      ) {
         // 1件目の電文 GET 処理中に中断指示を発行
         controller.abort('stop');
         return new Response(sampleTelegramXml, {
@@ -195,7 +198,7 @@ test('AC11-(b): 中断後の pollSingleFeed が残りの電文を GET しない�
     assert.equal(fetchedUrls.length, 2);
     assert.deepEqual(fetchedUrls, [
       'https://example.com/xml/feed/regular.xml',
-      'https://www.data.jma.go.jp/developer/xml/data/doc1.xml',
+      'https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc1.xml',
     ]);
 
     db.close();
@@ -234,7 +237,10 @@ test('AC11-(c): 中断フィードが feedFetchOutcome: "aborted" になり succ
       }
 
       // extra フィードの doc1.xml 取得中に service.stop('stop') を呼ぶ
-      if (url === 'https://www.data.jma.go.jp/developer/xml/data/doc1.xml') {
+      if (
+        url ===
+        'https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc1.xml'
+      ) {
         void service?.stop('stop');
         return new Response(sampleTelegramXml, {
           status: 200,
@@ -313,7 +319,10 @@ test('AC11-(d): 中断でバックオフの consecutiveFailures が増えない'
         });
       }
 
-      if (url === 'https://www.data.jma.go.jp/developer/xml/data/doc1.xml') {
+      if (
+        url ===
+        'https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc1.xml'
+      ) {
         void service?.stop('stop');
         return new Response(sampleTelegramXml, {
           status: 200,

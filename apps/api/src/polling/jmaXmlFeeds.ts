@@ -89,3 +89,32 @@ export function getFeedDefinitionsForTrigger(
       throw new Error(`Unsupported poll trigger: ${trigger as string}`);
   }
 }
+
+export const TARGET_TELEGRAM_TYPES = [
+  'VPWW55',
+  'VPWW56',
+  'VPWW57',
+  'VPWW58',
+  'VPWW59',
+  'VPWW60',
+  'VPWW61',
+  'VPWS50',
+  'VPWP50',
+  'VPFD61',
+  'VPFW60',
+  'VPFD51',
+  'VPBS50',
+  'VPHW50',
+  'VPHW51',
+] as const;
+
+export type TargetTelegramType = (typeof TARGET_TELEGRAM_TYPES)[number];
+
+export function isTargetTelegramType(
+  telegramType: string | null,
+): telegramType is TargetTelegramType {
+  if (telegramType === null) {
+    return false;
+  }
+  return (TARGET_TELEGRAM_TYPES as readonly string[]).includes(telegramType);
+}
