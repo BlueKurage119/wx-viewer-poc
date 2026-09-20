@@ -25,6 +25,8 @@ import {
   getFeedDefinitionsForTrigger,
   TARGET_TELEGRAM_TYPES,
   isTargetTelegramType,
+  type JmaXmlFeedKind,
+  type JmaXmlPollTrigger,
 } from '../src/polling/jmaXmlFeeds.js';
 import {
   FeedBackoffManager,
@@ -2490,7 +2492,7 @@ test('22-2. start() で regular, extra, regular_l, extra_l が各 1 回要求さ
 
     // タイマーによる通常ポーリングの動作確認（高頻度 2 フィードのみ増える）
     fakeNow = '2026-09-09T01:01:00.000Z';
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     await service.stop();
 
@@ -4665,152 +4667,163 @@ test('取得前電文種別フィルタ: 対象電文のみ個別GET・保存・
 });
 
 test('取得前電文種別フィルタ: 全トリガ(scheduled, manual, initial, recovery)で対象外URLは個別GETされず、対象外のみフィードでも初期取得がsuccess判定となる (AC5)', async () => {
-  const { databasePath, cleanup } = createTempDb();
-  const server = await createTestHttpServer();
+  const triggerCases: Array<{
+    trigger: JmaXmlPollTrigger;
+    expectedFeedKinds: readonly JmaXmlFeedKind[];
+  }> = [
+    { trigger: 'initial', expectedFeedKinds: ['regular', 'extra', 'regular_l', 'extra_l'] },
+    { trigger: 'manual', expectedFeedKinds: ['regular', 'extra'] },
+    { trigger: 'scheduled', expectedFeedKinds: ['regular', 'extra'] },
+    { trigger: 'recovery', expectedFeedKinds: ['regular', 'extra', 'regular_l', 'extra_l'] },
+  ];
 
-  try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+  for (const { trigger, expectedFeedKinds } of triggerCases) {
+    const { databasePath, cleanup } = createTempDb();
+    const server = await createTestHttpServer();
 
-    const targetDocPath = '/data/20260909000000_0_VPWW55_130000.xml';
-    const targetDocUrl = `${server.baseUrl}${targetDocPath}`;
-    const nonTargetDocPath = '/data/20260909000000_0_VPAA50_130000.xml';
-    const nonTargetDocUrl = `${server.baseUrl}${nonTargetDocPath}`;
+    try {
+      const db = initializeDatabase({ databasePath, migrationsDirectory });
 
-    const telegramXml = createSampleTelegramXml();
+      const targetDocPath = `/data/20260909000000_0_VPWW55_130000_${trigger}.xml`;
+      const targetDocUrl = `${server.baseUrl}${targetDocPath}`;
+      const nonTargetDocPath = `/data/20260909000000_0_VPAA50_130000_${trigger}.xml`;
+      const nonTargetDocUrl = `${server.baseUrl}${nonTargetDocPath}`;
+      const unextractableDocPath = `/data/invalid_name_${trigger}.xml`;
+      const unextractableDocUrl = `${server.baseUrl}${unextractableDocPath}`;
 
-    // regular: 対象1件 + 対象外1件
-    const regularFeedXml = createSampleAtomFeed([
-      { id: 'urn:entry-reg-t', title: 'VPWW55', href: targetDocUrl },
-      { id: 'urn:entry-reg-nt', title: 'VPAA50', href: nonTargetDocUrl },
-    ]);
-    // extra: 対象外のみ
-    const extraFeedXml = createSampleAtomFeed([
-      { id: 'urn:entry-ext-nt', title: 'VPAA50', href: nonTargetDocUrl },
-    ]);
-    // regular_l: 対象外のみ
-    const regularLFeedXml = createSampleAtomFeed([
-      { id: 'urn:entry-regl-nt', title: 'VPAA50', href: nonTargetDocUrl },
-    ]);
-    // extra_l: 対象外のみ
-    const extraLFeedXml = createSampleAtomFeed([
-      { id: 'urn:entry-extl-nt', title: 'VPAA50', href: nonTargetDocUrl },
-    ]);
+      const telegramXml = createSampleTelegramXml();
 
-    server.setHandler((req, res) => {
-      if (req.url === '/feed/regular.xml') {
-        res.statusCode = 200;
-        res.end(regularFeedXml);
-        return;
-      }
-      if (req.url === '/feed/extra.xml') {
-        res.statusCode = 200;
-        res.end(extraFeedXml);
-        return;
-      }
-      if (req.url === '/feed/regular_l.xml') {
-        res.statusCode = 200;
-        res.end(regularLFeedXml);
-        return;
-      }
-      if (req.url === '/feed/extra_l.xml') {
-        res.statusCode = 200;
-        res.end(extraLFeedXml);
-        return;
-      }
-      if (req.url === targetDocPath) {
-        res.statusCode = 200;
-        res.end(telegramXml);
-        return;
-      }
-      res.statusCode = 404;
-      res.end('Not found');
-    });
+      // regular: 対象1件 + 対象外1件 + 抽出不能1件
+      const regularFeedXml = createSampleAtomFeed([
+        { id: `urn:entry-reg-t-${trigger}`, title: 'VPWW55', href: targetDocUrl },
+        { id: `urn:entry-reg-nt-${trigger}`, title: 'VPAA50', href: nonTargetDocUrl },
+        { id: `urn:entry-reg-ue-${trigger}`, title: 'INVALID', href: unextractableDocUrl },
+      ]);
+      // extra: 対象外のみ
+      const extraFeedXml = createSampleAtomFeed([
+        { id: `urn:entry-ext-nt-${trigger}`, title: 'VPAA50', href: nonTargetDocUrl },
+      ]);
+      // regular_l: 対象外のみ
+      const regularLFeedXml = createSampleAtomFeed([
+        { id: `urn:entry-regl-nt-${trigger}`, title: 'VPAA50', href: nonTargetDocUrl },
+      ]);
+      // extra_l: 対象外のみ
+      const extraLFeedXml = createSampleAtomFeed([
+        { id: `urn:entry-extl-nt-${trigger}`, title: 'VPAA50', href: nonTargetDocUrl },
+      ]);
 
-    const customFetch: typeof fetch = (input, init) => {
-      const urlStr = String(input);
-      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
-        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
-      }
-      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
-        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
-      }
-      if (urlStr.includes('/developer/xml/feed/regular_l.xml')) {
-        return fetch(`${server.baseUrl}/feed/regular_l.xml`, init);
-      }
-      if (urlStr.includes('/developer/xml/feed/extra_l.xml')) {
-        return fetch(`${server.baseUrl}/feed/extra_l.xml`, init);
-      }
-      return fetch(input, init);
-    };
+      server.setHandler((req, res) => {
+        if (req.url === '/feed/regular.xml') {
+          res.statusCode = 200;
+          res.end(regularFeedXml);
+          return;
+        }
+        if (req.url === '/feed/extra.xml') {
+          res.statusCode = 200;
+          res.end(extraFeedXml);
+          return;
+        }
+        if (req.url === '/feed/regular_l.xml') {
+          res.statusCode = 200;
+          res.end(regularLFeedXml);
+          return;
+        }
+        if (req.url === '/feed/extra_l.xml') {
+          res.statusCode = 200;
+          res.end(extraLFeedXml);
+          return;
+        }
+        if (req.url === targetDocPath) {
+          res.statusCode = 200;
+          res.end(telegramXml);
+          return;
+        }
+        res.statusCode = 404;
+        res.end('Not found');
+      });
 
-    const service = new JmaXmlPollingService(db.connection, {
-      freshnessPolicy: defaultXmlFreshnessPolicy,
-      fetchFn: customFetch,
-      allowedUrlPrefixes: [server.baseUrl],
-      allowHttpForTesting: true,
-      clock: () => '2026-09-09T01:00:00Z',
-    });
+      const customFetch: typeof fetch = (input, init) => {
+        const urlStr = String(input);
+        if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+          return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+        }
+        if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+          return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+        }
+        if (urlStr.includes('/developer/xml/feed/regular_l.xml')) {
+          return fetch(`${server.baseUrl}/feed/regular_l.xml`, init);
+        }
+        if (urlStr.includes('/developer/xml/feed/extra_l.xml')) {
+          return fetch(`${server.baseUrl}/feed/extra_l.xml`, init);
+        }
+        return fetch(input, init);
+      };
 
-    // 1. initial トリガ (4フィードすべて対象)
-    const initialCycle = await service.pollOnce('initial');
-    assert.equal(initialCycle.feedResults.length, 4);
+      const service = new JmaXmlPollingService(db.connection, {
+        freshnessPolicy: defaultXmlFreshnessPolicy,
+        fetchFn: customFetch,
+        allowedUrlPrefixes: [server.baseUrl],
+        allowHttpForTesting: true,
+        clock: () => '2026-09-09T01:00:00Z',
+      });
 
-    // 4フィードとも outcome は success（対象外エントリのみのフィードがあっても failure にならない）
-    for (const feedResult of initialCycle.feedResults) {
-      assert.equal(feedResult.feedFetchOutcome, 'success');
+      const cycleResult = await service.pollOnce(trigger);
+
+      // 1. 各トリガーに対応するフィード集合の完全一致検証
+      const actualFeedKinds = cycleResult.feedResults.map((r) => r.feedKind);
+      assert.deepEqual(actualFeedKinds, expectedFeedKinds);
+      assert.equal(cycleResult.trigger, trigger);
+      assert.equal(cycleResult.aborted, false);
+
+      // 2. 全フィードの outcome が success（対象外エントリのみのフィードがあっても failure にならない）
+      for (const feedResult of cycleResult.feedResults) {
+        assert.equal(feedResult.feedFetchOutcome, 'success');
+      }
+
+      // 3. 対象外のみのフィードのカウント検証
+      const nonTargetOnlyFeeds = expectedFeedKinds.filter((k) => k !== 'regular');
+      for (const feedKind of nonTargetOnlyFeeds) {
+        const feedRes = cycleResult.feedResults.find((r) => r.feedKind === feedKind);
+        assert.deepEqual(feedRes, {
+          feedKind,
+          feedFetchOutcome: 'success',
+          discoveredCount: 1,
+          skippedDuplicateCount: 0,
+          downloadedCount: 0,
+          failedDocumentCount: 0,
+        });
+      }
+
+      // 4. 対象1件 + 対象外1件 + 抽出不能1件 を含む regular フィードのカウント検証
+      const regularResult = cycleResult.feedResults.find((r) => r.feedKind === 'regular');
+      assert.deepEqual(regularResult, {
+        feedKind: 'regular',
+        feedFetchOutcome: 'success',
+        discoveredCount: 3,
+        skippedDuplicateCount: 0,
+        downloadedCount: 1,
+        failedDocumentCount: 0,
+      });
+
+      // 5. 対象外URL・抽出不能URLへの個別GETが 0 回、対象URLへの個別GETが 1 回
+      assert.equal(server.requestCounts.get(nonTargetDocPath) ?? 0, 0);
+      assert.equal(server.requestCounts.get(unextractableDocPath) ?? 0, 0);
+      assert.equal(server.requestCounts.get(targetDocPath), 1);
+
+      // 6. DB記録の検証: fetch_attempt（xml_document）および telegram_reception は対象URLの1件のみ
+      const attempts = listFetchAttempts(db.connection);
+      const docAttempts = attempts.filter((a) => a.sourceKind === 'xml_document');
+      assert.equal(docAttempts.length, 1);
+      assert.equal(docAttempts[0]?.requestUrl, targetDocUrl);
+      assert.equal(docAttempts[0]?.outcome, 'success');
+
+      const receptions = listTelegramReceptions(db.connection);
+      assert.equal(receptions.length, 1);
+      assert.equal(receptions[0]?.documentUrl, targetDocUrl);
+      assert.equal(receptions[0]?.telegramType, 'VPWW55');
+    } finally {
+      await server.close();
+      cleanup();
     }
-
-    // 対象外のみのフィード (extra, regular_l, extra_l) でも downloadedCount は 0, failedDocumentCount は 0
-    const extraResult = initialCycle.feedResults.find((r) => r.feedKind === 'extra');
-    assert.deepEqual(extraResult, {
-      feedKind: 'extra',
-      feedFetchOutcome: 'success',
-      discoveredCount: 1,
-      skippedDuplicateCount: 0,
-      downloadedCount: 0,
-      failedDocumentCount: 0,
-    });
-
-    const regularLResult = initialCycle.feedResults.find((r) => r.feedKind === 'regular_l');
-    assert.deepEqual(regularLResult, {
-      feedKind: 'regular_l',
-      feedFetchOutcome: 'success',
-      discoveredCount: 1,
-      skippedDuplicateCount: 0,
-      downloadedCount: 0,
-      failedDocumentCount: 0,
-    });
-
-    const extraLResult = initialCycle.feedResults.find((r) => r.feedKind === 'extra_l');
-    assert.deepEqual(extraLResult, {
-      feedKind: 'extra_l',
-      feedFetchOutcome: 'success',
-      discoveredCount: 1,
-      skippedDuplicateCount: 0,
-      downloadedCount: 0,
-      failedDocumentCount: 0,
-    });
-
-    // 対象1件を含む regular フィード
-    const regularResult = initialCycle.feedResults.find((r) => r.feedKind === 'regular');
-    assert.deepEqual(regularResult, {
-      feedKind: 'regular',
-      feedFetchOutcome: 'success',
-      discoveredCount: 2,
-      skippedDuplicateCount: 0,
-      downloadedCount: 1,
-      failedDocumentCount: 0,
-    });
-
-    // nonTargetDocPath へのリクエストは0回
-    assert.equal(server.requestCounts.get(nonTargetDocPath) ?? 0, 0);
-    // targetDocPath へのリクエストは1回
-    assert.equal(server.requestCounts.get(targetDocPath), 1);
-
-    // 2. manual, scheduled, recovery でも同様に対象外URLは個別GETされないことを確認
-    assert.equal(initialCycle.aborted, false);
-  } finally {
-    await server.close();
-    cleanup();
   }
 });
