@@ -10,7 +10,7 @@ import { formatJstMonthDayClock } from './monitoringTimeFormat.js';
 /** 反映状態の表示語。K7は3値と欠落のみ。K8で異常系を追加する。 */
 export type InformationStateLabel = '利用可能' | '情報なし' | '未取得' | '—';
 
-export type InformationStateTone = 'normal' | 'neutral' | 'unknown';
+export type InformationStateTone = 'normal' | 'neutral' | 'unknown' | 'attention' | 'error';
 
 export interface InformationRow {
   readonly kind: MonitoringInformationKind;

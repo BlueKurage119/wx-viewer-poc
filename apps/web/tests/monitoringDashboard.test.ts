@@ -4,7 +4,14 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MonitoringDashboardView } from '../src/monitoring/MonitoringDashboard.tsx';
-import { monitoringResponseFixture, normalMonitoringResponseFixture } from './monitoringFixture.ts';
+import {
+  abnormalMonitoringResponseFixture,
+  delayedMonitoringResponseFixture,
+  monitoringResponseFixture,
+  normalMonitoringResponseFixture,
+  suspendedMonitoringResponseFixture,
+  unevaluatedMonitoringResponseFixture,
+} from './monitoringFixture.ts';
 
 const el = React.createElement;
 
@@ -39,11 +46,47 @@ test('K1: カードアイコンはMaterial Symbolsの名前をspanで描画し�
     el(MonitoringDashboardView, { state: { phase: 'ready', data: monitoringResponseFixture } }),
   );
 
-  for (const name of ['settings', 'check_circle', 'schedule', 'article']) {
+  for (const name of ['settings', 'remove', 'schedule', 'article']) {
     assert.ok(html.includes(`>${name}</span>`));
   }
   assert.ok(html.includes('class="monitoring-card-icon-symbol"'));
   assert.equal(html.includes('<svg'), false);
+});
+
+test('Issue #74: 取得健全性は状態ごとに承認済みのMaterial Symbols名を表示する', () => {
+  const cases = [
+    [normalMonitoringResponseFixture, 'check'],
+    [delayedMonitoringResponseFixture, 'check_alert'],
+    [abnormalMonitoringResponseFixture, 'close'],
+    [suspendedMonitoringResponseFixture, 'remove'],
+    [unevaluatedMonitoringResponseFixture, 'remove'],
+  ] as const;
+
+  for (const [fixture, iconName] of cases) {
+    const html = renderToStaticMarkup(
+      el(MonitoringDashboardView, { state: { phase: 'ready', data: fixture } }),
+    );
+    assert.ok(html.includes(`>${iconName}</span>`));
+  }
+});
+
+test('Issue #74: 表は固定列幅のcolgroupを持ち、注意行と異常行を行全体で強調する', () => {
+  const delayedHtml = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'ready', data: delayedMonitoringResponseFixture },
+    }),
+  );
+  const abnormalHtml = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'ready', data: abnormalMonitoringResponseFixture },
+    }),
+  );
+
+  for (const width of [110, 80, 96, 140, 140, 140, 120, 120, 160, 220, 110, 140, 140, 130]) {
+    assert.ok(delayedHtml.includes(`<col style="width:${width}px"/>`));
+  }
+  assert.ok(delayedHtml.includes('<tr class="monitoring-row-attention">'));
+  assert.ok(abnormalHtml.includes('<tr class="monitoring-row-error">'));
 });
 
 test('K6: 取得元別の稼働状況表のレンダリング（th scope、8列見出し、6行名、実データ）', () => {

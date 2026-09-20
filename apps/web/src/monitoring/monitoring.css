@@ -152,10 +152,19 @@
 }
 
 .monitoring-table-section table {
-  width: 100%;
-  min-width: 920px;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
+}
+
+table.monitoring-source-table {
+  width: 946px;
+  min-width: 946px;
+}
+
+table.monitoring-information-table {
+  width: 900px;
+  min-width: 900px;
 }
 
 .monitoring-table-section th,
@@ -225,6 +234,16 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+.monitoring-table-section tbody tr.monitoring-row-attention > * {
+  background: var(--wx-system-status-yellow-container);
+  color: var(--wx-system-status-yellow-on-container);
+}
+
+.monitoring-table-section tbody tr.monitoring-row-error > * {
+  background: var(--wx-system-status-red-container);
+  color: var(--wx-system-status-red-on-container);
+}
+
 .monitoring-visually-hidden {
   position: absolute;
   width: 1px;
@@ -259,7 +278,9 @@
 }
 
 .monitoring-toolbar-group md-filled-button {
+  inline-size: 120px;
   --md-filled-button-container-height: 40px;
+  --md-filled-button-container-shape: 0px;
 }
 
 .monitoring-toolbar-submit {
