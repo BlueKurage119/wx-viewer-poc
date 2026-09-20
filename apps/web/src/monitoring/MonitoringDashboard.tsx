@@ -107,8 +107,8 @@ const SkeletonTable = memo(function SkeletonTable({
       <div className="monitoring-table-scroll">
         <table className={tableClassName}>
           <colgroup>
-            {columnWidths.map((width) => (
-              <col key={width} style={{ width: `${width}%` }} />
+            {columnWidths.map((width, index) => (
+              <col key={index} style={{ width: `${width}%` }} />
             ))}
           </colgroup>
           <thead>
@@ -152,8 +152,8 @@ const SourceStatusTable = memo(function SourceStatusTable({
       <div className="monitoring-table-scroll">
         <table className="monitoring-source-table">
           <colgroup>
-            {SOURCE_COLUMN_WIDTHS.map((width) => (
-              <col key={width} style={{ width: `${width}%` }} />
+            {SOURCE_COLUMN_WIDTHS.map((width, index) => (
+              <col key={index} style={{ width: `${width}%` }} />
             ))}
           </colgroup>
           <thead>
@@ -249,8 +249,8 @@ const InformationTable = memo(function InformationTable({
       <div className="monitoring-table-scroll">
         <table className="monitoring-information-table">
           <colgroup>
-            {INFORMATION_COLUMN_WIDTHS.map((width) => (
-              <col key={width} style={{ width: `${width}%` }} />
+            {INFORMATION_COLUMN_WIDTHS.map((width, index) => (
+              <col key={index} style={{ width: `${width}%` }} />
             ))}
           </colgroup>
           <thead>
