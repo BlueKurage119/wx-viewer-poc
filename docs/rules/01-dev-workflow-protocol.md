@@ -7,7 +7,7 @@ products: [Claude, Codex, Antigravity]
 
 # 開発フロー業務標準
 
-対象: 統括担当、および各フェーズの担当。ノウハウ・背景は[G-01-hearing-first-design.md](advisory/G-01-hearing-first-design.md)・[G-02-dev-server-etiquette.md](advisory/G-02-dev-server-etiquette.md)・[G-03-external-review.md](advisory/G-03-external-review.md)を参照。
+対象: 統括担当、および各フェーズの担当。ノウハウ・背景は[G-01-hearing-first-design.md](advisory/G-01-hearing-first-design.md)・[G-02-dev-server-etiquette.md](advisory/G-02-dev-server-etiquette.md)・[G-03-external-review.md](advisory/G-03-external-review.md)を参照。委託先の成果物の検証は[G-04-verification-basics.md](advisory/G-04-verification-basics.md)、設計書の矛盾・未実測の値の落とし穴は[G-10-design-consistency-pitfalls.md](advisory/G-10-design-consistency-pitfalls.md)も参照。
 
 ## 統括担当の心構え
 
@@ -66,12 +66,14 @@ AGYの最終報告に必須の記載事項:
 
 - スキルに同梱されたAGY委託用スクリプトは、サンドボックス外で実行すること。また、使い方をよく読むこと。
 - ユーザーがGUIでAGYを起動した場合は、Walkthroughファイルに最終報告を記載する。
+- 依頼文の「やること・やらないことの境界」には、変更してよいファイルと変更禁止のファイル(共用部品・共通のテスト設定など)を挙げる。委託先は自分のテストを通すために範囲外を書き換えることがあるため、完了後は`git status --short`と`git diff --stat <基点>`(未コミットの変更を含む)で範囲外の差分を確認し、報告だけで判断しない。最終報告なしで終了した場合も含め、[G-04-verification-basics.md](advisory/G-04-verification-basics.md)の「委託先の成果物の検証」を参照。
 - 製造中に実施するテストは、[テスト検証業務標準](05-verification-protocol.md)により実施し、その結果を最終報告に記載する。
 
 ## devサーバーの禁止事項
 
 - 自分が起動していないdev/previewサーバーを含む**一括終了(`pkill -f vite`・`pkill node`等)は禁止**。
 - 自分が起動したサーバーのみ、ポート指定で停止する。
+- APIが応答しない、データが出ないときの確認(夜間帯の取得停止、`npm run build`によるAPI再起動、応答待ちの方法)は[G-02-dev-server-etiquette.md](advisory/G-02-dev-server-etiquette.md)を参照。
 
 ## ブランチ・コミット・PRの必須要件
 

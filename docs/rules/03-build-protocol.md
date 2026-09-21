@@ -7,7 +7,7 @@ products: [Claude, Codex, Antigravity]
 
 # 製造フェーズ業務標準
 
-対象: 製造担当。テストの検証手順は[05-verification-protocol.md](05-verification-protocol.md)、気象データの必須制約は[07-wx-data-protocol.md](07-wx-data-protocol.md)、UIの必須制約は[06-ui-md3-protocol.md](06-ui-md3-protocol.md)を参照。
+対象: 製造担当。テストの検証手順は[05-verification-protocol.md](05-verification-protocol.md)、気象データの必須制約は[07-wx-data-protocol.md](07-wx-data-protocol.md)、UIの必須制約は[06-ui-md3-protocol.md](06-ui-md3-protocol.md)を参照。AGY等へ委託した成果物の検証(範囲外の変更、報告なしでの終了)は[G-04-verification-basics.md](advisory/G-04-verification-basics.md)の「委託先の成果物の検証」を参照。
 
 ## 権限境界(必須)
 
