@@ -99,6 +99,7 @@ function resolveTargetDisplayName(
 export function buildInformationRows(
   data: MonitoringStatusResponse | null,
   resolveTargets: VenueForecastTargetsResolver = resolveVenueForecastTargets,
+  isFailed: boolean = false,
 ): readonly InformationRow[] {
   if (!data) {
     return INFORMATION_ROW_DEFINITIONS.map((def) => ({
@@ -158,7 +159,7 @@ export function buildInformationRows(
     switch (section.availability) {
       case 'available':
         stateLabel = '利用可能';
-        stateTone = 'normal';
+        stateTone = isFailed ? 'neutral' : 'normal';
         break;
       case 'stale':
         stateLabel = '情報なし';

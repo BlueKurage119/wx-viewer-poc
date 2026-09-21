@@ -86,7 +86,10 @@ function processingPresentation(
 }
 
 /** DTOの状態をカード向けの表示語へ変換する。閾値や時刻からの再判定は行わない。 */
-export function buildMonitoringCards(data: MonitoringStatusResponse): readonly MonitoringCard[] {
+export function buildMonitoringCards(
+  data: MonitoringStatusResponse,
+  isFailed: boolean = false,
+): readonly MonitoringCard[] {
   const readiness = readinessPresentation(data.readiness.initialFetchPhase);
   const health = healthPresentation(data.health.worstStatus);
   const activeIntervals = [
@@ -96,7 +99,7 @@ export function buildMonitoringCards(data: MonitoringStatusResponse): readonly M
   ].filter((interval): interval is number => interval !== null);
   const processing = processingPresentation(data);
 
-  return [
+  const cards: readonly MonitoringCard[] = [
     {
       id: 'operation',
       title: '取得運転',
@@ -137,6 +140,17 @@ export function buildMonitoringCards(data: MonitoringStatusResponse): readonly M
       tone: processing.tone,
     },
   ];
+
+  if (!isFailed) {
+    return cards;
+  }
+
+  return cards.map((card) => ({
+    ...card,
+    tone: card.tone === 'normal' || card.tone === 'active' ? 'neutral' : card.tone,
+    detailTone:
+      card.detailTone === 'normal' || card.detailTone === 'active' ? 'neutral' : card.detailTone,
+  }));
 }
 
 export interface SourceStatusCell {
@@ -206,6 +220,7 @@ export function formatDurationMs(durationMs: number | null): string {
  */
 export function buildSourceStatusRows(
   data: MonitoringStatusResponse | null,
+  isFailed: boolean = false,
 ): readonly SourceStatusRow[] {
   if (!data) {
     return SOURCE_ROW_DEFINITIONS.map((def) => ({
@@ -265,9 +280,9 @@ export function buildSourceStatusRows(
     ) {
       stateCell = { text: 'スケジュール停止', tone: 'neutral' };
     } else if (scheduledSource?.state === 'running') {
-      stateCell = { text: '取得中', tone: 'active' };
+      stateCell = { text: '取得中', tone: isFailed ? 'neutral' : 'active' };
     } else {
-      stateCell = { text: '待機', tone: 'normal' };
+      stateCell = { text: '待機', tone: isFailed ? 'neutral' : 'normal' };
     }
 
     const isTileTimesSource =

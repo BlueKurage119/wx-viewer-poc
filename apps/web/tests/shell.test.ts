@@ -1,9 +1,24 @@
+import './setupEnv.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveTerminal, resolveView, terminals } from '../src/shell/config.ts';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import {
+  resolveTerminal,
+  resolveView,
+  terminals,
+  views,
+  type ViewId,
+} from '../src/shell/config.ts';
 import { visibleNotices } from '../src/shell/notifications.ts';
 import { previewNotices } from '../src/shell/fixtures.ts';
 import { isUnknownTerminalDocument } from '../src/shell/terminalRouting.ts';
+import { AppShell } from '../src/shell/AppShell.tsx';
+import { NotificationArea } from '../src/shell/NotificationArea.tsx';
+import type { MonitoringLoadState } from '../src/monitoring/useMonitoringStatus.ts';
+import { normalMonitoringResponseFixture } from './monitoringFixture.ts';
+
+const el = React.createElement;
 
 test('登録端末のみを解決し、H/Kで同じ会場を共有する', () => {
   for (const terminal of terminals) {
@@ -75,4 +90,169 @@ test('未登録HTMLアクセスのみ404対象とし、APIやモジュールを�
   ])
     assert.equal(isUnknownTerminalDocument(path, 'text/html'), false);
   assert.equal(isUnknownTerminalDocument('/src/main.tsx', '*/*'), false);
+});
+
+test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作ガイド「取得監視: 監視情報API取得不可」の表示テスト', () => {
+  const terminal = terminals[1]!; // kkeagh01 (K端末)
+  const baseNotices = visibleNotices(previewNotices('empty'), terminal.mode);
+
+  function computeShellStatus({
+    view,
+    monitoringState,
+    defaultOperation = '左のメニューから表示する画面を選択してください。',
+  }: {
+    view: ViewId;
+    monitoringState: MonitoringLoadState | null;
+    defaultOperation?: string;
+  }) {
+    const isMonitoringFailed = view === 'monitor' && monitoringState?.phase === 'failed';
+    const connection = isMonitoringFailed
+      ? {
+          failed: true,
+          lastSuccessAt: monitoringState?.data ? new Date(monitoringState.data.generatedAt) : null,
+        }
+      : { failed: false, lastSuccessAt: null };
+    const currentOperation = isMonitoringFailed
+      ? '取得監視: 監視情報API取得不可'
+      : defaultOperation;
+    return { connection, currentOperation };
+  }
+
+  // 1. 初回取得失敗時（phase: 'failed', data: null）: 受信異常バッジと「通信成功なし」、操作ガイドにエラーメッセージ
+  {
+    const { connection, currentOperation } = computeShellStatus({
+      view: 'monitor',
+      monitoringState: { phase: 'failed', data: null },
+    });
+    assert.equal(connection.failed, true);
+    assert.equal(connection.lastSuccessAt, null);
+    assert.equal(currentOperation, '取得監視: 監視情報API取得不可');
+
+    const html = renderToStaticMarkup(
+      el(
+        AppShell,
+        {
+          terminal,
+          title: '取得監視',
+          view: 'monitor',
+          navigation: views.filter((item) => item.modes.includes(terminal.mode)),
+          now: new Date('2026-09-20T05:30:00.000Z'),
+          connection,
+          notifications: el(NotificationArea, {
+            notices: baseNotices,
+            operation: currentOperation,
+          }),
+        },
+        el('div', null, 'content'),
+      ),
+    );
+
+    assert.ok(html.includes('class="connection-error"'));
+    assert.ok(html.includes('受信異常'));
+    assert.ok(html.includes('通信成功なし'));
+    assert.ok(html.includes('取得監視: 監視情報API取得不可'));
+  }
+
+  // 2. 2回目以降取得失敗時（前回値あり、phase: 'failed', data: normalMonitoringResponseFixture）
+  {
+    const { connection, currentOperation } = computeShellStatus({
+      view: 'monitor',
+      monitoringState: { phase: 'failed', data: normalMonitoringResponseFixture },
+    });
+    assert.equal(connection.failed, true);
+    assert.notEqual(connection.lastSuccessAt, null);
+    assert.equal(currentOperation, '取得監視: 監視情報API取得不可');
+
+    const html = renderToStaticMarkup(
+      el(
+        AppShell,
+        {
+          terminal,
+          title: '取得監視',
+          view: 'monitor',
+          navigation: views.filter((item) => item.modes.includes(terminal.mode)),
+          now: new Date('2026-09-20T05:30:00.000Z'),
+          connection,
+          notifications: el(NotificationArea, {
+            notices: baseNotices,
+            operation: currentOperation,
+          }),
+        },
+        el('div', null, 'content'),
+      ),
+    );
+
+    assert.ok(html.includes('class="connection-error"'));
+    assert.ok(html.includes('受信異常'));
+    // generatedAt は '2026-09-20T05:25:28.000Z' なので JST は '14:25:28'
+    assert.ok(html.includes('14:25:28'));
+    assert.equal(html.includes('通信成功なし'), false);
+    assert.ok(html.includes('取得監視: 監視情報API取得不可'));
+  }
+
+  // 3. 復旧時（phase: 'ready', data: normalMonitoringResponseFixture）: バッジ消去、通常案内へ復帰
+  {
+    const { connection, currentOperation } = computeShellStatus({
+      view: 'monitor',
+      monitoringState: { phase: 'ready', data: normalMonitoringResponseFixture },
+    });
+    assert.equal(connection.failed, false);
+    assert.equal(currentOperation, '左のメニューから表示する画面を選択してください。');
+
+    const html = renderToStaticMarkup(
+      el(
+        AppShell,
+        {
+          terminal,
+          title: '取得監視',
+          view: 'monitor',
+          navigation: views.filter((item) => item.modes.includes(terminal.mode)),
+          now: new Date('2026-09-20T05:30:00.000Z'),
+          connection,
+          notifications: el(NotificationArea, {
+            notices: baseNotices,
+            operation: currentOperation,
+          }),
+        },
+        el('div', null, 'content'),
+      ),
+    );
+
+    assert.equal(html.includes('connection-error'), false);
+    assert.equal(html.includes('受信異常'), false);
+    assert.ok(html.includes('左のメニューから表示する画面を選択してください。'));
+  }
+
+  // 4. 監視画面エラー中に別画面（例: weather）へ切り替えた場合: バッジ・操作ガイドのクリア
+  {
+    const { connection, currentOperation } = computeShellStatus({
+      view: 'weather',
+      monitoringState: { phase: 'failed', data: normalMonitoringResponseFixture },
+    });
+    assert.equal(connection.failed, false);
+    assert.equal(currentOperation, '左のメニューから表示する画面を選択してください。');
+
+    const html = renderToStaticMarkup(
+      el(
+        AppShell,
+        {
+          terminal,
+          title: '防災気象情報',
+          view: 'weather',
+          navigation: views.filter((item) => item.modes.includes(terminal.mode)),
+          now: new Date('2026-09-20T05:30:00.000Z'),
+          connection,
+          notifications: el(NotificationArea, {
+            notices: baseNotices,
+            operation: currentOperation,
+          }),
+        },
+        el('div', null, 'content'),
+      ),
+    );
+
+    assert.equal(html.includes('connection-error'), false);
+    assert.equal(html.includes('受信異常'), false);
+    assert.ok(html.includes('左のメニューから表示する画面を選択してください。'));
+  }
 });

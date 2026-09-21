@@ -373,3 +373,102 @@ test('K7: 処理待ちカードの欠落・進行中（自会場欠落で「—�
   assert.deepEqual(runningProcessing.details, ['再処理中 4 / 10']);
   assert.equal(runningProcessing.tone, 'active');
 });
+
+test('Issue #187: isFailed === true のとき buildMonitoringCards は normal トーンを neutral に抑制し、attention/error は維持する', () => {
+  // normal フィクスチャでは operation, health, processing の tone が normal
+  const normalCards = buildMonitoringCards(normalMonitoringResponseFixture, true);
+  for (const card of normalCards) {
+    assert.notEqual(card.tone, 'normal', `card ${card.id} の tone が normal でないこと`);
+  }
+  const opCard = normalCards.find((c) => c.id === 'operation')!;
+  assert.equal(opCard.tone, 'neutral');
+  assert.equal(
+    opCard.detailTone,
+    'neutral',
+    '操作カードの補足（detailTone）も neutral に抑制されること',
+  );
+  const healthCard = normalCards.find((c) => c.id === 'health')!;
+  assert.equal(healthCard.tone, 'neutral');
+
+  // active (初回同期中・再処理中) の tone / detailTone も neutral に抑制されること
+  const runningResponse: MonitoringStatusResponse = {
+    ...normalMonitoringResponseFixture,
+    readiness: {
+      ...normalMonitoringResponseFixture.readiness,
+      initialFetchPhase: 'running',
+    },
+    venues: [
+      {
+        ...normalMonitoringResponseFixture.venues[0],
+        reprocessing: {
+          ...normalMonitoringResponseFixture.venues[0].reprocessing,
+          status: 'running',
+        },
+      },
+    ],
+  };
+  const runningCards = buildMonitoringCards(runningResponse, true);
+  const runningOpCard = runningCards.find((c) => c.id === 'operation')!;
+  assert.equal(
+    runningOpCard.detailTone,
+    'neutral',
+    '初回同期中の detailTone (active) が neutral に抑制されること',
+  );
+  const runningProcCard = runningCards.find((c) => c.id === 'processing')!;
+  assert.equal(
+    runningProcCard.tone,
+    'neutral',
+    '再処理中の tone (active) が neutral に抑制されること',
+  );
+
+  // delayed フィクスチャ (health.tone === 'attention') では attention が維持されること
+  const delayedCards = buildMonitoringCards(delayedMonitoringResponseFixture, true);
+  const delayedHealth = delayedCards.find((c) => c.id === 'health')!;
+  assert.equal(delayedHealth.tone, 'attention');
+
+  // abnormal フィクスチャ (health.tone === 'error') では error が維持されること
+  const abnormalCards = buildMonitoringCards(abnormalMonitoringResponseFixture, true);
+  const abnormalHealth = abnormalCards.find((c) => c.id === 'health')!;
+  assert.equal(abnormalHealth.tone, 'error');
+});
+
+test('Issue #187: isFailed === true のとき buildSourceStatusRows は normal/active トーンを neutral に抑制し、attention/error は維持する', () => {
+  // normal フィクスチャでは全行待機 (tone: normal)
+  const normalRows = buildSourceStatusRows(normalMonitoringResponseFixture, true);
+  for (const row of normalRows) {
+    assert.equal(row.state.text, '待機');
+    assert.equal(
+      row.state.tone,
+      'neutral',
+      `${row.name} の state.tone が neutral に抑制されること`,
+    );
+  }
+
+  // active (取得中) の行も neutral に抑制されること
+  const runningResponse: MonitoringStatusResponse = {
+    ...normalMonitoringResponseFixture,
+    operation: {
+      ...normalMonitoringResponseFixture.operation,
+      scheduledSources: normalMonitoringResponseFixture.operation.scheduledSources.map((s) => ({
+        ...s,
+        state: 'running',
+      })),
+    },
+  };
+  const activeRows = buildSourceStatusRows(runningResponse, true);
+  const xmlRow = activeRows.find((r) => r.sourceId === 'xml_regular')!;
+  assert.equal(xmlRow.state.text, '取得中');
+  assert.equal(xmlRow.state.tone, 'neutral');
+
+  // delayed フィクスチャでは attention が維持されること
+  const delayedRows = buildSourceStatusRows(delayedMonitoringResponseFixture, true);
+  const delayedRow = delayedRows.find((r) => r.sourceId === 'xml_regular')!;
+  assert.equal(delayedRow.state.text, '遅延');
+  assert.equal(delayedRow.state.tone, 'attention');
+
+  // abnormal フィクスチャでは error が維持されること
+  const abnormalRows = buildSourceStatusRows(abnormalMonitoringResponseFixture, true);
+  const abnormalRow = abnormalRows.find((r) => r.sourceId === 'xml_regular')!;
+  assert.equal(abnormalRow.state.text, '異常');
+  assert.equal(abnormalRow.state.tone, 'error');
+});

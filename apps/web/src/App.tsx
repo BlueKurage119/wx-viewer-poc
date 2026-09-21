@@ -9,6 +9,7 @@ import { fetchStartupNotifications } from './api/startupNotifications';
 import { WeatherMapView } from './map/WeatherMapView';
 import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
 import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
+import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
 
 const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
   weather: {
@@ -56,6 +57,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   const [scenario, setScenario] = useState<PreviewScenario>('empty');
   const [notices, setNotices] = useState(() => previewNotices('empty'));
   const [operation, setOperation] = useState('左のメニューから表示する画面を選択してください。');
+  const [monitoringState, setMonitoringState] = useState<MonitoringLoadState | null>(null);
   useEffect(() => {
     const syncView = () => {
       // 本文へのスキップリンクはビュー状態として扱わない。
@@ -91,6 +93,16 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
         : '左のメニューから表示する画面を選択してください。',
     );
   };
+
+  const isMonitoringFailed = view === 'monitor' && monitoringState?.phase === 'failed';
+  const connection = isMonitoringFailed
+    ? {
+        failed: true,
+        lastSuccessAt: monitoringState?.data ? new Date(monitoringState.data.generatedAt) : null,
+      }
+    : { failed: preview && scenario === 'connection', lastSuccessAt: null };
+  const currentOperation = isMonitoringFailed ? '取得監視: 監視情報API取得不可' : operation;
+
   return (
     <AppShell
       terminal={terminal}
@@ -98,8 +110,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       view={view}
       navigation={views.filter((item) => item.modes.includes(terminal.mode))}
       now={now}
-      connection={{ failed: preview && scenario === 'connection', lastSuccessAt: null }}
-      notifications={<NotificationArea notices={displayed} operation={operation} />}
+      connection={connection}
+      notifications={<NotificationArea notices={displayed} operation={currentOperation} />}
       toolbar={
         view === 'monitor' ? (
           <MonitoringToolbar />
@@ -131,7 +143,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       {view === 'weather' ? (
         <WeatherMapView venue={terminal.venue} />
       ) : view === 'monitor' ? (
-        <MonitoringDashboard terminalId={terminal.id} />
+        <MonitoringDashboard terminalId={terminal.id} onLoadStateChange={setMonitoringState} />
       ) : (
         <div className="view-placeholder">
           <span className="placeholder-symbol" aria-hidden="true">
