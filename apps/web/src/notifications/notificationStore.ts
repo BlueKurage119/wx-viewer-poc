@@ -65,14 +65,14 @@ export function noticesForRow(
   );
 }
 
-/** 行に実際に表示する通知。未確認を優先し、すべて確認済みなら最新を表示する。 */
+/** 行に実際に表示する通知。未確認のみを表示し、すべて確認済みなら空欄にする。 */
 export function displayedNoticeForRow(
   state: NotificationUiState,
   mode: TerminalMode,
   row: 'warning' | 'question',
 ): NotificationFeedItem | undefined {
   const notices = noticesForRow(state, mode, row);
-  return notices.find((item) => !state.confirmedFeedKeys.has(item.feedKey)) ?? notices[0];
+  return notices.find((item) => !state.confirmedFeedKeys.has(item.feedKey));
 }
 
 export function nextUnconfirmedChime(
