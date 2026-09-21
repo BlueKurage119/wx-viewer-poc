@@ -1,5 +1,6 @@
 import './setupEnv.ts';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -66,4 +67,15 @@ test('ダイアログ境界: 固定タイトル・準備中表示を持ち、差
   assert.ok(custom.includes('本文:diagnostics'));
   assert.equal(custom.includes('表示内容は準備中です。'), false);
   assert.ok(custom.includes('閉じる'));
+});
+
+test('戻るアイコン: 公開paddingトークンで内部buttonを40px幅に収める', () => {
+  const css = readFileSync(new URL('../src/monitoring/monitoring.css', import.meta.url), 'utf8');
+  const iconButtonRule = css.match(/\.monitoring-toolbar-icon-button \{([^}]*)\}/)?.[1];
+
+  assert.ok(iconButtonRule);
+  assert.ok(iconButtonRule.includes('inline-size: 40px !important;'));
+  assert.ok(iconButtonRule.includes('block-size: 40px;'));
+  assert.ok(iconButtonRule.includes('--leading-space: 10px;'));
+  assert.ok(iconButtonRule.includes('--trailing-space: 10px;'));
 });

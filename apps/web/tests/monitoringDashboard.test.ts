@@ -159,6 +159,8 @@ test('Issue #75: 監視ツールバーはM3 Expressiveのスクエア型11ボタ
   assert.equal((html.match(/size="sm"/g) ?? []).length, 11);
   assert.equal((html.match(/square=""/g) ?? []).length, 11);
   assert.equal((html.match(/disabled=""/g) ?? []).length, 4);
+  assert.equal((html.match(/type="toggle"/g) ?? []).length, 3);
+  assert.equal(html.includes('data-aria-pressed'), false);
   assert.ok(html.includes('aria-label="最初のメニューへ戻る"'));
   assert.ok(html.includes('aria-label="取得操作を送信"'));
 });

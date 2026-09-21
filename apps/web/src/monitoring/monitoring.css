@@ -278,6 +278,8 @@
   inline-size: 40px !important;
   min-inline-size: 40px;
   block-size: 40px;
+  --leading-space: 10px;
+  --trailing-space: 10px;
 }
 
 .monitoring-toolbar-title {
