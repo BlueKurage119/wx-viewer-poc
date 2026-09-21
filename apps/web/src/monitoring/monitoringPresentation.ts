@@ -147,8 +147,9 @@ export function buildMonitoringCards(
 
   return cards.map((card) => ({
     ...card,
-    tone: card.tone === 'normal' ? 'neutral' : card.tone,
-    detailTone: card.detailTone === 'normal' ? 'neutral' : card.detailTone,
+    tone: card.tone === 'normal' || card.tone === 'active' ? 'neutral' : card.tone,
+    detailTone:
+      card.detailTone === 'normal' || card.detailTone === 'active' ? 'neutral' : card.detailTone,
   }));
 }
 

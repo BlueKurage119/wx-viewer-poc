@@ -390,6 +390,37 @@ test('Issue #187: isFailed === true のとき buildMonitoringCards は normal �
   const healthCard = normalCards.find((c) => c.id === 'health')!;
   assert.equal(healthCard.tone, 'neutral');
 
+  // active (初回同期中・再処理中) の tone / detailTone も neutral に抑制されること
+  const runningResponse: MonitoringStatusResponse = {
+    ...normalMonitoringResponseFixture,
+    readiness: {
+      ...normalMonitoringResponseFixture.readiness,
+      initialFetchPhase: 'running',
+    },
+    venues: [
+      {
+        ...normalMonitoringResponseFixture.venues[0],
+        reprocessing: {
+          ...normalMonitoringResponseFixture.venues[0].reprocessing,
+          status: 'running',
+        },
+      },
+    ],
+  };
+  const runningCards = buildMonitoringCards(runningResponse, true);
+  const runningOpCard = runningCards.find((c) => c.id === 'operation')!;
+  assert.equal(
+    runningOpCard.detailTone,
+    'neutral',
+    '初回同期中の detailTone (active) が neutral に抑制されること',
+  );
+  const runningProcCard = runningCards.find((c) => c.id === 'processing')!;
+  assert.equal(
+    runningProcCard.tone,
+    'neutral',
+    '再処理中の tone (active) が neutral に抑制されること',
+  );
+
   // delayed フィクスチャ (health.tone === 'attention') では attention が維持されること
   const delayedCards = buildMonitoringCards(delayedMonitoringResponseFixture, true);
   const delayedHealth = delayedCards.find((c) => c.id === 'health')!;
