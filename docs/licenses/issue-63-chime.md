@@ -1,12 +1,11 @@
 # Issue #63 チャイム音源の出典・ライセンス
 
-`apps/web/public/audio/2.wav`、`4.wav`、`5.wav` は、ユーザー提供の再打ち込み済み音源である。
+`apps/web/public/audio/1.wav`〜`5.wav` は、ユーザー提供の再打ち込み済み音源である。
 
 - 元の出典: [P2P地震情報 EPPSP peer](https://github.com/p2pquake/epsp-peer-cs)
 - 元の著作権表示: Copyright (c) 2018 P2PQuake development team
 - 元のライセンス: MIT License
-- 用途: `2.wav` は warning、`4.wav` は question、`5.wav` は emergency の端末内ループ再生
-- `1.wav` と `3.wav` は本リポジトリへ追加していない。
+- 用途: `2.wav` は warning、`4.wav` は question、`5.wav` は emergency の端末内ループ再生。`1.wav` はお知らせ、`3.wav` は高レベル警報通知向けの予備で、今回の鳴動ルールには接続しない。
 
 ## MIT License
 
