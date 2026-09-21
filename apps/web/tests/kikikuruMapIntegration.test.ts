@@ -2,21 +2,147 @@ import './setupEnv.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
+import { flushSync } from 'react-dom';
 import { renderToStaticMarkup } from 'react-dom/server';
+import L from 'leaflet';
 import { terminals } from '../src/shell/config';
 import { sampleKikikuruTimeline } from '../src/map/fixtures';
 import { mapViewportConfiguration } from '../src/map/MapViewport';
-import { getOverlayProductKey, WeatherMapView } from '../src/map/WeatherMapView';
+import {
+  createLayerSelectHandler,
+  createWeatherTileOverlayElement,
+  WeatherMapView,
+} from '../src/map/WeatherMapView';
 
 const el = React.createElement;
 
-test('WeatherMapView: ナウキャストとキキクルの往復ではオーバーレイを別インスタンスへ切り替えること', () => {
-  assert.equal(getOverlayProductKey('nowcast'), 'nowcast');
-  assert.equal(getOverlayProductKey('kikikuru-heavyrain'), 'kikikuru');
-  assert.equal(getOverlayProductKey('kikikuru-inund'), 'kikikuru');
-  assert.equal(getOverlayProductKey('kikikuru-land'), 'kikikuru');
-  assert.notEqual(getOverlayProductKey('nowcast'), getOverlayProductKey('kikikuru-heavyrain'));
-  assert.notEqual(getOverlayProductKey('kikikuru-heavyrain'), getOverlayProductKey('nowcast'));
+test('WeatherMapView: プロダクト境界キーによりナウキャストとキキクルの往復で旧オーバーレイを破棄すること', async () => {
+  const documentForClient = globalThis.document as unknown as {
+    addEventListener: () => void;
+    removeEventListener: () => void;
+    createElement: () => { setAttribute: () => void; removeAttribute: () => void };
+    defaultView: typeof globalThis.window;
+    documentElement: object;
+    activeElement: null;
+  };
+  const element = {
+    nodeType: 1,
+    nodeName: 'DIV',
+    tagName: 'DIV',
+    namespaceURI: 'http://www.w3.org/1999/xhtml',
+    ownerDocument: documentForClient,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  Object.assign(documentForClient, {
+    addEventListener() {},
+    removeEventListener() {},
+    createElement() {
+      return { style: {}, setAttribute() {}, removeAttribute() {} };
+    },
+    defaultView: globalThis.window,
+    documentElement: element,
+    activeElement: null,
+  });
+  Object.assign(globalThis.window, { HTMLIFrameElement: class {} });
+
+  const { createRoot } = await import('react-dom/client');
+  const removedLayerIds: string[] = [];
+  let nextLayerId = 0;
+  const originalTileLayer = L.tileLayer;
+  L.tileLayer = (() => {
+    const layerId = `layer-${++nextLayerId}`;
+    const layer = {
+      addTo() {
+        return layer;
+      },
+      once() {
+        return layer;
+      },
+      on() {
+        return layer;
+      },
+      remove() {
+        removedLayerIds.push(layerId);
+        return layer;
+      },
+      setOpacity() {
+        return layer;
+      },
+    };
+    return layer;
+  }) as unknown as typeof L.tileLayer;
+
+  const map = {
+    getZoom: () => 10,
+    hasLayer: () => true,
+    on() {},
+    off() {},
+  } as unknown as L.Map;
+  const createOverlay = (layerId: 'nowcast' | 'kikikuru-heavyrain') =>
+    createWeatherTileOverlayElement(layerId, {
+      map,
+      frame: {
+        id: `${layerId}-frame`,
+        urlTemplate: `/${layerId}/tiles/{z}/{x}/{y}.png`,
+      },
+      allowedZooms: [10],
+      opacity: 0.8,
+      swapTimeoutMs: 12_000,
+    });
+  const nowcast = createOverlay('nowcast');
+  const kikikuru = createOverlay('kikikuru-heavyrain');
+  assert.notEqual(nowcast.key, kikikuru.key, '本番の要素生成がプロダクト境界 key を設定する');
+
+  const root = createRoot(element as unknown as Element);
+  try {
+    flushSync(() => root.render(nowcast));
+    flushSync(() => root.render(kikikuru));
+    assert.deepEqual(
+      removedLayerIds,
+      ['layer-1'],
+      'nowcast から kikikuru への切替で旧インスタンスを破棄する',
+    );
+
+    flushSync(() => root.render(createOverlay('nowcast')));
+    assert.deepEqual(
+      removedLayerIds,
+      ['layer-1', 'layer-2'],
+      'kikikuru から nowcast への切替でも旧インスタンスを破棄する',
+    );
+  } finally {
+    root.unmount();
+    L.tileLayer = originalTileLayer;
+  }
+});
+
+test('WeatherMapView: 実際のレイヤー選択経路は状態更新と通知だけを行い、地図位置を変更しないこと (§11.3)', () => {
+  const internalSelections: string[] = [];
+  const notifiedSelections: string[] = [];
+  const handleUncontrolledSelect = createLayerSelectHandler(
+    undefined,
+    (layerId) => internalSelections.push(layerId),
+    (layerId) => notifiedSelections.push(layerId),
+  );
+
+  handleUncontrolledSelect('kikikuru-heavyrain');
+  handleUncontrolledSelect('nowcast');
+  assert.deepEqual(internalSelections, ['kikikuru-heavyrain', 'nowcast']);
+  assert.deepEqual(notifiedSelections, ['kikikuru-heavyrain', 'nowcast']);
+
+  const handleControlledSelect = createLayerSelectHandler(
+    'nowcast',
+    (layerId) => internalSelections.push(layerId),
+    (layerId) => notifiedSelections.push(layerId),
+  );
+  handleControlledSelect('kikikuru-inund');
+
+  assert.deepEqual(
+    internalSelections,
+    ['kikikuru-heavyrain', 'nowcast'],
+    '制御モードでは親が状態を更新し、地図移動を伴う内部処理を行わない',
+  );
+  assert.deepEqual(notifiedSelections, ['kikikuru-heavyrain', 'nowcast', 'kikikuru-inund']);
 });
 
 test('MapViewport: Leaflet 本体・背景地図・命令的ズームが 9〜18 に固定されること (§7.2, §11.5)', () => {

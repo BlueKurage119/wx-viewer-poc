@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from 'react';
+import { useState, useRef, useMemo, useCallback, type ReactElement } from 'react';
 import type L from 'leaflet';
 import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { Venue } from '../shell/config';
@@ -18,7 +18,7 @@ import { useKikikuruCatalog } from './kikikuru/useKikikuruCatalog';
 import { useKikikuruLayerState } from './kikikuru/useKikikuruLayerState';
 import { isKikikuruLayer } from './kikikuru/kikikuruCatalog';
 import { KikikuruStatusCard } from './kikikuru/KikikuruStatusCard';
-import { WeatherTileOverlay } from './tiles/WeatherTileOverlay';
+import { WeatherTileOverlay, type WeatherTileOverlayProps } from './tiles/WeatherTileOverlay';
 
 export interface WeatherMapViewProps {
   venue: Venue;
@@ -38,6 +38,28 @@ const SWAP_TIMEOUT_MS = 12_000;
 // eslint-disable-next-line react-refresh/only-export-components
 export function getOverlayProductKey(layerId: MapLayerId): 'nowcast' | 'kikikuru' {
   return layerId === 'nowcast' ? 'nowcast' : 'kikikuru';
+}
+
+/** MapViewport に触れず、選択状態だけを更新するレイヤー選択の本番経路。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export function createLayerSelectHandler(
+  controlledLayerId: MapLayerId | undefined,
+  setInternalLayerId: (layerId: MapLayerId) => void,
+  onLayerSelect: ((layerId: MapLayerId) => void) | undefined,
+): (layerId: MapLayerId) => void {
+  return (layerId) => {
+    if (controlledLayerId === undefined) setInternalLayerId(layerId);
+    onLayerSelect?.(layerId);
+  };
+}
+
+/** プロダクト境界 key を含むオーバーレイ要素を生成する。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export function createWeatherTileOverlayElement(
+  layerId: MapLayerId,
+  props: WeatherTileOverlayProps,
+): ReactElement {
+  return <WeatherTileOverlay key={getOverlayProductKey(layerId)} {...props} />;
 }
 
 /**
@@ -153,12 +175,10 @@ export function WeatherMapView({
     currentLayerId,
   ]);
 
-  const handleLayerSelect = (layerId: MapLayerId) => {
-    if (controlledLayerId === undefined) {
-      setInternalLayerId(layerId);
-    }
-    onLayerSelect?.(layerId);
-  };
+  const handleLayerSelect = useMemo(
+    () => createLayerSelectHandler(controlledLayerId, setInternalLayerId, onLayerSelect),
+    [controlledLayerId, onLayerSelect],
+  );
 
   const handleIntent = (intent: TimelineIntent) => {
     if (isNowcast) {
@@ -222,23 +242,20 @@ export function WeatherMapView({
   const effectiveStatusSlot = isNowcast ? nowcastStatusSlot : kikikuruStatusSlot;
   // ナウキャストとキキクルの間では画像を引き継がない。種別間だけはキキクル側で
   // settled 表示を維持するため、同一インスタンスの差替えを許可する。
-  const overlayProductKey = getOverlayProductKey(currentLayerId);
-
   return (
     <div className="weather-map-view" aria-label="防災気象情報ビュー">
       {/* 気象タイルオーバーレイ (F2 / F3) */}
-      <WeatherTileOverlay
-        key={overlayProductKey}
-        map={mapInstance}
-        frame={overlayFrame}
-        prefetchFrames={overlayPrefetchFrames}
-        retainLoaded={overlayRetainLoaded}
-        allowedZooms={overlayAllowedZooms}
-        opacity={overlayOpacity}
-        swapTimeoutMs={SWAP_TIMEOUT_MS}
-        onSwapSettled={handleSwapSettled}
-        onTileError={handleTileError}
-      />
+      {createWeatherTileOverlayElement(currentLayerId, {
+        map: mapInstance,
+        frame: overlayFrame,
+        prefetchFrames: overlayPrefetchFrames,
+        retainLoaded: overlayRetainLoaded,
+        allowedZooms: overlayAllowedZooms,
+        opacity: overlayOpacity,
+        swapTimeoutMs: SWAP_TIMEOUT_MS,
+        onSwapSettled: handleSwapSettled,
+        onTileError: handleTileError,
+      })}
 
       {/* 1. 左上凡例カード／再表示ボタン (F5) */}
       <MapLegend
