@@ -4,7 +4,11 @@ import { AppShell } from './shell/AppShell';
 import { resolveTerminal, resolveView, views, type Terminal, type ViewId } from './shell/config';
 import { NotificationArea } from './shell/NotificationArea';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
-import { createNotificationUiState, receiveNotifications } from './notifications/notificationStore';
+import {
+  confirmNotification as confirmNotificationState,
+  createNotificationUiState,
+  receiveNotifications,
+} from './notifications/notificationStore';
 import { useNotificationFeed } from './notifications/useNotificationFeed';
 import { useHeaderBuzzer } from './notifications/useHeaderBuzzer';
 import { operationGuideMessage } from './shell/notifications';
@@ -90,7 +94,9 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   const selectScenario = (next: PreviewScenario) => {
     setScenario(next);
     const initialState = createNotificationUiState();
-    const received = receiveNotifications(initialState, previewNotices(next), terminal.mode).state;
+    const receivedResult = receiveNotifications(initialState, previewNotices(next), terminal.mode);
+    const received = receivedResult.state;
+    if (receivedResult.chime) buzzer.request(receivedResult.chime);
     setPreviewState({
       ...received,
       operationMessage:
@@ -119,7 +125,11 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     buzzer.stop();
   };
   const confirmNotification = (feedKey: string) => {
-    notificationFeed.confirm(feedKey);
+    if (preview) {
+      setPreviewState((currentState) =>
+        confirmNotificationState(currentState, feedKey, terminal.mode),
+      );
+    } else notificationFeed.confirm(feedKey);
     if (buzzer.state.feedKey === feedKey) buzzer.stop();
   };
 

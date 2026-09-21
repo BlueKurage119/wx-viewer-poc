@@ -110,7 +110,7 @@ export function receiveNotifications(
       ? { selectedQuestionFeedKey: null, selectedQuestionChoice: null }
       : {}),
   };
-  const ranked = newItems.filter((item) => isVisibleForTerminal(item, mode));
+  const ranked = newItems.filter((item) => isVisibleForTerminal(item, mode)).sort(compareItems);
   const chimeItem =
     ranked.find((item) => item.category === 'emergency') ??
     ranked.find((item) => item.category === 'question') ??

@@ -359,14 +359,14 @@ select {
 }
 
 .has-notice.emergency-row {
-  background: var(--md-sys-color-error-light);
-  color: var(--md-sys-color-on-error-light);
-  border-top-color: var(--md-sys-color-on-error-light);
+  background: var(--wx-notice-emergency-container);
+  color: var(--wx-notice-emergency-on-container);
+  border-top-color: var(--wx-notice-emergency-outline);
 }
 
 .has-notice.emergency-row .notice-actions button,
 .has-notice.emergency-row .notice-question-choices button {
-  border-color: var(--md-sys-color-on-error-light);
+  border-color: var(--wx-notice-emergency-outline);
 }
 
 .notice-actions {
@@ -407,6 +407,11 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .app-header[data-buzzer-category] {
     animation: none;
+  }
+
+  .app-header[data-buzzer-category='emergency'] {
+    background: var(--md-sys-color-error-light);
+    color: var(--md-sys-color-on-error-light);
   }
 }
 
