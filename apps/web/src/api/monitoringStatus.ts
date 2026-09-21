@@ -74,6 +74,56 @@ function isScheduledSource(value: unknown): boolean {
   return true;
 }
 
+const KNOWN_INFORMATION_KINDS = new Set([
+  'bosai_bulletin',
+  'warning',
+  'warning_timeseries',
+  'early_warning',
+  'amedas',
+  'area_timeseries',
+  'nowcast',
+  'kikikuru',
+]);
+
+const KNOWN_AVAILABILITY = new Set(['available', 'stale', 'unavailable']);
+
+function isInformationSection(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.kind !== 'string' || !KNOWN_INFORMATION_KINDS.has(value.kind)) return false;
+  if (value.venueId !== 'east' && value.venueId !== 'trc') return false;
+  if (typeof value.availability !== 'string' || !KNOWN_AVAILABILITY.has(value.availability))
+    return false;
+  if (!isNullableIsoDate(value.issuedAt)) return false;
+  if (!isNullableIsoDate(value.validAt)) return false;
+  if (!isNullableIsoDate(value.fetchedAt)) return false;
+  if (!isNullableIsoDate(value.lastSuccessAt)) return false;
+  if (!isNullableNonNegativeInteger(value.summaryCount)) return false;
+  return true;
+}
+
+function isTilesLayer(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.layer !== 'nowcast' && value.layer !== 'kikikuru') return false;
+  if (
+    typeof value.catalogAvailability !== 'string' ||
+    !KNOWN_AVAILABILITY.has(value.catalogAvailability)
+  )
+    return false;
+  if (!isNullableIsoDate(value.catalogUpdatedAt)) return false;
+  if (!isNonNegativeInteger(value.availableFrameCount)) return false;
+  if (typeof value.upstreamFetchAllowed !== 'boolean') return false;
+  if (!isNullableIsoDate(value.nextUpstreamAllowedAt)) return false;
+  return true;
+}
+
+function isTilesSection(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.healthMonitored !== false) return false;
+  if (value.healthCriteriaStatus !== 'undecided') return false;
+  if (!Array.isArray(value.layers) || !value.layers.every(isTilesLayer)) return false;
+  return true;
+}
+
 function isMonitoringResponse(value: unknown): value is MonitoringStatusResponse {
   if (!isRecord(value) || value.status !== 'ready' || typeof value.terminalId !== 'string')
     return false;
@@ -117,7 +167,12 @@ function isMonitoringResponse(value: unknown): value is MonitoringStatusResponse
     (value.readiness.errorReason !== null && typeof value.readiness.errorReason !== 'string')
   )
     return false;
-  if (!Array.isArray(value.venues) || !Array.isArray(value.information) || !isRecord(value.tiles))
+  if (
+    !Array.isArray(value.venues) ||
+    !Array.isArray(value.information) ||
+    !value.information.every(isInformationSection) ||
+    !isTilesSection(value.tiles)
+  )
     return false;
   return value.venues.every(
     (venue) =>

@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import type { MonitoringLoadState } from './useMonitoringStatus';
 import {
   buildMonitoringCards,
@@ -309,11 +309,18 @@ const InformationTable = memo(function InformationTable({
 
 export function MonitoringDashboardView({ state }: { state: MonitoringLoadState }) {
   // 更新中は既存データを維持し、最終表示更新だけを継続表示する。
-  const cards = useMemo(() => (state.data ? buildMonitoringCards(state.data) : null), [state.data]);
-  const sourceRows = useMemo(() => buildSourceStatusRows(state.data), [state.data]);
+  const isFailed = state.phase === 'failed';
+  const cards = useMemo(
+    () => (state.data ? buildMonitoringCards(state.data, isFailed) : null),
+    [state.data, isFailed],
+  );
+  const sourceRows = useMemo(
+    () => buildSourceStatusRows(state.data, isFailed),
+    [state.data, isFailed],
+  );
   const informationRows = useMemo(
-    () => (state.data ? buildInformationRows(state.data) : null),
-    [state.data],
+    () => (state.data ? buildInformationRows(state.data, undefined, isFailed) : null),
+    [state.data, isFailed],
   );
 
   return (
@@ -390,7 +397,17 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
   );
 }
 
-export function MonitoringDashboard({ terminalId }: { terminalId: string }) {
+export interface MonitoringDashboardProps {
+  terminalId: string;
+  onLoadStateChange?: (state: MonitoringLoadState) => void;
+}
+
+export function MonitoringDashboard({ terminalId, onLoadStateChange }: MonitoringDashboardProps) {
   const state = useMonitoringStatus(terminalId);
+
+  useEffect(() => {
+    onLoadStateChange?.(state);
+  }, [state, onLoadStateChange]);
+
   return <MonitoringDashboardView state={state} />;
 }
