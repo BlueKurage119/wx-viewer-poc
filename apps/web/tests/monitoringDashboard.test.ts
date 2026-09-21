@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MonitoringDashboardView } from '../src/monitoring/MonitoringDashboard.tsx';
+import {
+  MonitoringDashboard,
+  MonitoringDashboardView,
+} from '../src/monitoring/MonitoringDashboard.tsx';
 import { MonitoringToolbar } from '../src/monitoring/MonitoringToolbar.tsx';
 import {
   abnormalMonitoringResponseFixture,
@@ -282,4 +285,66 @@ test('K7: state.phase: "failed" かつ前回値ありのとき、前回値の行
   assert.ok(html.includes('id="monitoring-information-status-heading">情報別の反映状況</h2>'));
   assert.ok(html.includes('<td>江東区</td>'));
   assert.ok(html.includes('利用可能'));
+});
+
+test('Issue #187: state.phase: "failed" かつ前回値ありのとき、正常(緑)が無彩色(neutral)に抑制され、更新行は維持される', () => {
+  const readyHtml = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'ready', data: normalMonitoringResponseFixture },
+    }),
+  );
+  // ready 時は正常カードや利用可能セルに monitoring-tone-normal が含まれる
+  assert.ok(readyHtml.includes('monitoring-tone-normal'));
+  assert.ok(readyHtml.includes('monitoring-source-state monitoring-tone-normal'));
+  assert.ok(readyHtml.includes('monitoring-information-state monitoring-tone-normal'));
+
+  const failedHtml = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'failed', data: normalMonitoringResponseFixture },
+    }),
+  );
+
+  // failed 時は monitoring-tone-normal がすべて neutral に抑制され、存在しない
+  assert.equal(failedHtml.includes('monitoring-tone-normal'), false);
+  assert.ok(failedHtml.includes('monitoring-source-state monitoring-tone-neutral'));
+  assert.ok(failedHtml.includes('monitoring-information-state monitoring-tone-neutral'));
+
+  // 更新行の表示は既存のまま維持（最終表示更新 2026/09/20 14:25:28）
+  const updateRow = failedHtml.match(/<div class="monitoring-update-row"[^>]*>(.*?)<\/div>/)?.[1];
+  assert.ok(updateRow);
+  assert.ok(updateRow.includes('最終表示更新'));
+  assert.ok(updateRow.includes('2026/09/20 14:25:28'));
+});
+
+test('Issue #187: state.phase: "failed" かつ前回値ありのとき、遅延・異常トーンはそのまま維持される', () => {
+  const delayedHtml = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'failed', data: delayedMonitoringResponseFixture },
+    }),
+  );
+  assert.ok(delayedHtml.includes('monitoring-row-attention'));
+  assert.ok(delayedHtml.includes('monitoring-tone-attention'));
+
+  const abnormalHtml = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'failed', data: abnormalMonitoringResponseFixture },
+    }),
+  );
+  assert.ok(abnormalHtml.includes('monitoring-row-error'));
+  assert.ok(abnormalHtml.includes('monitoring-tone-error'));
+});
+
+test('Issue #187: MonitoringDashboard は onLoadStateChange prop を受け取り安全にレンダリングされる', () => {
+  let callbackState: unknown = null;
+  const html = renderToStaticMarkup(
+    el(MonitoringDashboard, {
+      terminalId: 'kkeagh01',
+      onLoadStateChange: (state) => {
+        callbackState = state;
+      },
+    }),
+  );
+  assert.ok(html.includes('monitoring-dashboard'));
+  // SSR (renderToStaticMarkup) では useEffect は実行されないため、レンダリングが例外なく完了することを確認
+  assert.equal(callbackState, null);
 });

@@ -457,3 +457,26 @@ test('buildInformationRows: 要素欠落時に行が残り全セル — にな�
     summaryCountText: '—',
   });
 });
+
+test('Issue #187: isFailed === true のとき buildInformationRows は normal トーンを neutral に抑制する', () => {
+  // normal フィクスチャでは available な項目が stateTone: 'normal'
+  const normalRows = buildInformationRows(normalMonitoringResponseFixture, undefined, false);
+  const availableRows = normalRows.filter((r) => r.stateLabel === '利用可能');
+  assert.ok(availableRows.length > 0);
+  for (const row of availableRows) {
+    assert.equal(row.stateTone, 'normal');
+  }
+
+  // isFailed === true のとき、すべて neutral に抑制されること
+  const failedRows = buildInformationRows(normalMonitoringResponseFixture, undefined, true);
+  for (const row of failedRows) {
+    assert.notEqual(row.stateTone, 'normal', `${row.name} の stateTone が normal でないこと`);
+    if (row.stateLabel === '利用可能') {
+      assert.equal(
+        row.stateTone,
+        'neutral',
+        `${row.name} の stateTone が neutral に抑制されること`,
+      );
+    }
+  }
+});
