@@ -15,7 +15,7 @@ export interface UsePlaybackParams {
 
 export const PLAYBACK_INTERVAL_MS = 1000;
 export const PLAYBACK_PREFETCH_DEPTH = 3;
-export const MANUAL_INTENT_DEBOUNCE_MS = 200;
+export const MANUAL_INTENT_DEBOUNCE_MS = 500;
 
 export interface UsePlaybackResult {
   /** つまみ位置は intent、表示日時ラベルは settled を指す（§9.4.3） */
@@ -87,7 +87,7 @@ export function computePrefetchFrames(params: {
  * - intentFrameId: スライダーつまみ、前後の加算基準、読み込むタイルの決定
  * - settledFrameId: 画像読込完了またはタイムアウトで更新。表示日時ラベルと地図画像
  * - activeCatalog: 表示中のコマ一覧
- * - MANUAL_INTENT_DEBOUNCE_MS (200ms) で連続操作中の読込を抑止し最終 intent のみ読み込む
+ * - MANUAL_INTENT_DEBOUNCE_MS (500ms) で連続操作中の読込を抑止し最終 intent のみ読み込む
  */
 export function usePlayback(params: {
   readonly catalog: NowcastCatalog | null;
@@ -156,7 +156,7 @@ export function usePlayback(params: {
     }
   }, []);
 
-  // 手動操作用デバウンス実行 (200ms)
+  // 手動操作用デバウンス実行 (500ms)
   const triggerManualDebounce = useCallback((targetId: string) => {
     if (debounceTimerRef.current !== null) {
       clearTimeout(debounceTimerRef.current);

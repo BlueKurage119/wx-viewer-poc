@@ -185,6 +185,8 @@ function mountPlaybackHarness(catalog = buildNowcastCatalog(createSampleNowcastR
   };
 }
 
+const EXPECTED_MANUAL_INTENT_DEBOUNCE_MS = 500;
+
 test('【連打】「次へ」を連続5回呼ぶと、つまみ (intentFrameId) が握り潰されず+5コマ進むこと (§9.4.4, §11.4.1)', () => {
   const catalog = buildNowcastCatalog(createSampleNowcastResponse());
   const repFrames = catalog.frames.filter((f) => f.representative);
@@ -243,7 +245,7 @@ test('【最終 intent のみ読込】5連打中の途中コマはデバウン�
     harness.current.handleIntent({ type: 'next-frame' });
     harness.rerender();
 
-    // 呼び出し直後 (50ms < 200ms): overlayFrame はまだ最終コマに変わっていない
+    // 呼び出し直後 (50ms < 500ms): overlayFrame はまだ最終コマに変わっていない
     await new Promise((r) => setTimeout(r, 50));
     harness.rerender();
     assert.notEqual(
@@ -252,12 +254,77 @@ test('【最終 intent のみ読込】5連打中の途中コマはデバウン�
       'デバウンス中はまだ最終コマの要求が始まっていない',
     );
 
-    // デバウンス完了 (200ms 経過後) を待つ
+    // デバウンス完了 (500ms 経過後) を待つ
     await new Promise((r) => setTimeout(r, MANUAL_INTENT_DEBOUNCE_MS + 60));
     harness.rerender();
 
     // 最終コマ (index 5) のみ要求されていること
     assert.equal(harness.current.overlayFrame?.id, repFrames[5]!.id);
+  } finally {
+    harness.unmount();
+  }
+});
+
+for (const operationIntervalMs of [
+  EXPECTED_MANUAL_INTENT_DEBOUNCE_MS - 200,
+  EXPECTED_MANUAL_INTENT_DEBOUNCE_MS - 100,
+]) {
+  test(`【間隔境界】${operationIntervalMs}ms 間隔の連続操作では最終コマだけが overlayFrame になること (§9.4.4, §11.4.1)`, async () => {
+    const catalog = buildNowcastCatalog(createSampleNowcastResponse());
+    const repFrames = catalog.frames.filter((f) => f.representative);
+    const harness = mountPlaybackHarness(catalog);
+
+    try {
+      const initialFrame = repFrames[0]!;
+      harness.current.handleIntent({ type: 'select-frame', frameId: initialFrame.id });
+      harness.rerender();
+      await new Promise((resolve) => setTimeout(resolve, MANUAL_INTENT_DEBOUNCE_MS + 50));
+      harness.rerender();
+      assert.equal(harness.current.overlayFrame?.id, initialFrame.id);
+
+      const targets = [repFrames[1]!, repFrames[2]!, repFrames[3]!];
+      for (const target of targets) {
+        harness.current.handleIntent({ type: 'select-frame', frameId: target.id });
+        harness.rerender();
+        await new Promise((resolve) => setTimeout(resolve, operationIntervalMs));
+        harness.rerender();
+        assert.equal(
+          harness.current.overlayFrame?.id,
+          initialFrame.id,
+          `${operationIntervalMs}ms 間隔の連続操作中は中間コマを要求しないこと`,
+        );
+      }
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, MANUAL_INTENT_DEBOUNCE_MS - operationIntervalMs + 50),
+      );
+      harness.rerender();
+      assert.equal(harness.current.overlayFrame?.id, targets.at(-1)!.id);
+    } finally {
+      harness.unmount();
+    }
+  });
+}
+
+test('【間隔境界】600ms 間隔の操作では各コマが順に overlayFrame になること (§9.4.4, §11.4.1)', async () => {
+  const catalog = buildNowcastCatalog(createSampleNowcastResponse());
+  const repFrames = catalog.frames.filter((f) => f.representative);
+  const harness = mountPlaybackHarness(catalog);
+  const operationIntervalMs = EXPECTED_MANUAL_INTENT_DEBOUNCE_MS + 100;
+
+  try {
+    const targets = [repFrames[1]!, repFrames[2]!, repFrames[3]!];
+    for (const target of targets) {
+      harness.current.handleIntent({ type: 'select-frame', frameId: target.id });
+      harness.rerender();
+      await new Promise((resolve) => setTimeout(resolve, operationIntervalMs));
+      harness.rerender();
+      assert.equal(
+        harness.current.overlayFrame?.id,
+        target.id,
+        `${operationIntervalMs}ms 間隔では操作ごとに読み込まれること`,
+      );
+    }
   } finally {
     harness.unmount();
   }
@@ -293,7 +360,7 @@ test('【ドラッグ抑止】ドラッグ中に連続操作された場合、�
       assert.equal(harness.current.overlayFrame?.id, initialFrame.id);
     }
 
-    // ドラッグ終了後、デバウンス (200ms) 経過を待つ
+    // ドラッグ終了後、デバウンス (500ms) 経過を待つ
     await new Promise((r) => setTimeout(r, MANUAL_INTENT_DEBOUNCE_MS + 60));
     harness.rerender();
 
@@ -477,5 +544,5 @@ test('【スピナー】遅延 250ms と最小表示時間 400ms によるちら
 test('【スピナー定数】遅延250msと最小表示時間400msが設計書通り定義されていること (§9.4.8)', () => {
   assert.equal(SPINNER_SHOW_DELAY_MS, 250);
   assert.equal(SPINNER_MIN_VISIBLE_MS, 400);
-  assert.equal(MANUAL_INTENT_DEBOUNCE_MS, 200);
+  assert.equal(MANUAL_INTENT_DEBOUNCE_MS, EXPECTED_MANUAL_INTENT_DEBOUNCE_MS);
 });
