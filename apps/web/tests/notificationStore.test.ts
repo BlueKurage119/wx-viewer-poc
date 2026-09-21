@@ -4,6 +4,7 @@ import type { NotificationFeedItem } from '@wx-viewer-poc/shared';
 import {
   confirmNotification,
   createNotificationUiState,
+  displayedNoticeForRow,
   notificationCounts,
   noticesForRow,
   receiveNotifications,
@@ -71,6 +72,17 @@ test('H2 AC3/AC5: 通知ごとの確認は別通知に波及せず、ackRequired
   assert.equal(notificationCounts(confirmed, 'K').pending, 1);
   assert.equal(noticesForRow(confirmed, 'K', 'question')[0]?.feedKey, 'delta:second');
   assert.equal(confirmed.items.find((item) => item.feedKey === 'delta:first')?.ackRequired, true);
+});
+
+test('H2 AC3: 確認後に次に表示する未確認通知を既読にする', () => {
+  const older = notice('delta:older', 'warning', { occurredAt: '2026-09-21T00:00:01.000Z' });
+  const newer = notice('delta:newer', 'warning', { occurredAt: '2026-09-21T00:00:02.000Z' });
+  const received = receiveNotifications(createNotificationUiState(), [older, newer], 'K').state;
+  assert.equal(displayedNoticeForRow(received, 'K', 'warning')?.feedKey, 'delta:newer');
+  assert.equal(received.unreadFeedKeys.has('delta:older'), true);
+  const confirmed = confirmNotification(received, 'delta:newer', 'K');
+  assert.equal(displayedNoticeForRow(confirmed, 'K', 'warning')?.feedKey, 'delta:older');
+  assert.equal(confirmed.unreadFeedKeys.has('delta:older'), false);
 });
 
 test('H2 AC3/AC4: 問いかけ行の新着は選択状態を解除し、同一取得の鳴動要求は最高区分だけになる', () => {

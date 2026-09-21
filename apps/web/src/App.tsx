@@ -4,12 +4,9 @@ import { AppShell } from './shell/AppShell';
 import { resolveTerminal, resolveView, views, type Terminal, type ViewId } from './shell/config';
 import { NotificationArea } from './shell/NotificationArea';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
-import {
-  confirmNotification,
-  createNotificationUiState,
-  receiveNotifications,
-} from './notifications/notificationStore';
+import { createNotificationUiState, receiveNotifications } from './notifications/notificationStore';
 import { useNotificationFeed } from './notifications/useNotificationFeed';
+import { operationGuideMessage } from './shell/notifications';
 import { WeatherMapView } from './map/WeatherMapView';
 import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
 import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
@@ -106,13 +103,14 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       }
     : { failed: preview && scenario === 'connection', lastSuccessAt: null };
   const visibleNotificationState = preview ? previewState : notificationFeed.state;
-  const notificationState = isMonitoringFailed
-    ? { ...visibleNotificationState, operationMessage: '取得監視: 監視情報API取得不可' }
-    : visibleNotificationState;
-  const confirm = preview
-    ? (feedKey: string) =>
-        setPreviewState((currentState) => confirmNotification(currentState, feedKey, terminal.mode))
-    : notificationFeed.confirm;
+  const notificationState = {
+    ...visibleNotificationState,
+    operationMessage: operationGuideMessage(
+      visibleNotificationState.operationMessage,
+      isMonitoringFailed,
+      visibleNotificationState.phase === 'retrying',
+    ),
+  };
 
   return (
     <AppShell
@@ -122,9 +120,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       navigation={views.filter((item) => item.modes.includes(terminal.mode))}
       now={now}
       connection={connection}
-      notifications={
-        <NotificationArea state={notificationState} mode={terminal.mode} onConfirm={confirm} />
-      }
+      notifications={<NotificationArea state={notificationState} mode={terminal.mode} />}
       toolbar={
         view === 'monitor' ? (
           <MonitoringToolbar />

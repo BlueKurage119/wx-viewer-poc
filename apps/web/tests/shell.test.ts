@@ -10,7 +10,7 @@ import {
   views,
   type ViewId,
 } from '../src/shell/config.ts';
-import { visibleNotices } from '../src/shell/notifications.ts';
+import { operationGuideMessage, visibleNotices } from '../src/shell/notifications.ts';
 import { previewNotices } from '../src/shell/fixtures.ts';
 import { isUnknownTerminalDocument } from '../src/shell/terminalRouting.ts';
 import { AppShell } from '../src/shell/AppShell.tsx';
@@ -81,6 +81,27 @@ test('H表示の絞り込みは通知の生成・保持やK表示を破壊しな
   assert.equal(visibleNotices(notices, 'K').length, 4);
   assert.equal(notices.length, 4);
   assert.ok(h.some((notice) => notice.category === 'emergency'));
+});
+test('H2 AC6: 監視API障害と通知受信再試行を操作ガイドで併記する', () => {
+  assert.equal(
+    operationGuideMessage('通知を受信できません。再試行します。', true, true),
+    '取得監視: 監視情報API取得不可｜通知受信: 通知を受信できません。再試行します。',
+  );
+  assert.equal(
+    operationGuideMessage('左のメニューから表示する画面を選択してください。', true, false),
+    '取得監視: 監視情報API取得不可',
+  );
+});
+test('H2 AC9: 通知がなくても各行に非活性の操作ボタンを表示する', () => {
+  const html = renderToStaticMarkup(
+    el(NotificationArea, {
+      state: createNotificationUiState(),
+      mode: 'H',
+    }),
+  );
+  assert.equal((html.match(/確認（送信）/g) ?? []).length, 2);
+  assert.equal((html.match(/関連（詳細）/g) ?? []).length, 2);
+  assert.equal((html.match(/disabled=""/g) ?? []).length, 4);
 });
 test('未登録HTMLアクセスのみ404対象とし、APIやモジュールを妨げない', () => {
   assert.equal(isUnknownTerminalDocument('/unknown', 'text/html'), true);

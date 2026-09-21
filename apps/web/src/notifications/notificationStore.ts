@@ -60,13 +60,23 @@ export function noticesForRow(
   );
 }
 
+/** 行に実際に表示する通知。未確認を優先し、すべて確認済みなら最新を表示する。 */
+export function displayedNoticeForRow(
+  state: NotificationUiState,
+  mode: TerminalMode,
+  row: 'warning' | 'question',
+): NotificationFeedItem | undefined {
+  const notices = noticesForRow(state, mode, row);
+  return notices.find((item) => !state.confirmedFeedKeys.has(item.feedKey)) ?? notices[0];
+}
+
 function markDisplayedRowsRead(
   state: NotificationUiState,
   mode: TerminalMode,
 ): ReadonlySet<string> {
   const unread = new Set(state.unreadFeedKeys);
   for (const row of ['warning', 'question'] as const) {
-    const item = noticesForRow(state, mode, row)[0];
+    const item = displayedNoticeForRow(state, mode, row);
     if (item) unread.delete(item.feedKey);
   }
   return unread;
