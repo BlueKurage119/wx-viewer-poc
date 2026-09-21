@@ -7,7 +7,7 @@ products: [Claude, Codex]
 
 # 検収フェーズ業務標準
 
-対象: 検収担当。気象データの必須制約は[07-wx-data-protocol.md](07-wx-data-protocol.md)、ノウハウ・背景は[docs/rules/advisory/](advisory/README.md)(特に[G-05-test-effectiveness-verification.md](advisory/G-05-test-effectiveness-verification.md)・[C-01-browser-pane-visibility-limit.md](advisory/C-01-browser-pane-visibility-limit.md)・[C-02-ui-verification-backorder.md](advisory/C-02-ui-verification-backorder.md))を参照。上から順に進める構成にしてある。
+対象: 検収担当。気象データの必須制約は[07-wx-data-protocol.md](07-wx-data-protocol.md)、ノウハウ・背景は[docs/rules/advisory/](advisory/README.md)(特に[G-05-test-effectiveness-verification.md](advisory/G-05-test-effectiveness-verification.md)・[C-01-browser-pane-visibility-limit.md](advisory/C-01-browser-pane-visibility-limit.md)・[C-02-ui-verification-backorder.md](advisory/C-02-ui-verification-backorder.md))を参照。上から順に進める構成にしてある。設計起因の不合格の典型と切り分けは[G-10-design-consistency-pitfalls.md](advisory/G-10-design-consistency-pitfalls.md)、APIが応答しない・データが出ないときの確認は[G-02-dev-server-etiquette.md](advisory/G-02-dev-server-etiquette.md)を参照。
 
 ## 1. 着手確認(必須)
 
@@ -34,7 +34,7 @@ products: [Claude, Codex]
   - 今すぐ直す(通常運用で踏む/次の予定作業で確実に踏む/実在する欠陥かつ修正が数行)
   - Issue化して後回し(将来のコードが誤用したときだけ踏む)
   - 報告不要(到達経路が無い)
-- 未達がある場合、自分で修正しない。再現手順と原因の見立て(製造起因か設計起因か)を報告する。
+- 未達がある場合、自分で修正しない。再現手順と原因の見立て(製造起因か設計起因か。設計起因の典型例は[G-10](advisory/G-10-design-consistency-pitfalls.md))を報告する。
 
 ## 5. 判定(必須)
 

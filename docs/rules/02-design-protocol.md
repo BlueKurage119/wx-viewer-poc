@@ -7,7 +7,7 @@ products: [Claude, Codex]
 
 # 設計フェーズ業務標準
 
-対象: 設計担当。ノウハウ・背景は[G-01-hearing-first-design.md](advisory/G-01-hearing-first-design.md)を参照。
+対象: 設計担当。ノウハウ・背景は[G-01-hearing-first-design.md](advisory/G-01-hearing-first-design.md)を参照。設計書の内部矛盾・未実測の値の落とし穴は[G-10-design-consistency-pitfalls.md](advisory/G-10-design-consistency-pitfalls.md)を参照(要点: 数値は実測から導く／受け入れ条件と変更禁止の制約の両立を確認する／共用部品の挙動を先に読む／操作部品には応答時間と操作意図の条件を書く／選択肢の提示前に実測する)。
 
 ## 権限境界(必須)
 
