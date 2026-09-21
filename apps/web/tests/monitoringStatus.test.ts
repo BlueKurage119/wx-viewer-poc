@@ -259,6 +259,27 @@ test('Issue #187: 境界バリデーションは information と tiles の全フ
       }),
     },
     {
+      label: 'information.issuedAt が日付のみ（TとZなし）',
+      mutate: (b) => ({
+        ...b,
+        information: [{ ...baseInfo, issuedAt: '2026-09-20' }],
+      }),
+    },
+    {
+      label: 'information.issuedAt がオフセット付き（Zなし）',
+      mutate: (b) => ({
+        ...b,
+        information: [{ ...baseInfo, issuedAt: '2026-09-20T12:00:00+09:00' }],
+      }),
+    },
+    {
+      label: 'information.issuedAt が実在しない日付',
+      mutate: (b) => ({
+        ...b,
+        information: [{ ...baseInfo, issuedAt: '2026-02-30T00:00:00Z' }],
+      }),
+    },
+    {
       label: 'information.summaryCount が負数',
       mutate: (b) => ({
         ...b,

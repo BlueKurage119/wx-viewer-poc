@@ -148,6 +148,7 @@ export function buildMonitoringCards(
   return cards.map((card) => ({
     ...card,
     tone: card.tone === 'normal' ? 'neutral' : card.tone,
+    detailTone: card.detailTone === 'normal' ? 'neutral' : card.detailTone,
   }));
 }
 

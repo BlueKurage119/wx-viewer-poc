@@ -382,6 +382,11 @@ test('Issue #187: isFailed === true のとき buildMonitoringCards は normal �
   }
   const opCard = normalCards.find((c) => c.id === 'operation')!;
   assert.equal(opCard.tone, 'neutral');
+  assert.equal(
+    opCard.detailTone,
+    'neutral',
+    '操作カードの補足（detailTone）も neutral に抑制されること',
+  );
   const healthCard = normalCards.find((c) => c.id === 'health')!;
   assert.equal(healthCard.tone, 'neutral');
 

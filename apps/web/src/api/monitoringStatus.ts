@@ -15,8 +15,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const ISO_UTC_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+
 function isIsoDate(value: unknown): value is string {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
+  if (typeof value !== 'string' || !ISO_UTC_PATTERN.test(value)) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const expectedIso = date.toISOString();
+  return value.includes('.') ? expectedIso === value : expectedIso === value.replace('Z', '.000Z');
 }
 
 function isNullableIsoDate(value: unknown): boolean {

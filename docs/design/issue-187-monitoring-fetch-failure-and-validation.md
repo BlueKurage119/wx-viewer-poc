@@ -27,6 +27,7 @@
 
 ### 2.1 境界バリデーションの強化
 **対象ファイル:** `apps/web/src/api/monitoringStatus.ts`
+- `isIsoDate` において、`Date.parse` だけでなく、正規表現 `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/` による Z 終端の UTC ISO 8601 形式および実在日時の厳密な検証を行う。
 - 以下の検証用内部関数を追加し、未検証要素をすべて型通りにチェックする。
   ```typescript
   function isInformationSection(value: unknown): boolean
@@ -49,7 +50,7 @@
   // monitoringInformationRows.ts
   export function buildInformationRows(data: MonitoringStatusResponse | null, resolveTargets?: VenueForecastTargetsResolver, isFailed?: boolean): readonly InformationRow[]
   ```
-- 各関数の内部ループまたはマップ処理において、生成されたアイテムの `tone` または `stateTone` が `'normal'` の場合、`isFailed === true` であれば `'neutral'` に変更して返す。
+- 各関数の内部ループまたはマップ処理において、生成されたアイテムの `tone` または `stateTone` が `'normal'` の場合、`isFailed === true` であれば `'neutral'` に変更して返す。また、カードの補足色 `detailTone` が `'normal'` の場合も `'neutral'` に抑制する。
 
 ### 2.3 監視画面内の表示（更新行）と状態のコールバック
 **対象ファイル:** `apps/web/src/monitoring/MonitoringDashboard.tsx`
@@ -91,9 +92,9 @@
 
 ## 3. 受け入れ条件のチェックリスト
 
-- [ ] `apps/web/src/api/monitoringStatus.ts` の `isMonitoringResponse` にて、`information` および `tiles` の全フィールドが厳格にバリデーションされていること。
+- [ ] `apps/web/src/api/monitoringStatus.ts` の `isMonitoringResponse` にて、`information` および `tiles` の全フィールドが厳格にバリデーションされており、UTC ISO 8601（Z終端）以外の形式や不正な実在日時は拒否されること。
 - [ ] 監視画面の更新行（`.monitoring-update-row`）は既存の表示形式（最終表示更新時刻または「—」）が維持されていること。
-- [ ] 2回目以降の通信失敗時、前回値の中で「正常（緑色）」だった項目が無彩色（neutral）として表示され、遅延（黄色）や異常（赤色）の警告はそのまま維持されること。
+- [ ] 2回目以降の通信失敗時、前回値の中で「正常（緑色）」だった項目が無彩色（neutral）として表示され（カード補足の `detailTone` を含む）、遅延（黄色）や異常（赤色）の警告はそのまま維持されること。
 - [ ] 監視APIエラー時、共通シェルヘッダーに「受信異常」バッジが表示され、バッジ内に最終更新時刻（成功なしの場合は「通信成功なし」）が表示されること。
 - [ ] 監視APIエラー時、下部の操作ガイドに「取得監視: 監視情報API取得不可」と表示されること。
 - [ ] 監視APIエラー後、次のリクエストを試行している間（再試行中・取得中）も、リクエストが正常に完了するまで受信異常バッジ・操作ガイド・無彩色抑制が維持されること。
