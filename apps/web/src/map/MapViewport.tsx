@@ -23,7 +23,7 @@ export interface MapViewportProps {
 
 const GSI_PALE_TILE_URL = 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png';
 const INITIAL_ZOOM = 11;
-const MIN_ZOOM = 5;
+const MIN_ZOOM = 9;
 const MAX_ZOOM = 18;
 
 /**

@@ -74,6 +74,7 @@ test('F4: キキクルの reference フレームで基準バッジと時刻が�
     ...sampleKikikuruTimeline,
     selectedFrameId: 'kk-ref',
     selectedFrameLabel: '09/15 01:00',
+    frames: [{ id: 'kk-ref', displayTime: '01:00', kind: 'reference' as const, enabled: true }],
   };
   const html = renderToStaticMarkup(
     el(TimelineControlCard, {
@@ -185,7 +186,7 @@ test('F6: ズームコントロールが境界ズームで正しく disabled に
   const normalHtml = renderToStaticMarkup(
     el(MapZoomControls, {
       currentZoom: 10,
-      minZoom: 5,
+      minZoom: 9,
       maxZoom: 18,
       onZoomIn: () => {},
       onZoomOut: () => {},
@@ -195,11 +196,11 @@ test('F6: ズームコントロールが境界ズームで正しく disabled に
   assert.equal(normalHtml.includes('disabled="" aria-label="地図を拡大"'), false);
   assert.equal(normalHtml.includes('disabled="" aria-label="地図を縮小"'), false);
 
-  // zoom 5 (最小) -> 縮小 disabled
+  // zoom 9 (最小) -> 縮小 disabled
   const minHtml = renderToStaticMarkup(
     el(MapZoomControls, {
-      currentZoom: 5,
-      minZoom: 5,
+      currentZoom: 9,
+      minZoom: 9,
       maxZoom: 18,
       onZoomIn: () => {},
       onZoomOut: () => {},
@@ -213,7 +214,7 @@ test('F6: ズームコントロールが境界ズームで正しく disabled に
   const maxHtml = renderToStaticMarkup(
     el(MapZoomControls, {
       currentZoom: 18,
-      minZoom: 5,
+      minZoom: 9,
       maxZoom: 18,
       onZoomIn: () => {},
       onZoomOut: () => {},
@@ -228,4 +229,18 @@ test('F6: ズームコントロールが境界ズームで正しく disabled に
   // ボタン要素内にテキスト文字「会場へ戻る」が直接描画されていないこと
   assert.equal(maxHtml.includes('>会場へ戻る<'), false);
   assert.equal(maxHtml.includes('>会場の初期位置に戻る<'), false);
+});
+
+test('F6: 既定の最小ズームは9であり、縮小ボタンはズーム9で無効になる', () => {
+  const html = renderToStaticMarkup(
+    el(MapZoomControls, {
+      currentZoom: 9,
+      onZoomIn: () => {},
+      onZoomOut: () => {},
+      onReturnToVenue: () => {},
+    }),
+  );
+
+  assert.ok(html.includes('disabled="" aria-label="地図を縮小"'));
+  assert.equal(html.includes('disabled="" aria-label="地図を拡大"'), false);
 });
