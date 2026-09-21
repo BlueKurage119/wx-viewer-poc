@@ -118,6 +118,10 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     if (buzzer.state.feedKey) notificationFeed.confirm(buzzer.state.feedKey);
     buzzer.stop();
   };
+  const confirmNotification = (feedKey: string) => {
+    notificationFeed.confirm(feedKey);
+    if (buzzer.state.feedKey === feedKey) buzzer.stop();
+  };
 
   return (
     <AppShell
@@ -129,7 +133,13 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       connection={connection}
       buzzer={buzzer.state}
       onStopBuzzer={buzzer.state.category ? stopBuzzer : undefined}
-      notifications={<NotificationArea state={notificationState} mode={terminal.mode} />}
+      notifications={
+        <NotificationArea
+          state={notificationState}
+          mode={terminal.mode}
+          onConfirm={confirmNotification}
+        />
+      }
       toolbar={
         view === 'monitor' ? (
           <MonitoringToolbar />

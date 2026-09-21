@@ -69,6 +69,15 @@ export function AppShell({
       >
         <h1>{title}</h1>
         <div className="header-state">
+          {buzzer?.category && (
+            <span className="buzzer-status" role="status" aria-live="assertive">
+              {buzzer.category === 'emergency'
+                ? '非常ブザーを確認してください'
+                : buzzer.category === 'question'
+                  ? '問いかけを確認してください'
+                  : '警報を確認してください'}
+            </span>
+          )}
           {connection.failed && (
             <span className="connection-error">
               <svg

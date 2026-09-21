@@ -11,6 +11,7 @@ const AUDIO_BY_CATEGORY: Record<NonNullable<HeaderBuzzerState['category']>, stri
   question: '/audio/4.wav',
   emergency: '/audio/5.wav',
 };
+const priority = { warning: 1, question: 2, emergency: 3 } as const;
 
 export function useHeaderBuzzer(): {
   readonly state: HeaderBuzzerState;
@@ -18,6 +19,8 @@ export function useHeaderBuzzer(): {
   readonly stop: () => void;
 } {
   const [state, setState] = useState<HeaderBuzzerState>({ category: null, feedKey: null });
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stop = useCallback(() => {
     const audio = audioRef.current;
@@ -29,6 +32,8 @@ export function useHeaderBuzzer(): {
   }, []);
   const request = useCallback(
     ({ category, feedKey }: ChimeRequest) => {
+      const current = stateRef.current.category;
+      if (current && priority[current] >= priority[category]) return;
       stop();
       const audio = new Audio(AUDIO_BY_CATEGORY[category]);
       audio.loop = true;

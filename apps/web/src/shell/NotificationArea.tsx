@@ -7,15 +7,25 @@ import {
 export function NotificationArea({
   state,
   mode,
+  onConfirm,
 }: {
   state: NotificationUiState;
   mode: TerminalMode;
+  onConfirm?: (feedKey: string) => void;
 }) {
   const counts = notificationCounts(state, mode);
   return (
     <>
-      <NoticeRow row="warning" notice={displayedNoticeForRow(state, mode, 'warning')} />
-      <NoticeRow row="question" notice={displayedNoticeForRow(state, mode, 'question')} />
+      <NoticeRow
+        row="warning"
+        notice={displayedNoticeForRow(state, mode, 'warning')}
+        onConfirm={onConfirm}
+      />
+      <NoticeRow
+        row="question"
+        notice={displayedNoticeForRow(state, mode, 'question')}
+        onConfirm={onConfirm}
+      />
       <div className="notice-row operation-row">
         <div className="notice-text" role="status" aria-live="polite" tabIndex={0}>
           {state.operationMessage}
@@ -30,9 +40,11 @@ export function NotificationArea({
 function NoticeRow({
   row,
   notice,
+  onConfirm,
 }: {
   row: 'warning' | 'question';
   notice: ReturnType<typeof displayedNoticeForRow>;
+  onConfirm?: (feedKey: string) => void;
 }) {
   const rowClass =
     row === 'warning'
@@ -59,14 +71,23 @@ function NoticeRow({
       <div className="notice-controls">
         {isQuestion && (
           <div className="notice-question-choices">
-            <button type="button" disabled>
+            <button
+              type="button"
+              disabled={!notice || !onConfirm}
+              onClick={() => notice && onConfirm?.(notice.feedKey)}
+            >
               確認
             </button>
           </div>
         )}
         <div className="notice-actions">
           {actions.map((label, index) => (
-            <button key={`${label}-${index}`} type="button" disabled>
+            <button
+              key={`${label}-${index}`}
+              type="button"
+              disabled={!notice || !onConfirm || label !== '確認'}
+              onClick={() => notice && label === '確認' && onConfirm?.(notice.feedKey)}
+            >
               {label}
             </button>
           ))}
