@@ -27,7 +27,7 @@ const EXPECTED_TOKENS: SemanticColorToken[] = [
   '--wx-notice-emergency-outline',
 ];
 
-/** 設計書 §2.6 の表から転記した golden 値 (light モード) */
+/** Issue #63 設計 §3.3 とセマンティックカラー設計から転記した golden 値 (light モード) */
 const GOLDEN_LIGHT: Record<SemanticColorToken, string> = {
   '--wx-alert-level-2-container': '#ead723',
   '--wx-alert-level-2-on-container': '#201c00',
@@ -47,12 +47,12 @@ const GOLDEN_LIGHT: Record<SemanticColorToken, string> = {
   '--wx-notice-question-container': '#ffdad5',
   '--wx-notice-question-on-container': '#410001',
   '--wx-notice-question-outline': '#d74034',
-  '--wx-notice-emergency-container': '#9200dc',
+  '--wx-notice-emergency-container': '#b4271f',
   '--wx-notice-emergency-on-container': '#ffffff',
-  '--wx-notice-emergency-outline': '#f4d9ff',
+  '--wx-notice-emergency-outline': '#ffb4aa',
 };
 
-/** 設計書 §2.6 の表から転記した golden 値 (dark モード) */
+/** Issue #63 設計 §3.3 とセマンティックカラー設計から転記した golden 値 (dark モード) */
 const GOLDEN_DARK: Record<SemanticColorToken, string> = {
   '--wx-alert-level-2-container': '#ead723',
   '--wx-alert-level-2-on-container': '#201c00',
@@ -72,9 +72,9 @@ const GOLDEN_DARK: Record<SemanticColorToken, string> = {
   '--wx-notice-question-container': '#910809',
   '--wx-notice-question-on-container': '#ffdad5',
   '--wx-notice-question-outline': '#ffb4aa',
-  '--wx-notice-emergency-container': '#9200dc',
+  '--wx-notice-emergency-container': '#b4271f',
   '--wx-notice-emergency-on-container': '#ffffff',
-  '--wx-notice-emergency-outline': '#f4d9ff',
+  '--wx-notice-emergency-outline': '#ffb4aa',
 };
 
 /** sRGB 相対輝度計算 (WCAG 2.1 準拠、ライブラリ API 非依存) */
@@ -124,7 +124,7 @@ test('§5-1 キー網羅: createSemanticColors(false)/(true) の各キー集合�
 });
 
 // 2. golden 値
-test('§5-2 golden値: 各トークンの生成値が設計書§2.6の表から転記した固定期待値と完全一致すること', () => {
+test('§5-2 golden値: 各トークンの生成値が承認済み設計から転記した固定期待値と完全一致すること', () => {
   const lightColors = createSemanticColors(false);
   const darkColors = createSemanticColors(true);
 

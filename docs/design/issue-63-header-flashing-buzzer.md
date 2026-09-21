@@ -72,9 +72,9 @@ interface HeaderBuzzerState {
 
 - warning／question のヘッダー面は通常の MD3 primary と、その dark 側の濃い青トークンを使う。通知区分ごとの警告色をヘッダー面に流用しない。
 - emergency のヘッダー面は MD3 error 系トークンの赤と濃い赤を使う。基本設計 §7.2 の「ヘッダーを赤表示」を満たす。
-- 下部通知行は、`question` を薄赤背景＋赤文字、`emergency` を赤背景＋白文字とする。既存の `--wx-notice-question-*`／`--wx-notice-emergency-*` の役割と生成値がこの方針を満たすかを確認し、満たさない場合は A5 #90 の変更として別途設計する。本 Issue でトークンを再定義しない。
+- 下部通知行は、`question` を薄赤背景＋赤文字、`emergency` を赤背景＋白文字とする。`--wx-notice-question-*`／`--wx-notice-emergency-*` という役割別トークンは維持し、`notice-emergency` は A5 #90 の旧紫系定義を本 Issue のユーザー承認で上書きして、`SEED_ALERT_RED` の tone 40／100／80 から生成する。
 - 非常用の赤面に `--wx-notice-emergency-outline` を使わない。outline は通知行の境界専用である。
-- HEX／RGB の直書き、通知区分トークンの再定義、A5 #90 の変更は行わない。
+- HEX／RGB は UI CSS に直書きせず、通知区分専用トークンを介して適用する。
 
 ## 4. 未決事項と製造保留境界
 
