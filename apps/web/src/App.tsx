@@ -3,9 +3,10 @@ import { FilledButton } from './components/md/Button';
 import { AppShell } from './shell/AppShell';
 import { resolveTerminal, resolveView, views, type Terminal, type ViewId } from './shell/config';
 import { NotificationArea } from './shell/NotificationArea';
-import { visibleNotices } from './shell/notifications';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
-import { fetchStartupNotifications } from './api/startupNotifications';
+import { createNotificationUiState, receiveNotifications } from './notifications/notificationStore';
+import { useNotificationFeed } from './notifications/useNotificationFeed';
+import { operationGuideMessage } from './shell/notifications';
 import { WeatherMapView } from './map/WeatherMapView';
 import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
 import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
@@ -47,7 +48,7 @@ export function App() {
         <p>指定された端末URLでアクセスしてください。</p>
       </main>
     );
-  return <TerminalApp terminal={terminal} />;
+  return <TerminalApp key={terminal.id} terminal={terminal} />;
 }
 function TerminalApp({ terminal }: { terminal: Terminal }) {
   const [view, setView] = useState(() => resolveView(window.location.hash, terminal.mode));
@@ -55,8 +56,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   const preview =
     import.meta.env.DEV && new URLSearchParams(window.location.search).get('shellPreview') === '1';
   const [scenario, setScenario] = useState<PreviewScenario>('empty');
-  const [notices, setNotices] = useState(() => previewNotices('empty'));
-  const [operation, setOperation] = useState('左のメニューから表示する画面を選択してください。');
+  const [previewState, setPreviewState] = useState(() => createNotificationUiState());
   const [monitoringState, setMonitoringState] = useState<MonitoringLoadState | null>(null);
   useEffect(() => {
     const syncView = () => {
@@ -78,20 +78,21 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  useEffect(() => {
-    // #41 で通知 store へ接続するまで、応答を UI 状態へ保存しない。
-    void fetchStartupNotifications(terminal.id);
-  }, [terminal.id]);
+  const notificationFeed = useNotificationFeed({
+    terminalId: terminal.id,
+    mode: terminal.mode,
+    enabled: !preview,
+  });
   const current = views.find((item) => item.id === view)!;
-  const displayed = visibleNotices(notices, terminal.mode);
   const selectScenario = (next: PreviewScenario) => {
     setScenario(next);
-    setNotices(previewNotices(next));
-    setOperation(
-      next === 'result'
-        ? '【表示サンプル】操作が完了しました。'
-        : '左のメニューから表示する画面を選択してください。',
-    );
+    const initialState = createNotificationUiState();
+    const received = receiveNotifications(initialState, previewNotices(next), terminal.mode).state;
+    setPreviewState({
+      ...received,
+      operationMessage:
+        next === 'result' ? '【表示サンプル】操作が完了しました。' : received.operationMessage,
+    });
   };
 
   const isMonitoringFailed = view === 'monitor' && monitoringState?.phase === 'failed';
@@ -101,7 +102,15 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
         lastSuccessAt: monitoringState?.data ? new Date(monitoringState.data.generatedAt) : null,
       }
     : { failed: preview && scenario === 'connection', lastSuccessAt: null };
-  const currentOperation = isMonitoringFailed ? '取得監視: 監視情報API取得不可' : operation;
+  const visibleNotificationState = preview ? previewState : notificationFeed.state;
+  const notificationState = {
+    ...visibleNotificationState,
+    operationMessage: operationGuideMessage(
+      visibleNotificationState.operationMessage,
+      isMonitoringFailed,
+      visibleNotificationState.phase === 'retrying',
+    ),
+  };
 
   return (
     <AppShell
@@ -111,7 +120,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       navigation={views.filter((item) => item.modes.includes(terminal.mode))}
       now={now}
       connection={connection}
-      notifications={<NotificationArea notices={displayed} operation={currentOperation} />}
+      notifications={<NotificationArea state={notificationState} mode={terminal.mode} />}
       toolbar={
         view === 'monitor' ? (
           <MonitoringToolbar />
@@ -132,7 +141,12 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
               </select>
             </label>
             <FilledButton
-              onClick={() => setOperation('【表示サンプル】新しい操作結果で置き換えました。')}
+              onClick={() =>
+                setPreviewState((currentState) => ({
+                  ...currentState,
+                  operationMessage: '【表示サンプル】新しい操作結果で置き換えました。',
+                }))
+              }
             >
               操作結果を表示
             </FilledButton>

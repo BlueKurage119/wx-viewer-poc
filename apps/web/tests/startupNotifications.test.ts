@@ -88,3 +88,30 @@ test('ready 応答: cursor が存在する場合は ready として受理し、c
   const res2 = await clientWithoutCursor.fetchStartupNotifications('a');
   assert.deepEqual(res2, { status: 'unavailable', reason: 'server' });
 });
+
+test('H2 AC6: targetsが空など契約外のready通知はunavailable(server)として再試行対象にする', async () => {
+  const invalidReadyBody = {
+    status: 'ready',
+    terminalId: 'a',
+    venueId: 'east',
+    serverGenerationId: 'gen-1',
+    generatedAt: '2026-09-14T10:00:00Z',
+    session: { kind: 'startup', firstInquiredAt: '2026-09-14T10:00:00Z' },
+    warningClaimed: true,
+    cursor: '10',
+    notifications: [{ outputId: 'output-1', targets: [] }],
+  };
+  const client = createStartupNotificationClient({
+    getSession: () => ({ status: 'ready', sessionId: sessionA, persistence: 'memory' }),
+    fetch: async () =>
+      new Response(JSON.stringify(invalidReadyBody), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  });
+
+  assert.deepEqual(await client.fetchStartupNotifications('a'), {
+    status: 'unavailable',
+    reason: 'server',
+  });
+});

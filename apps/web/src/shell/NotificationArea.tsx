@@ -1,44 +1,71 @@
-import type { ShellNotice } from './notifications';
+import type { TerminalMode } from '@wx-viewer-poc/shared';
+import {
+  displayedNoticeForRow,
+  notificationCounts,
+  type NotificationUiState,
+} from '../notifications/notificationStore';
 export function NotificationArea({
-  notices,
-  operation,
+  state,
+  mode,
 }: {
-  notices: readonly ShellNotice[];
-  operation: string;
+  state: NotificationUiState;
+  mode: TerminalMode;
 }) {
-  const warnings = notices.filter((notice) => notice.category === 'warning');
-  const questions = notices.filter((notice) => notice.category !== 'warning');
+  const counts = notificationCounts(state, mode);
   return (
     <>
-      <NoticeRow label="警報" notices={warnings} />
-      <NoticeRow label="問いかけ" notices={questions} />
+      <NoticeRow row="warning" notice={displayedNoticeForRow(state, mode, 'warning')} />
+      <NoticeRow row="question" notice={displayedNoticeForRow(state, mode, 'question')} />
       <div className="notice-row operation-row">
-        <div className="notice-text" role="status" tabIndex={0}>
-          {operation}
+        <div className="notice-text" role="status" aria-live="polite" tabIndex={0}>
+          {state.operationMessage}
         </div>
         <span className="notice-count">
-          未読 {notices.filter((notice) => notice.unread).length}・未対応{' '}
-          {notices.filter((notice) => notice.pending).length}
+          未読 {counts.unread}・未対応 {counts.pending}
         </span>
       </div>
     </>
   );
 }
-function NoticeRow({ label, notices }: { label: string; notices: readonly ShellNotice[] }) {
-  const notice = notices[0];
+function NoticeRow({
+  row,
+  notice,
+}: {
+  row: 'warning' | 'question';
+  notice: ReturnType<typeof displayedNoticeForRow>;
+}) {
+  const rowClass = row === 'warning' ? 'warning-row' : 'question-row';
+  const isQuestion = notice?.category === 'question' || notice?.category === 'emergency';
+  const actions = notice
+    ? notice.category === 'warning'
+      ? ['詳細', '確認']
+      : ['詳細', '送信']
+    : ['', ''];
   return (
-    <div
-      className={`notice-row ${notice ? 'has-notice' : ''} ${label === '警報' ? 'warning-row' : 'question-row'}`}
-    >
-      <div className="notice-text" role="status" tabIndex={notice ? 0 : undefined}>
+    <div className={`notice-row ${notice ? 'has-notice' : ''} ${rowClass}`}>
+      <div
+        className="notice-text"
+        role="status"
+        aria-live="polite"
+        tabIndex={notice ? 0 : undefined}
+      >
         {notice?.summary}
       </div>
-      <div className="notice-actions">
-        <button disabled title="通知の詳細・確認操作は後続実装">
-          詳細
-        </button>
-        {/* 問いかけの選択肢は通知側が都度提供する。選択肢なしの確認のみの場合は[確認]→[送信]の2段階とする(後続実装)。 */}
-        <button disabled>{label === '警報' ? '確認' : '送信'}</button>
+      <div className="notice-controls">
+        {isQuestion && (
+          <div className="notice-question-choices">
+            <button type="button" disabled>
+              確認
+            </button>
+          </div>
+        )}
+        <div className="notice-actions">
+          {actions.map((label, index) => (
+            <button key={`${label}-${index}`} type="button" disabled>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
