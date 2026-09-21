@@ -35,6 +35,7 @@
 | 17 | **キャッシュ方針は案 A（クライアント修正のみ）で確定。API 変更（案 B・案 D）は本 Issue に含めない。案 D の起票はユーザー指示があるまで行わない** | §14 |
 | 18 | **（オーナー提案）読み込み中はスピナーを表示する。文言は出さない** | §9.4.8 |
 | 19 | **手動操作のデバウンスは暫定確定（実機実測での調整前提）。5 回目検収の実測を受け、承認済みの暫定値の範囲内で 200 ms → 500 ms へ調整** | §9.4.4 |
+| 20 | **（PR #197 レビュー差し戻し）索引ポーリングの非同期競合は世代番号方式で修正する。`enabled` / `resetKey` / 可視状態のライフサイクルを分離し、旧世代の成功・失敗・`finally` を無効化する** | §5.3・§11.5.1 |
 
 **確定事項 #7 は #10 により撤回済みである。** 本書で「事前のタイル温めを行わない」と読める記述は §9.3 の改訂内容が優先する。
 
@@ -50,6 +51,7 @@
 | [07 気象データ業務標準](../rules/07-wx-data-protocol.md) | 確定/未確定の区別、`isTraining`、availability 3 状態、時刻の意味の維持 |
 | [06 UI/MD3 業務標準](../rules/06-ui-md3-protocol.md) §MD3 トークン使用義務の例外 | ナウキャストのデータ色は `--wx-data-nowcast-*` として定義し、取得先・取得日時とともに保存する |
 | 既存実装 `apps/web/src/map/*`、`apps/api/src/services/nowcastApiService.ts`、`apps/api/src/polling/nowcastTileStore.ts`、`packages/shared/src/tileApi.ts` | F1 の実装済み範囲と API の実在シグネチャ。サーバー側 PNG 検証は署名・IHDR・寸法のみで色タイプを限定していない |
+| `apps/web/src/map/tiles/useTileCatalogPolling.ts`、`apps/web/tests/useTileCatalogPolling.test.ts`、PR #197 の Codex P2 指摘 | 現行フックは cleanup で要求を abort しても、`load` が abort を無視して完了すると旧 `finally` がタイマーを再予約できる。現行テストは SSR の初期状態と定数だけを見ており、effect・cleanup・非同期競合を実行していない |
 
 ## 3. 実装範囲の線引き（担当範囲と既存実装の境界）
 
@@ -67,6 +69,8 @@
 | キキクル 3 種 | F3 (#46) | 対象外。`MapLayerId` が `nowcast` 以外のときは F2 の重ね描画を行わない |
 
 **実装済みを誤って前提にしない確認（受け入れ条件 §11.1）**: 製造着手時に、`apps/web/src/map/` に索引取得・PNG 描画・再生のコードが存在しないこと、`WeatherMapView` の既定 view model が `emptyTimeline` であることを実行して確認する。
+
+**PR #197 P2 修正の変更範囲**: 変更を許可するのは `apps/web/src/map/tiles/useTileCatalogPolling.ts` と専用テスト `apps/web/tests/useTileCatalogPolling.test.ts` の 2 本（テスト入力を共用する必要が生じた場合のみ同テスト用 fixture）に限る。`WeatherMapView`、`apps/web/src/map/nowcast/`、`apps/web/src/map/kikikuru/`、上記以外の `apps/web/src/map/tiles/`、`apps/api`、`packages/shared`、設定ファイルは変更しない。レビュー指摘への返信・解決、再レビュー依頼、push、PR 操作は本設計・製造・検収の範囲外とする。
 
 ## 4. コマの取得とタイムライン構成
 
@@ -184,7 +188,83 @@ export function buildNowcastCatalog(response: NowcastTimesResponse): NowcastCata
 4. 再生中もポーリングは続けるが、取得した新しいコマは再生停止まで一覧へ反映しない（§9.2）。
 5. `AbortController` で前回要求を中断し、応答の到着順に依存しない。アンマウント時にタイマーと要求を解除する。
 
-### 5.3 AD-H062 の結論（記録）
+### 5.3 非同期取得の世代管理【確定・PR #197 P2 修正】
+
+#### 5.3.1 修正する競合
+
+現行の `useTileCatalogPolling` は、取得開始時の `enabled` を `executeFetch` のクロージャに保持し、取得後の `finally` では可視状態だけを確認して次回タイマーを予約する。したがって、次の順序で非選択レイヤーの取得が再開し得る。
+
+1. `enabled=true` で取得 A を開始する。
+2. レイヤー切替により `enabled=false` となり、effect cleanup がタイマーを消去して A を abort する。
+3. `load` 実装が `AbortSignal` を無視して resolve / reject する。
+4. A の `finally` は開始時の `enabled=true` を保持したまま、可視状態ならタイマーを再予約する。
+5. そのタイマーが旧 `executeFetch` を呼び、非選択レイヤーの取得が再開する。
+
+同じ構造により、`resetKey=A` の旧取得が `resetKey=B` の状態・失敗回数・タイマーを汚染する、不可視化後の完了が状態を更新する、旧 `finally` が新しい取得の実行中フラグを `false` にする競合も起こり得る。`AbortSignal` は処理相手が無視でき、`enabled` のクロージャは最新値ではないため、いずれも正しさの根拠にしない。
+
+#### 5.3.2 世代と内部状態
+
+公開シグネチャ（§8.2 の `load` / `resetKey` / `enabled` と戻り値）は変更しない。フック内部に単調増加する世代番号を置き、取得開始時の世代を非同期処理へ明示的に渡す。
+
+```ts
+interface PollingExecution {
+  readonly generation: number;
+  readonly controller: AbortController;
+}
+
+interface PollingTimer {
+  readonly generation: number;
+  readonly id: ReturnType<typeof setTimeout>;
+}
+```
+
+| 内部状態 | 扱い |
+| --- | --- |
+| `generationRef` | `enabled` / `resetKey` の effect lifecycle と、実際の可視・不可視遷移ごとに増加する。値を再利用しない |
+| `enabledRef` | render ごとに最新の `enabled` を同期して保持する。非同期処理はクロージャの `enabled` を参照しない |
+| `visibilityRef` | 最新の `document.visibilityState` を保持し、同じ状態の重複 `visibilitychange` は無視する。判定時は現在の `document.visibilityState` とも一致させる |
+| `loadRef` | 現行どおり最新の `load` を保持し、各新規取得は開始時点の `loadRef.current` を 1 回呼ぶ。`load` 関数の同一性変更だけではカタログを reset しない |
+| `activeExecutionRef` | `{ generation, controller }` を保持し、既存の `abortControllerRef` と真偽値だけの `isExecutingRef` を置き換える。旧 `finally` は、自分が現在の所有者である場合だけこの ref を消去できる |
+| `timerRef` | `{ generation, id }` を 1 件だけ保持する。タイマー callback 自身も世代を検査する |
+| `failureCountRef` / `lastSuccessRef` | `resetKey` 変更または無効→有効の新 lifecycle では従来どおり初期化する。不可視→可視では保持する。旧世代の結果からは変更しない |
+
+取得結果の採用と次回予約に使う共通述語を、次の 3 条件の論理積にする。
+
+1. 取得開始時の `generation` が `generationRef.current` と一致する。
+2. 最新の `enabledRef.current` が `true` である。
+3. 最新の可視状態が `visible` である。
+
+成功値の `lastSuccessRef` / `setState`、失敗時の `failureCountRef` / `setState`、`finally` の次回タイマー予約は、すべてこの述語が真の場合だけ許可する。`controller.signal.aborted` は通信を早く止めるためのヒントとしては使うが、結果の新旧判定には使わない。これにより、abort を無視する `load`、通常値を返す `load`、例外を投げる `load` のいずれでも同じ規則になる。
+
+#### 5.3.3 lifecycle と cleanup 順序
+
+| 事象 | 世代と処理 |
+| --- | --- |
+| `enabled=true` で初回マウント | 新世代を発行し、失敗回数・前回成功を初期化して `loading` とする。可視なら即時に 1 回取得し、hidden なら復帰まで取得しない |
+| `enabled: true → false` | **最初に世代を無効化**し、その後にタイマー消去・実行中要求の abort を行う。現在の表示状態は保持し、新たな状態更新も次回予約もしない |
+| `enabled: false → true` | 新世代として `loading` から再開する。旧要求が後から完了しても、新世代の状態・タイマーへ触れない |
+| `resetKey: A → B` | cleanup で A 世代を先に無効化し、B の新世代で失敗回数・前回成功を初期化して即時取得する。A の成功・失敗・例外は B へ反映しない |
+| `visible → hidden` | **最初に世代を無効化**し、タイマー消去・実行中要求の abort を行う。現在の表示状態は保持し、hidden 中に旧要求が完了しても状態更新・予約をしない |
+| `hidden → visible` | 新世代を発行し、失敗回数・前回成功は保持したまま即時に 1 回だけ取得する |
+| effect cleanup / アンマウント | **世代無効化 → visibility listener 解除 → タイマー消去 → 要求 abort** の順とする。React StrictMode の setup → cleanup → setup でも、最初の setup の結果は 2 回目へ干渉しない |
+
+世代の無効化を abort やタイマー消去より先に行う。abort に同期して Promise の rejection が処理される、または既に timer callback が実行キューへ入っている場合にも、最初の世代判定で止めるためである。`visibilitychange` listener は `enabled=true` の lifecycle だけで 1 本登録し、cleanup で同じ関数を解除する。
+
+現行の「`resetKey` / `enabled` 監視 effect」と「`visibilitychange` 監視 effect」は、**要求開始・listener 登録・両者の cleanup を所有する 1 つの lifecycle effect に統合する**。別々の effect に世代無効化・timer 消去・abort の所有権を重複させず、1 回の遷移に対する cleanup 順序を一意にするためである。`loadRef` を最新化する effect は要求 lifecycle と独立のまま維持する。
+
+#### 5.3.4 取得・タイマーの単一所有
+
+`executeFetch(generation)` は入口で共通述語を検査し、偽なら `load` を呼ばずに終了する。開始できる場合は既存タイマーを消去し、その世代の `AbortController` を `activeExecutionRef` に登録して `load` を 1 回だけ呼ぶ。
+
+- `await load(...)` の成功・失敗結果および `catch` は、共通述語を再検査してから状態とバックオフ回数を更新する。検査に失敗した旧結果は何も変更しない。
+- `finally` は `activeExecutionRef` が自分の `{ generation, controller }` と一致する場合だけ ref を消去する。旧 `finally` が新世代の実行中要求を消去してはならない。
+- 次回予約は、`finally` で共通述語をもう一度満たした場合だけ行う。予約前に現タイマーを消去し、`timerRef` には常に 1 件だけを置く。
+- timer callback は、自分が `timerRef` の所有者ならその ref だけを `null` にし、捕捉した世代で `executeFetch(generation)` を呼ぶ。自分が所有者でなくても新しいタイマーを消去せず、`executeFetch(generation)` の入口までは進んで世代不一致で終了する。これにより、消去済み callback が実行キューに残る競合も世代判定のテスト対象になる。
+- 現行の真偽値 `isExecutingRef` は削除する。世代を持たない真偽値は旧 `finally` によって新しい取得まで `false` にできるためである。多重化防止と cleanup 対象の特定は `activeExecutionRef` と単一の `timerRef` で行う。
+
+この変更後も、現在世代については既存契約を維持する。成功後は 60 秒、連続失敗は 60 → 120 → 240 → 300 秒（以後 300 秒）、成功で 60 秒へ復帰し、失敗時は直前の成功カタログを `stale` として保持する。
+
+### 5.4 AD-H062 の結論（記録）
 
 > 画面は保存索引を読む `GET /api/weather/nowcast/times` のみを呼び、上流索引更新（`refreshTimes` 相当）を呼ばない。フロントの再読込は **60 秒固定間隔**の自動ポーリングとし、可視状態でのみ動かす。バックエンドの索引取得周期 120/60/120 秒とは独立に定義し、フロント周期を短くしても新しい索引は現れないことを実測（上流は N1 が 5 分区切りの約 6〜15 秒後、N2 がさらに約 60〜70 秒後）で確認した。F3 (#46) のキキクル索引も同じ 60 秒とし、周期とポーリング機構を共通モジュール（§8.2）に一本化してレイヤーごとに分岐させない。
 
@@ -431,7 +511,7 @@ export type TileCatalogState<T> =
       readonly failure: TileCatalogFailure }
   | { readonly status: 'failed'; readonly failure: TileCatalogFailure };
 
-/** §5.2 の補助規則（即時取得・不可視停止・バックオフ・中断）をすべて内包する */
+/** §5.2・§5.3 の補助規則（即時取得・不可視停止・バックオフ・世代管理）をすべて内包する */
 export function useTileCatalogPolling<T>(params: {
   readonly load: (signal: AbortSignal) => Promise<TileCatalogResult<T>>;
   /**
@@ -507,7 +587,7 @@ export function resolveTileZoomPolicy(allowedZooms: readonly number[]): TileZoom
 | 識別子 | 用途 | 生成規則 | 所有 |
 | --- | --- | --- | --- |
 | `TimelineFrame.id` | スライダー位置の識別、`onSwapSettled` の通知、選択状態の突き合わせ | レイヤーごとに定める（F2 は `${product}:${baseTime}:${validTime}`、F3 は `validTime`） | 各レイヤー（F2 / F3） |
-| **`swapKey`** | **タイル層を差し替えるか否かの判定のみ** | `` `${frame.id} ${frame.urlTemplate}` `` | **共通モジュール（F2 所有）** |
+| **`swapKey`** | **タイル層を差し替えるか否かの判定のみ** | `` `${frame.id}\0${frame.urlTemplate}` `` | **共通モジュール（F2 所有）** |
 
 `WeatherTileOverlay` は `swapKey` が変化したら必ず差し替える。すなわち「**表示すべきタイル URL が変わったら差し替える**」という契約にする。`id` だけを見る判定は禁止する。
 
@@ -1030,6 +1110,38 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 - [ ] API を停止して失敗させ、取得間隔が 60 → 120 → 240 秒へ伸びること、直前に成功したコマ一覧が画面から消えないことを確認する。API を復旧すると 60 秒間隔へ戻る。
 - [ ] レイヤーをキキクルへ切り替えて戻すと、間隔を待たず即時に 1 回取得される。
 
+#### 11.5.1 非同期競合の回帰テスト（PR #197 P2）
+
+`apps/web/tests/useTileCatalogPolling.test.ts` は、既存の SSR による初期値確認だけでなく、**実際の `useTileCatalogPolling` を `react-dom/client` の `createRoot` で client render**して effect と cleanup を実行する。React の dispatcher を自作した hook 模倣や、テスト内にポーリングロジックを複製する方法は禁止する。
+
+テストハーネスは次を備える。
+
+- `load` ごとに外部から resolve / reject できる deferred Promise と、受け取った `AbortSignal` の記録。
+- mutable な `enabled` / `resetKey` を props として再 render し、状態の render 履歴を取得できるテストコンポーネント。
+- `document.visibilityState` と `visibilitychange` listener を実際の effect へ渡す最小 DOM stub。
+- bare `setTimeout` / `clearTimeout` を計測可能にする timer stub。React の内部処理や microtask flush に使う短いタイマーは元実装へ委譲し、`60_000` / `120_000` / `240_000` / `300_000` のアプリケーションタイマーだけを `{ id, delay, callback, cleared }` として記録する。各テストの `finally` で root を unmount し、global と document の差し替えを必ず復旧する。
+- 状態・呼出回数・タイマー本数・delay は `assert.equal` / `assert.deepEqual` で完全一致させる。単なる「1 件以上」や部分一致にしない。
+
+専用テストだけの反復実行には `node --import tsx --test apps/web/tests/useTileCatalogPolling.test.ts`、最終確認には `npm run test -w apps/web` を使う。
+
+以下を独立したテスト（resolve / reject の対称ケースは table-driven test でもよい）として実行する。
+
+- [ ] **未解決取得 → 無効化**: A を未解決のまま `enabled: true → false` にし、A の signal が abort 済みであることを確認する。その後、A の `load` が abort を無視して成功値を resolve する場合と例外を reject する場合の双方で、`ready` / `stale` / `failed` への状態更新が 0 回、ポーリングタイマーが 0 件、追加 `load` が 0 回であることを確認する。
+- [ ] **`resetKey` A → B**: A の取得中に `resetKey` を B へ変更し、B を成功させて `catalog='B'` と 60,000 ms のタイマー 1 件を確定する。その後 A を成功または失敗で完了させても、状態が B のまま、失敗回数に由来する delay が変わらず、B のタイマーの id・本数が変化しないことを確認する。
+- [ ] **無効 → 再有効**: A の取得中に無効化し、再有効化で B を 1 回だけ開始する。A と B を逆順でも完了できるよう制御し、A は状態・タイマーへ影響せず、B だけが状態を更新して 60,000 ms のタイマーを 1 件だけ予約することを確認する。これとは別に、成功後に予約された旧タイマーの callback を保存してから無効→再有効とし、clear 済みの旧 callback を「既に実行キューへ入っていた」ものとして明示的に呼ぶ。旧世代の callback が新しい `load` を増やさず、新世代のタイマーを消去しないことを確認する。
+- [ ] **不可視中の完了と可視復帰**: 可視中の A 取得中に `hidden` へ変更し、A が abort 済みになることを確認する。A を abort 無視で完了させても状態更新・予約が 0 件であることを確認する。`visible` へ戻すと B が即時に **1 回だけ**始まり、B 完了後にだけ 60,000 ms のタイマーが 1 件できることを確認する。重複した同一 visibility 通知では取得を増やさない。
+- [ ] **正常系・バックオフ回帰**: 現在世代で成功すると `ready` と 60,000 ms 予約になる。続けて失敗させると直前の catalog / `fetchedAt` を完全一致で保持した `stale` となり、予約 delay が順に 60,000 / 120,000 / 240,000 / 300,000 / 300,000 ms となる。次の成功で `ready` に戻り、delay も 60,000 ms に戻る。一度も成功していない失敗は `failed` となることも確認する。
+- [ ] **StrictMode cleanup**: `<React.StrictMode>` で setup → cleanup → setup を発生させ、最初の setup の `load` を後から完了しても状態・タイマーへ影響しないこと、現在 setup の完了だけがタイマーを 1 件予約すること、unmount 後は予約 0 件であることを確認する。
+
+**ミューテーション判定（`docs/rules/05-verification-protocol.md`）**:
+
+1. 上記専用テストが通常実装で通ることを確認する。
+2. 対照実験として `useTileCatalogPolling.ts` に意味を変えないコメントだけを一時挿入し、専用テストが通る（SURVIVED）ことを確認する。コメントを戻す。
+3. 本番判定として、共通述語から `generationRef.current === generation` の比較だけを一時的に外し、`resetKey` A → B または無効→再有効のテストが状態またはタイマーの完全一致で落ちる（KILLED）ことを確認する。旧結果が abort 状態だけで止まる実装・テストにしない。
+4. ミューテーションを復旧し、専用テストと `npm run test -w apps/web` が再び通ること、`git diff` に対照実験・ミューテーションが残らないことを確認する。
+
+- [ ] `git diff --name-only` で本修正のコード差分が `apps/web/src/map/tiles/useTileCatalogPolling.ts` と `apps/web/tests/useTileCatalogPolling.test.ts`（必要時のみ専用 fixture）だけであることを確認する。特に `WeatherMapView`、`apps/web/src/map/nowcast/`、`apps/web/src/map/kikikuru/`、他の `tiles`、`apps/api`、`packages/shared`、設定ファイルに本修正の差分が無い。
+
 ### 11.6 共通モジュールの再利用性（確定事項 #8）
 
 - [ ] `apps/web/src/api/tileCatalogClient.ts`、`apps/web/src/map/tiles/useTileCatalogPolling.ts`、`apps/web/src/map/tiles/WeatherTileOverlay.tsx`、`apps/web/src/map/tiles/tileZoom.ts` の 4 本が §8.1 の配置どおりに存在する。
@@ -1055,7 +1167,7 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 
 ### 11.8 棚卸し項目の結論記録（Issue #139 追加条件）
 
-- [ ] 設計書 §4.3・§5.3・§7.5 に AD-H057 / AD-H062 / AD-H058 の結論が記録されている。
+- [ ] 設計書 §4.3・§5.4・§7.5 に AD-H057 / AD-H062 / AD-H058 の結論が記録されている。
 - [ ] 採否待ちの保守事項（サーバー側 PNG 完全 decode 検証の追加、タイルキャッシュ容量 / LRU）が、本 Issue の修正必須へ昇格していない。
 
 **AD-H057 の結論（記録）**:
@@ -1076,6 +1188,8 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 | G1 | 変更なし（右側情報列に触れない） | — |
 | L1 (#83) | 実画面での色・位置・zoom・凡例の確認結果（§11.3 の記録） | 両会場の総合受入条件 |
 
+PR #197 P2 の世代管理は共通フック内で完結し、F2 と F3 の既存呼び出しシグネチャを変えない。F3 は修正後の競合防止を自動的に受けるが、`apps/web/src/map/kikikuru/` 側のコード・設計書は変更しない。本修正から後続 Issue へ先送りする実装事項はない。
+
 ## 13. 実挙動未確認の箇所
 
 1. **実画面での地理的重ね合わせ**（降水域と海岸線・行政界の一致）。設計フェーズでは URL スキームと会場タイル座標の一致まで。§11.3 で確認する。
@@ -1087,6 +1201,7 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 7. **§9.4 の手動操作の即応性**。intent 分離とつまみの即応（5 連打で +5 コマ、各 6.5〜16.1 ms）は 5 回目検収で実測済み。**デバウンス 500 ms への変更後の挙動は未検証**であり、0.4 秒連打・300 ms/step ドラッグで最終コマだけが読み込まれるか、収束時間が 11.0 秒からどこまで改善するかを §11.4.1 で確認する。500 ms は引き続き暫定値。
 8. ~~単タイルの応答時間~~ **実測済み**（§14.4）。サーバー側キャッシュ未命中 0.46〜5.48 秒 / 枚、命中 7 ms / 枚、転送時間は無視できる。残る未確認は、ブラウザーから 45 枚を並列取得したときの実所要時間（§11.4.1 で記録する）。
 9. **上流タイルのバイト列が `baseTime`/`validTime` 確定後に不変かどうか**。公式資料で確認していない（§14.2）。案 B を採る場合は先に確認が要る。
+10. **§5.3 の世代管理を入れた実 hook の競合挙動**。設計フェーズでは現行コードの競合順序を確認したが、修正実装はまだ存在しないため実挙動未確認。§11.5.1 の client render テスト、StrictMode cleanup、ミューテーション判定で確認する。
 
 ## 14. `Cache-Control: no-store` とキャッシュ方針【範囲外・別 Issue 候補】
 
