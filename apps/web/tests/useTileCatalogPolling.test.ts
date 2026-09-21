@@ -258,17 +258,45 @@ test('useTileCatalogPolling: 無効から再有効化した世代だけが更新
     harness.setEnabled(false);
     harness.setEnabled(true);
     assert.equal(harness.requests.length, 2);
-    oldTimer.callback();
-    assert.equal(harness.requests.length, 2);
-    harness.requests[0].deferred.resolve(success('old'));
     harness.requests[1].deferred.resolve(success('new'));
     await flushEffects();
-    assert.equal(harness.states.at(-1)?.status, 'ready');
+    const newState = harness.states.at(-1);
+    const newTimers = harness.activeTimers().map(({ id, delay }) => ({ id, delay }));
+    assert.deepEqual(newTimers, [{ id: harness.timers.at(-1)?.id, delay: 60_000 }]);
+    oldTimer.callback();
+    await flushEffects();
+    assert.equal(harness.requests.length, 2);
+    assert.deepEqual(harness.states.at(-1), newState);
     assert.deepEqual(
-      harness.activeTimers().map((timer) => timer.delay),
-      [60_000],
+      harness.activeTimers().map(({ id, delay }) => ({ id, delay })),
+      newTimers,
     );
-    assert.equal(harness.activeTimers()[0].id, harness.timers.at(-1)?.id);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('useTileCatalogPolling: 無効化前の未解決取得は再有効化後に逆順完了しても新世代へ触れないこと (§11.5.1)', async () => {
+  const harness = await installHarness();
+  try {
+    harness.render();
+    harness.setEnabled(false);
+    assert.equal(harness.requests[0].signal.aborted, true);
+    harness.setEnabled(true);
+    assert.equal(harness.requests.length, 2);
+    harness.requests[1].deferred.resolve(success('B'));
+    await flushEffects();
+    const bState = harness.states.at(-1);
+    const bTimers = harness.activeTimers().map(({ id, delay }) => ({ id, delay }));
+    assert.deepEqual(bTimers, [{ id: harness.timers.at(-1)?.id, delay: 60_000 }]);
+    harness.requests[0].deferred.resolve(success('A'));
+    await flushEffects();
+    assert.deepEqual(harness.states.at(-1), bState);
+    assert.deepEqual(
+      harness.activeTimers().map(({ id, delay }) => ({ id, delay })),
+      bTimers,
+    );
+    assert.equal(harness.requests.length, 2);
   } finally {
     harness.cleanup();
   }
@@ -364,7 +392,12 @@ test('useTileCatalogPolling: StrictMode の旧 setup は状態とタイマーに
     harness.render();
     assert.equal(harness.requests.length, 2);
     assert.equal(harness.requests[0].signal.aborted, true);
+    await flushEffects();
+    const statesAfterSetup = [...harness.states];
     harness.requests[0].deferred.resolve(success('old'));
+    await flushEffects();
+    assert.deepEqual(harness.states, statesAfterSetup);
+    assert.deepEqual(harness.activeTimers(), []);
     harness.requests[1].deferred.resolve(success('current'));
     await flushEffects();
     assert.equal(harness.states.at(-1)?.status, 'ready');
