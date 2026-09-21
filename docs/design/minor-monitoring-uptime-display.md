@@ -27,11 +27,12 @@
    - スタイル: 既存の `.monitoring-update-row` のスタイル（`font-size: 13px; font-variant-numeric: tabular-nums; gap: 16px; justify-content: end;`）を継承し、折り返しを防止（`white-space: nowrap;`）する。
    - 初期ロード中（`data === null`）の表示: サーバーからの応答前は `運転時間: —` と表示する。
 
-3. **カウントアップの更新周期と時刻補正**:
+3. **カウントアップの更新周期と時刻補正（レビュー指摘対応）**:
    - 1000ms（1秒）ごとのインターバル更新とする。
    - クライアント側とサーバー側の時計のズレを吸収するため、最新レスポンスの `generatedAt` と `serverStartedAt` の差分を基準運転秒数（`serverElapsedSec`）とし、そのレスポンス受信時からのクライアント経過秒数を加算して表示する。
-     - `currentUptimeSec = Math.floor((Date.now() - responseReceivedAtMs) / 1000) + Math.floor((Date.parse(data.generatedAt) - Date.parse(data.serverStartedAt)) / 1000)`
-   - 5秒ごとのポーリングで新たなレスポンスを受信するたびに最新値へ補正されるため、端末時計のずれやスリープ復帰時にも正確なサーバー運転時間に追随する。
+   - **単調増加クロックの採用（Codex指摘対応）**: レスポンス間の経過時間計測には端末の壁時計（`Date.now()`）ではなく `performance.now()` を使用し、端末時計の手動変更やNTP補正によるズレ・停止を防止する。
+   - **応答遅延時の巻き戻り防止（Codex指摘対応）**: 通信遅延や高負荷時に直前の推定運転時間より古い `generatedAt` 由来の値を受信しても、同一 `serverGenerationId` である限り直前の推定値を下回らないよう保護（`Math.max` による単調増加保証）し、運転時間の巻き戻りを防止する。
+   - 5秒ごとのポーリングで新たなレスポンスを受信するたびに最新値へ補正され、サーバー再起動時（`serverGenerationId` 変更時）は新サーバーの起動時間に正しく追従する。
 
 4. **書式仕様（`hh:mm:ss`）**:
    - 時間（hh）、分（mm）、秒（ss）それぞれを2桁ゼロ埋めで表示する。
@@ -121,21 +122,24 @@ export interface MonitoringStatusResponse {
 2. **単体テスト**:
    - `apps/web/tests/monitoringTimeFormat.test.ts`: `formatElapsedTime` の書式整形テスト。
    - `apps/web/tests/monitoringDashboard.test.ts`: 運転時間の表示・配置テスト、データ有無に応じた表示テスト（`—` vs 実時間）。
+   - `apps/web/tests/useMonitoringUptime.test.ts`: 運転時間フックの単調増加クロック（`performance.now`）による進行、API応答遅延時の巻き戻り防止、サーバー再起動時のリセット、壁時計ジャンプ耐性のテスト。
    - `apps/api/tests/issue42MonitoringApi.test.ts`: 稼働状態APIが `serverStartedAt` を返し、`generatedAt` 以前の妥当な日時であることを検証。
 
 ---
 
 ## 3. 受け入れ条件のチェックリスト
 
-- [ ] `packages/shared/src/monitoringStatus.ts` の `MonitoringStatusResponse` に `serverStartedAt: UtcIso8601String` が定義されていること。
-- [ ] バックエンドの稼働状態API（`/api/monitoring/status`）の応答に `serverStartedAt` が含まれ、サーバー起動時刻を示す UTC ISO 8601 文字列であること。
-- [ ] `apps/web/src/api/monitoringStatus.ts` の境界バリデーションで `serverStartedAt` が正しく検証され、形式不正時は拒否されること。
-- [ ] 取得監視画面を表示した際、初回読み込み中（データ未取得時）は `運転時間: —` と表示されること。
-- [ ] 監視データ取得後は、最終表示更新の左側に `運転時間: hh:mm:ss` が表示され、サーバー起動からの経過時間が1秒ごとにカウントアップされること。
-- [ ] 画面をリロードしても、サーバーが稼働し続けていればサーバーの同一運転時間（起動からの経過時間）が正しく表示されること。
-- [ ] 通信失敗時（`phase: 'failed'`）でも、直前に取得したサーバー起動時刻に基づいて運転時間のカウントアップが継続すること。
-- [ ] `formatElapsedTime` が秒数を正しく `hh:mm:ss` 形式に整形し、24時間以上でも日数を分けず時間部を累積すること。
-- [ ] `npm run build`、`npm run typecheck`、`npm run lint`、`npm run format:check`、および全テストが合格すること。
+- [x] `packages/shared/src/monitoringStatus.ts` の `MonitoringStatusResponse` に `serverStartedAt: UtcIso8601String` が定義されていること。
+- [x] バックエンドの稼働状態API（`/api/monitoring/status`）の応答に `serverStartedAt` が含まれ、サーバー起動時刻を示す UTC ISO 8601 文字列であること。
+- [x] `apps/web/src/api/monitoringStatus.ts` の境界バリデーションで `serverStartedAt` が正しく検証され、形式不正時は拒否されること。
+- [x] 取得監視画面を表示した際、初回読み込み中（データ未取得時）は `運転時間: —` と表示されること。
+- [x] 監視データ取得後は、最終表示更新の左側に `運転時間: hh:mm:ss` が表示され、サーバー起動からの経過時間が1秒ごとにカウントアップされること。
+- [x] 経過時間の計測に単調増加クロック（`performance.now()`）を使用し、端末の壁時計が変更・補正されても運転時間のズレや停止が発生しないこと。
+- [x] 通信遅延等で古い `generatedAt` を持つ応答を受信した場合でも、同一 `serverGenerationId` である限り直前の推定運転時間を下回らず巻き戻らないこと。
+- [x] 画面をリロードしても、サーバーが稼働し続けていればサーバーの同一運転時間（起動からの経過時間）が正しく表示されること。
+- [x] 通信失敗時（`phase: 'failed'`）でも、直前に取得したサーバー起動時刻に基づいて運転時間のカウントアップが継続すること。
+- [x] `formatElapsedTime` が秒数を正しく `hh:mm:ss` 形式に整形し、24時間以上でも日数を分けず時間部を累積すること。
+- [x] `npm run build`、`npm run typecheck`、`npm run lint`、`npm run format:check`、および全テストが合格すること。
 
 ---
 
