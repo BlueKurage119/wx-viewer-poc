@@ -19,6 +19,9 @@
    - `information` および `tiles` （`layers` 含む）の全フィールドを含め、境界で厳格に検証する。
    - 構造不正がある場合は例外をスローし、安全に `phase: 'failed'` として扱う。
    - **設計判断**: `apps/web/src/api/monitoringStatus.ts` に各セクション専用のバリデーション内部関数を追加し、`isMonitoringResponse` の中から呼び出す。
+5. 通信失敗状態の維持（再試行中も継続）【ユーザー確定方針】:
+   - 監視APIリクエストが失敗した場合、リクエストが正常に完了するまで（再試行中・取得しようとしているときも含む）、受信異常バッジ・操作ガイド・無彩色抑制を維持する。
+   - **設計判断**: `useMonitoringStatus` フックにおいて、直前の試行が失敗状態（`hasFailed === true`）である間は、次回の `load()` 実行開始時に `refreshing` や `loading` へフェーズを戻さず `phase: 'failed'` を維持したままリクエストを送信する。正常完了（成功レスポンス受信）時に初めて `phase: 'ready'` へ遷移し受信異常を解除する。
 
 ## 2. モジュール構成・型定義・具体的なシグネチャ
 
@@ -76,6 +79,16 @@
 - `MonitoringDashboard` コンポーネント呼び出し時に `onLoadStateChange={setMonitoringState}` を渡す。
 - `view` が `'monitor'` 以外に切り替わった場合、`connection` prop と `operation` は通常状態（`preview` 用のモック等）に戻るよう評価する。
 
+### 2.5 状態取得フックにおける失敗状態の維持
+**対象ファイル:** `apps/web/src/monitoring/useMonitoringStatus.ts`
+- フック内に失敗継続フラグ（`hasFailed`）を保持。
+- 初回通信失敗時、または更新失敗時（`catch` ブロック）に `hasFailed = true` とする。
+- `load()` 実行開始時および `visibilitychange` による復帰時:
+  - `hasFailed` が `true` の場合は、`setState` で `refreshing` や `loading` に遷移させず、現在の `phase: 'failed'` を維持したままリクエストを送信する。
+  - `hasFailed` が `false` の場合は、従来どおり `latestData ? { phase: 'refreshing', data: latestData } : { phase: 'loading', data: null }` へ遷移する。
+- リクエスト成功時（`then` ブロック）:
+  - `hasFailed = false` にリセットし、`setState({ phase: 'ready', data })` を実行して通常状態へ復帰する。
+
 ## 3. 受け入れ条件のチェックリスト
 
 - [ ] `apps/web/src/api/monitoringStatus.ts` の `isMonitoringResponse` にて、`information` および `tiles` の全フィールドが厳格にバリデーションされていること。
@@ -83,6 +96,7 @@
 - [ ] 2回目以降の通信失敗時、前回値の中で「正常（緑色）」だった項目が無彩色（neutral）として表示され、遅延（黄色）や異常（赤色）の警告はそのまま維持されること。
 - [ ] 監視APIエラー時、共通シェルヘッダーに「受信異常」バッジが表示され、バッジ内に最終更新時刻（成功なしの場合は「通信成功なし」）が表示されること。
 - [ ] 監視APIエラー時、下部の操作ガイドに「取得監視: 監視情報API取得不可」と表示されること。
+- [ ] 監視APIエラー後、次のリクエストを試行している間（再試行中・取得中）も、リクエストが正常に完了するまで受信異常バッジ・操作ガイド・無彩色抑制が維持されること。
 - [ ] 監視APIエラーから復旧（通信成功）したとき、バッジ・操作ガイドのすべてが通常状態に戻ること。
 - [ ] 監視APIエラーが発生していても、別の画面に切り替えるとヘッダーの「受信異常」バッジや操作ガイドの表示がクリアされること。
 
