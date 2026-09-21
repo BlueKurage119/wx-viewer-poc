@@ -18,6 +18,7 @@ export interface StartupNotificationClient {
   fetchStartupNotifications(
     terminalId: string,
     signal?: AbortSignal,
+    options?: { readonly retry?: boolean },
   ): Promise<StartupNotificationClientResult>;
 }
 
@@ -31,12 +32,36 @@ function isInitializing(value: unknown): value is StartupNotificationInitializin
 }
 
 function isReady(value: unknown): value is StartupNotificationReadyResponse {
+  const notifications =
+    typeof value === 'object' && value !== null
+      ? (value as { notifications?: unknown }).notifications
+      : undefined;
   return (
     typeof value === 'object' &&
     value !== null &&
     (value as { status?: unknown }).status === 'ready' &&
-    Array.isArray((value as { notifications?: unknown }).notifications) &&
+    Array.isArray(notifications) &&
+    notifications.every(isNotification) &&
     typeof (value as { cursor?: unknown }).cursor === 'string'
+  );
+}
+
+function isNotification(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const item = value as Record<string, unknown>;
+  const output = item.output;
+  return (
+    typeof item.outputId === 'string' &&
+    (item.category === 'warning' ||
+      item.category === 'question' ||
+      item.category === 'emergency') &&
+    (item.origin === 'weather' || item.origin === 'system') &&
+    typeof item.occurredAt === 'string' &&
+    Array.isArray(item.targets) &&
+    typeof output === 'object' &&
+    output !== null &&
+    typeof (output as Record<string, unknown>).summary === 'string' &&
+    typeof (output as Record<string, unknown>).ackRequired === 'boolean'
   );
 }
 
@@ -48,10 +73,14 @@ export function createStartupNotificationClient(
   const inFlight = new Map<string, Promise<StartupNotificationClientResult>>();
 
   return {
-    fetchStartupNotifications(terminalId: string, signal?: AbortSignal) {
+    fetchStartupNotifications(
+      terminalId: string,
+      signal?: AbortSignal,
+      options?: { readonly retry?: boolean },
+    ) {
       // 呼出し元の中断は共有 POST を中断しない。StrictMode の cleanup は購読解除だけを表す。
       void signal;
-      const cached = completed.get(terminalId);
+      const cached = options?.retry ? undefined : completed.get(terminalId);
       if (cached !== undefined) return Promise.resolve(cached);
       const current = inFlight.get(terminalId);
       if (current !== undefined) return current;
@@ -114,6 +143,7 @@ function getDefaultClient(): StartupNotificationClient {
 export function fetchStartupNotifications(
   terminalId: string,
   signal?: AbortSignal,
+  options?: { readonly retry?: boolean },
 ): Promise<StartupNotificationClientResult> {
-  return getDefaultClient().fetchStartupNotifications(terminalId, signal);
+  return getDefaultClient().fetchStartupNotifications(terminalId, signal, options);
 }

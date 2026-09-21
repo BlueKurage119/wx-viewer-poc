@@ -15,6 +15,10 @@ import { previewNotices } from '../src/shell/fixtures.ts';
 import { isUnknownTerminalDocument } from '../src/shell/terminalRouting.ts';
 import { AppShell } from '../src/shell/AppShell.tsx';
 import { NotificationArea } from '../src/shell/NotificationArea.tsx';
+import {
+  createNotificationUiState,
+  receiveNotifications,
+} from '../src/notifications/notificationStore.ts';
 import type { MonitoringLoadState } from '../src/monitoring/useMonitoringStatus.ts';
 import { normalMonitoringResponseFixture } from './monitoringFixture.ts';
 
@@ -73,7 +77,7 @@ test('H表示の絞り込みは通知の生成・保持やK表示を破壊しな
   const notices = Object.freeze(previewNotices('mixed').map(Object.freeze));
   const h = visibleNotices(notices, 'H');
   assert.equal(h.length, 3);
-  assert.equal(h.filter((notice) => notice.pending).length, 2);
+  assert.equal(h.filter((notice) => notice.ackRequired).length, 2);
   assert.equal(visibleNotices(notices, 'K').length, 4);
   assert.equal(notices.length, 4);
   assert.ok(h.some((notice) => notice.category === 'emergency'));
@@ -95,6 +99,11 @@ test('未登録HTMLアクセスのみ404対象とし、APIやモジュールを�
 test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作ガイド「取得監視: 監視情報API取得不可」の表示テスト', () => {
   const terminal = terminals[1]!; // kkeagh01 (K端末)
   const baseNotices = visibleNotices(previewNotices('empty'), terminal.mode);
+  const notificationState = receiveNotifications(
+    createNotificationUiState(),
+    baseNotices,
+    terminal.mode,
+  ).state;
 
   function computeShellStatus({
     view,
@@ -139,8 +148,9 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
           now: new Date('2026-09-20T05:30:00.000Z'),
           connection,
           notifications: el(NotificationArea, {
-            notices: baseNotices,
-            operation: currentOperation,
+            state: { ...notificationState, operationMessage: currentOperation },
+            mode: terminal.mode,
+            onConfirm: () => undefined,
           }),
         },
         el('div', null, 'content'),
@@ -174,8 +184,9 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
           now: new Date('2026-09-20T05:30:00.000Z'),
           connection,
           notifications: el(NotificationArea, {
-            notices: baseNotices,
-            operation: currentOperation,
+            state: { ...notificationState, operationMessage: currentOperation },
+            mode: terminal.mode,
+            onConfirm: () => undefined,
           }),
         },
         el('div', null, 'content'),
@@ -210,8 +221,9 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
           now: new Date('2026-09-20T05:30:00.000Z'),
           connection,
           notifications: el(NotificationArea, {
-            notices: baseNotices,
-            operation: currentOperation,
+            state: { ...notificationState, operationMessage: currentOperation },
+            mode: terminal.mode,
+            onConfirm: () => undefined,
           }),
         },
         el('div', null, 'content'),
@@ -243,8 +255,9 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
           now: new Date('2026-09-20T05:30:00.000Z'),
           connection,
           notifications: el(NotificationArea, {
-            notices: baseNotices,
-            operation: currentOperation,
+            state: { ...notificationState, operationMessage: currentOperation },
+            mode: terminal.mode,
+            onConfirm: () => undefined,
           }),
         },
         el('div', null, 'content'),

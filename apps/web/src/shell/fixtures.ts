@@ -1,4 +1,4 @@
-import type { ShellNotice } from './notifications';
+import type { NotificationFeedItem } from '@wx-viewer-poc/shared';
 export type PreviewScenario = 'empty' | 'long' | 'mixed' | 'result' | 'connection';
 export const scenarios: readonly { id: PreviewScenario; label: string }[] = [
   { id: 'empty', label: '通知なし' },
@@ -7,16 +7,45 @@ export const scenarios: readonly { id: PreviewScenario; label: string }[] = [
   { id: 'result', label: '操作結果と通知' },
   { id: 'connection', label: '受信異常' },
 ];
-export function previewNotices(scenario: PreviewScenario): ShellNotice[] {
-  if (scenario === 'empty' || scenario === 'connection') return [];
-  const warning: ShellNotice = {
-    id: 'sample-warning',
-    category: 'warning',
-    origin: 'weather',
-    summary: '【表示サンプル】対象地域の気象情報が更新されました。',
-    unread: true,
-    pending: false,
+function createPreviewNotice(
+  feedKey: string,
+  category: NotificationFeedItem['category'],
+  origin: NotificationFeedItem['origin'],
+  summary: string,
+  ackRequired: boolean,
+): NotificationFeedItem {
+  return {
+    feedKey,
+    source: 'delta',
+    sequence: 1,
+    category,
+    origin,
+    detectionContext: 'normal',
+    changeType: 'created',
+    sourceType: 'preview',
+    sourceVersion: null,
+    targets: [{ kind: 'area', codeType: 'preview', code: 'east', name: '表示確認用' }],
+    occurredAt: '2026-09-21T00:00:00.000Z',
+    detectedAt: '2026-09-21T00:00:00.000Z',
+    relatedRefs: [],
+    isTraining: false,
+    ackRequired,
+    summary,
+    display: null,
+    messageDefinition: null,
+    venueScope: 'venue',
   };
+}
+
+export function previewNotices(scenario: PreviewScenario): NotificationFeedItem[] {
+  if (scenario === 'empty' || scenario === 'connection') return [];
+  const warning = createPreviewNotice(
+    'delta:sample-warning',
+    'warning',
+    'weather',
+    '【表示サンプル】対象地域の気象情報が更新されました。',
+    false,
+  );
   if (scenario === 'long')
     return [
       {
@@ -28,28 +57,28 @@ export function previewNotices(scenario: PreviewScenario): ShellNotice[] {
   return [
     warning,
     {
-      id: 'sample-emergency',
+      ...warning,
+      feedKey: 'delta:sample-emergency',
       category: 'emergency',
       origin: 'weather',
       summary: '【表示サンプル】非常ブザー区分の通知です。発表内容を確認してください。',
-      unread: true,
-      pending: true,
+      ackRequired: true,
     },
     {
-      id: 'sample-question',
+      ...warning,
+      feedKey: 'delta:sample-question',
       category: 'question',
       origin: 'weather',
       summary: '【表示サンプル】追加の問いかけ通知です。',
-      unread: true,
-      pending: true,
+      ackRequired: true,
     },
     {
-      id: 'sample-equipment',
+      ...warning,
+      feedKey: 'delta:sample-system',
       category: 'warning',
-      origin: 'equipment',
+      origin: 'system',
       summary: '【表示サンプル】取得処理の遅延を検知しました。',
-      unread: true,
-      pending: true,
+      ackRequired: true,
     },
   ];
 }
