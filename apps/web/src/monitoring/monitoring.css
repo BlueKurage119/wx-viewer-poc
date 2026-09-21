@@ -274,6 +274,80 @@
   inline-size: 120px;
 }
 
+.monitoring-toolbar-icon-button {
+  inline-size: 40px !important;
+  min-inline-size: 40px;
+  block-size: 40px;
+}
+
+.monitoring-toolbar-title {
+  inline-size: 120px;
+  flex: 0 0 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitoring-toolbar-icon {
+  font-family: 'Material Symbols Outlined', 'Material Icons', sans-serif;
+  font-size: 20px;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 20;
+  line-height: 1;
+}
+
+.monitoring-toolbar-selected {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.monitoring-dialog {
+  inline-size: min(560px, calc(100vw - 48px));
+  max-block-size: calc(100dvh - 48px);
+  padding: 24px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-md);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+}
+
+.monitoring-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.monitoring-dialog::backdrop {
+  background: var(--md-sys-color-scrim);
+  opacity: 0.32;
+}
+
+.monitoring-dialog h2 {
+  margin: 0;
+}
+
+.monitoring-dialog-body {
+  min-block-size: 0;
+  margin-block-start: 16px;
+  overflow: auto;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.monitoring-dialog-body p {
+  margin: 0;
+}
+
+.monitoring-dialog-actions {
+  display: flex;
+  justify-content: end;
+  margin-block-start: 24px;
+}
+
 .monitoring-toolbar-submit {
   margin-inline-start: auto;
 }

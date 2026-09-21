@@ -9,6 +9,10 @@ import {
 } from '../src/monitoring/MonitoringDashboard.tsx';
 import { MonitoringToolbar } from '../src/monitoring/MonitoringToolbar.tsx';
 import {
+  createToolbarLocalState,
+  monitoringToolbarDefinitions,
+} from '../src/monitoring/monitoringToolbarState.ts';
+import {
   abnormalMonitoringResponseFixture,
   delayedMonitoringResponseFixture,
   monitoringResponseFixture,
@@ -129,15 +133,34 @@ test('Issue #74: 表は固定比率のcolgroupを持ち、注意行と異常行�
   assert.ok(abnormalHtml.includes('<tr class="monitoring-row-error">'));
 });
 
-test('Issue #74: 監視ツールバーはM3 Expressiveのスクエア型ボタンを使用する', () => {
-  const html = renderToStaticMarkup(el(MonitoringToolbar));
+test('Issue #75: 監視ツールバーはM3 Expressiveのスクエア型11ボタンを使用する', () => {
+  const html = renderToStaticMarkup(
+    el(MonitoringToolbar, {
+      model: {
+        localState: createToolbarLocalState('monitor-root'),
+        operationState: { phase: 'idle' },
+        currentToolbar: monitoringToolbarDefinitions[0]!,
+        busy: false,
+        selectOperation: () => undefined,
+        clearSelection: () => undefined,
+        submit: () => undefined,
+        openDialog: () => undefined,
+        closeDialog: () => undefined,
+        navigate: () => undefined,
+        back: () => undefined,
+        backToRoot: () => undefined,
+      },
+    }),
+  );
 
-  assert.equal((html.match(/<md-gb-button/g) ?? []).length, 8);
+  assert.equal((html.match(/<md-gb-button/g) ?? []).length, 11);
   assert.equal(html.includes('md-filled-button'), false);
-  assert.equal((html.match(/color="filled"/g) ?? []).length, 8);
-  assert.equal((html.match(/size="sm"/g) ?? []).length, 8);
-  assert.equal((html.match(/square=""/g) ?? []).length, 8);
-  assert.equal((html.match(/disabled=""/g) ?? []).length, 8);
+  assert.equal((html.match(/color="filled"/g) ?? []).length, 11);
+  assert.equal((html.match(/size="sm"/g) ?? []).length, 11);
+  assert.equal((html.match(/square=""/g) ?? []).length, 11);
+  assert.equal((html.match(/disabled=""/g) ?? []).length, 4);
+  assert.ok(html.includes('aria-label="最初のメニューへ戻る"'));
+  assert.ok(html.includes('aria-label="取得操作を送信"'));
 });
 
 test('K6: 取得元別の稼働状況表のレンダリング（th scope、8列見出し、6行名、実データ）', () => {
