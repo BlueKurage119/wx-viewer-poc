@@ -398,6 +398,7 @@ function buildApp(options: BuildAppOptions) {
       maxScanAttempts: 20,
     },
     serverGenerationId: 'gen-1',
+    serverStartedAt: '2026-09-09T00:00:00Z' as UtcIso8601String,
     now: () => FIXED_NOW,
   };
 
@@ -482,6 +483,7 @@ test('AC2 セクション分離（確定事項1・AD-H063）: トップレベル
         'terminalId',
         'requestedVenueId',
         'serverGenerationId',
+        'serverStartedAt',
         'generatedAt',
         'operation',
         'health',
@@ -1567,6 +1569,7 @@ test('AC13 HTTP実挙動と依存注入（3依存の独立性・startup-inquirie
         maxScanAttempts: 20,
       },
       serverGenerationId: 'gen-1',
+      serverStartedAt: '2026-09-09T00:00:00Z' as UtcIso8601String,
       now: () => FIXED_NOW,
     });
     const onlyStatusApp = createApp({ monitoringStatus });

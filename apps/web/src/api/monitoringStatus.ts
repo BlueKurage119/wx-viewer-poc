@@ -136,6 +136,7 @@ function isMonitoringResponse(value: unknown): value is MonitoringStatusResponse
   if (
     (value.requestedVenueId !== 'east' && value.requestedVenueId !== 'trc') ||
     typeof value.serverGenerationId !== 'string' ||
+    !isIsoDate(value.serverStartedAt) ||
     !isIsoDate(value.generatedAt)
   )
     return false;

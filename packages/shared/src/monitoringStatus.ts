@@ -194,6 +194,8 @@ export interface MonitoringStatusResponse {
   readonly terminalId: string;
   readonly requestedVenueId: VenueId;
   readonly serverGenerationId: string;
+  /** サーバーの起動時刻。監視画面の「運転時間」の基準。 */
+  readonly serverStartedAt: UtcIso8601String;
   /** この応答を組み立てた時刻。監視画面の「最終表示更新時刻」の基準(基本設計 §8.2)。 */
   readonly generatedAt: UtcIso8601String;
 

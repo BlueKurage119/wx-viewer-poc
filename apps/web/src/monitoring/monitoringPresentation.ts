@@ -4,12 +4,13 @@ import type {
   MonitoringStatusResponse,
 } from '@wx-viewer-poc/shared';
 import {
+  formatElapsedTime,
   formatJstDateTime,
   formatJstMonthDayClock,
   formatJstTime,
 } from './monitoringTimeFormat.js';
 
-export { formatJstDateTime, formatJstMonthDayClock, formatJstTime };
+export { formatElapsedTime, formatJstDateTime, formatJstMonthDayClock, formatJstTime };
 
 export type MonitoringTone = 'neutral' | 'normal' | 'active' | 'attention' | 'error';
 

@@ -56,6 +56,7 @@ export interface MonitoringStatusServiceDependencies {
   readonly kikikuruApi: KikikuruApiService;
   readonly fetchHealthConfig: FetchHealthConfig;
   readonly serverGenerationId: string;
+  readonly serverStartedAt: UtcIso8601String;
   readonly now: () => UtcIso8601String;
   readonly adoptionWindowHours?: number;
 }
@@ -476,6 +477,7 @@ export function createMonitoringStatusService(
         terminalId: terminal.id,
         requestedVenueId: terminal.venueId,
         serverGenerationId: deps.serverGenerationId,
+        serverStartedAt: deps.serverStartedAt,
         generatedAt,
         // レビュー指摘 #4: sources[*].state はデフォルト夜間帯で全取得元が scheduled_stopped
         // になるため、これだけでは「スケジューラ稼働中（夜間帯で自動停止中）」と

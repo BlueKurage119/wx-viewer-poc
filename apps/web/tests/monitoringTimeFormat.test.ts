@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  formatElapsedTime,
   formatJstDateTime,
   formatJstMonthDayClock,
   formatJstTime,
@@ -32,4 +33,22 @@ test('formatJstTime: HH:mm 書式整形', () => {
 test('formatJstDateTime: YYYY/MM/DD HH:mm:ss 書式整形', () => {
   assert.equal(formatJstDateTime('2026-09-21T03:15:30.000Z'), '2026/09/21 12:15:30');
   assert.equal(formatJstDateTime(''), '—');
+});
+
+test('formatElapsedTime: 経過秒数を hh:mm:ss 形式へ整形（24時間超も累積）', () => {
+  assert.equal(formatElapsedTime(0), '00:00:00');
+  assert.equal(formatElapsedTime(5), '00:00:05');
+  assert.equal(formatElapsedTime(65), '00:01:05');
+  assert.equal(formatElapsedTime(3665), '01:01:05');
+  // 24時間以上
+  assert.equal(formatElapsedTime(86400), '24:00:00');
+  assert.equal(formatElapsedTime(90065), '25:01:05');
+  // 100時間以上
+  assert.equal(formatElapsedTime(360000), '100:00:00');
+  // 小数点（切り捨て）
+  assert.equal(formatElapsedTime(65.8), '00:01:05');
+  // 負数・不正値
+  assert.equal(formatElapsedTime(-1), '00:00:00');
+  assert.equal(formatElapsedTime(Number.NaN), '00:00:00');
+  assert.equal(formatElapsedTime(Number.POSITIVE_INFINITY), '00:00:00');
 });
