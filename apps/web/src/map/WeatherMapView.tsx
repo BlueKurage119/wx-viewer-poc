@@ -13,6 +13,7 @@ import { TimelineControlCard } from './TimelineControlCard';
 import { LayerSelector } from './LayerSelector';
 import { useNowcastCatalog } from './nowcast/useNowcastCatalog';
 import { usePlayback } from './nowcast/usePlayback';
+import { NowcastLoadingSpinner } from './nowcast/NowcastLoadingSpinner';
 import { useKikikuruCatalog } from './kikikuru/useKikikuruCatalog';
 import { useKikikuruLayerState } from './kikikuru/useKikikuruLayerState';
 import { isKikikuruLayer } from './kikikuru/kikikuruCatalog';
@@ -118,7 +119,13 @@ export function WeatherMapView({
       return controlledTimelineViewModel;
     }
     if (isNowcast) {
-      return nowcastCatalog ? nowcastPlayback.viewModel : emptyTimeline;
+      if (!nowcastCatalog) return emptyTimeline;
+      return {
+        ...nowcastPlayback.viewModel,
+        // TimelineControlCard (F4所有・変更不可) のスライダーつまみ位置 (value) は
+        // selectedFrameId から算出されるため、つまみを intentFrameId に追従させる (§9.4.2)
+        selectedFrameId: nowcastPlayback.viewModel.intentFrameId,
+      };
     }
     if (isKikikuru) {
       return kikikuruCatalog
@@ -193,8 +200,13 @@ export function WeatherMapView({
   const overlayPrefetchFrames = isNowcast ? nowcastPlayback.prefetchFrames : undefined;
   const overlayRetainLoaded = isNowcast ? nowcastPlayback.retainLoaded : false;
 
+  // 雨雲ナウキャスト読込中判定 (intent !== settled §9.4.2)
+  const isNowcastLoading =
+    isNowcast &&
+    nowcastPlayback.viewModel.intentFrameId !== nowcastPlayback.viewModel.settledFrameId;
+
   // キキクル表示中のステータス注記スロット (§7.2, §8.2, §11.5, §11.7)
-  const statusSlot = isKikikuru ? (
+  const kikikuruStatusSlot = isKikikuru ? (
     <div className="timeline-status-slot">
       <span className="kikikuru-prediction-note">この危険度は予測を含む判定結果です</span>
       {currentZoom < 10 && (
@@ -205,6 +217,13 @@ export function WeatherMapView({
       )}
     </div>
   ) : undefined;
+
+  // ナウキャスト表示中のスピナースロット (§9.4.8)
+  const nowcastStatusSlot = isNowcast ? (
+    <NowcastLoadingSpinner loading={isNowcastLoading} />
+  ) : undefined;
+
+  const effectiveStatusSlot = isNowcast ? nowcastStatusSlot : kikikuruStatusSlot;
 
   return (
     <div className="weather-map-view" aria-label="防災気象情報ビュー">
@@ -233,12 +252,15 @@ export function WeatherMapView({
       <LayerSelector selectedLayerId={currentLayerId} onLayerSelect={handleLayerSelect} />
 
       {/* 3. 下部中央時間操作カード (F4) */}
-      <div className="timeline-card-wrapper">
+      <div
+        className="timeline-card-wrapper"
+        aria-busy={isNowcast && isNowcastLoading ? true : undefined}
+      >
         <TimelineControlCard
           ref={bottomCardRef}
           viewModel={effectiveTimelineViewModel}
           onIntent={handleIntent}
-          statusSlot={statusSlot}
+          statusSlot={effectiveStatusSlot}
         />
       </div>
 

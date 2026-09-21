@@ -4,3 +4,4 @@ export * from './nowcastLegend';
 export * from './nowcastTimeline';
 export * from './useNowcastCatalog';
 export * from './usePlayback';
+export * from './NowcastLoadingSpinner';
