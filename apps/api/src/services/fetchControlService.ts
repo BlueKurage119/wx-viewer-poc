@@ -25,6 +25,14 @@ export const RESUME_RECOVERY_THRESHOLD_MS = 30 * 60_000;
 const MAX_ERROR_MESSAGE_LENGTH = 200;
 const COMPLETED_MEMORY_LIMIT = 200;
 
+/** §4.6: 強制更新が停止・シャットダウンによる中断で完了しなかったときの専用エラー。 */
+export class ForceRefreshAbortedError extends Error {
+  constructor(readonly abortedSources: readonly string[]) {
+    super(`force refresh aborted for: ${abortedSources.join(',')}`);
+    this.name = 'ForceRefreshAbortedError';
+  }
+}
+
 /** §5.6: 強制更新が失敗したとき、失敗した取得元を運ぶための専用エラー。 */
 export class ForceRefreshFailedError extends Error {
   constructor(readonly failedSources: readonly string[]) {
@@ -36,7 +44,7 @@ export class ForceRefreshFailedError extends Error {
 export interface FetchControlTargets {
   /** scheduler.start() 相当。冪等。 */
   start(): Promise<void>;
-  /** scheduler.stop() 相当。実行中ジョブの完了を待つ。冪等。 */
+  /** scheduler.stop() 相当。新規投入を止め、実行中のXML取得サイクルを電文境界で打ち切ってから戻る。非XMLの実行中ジョブは完了を待つ。冪等。 */
   stop(): Promise<void>;
   /** 定期予定に影響しない全取得元の単発実行。夜間帯でも実行する（§9-A）。失敗時は ForceRefreshFailedError を投げる。 */
   forceRefresh(): Promise<void>;
@@ -265,6 +273,14 @@ export function createFetchControlService(
       return { completedAt, result: 'success', errorCode: null, errorMessage: null };
     } catch (error) {
       const completedAt = deps.now();
+      if (error instanceof ForceRefreshAbortedError) {
+        return {
+          completedAt,
+          result: 'failure',
+          errorCode: 'force_refresh_aborted',
+          errorMessage: truncate(error.abortedSources.join(','), MAX_ERROR_MESSAGE_LENGTH),
+        };
+      }
       if (error instanceof ForceRefreshFailedError) {
         return {
           completedAt,
@@ -336,6 +352,7 @@ export function createFetchControlService(
       completedAt: outcome.completedAt,
       notificationIdFactory,
       failureDetail: outcome.errorMessage ?? undefined,
+      errorCode: outcome.errorCode,
     });
     emitOperationNotification(deps.connection, planned);
 

@@ -27,6 +27,8 @@ export interface PlanOperationNotificationInput {
   readonly notificationIdFactory: () => string;
   /** 強制更新失敗時のみ使用。§5.6 のとおり200文字以内・改行なしに整形済みであること。 */
   readonly failureDetail?: string | null;
+  /** 操作記録に載せる errorCode。'force_refresh_aborted' のとき中断専用の通知定義を選ぶ。 */
+  readonly errorCode?: string | null;
 }
 
 export interface PlannedOperationNotification {
@@ -86,6 +88,12 @@ export function planOperationNotification(
       definitionId = 'system-force-fetch-completed';
       changeType = 'force_fetch_completed';
       category = 'warning';
+    } else if (input.errorCode === 'force_refresh_aborted') {
+      definitionId = 'system-force-fetch-aborted';
+      changeType = 'force_fetch_aborted';
+      category = 'warning';
+      omitTarget = true;
+      detail = undefined;
     } else {
       definitionId = 'system-force-fetch-failed';
       changeType = 'force_fetch_failed';

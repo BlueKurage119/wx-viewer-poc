@@ -11,8 +11,19 @@ import type {
   TelegramReceptionAdoptionInput,
   TelegramReceptionInput,
 } from '../repositories/types.js';
-import type { FeedPollResult, JmaXmlFeedDefinition, JmaXmlPollTrigger } from './jmaXmlFeeds.js';
-import { parseAtomFeed, parseTelegramXml, type ParseAtomFeedOptions } from './jmaXmlFeedParser.js';
+import {
+  isTargetTelegramType,
+  type FeedPollResult,
+  type JmaXmlFeedDefinition,
+  type JmaXmlPollTrigger,
+} from './jmaXmlFeeds.js';
+import type { FetchAbortSignal } from './fetchAbort.js';
+import {
+  extractTelegramTypeFromUrl,
+  parseAtomFeed,
+  parseTelegramXml,
+  type ParseAtomFeedOptions,
+} from './jmaXmlFeedParser.js';
 import { processWarningTelegramReceptionForAllVenues } from './jmaWarningTelegramProcessor.js';
 import { processVpwp50ReceptionForAllVenues } from './jmaVpwp50Processor.js';
 import { processEarlyWarningReception } from './jmaEarlyWarningProcessor.js';
@@ -60,6 +71,7 @@ export async function pollSingleFeed(
   attemptNo: number,
   processedUrlsInCycle: Set<string>,
   options?: PollerContextOptions,
+  abortSignal?: FetchAbortSignal,
 ): Promise<{
   readonly feedResult: FeedPollResult;
   readonly errorReason: string | null;
@@ -181,11 +193,22 @@ export async function pollSingleFeed(
   let skippedDuplicateCount = 0;
   let downloadedCount = 0;
   let failedDocumentCount = 0;
+  let aborted = false;
 
   // 3. 各エントリの処理
   for (const entry of entries) {
+    if (abortSignal?.aborted) {
+      aborted = true;
+      break;
+    }
     discoveredCount++;
     const docUrl = sanitizeUrl(entry.documentUrl);
+
+    // 取得前種別選別: URLから電文種別を抽出し、対象15種以外または抽出不能なら個別取得・保存を行わない
+    const telegramType = extractTelegramTypeFromUrl(docUrl);
+    if (!isTargetTelegramType(telegramType)) {
+      continue;
+    }
 
     // サイクル内重複抑止
     if (processedUrlsInCycle.has(docUrl)) {
@@ -354,7 +377,7 @@ export async function pollSingleFeed(
   return {
     feedResult: {
       feedKind: feedDef.kind,
-      feedFetchOutcome: 'success',
+      feedFetchOutcome: aborted ? 'aborted' : 'success',
       discoveredCount,
       skippedDuplicateCount,
       downloadedCount,

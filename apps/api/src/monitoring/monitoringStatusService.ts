@@ -26,6 +26,7 @@ import type { WeatherApiService } from '../services/weatherApiService.js';
 import type { NowcastApiService } from '../services/nowcastApiService.js';
 import type { KikikuruApiService } from '../services/kikikuruApiService.js';
 import { summarizeAdoptionResults } from '../repositories/telegramReceptionRepository.js';
+import type { StartupProgressTracker } from './startupProgressTracker.js';
 
 const ADOPTION_WINDOW_HOURS_DEFAULT = 24;
 
@@ -49,11 +50,13 @@ export interface MonitoringStatusServiceDependencies {
   readonly xmlPollingService: XmlPollingStatusProvider;
   readonly fetchHealthMonitor: Pick<FetchHealthMonitorService, 'getLastAggregate'>;
   readonly startupInitialization: StartupInitializationStatusProvider;
+  readonly progressTracker?: StartupProgressTracker;
   readonly weatherApi: WeatherApiService;
   readonly nowcastApi: NowcastApiService;
   readonly kikikuruApi: KikikuruApiService;
   readonly fetchHealthConfig: FetchHealthConfig;
   readonly serverGenerationId: string;
+  readonly serverStartedAt: UtcIso8601String;
   readonly now: () => UtcIso8601String;
   readonly adoptionWindowHours?: number;
 }
@@ -128,6 +131,7 @@ function buildHealthSection(
       consecutiveFailures: null,
       intervalSeconds: null,
       appliesElapsedCondition: def.appliesElapsedCondition,
+      lastDurationMs: null,
       reasons: [],
     }));
     return {
@@ -152,6 +156,7 @@ function buildHealthSection(
         consecutiveFailures: null,
         intervalSeconds: null,
         appliesElapsedCondition: def.appliesElapsedCondition,
+        lastDurationMs: null,
         reasons: [],
       };
     }
@@ -164,6 +169,7 @@ function buildHealthSection(
       consecutiveFailures: r.maxConsecutiveFailures,
       intervalSeconds: r.intervalSeconds,
       appliesElapsedCondition: def.appliesElapsedCondition,
+      lastDurationMs: r.lastDurationMs,
       reasons: r.reasons.map((reason) => ({
         kind: reason.kind,
         status: reason.status,
@@ -235,9 +241,21 @@ export function createMonitoringStatusService(
           latestDecidedAt: null,
         }));
 
+      const reprocessing = deps.progressTracker
+        ? deps.progressTracker.getVenueReprocessingStatus(venueId)
+        : {
+            status: 'idle' as const,
+            total: 0,
+            processedCount: 0,
+            startedAt: null,
+            finishedAt: null,
+            elapsedMs: null,
+          };
+
       return {
         venueId,
         startupEvaluated,
+        reprocessing,
         recentAdoptions,
         adoptionWindowHours,
       };
@@ -459,6 +477,7 @@ export function createMonitoringStatusService(
         terminalId: terminal.id,
         requestedVenueId: terminal.venueId,
         serverGenerationId: deps.serverGenerationId,
+        serverStartedAt: deps.serverStartedAt,
         generatedAt,
         // レビュー指摘 #4: sources[*].state はデフォルト夜間帯で全取得元が scheduled_stopped
         // になるため、これだけでは「スケジューラ稼働中（夜間帯で自動停止中）」と

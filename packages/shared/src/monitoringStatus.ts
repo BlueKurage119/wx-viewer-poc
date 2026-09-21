@@ -62,6 +62,13 @@ export interface MonitoringHealthSource {
    * amedas_point だけ false。AD-H003 のとおり到達時間は保証されない（K6/L2 で判断）。
    */
   readonly appliesElapsedCondition: boolean;
+  /**
+   * 直近の試行 1 件の所要時間（ミリ秒）。K6 #79 で追加。
+   * 直近試行が無い／健全性未評価の場合は null。null を 0 に丸めない。
+   * 平均・合計ではなく「最後の 1 回」。複数 sourceKind を持つ系列は
+   * lastAttemptAt が最も新しいストリームの値を採る。
+   */
+  readonly lastDurationMs: number | null;
   readonly reasons: readonly MonitoringHealthReason[];
 }
 
@@ -104,10 +111,29 @@ export interface MonitoringReadinessSection {
   readonly errorReason: string | null;
 }
 
+export type MonitoringReprocessingPhase = 'idle' | 'running' | 'completed';
+
+export interface MonitoringVenueReprocessingStatus {
+  /** 再処理の進行フェーズ */
+  readonly status: MonitoringReprocessingPhase;
+  /** 再処理対象の未処理電文総数（0件の場合は0） */
+  readonly total: number;
+  /** 処理済み件数 */
+  readonly processedCount: number;
+  /** 再処理開始時刻（未開始時は null） */
+  readonly startedAt: UtcIso8601String | null;
+  /** 再処理完了時刻（未完了時は null） */
+  readonly finishedAt: UtcIso8601String | null;
+  /** 再処理所要時間（ミリ秒、未完了時は null） */
+  readonly elapsedMs: number | null;
+}
+
 export interface MonitoringVenueSection {
   readonly venueId: VenueId;
   /** StartupNotificationInitialization.isReady(venueId) と同値。起動時評価が済んだか。 */
   readonly startupEvaluated: boolean;
+  /** 会場ごとの未処理電文再処理ステータス */
+  readonly reprocessing: MonitoringVenueReprocessingStatus;
   /**
    * 直近の採用判定の集計。adoption_result の区分値ごとの件数。
    * 【重要】会場ごとに独立。片方の会場の失敗を全体成功に隠さない（基本設計 §8.2）。
@@ -168,6 +194,8 @@ export interface MonitoringStatusResponse {
   readonly terminalId: string;
   readonly requestedVenueId: VenueId;
   readonly serverGenerationId: string;
+  /** サーバーの起動時刻。監視画面の「運転時間」の基準。 */
+  readonly serverStartedAt: UtcIso8601String;
   /** この応答を組み立てた時刻。監視画面の「最終表示更新時刻」の基準(基本設計 §8.2)。 */
   readonly generatedAt: UtcIso8601String;
 

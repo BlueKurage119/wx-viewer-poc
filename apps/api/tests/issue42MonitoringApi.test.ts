@@ -398,6 +398,7 @@ function buildApp(options: BuildAppOptions) {
       maxScanAttempts: 20,
     },
     serverGenerationId: 'gen-1',
+    serverStartedAt: '2026-09-09T00:00:00Z' as UtcIso8601String,
     now: () => FIXED_NOW,
   };
 
@@ -482,6 +483,7 @@ test('AC2 セクション分離（確定事項1・AD-H063）: トップレベル
         'terminalId',
         'requestedVenueId',
         'serverGenerationId',
+        'serverStartedAt',
         'generatedAt',
         'operation',
         'health',
@@ -627,6 +629,7 @@ test('AC5 健全性の未評価を正常に丸めないこと', async () => {
             status: string | null;
             appliesElapsedCondition: boolean;
             sourceId: string;
+            lastDurationMs: number | null;
           }[];
         };
       };
@@ -636,9 +639,108 @@ test('AC5 健全性の未評価を正常に丸めないこと', async () => {
       assert.equal(body.health.sources.length, 6);
       for (const s of body.health.sources) {
         assert.equal(s.status, null);
+        assert.equal(s.lastDurationMs, null);
       }
       const amedasPoint = body.health.sources.find((s) => s.sourceId === 'amedas_point');
       assert.equal(amedasPoint?.appliesElapsedCondition, false);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('K6: health.sources に lastDurationMs が含まれる（評価後は系列ごとの値）', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const aggregate: FetchHealthAggregate = {
+      evaluatedAt: FIXED_NOW,
+      status: 'normal',
+      worstSourceIds: [],
+      sources: [
+        {
+          sourceId: 'xml_regular',
+          status: 'normal',
+          reasons: [],
+          lastAttemptAt: FIXED_NOW,
+          lastSuccessAt: FIXED_NOW,
+          maxConsecutiveFailures: 0,
+          intervalSeconds: 60,
+          lastDurationMs: 1234,
+        },
+        {
+          sourceId: 'xml_extra',
+          status: 'normal',
+          reasons: [],
+          lastAttemptAt: FIXED_NOW,
+          lastSuccessAt: FIXED_NOW,
+          maxConsecutiveFailures: 0,
+          intervalSeconds: 60,
+          lastDurationMs: 567,
+        },
+        {
+          sourceId: 'nowcast_target_times',
+          status: 'normal',
+          reasons: [],
+          lastAttemptAt: FIXED_NOW,
+          lastSuccessAt: FIXED_NOW,
+          maxConsecutiveFailures: 0,
+          intervalSeconds: 60,
+          lastDurationMs: 890,
+        },
+        {
+          sourceId: 'kikikuru_target_times',
+          status: 'normal',
+          reasons: [],
+          lastAttemptAt: FIXED_NOW,
+          lastSuccessAt: FIXED_NOW,
+          maxConsecutiveFailures: 0,
+          intervalSeconds: 60,
+          lastDurationMs: null,
+        },
+        {
+          sourceId: 'amedas_latest_time',
+          status: 'normal',
+          reasons: [],
+          lastAttemptAt: FIXED_NOW,
+          lastSuccessAt: FIXED_NOW,
+          maxConsecutiveFailures: 0,
+          intervalSeconds: 60,
+          lastDurationMs: 432,
+        },
+        {
+          sourceId: 'amedas_point',
+          status: 'normal',
+          reasons: [],
+          lastAttemptAt: FIXED_NOW,
+          lastSuccessAt: FIXED_NOW,
+          maxConsecutiveFailures: 0,
+          intervalSeconds: 60,
+          lastDurationMs: 0,
+        },
+      ],
+    };
+    const app = buildApp({ connection: context.connection, aggregate });
+    const { baseUrl, close } = await startTestServer(app);
+    try {
+      const res = await fetch(`${baseUrl}/api/monitoring/status?terminalId=hkeagh01`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as {
+        health: {
+          sources: readonly {
+            sourceId: string;
+            lastDurationMs: number | null;
+          }[];
+        };
+      };
+      const byId = new Map(body.health.sources.map((s) => [s.sourceId, s.lastDurationMs]));
+      assert.equal(byId.get('xml_regular'), 1234);
+      assert.equal(byId.get('xml_extra'), 567);
+      assert.equal(byId.get('nowcast_target_times'), 890);
+      assert.equal(byId.get('kikikuru_target_times'), null);
+      assert.equal(byId.get('amedas_latest_time'), 432);
+      assert.equal(byId.get('amedas_point'), 0);
     } finally {
       await close();
     }
@@ -1467,6 +1569,7 @@ test('AC13 HTTP実挙動と依存注入（3依存の独立性・startup-inquirie
         maxScanAttempts: 20,
       },
       serverGenerationId: 'gen-1',
+      serverStartedAt: '2026-09-09T00:00:00Z' as UtcIso8601String,
       now: () => FIXED_NOW,
     });
     const onlyStatusApp = createApp({ monitoringStatus });

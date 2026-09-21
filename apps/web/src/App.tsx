@@ -1,12 +1,23 @@
 import { useEffect, useState } from 'react';
-import { FilledButton } from './components/md';
+import { FilledButton } from './components/md/Button';
 import { AppShell } from './shell/AppShell';
 import { resolveTerminal, resolveView, views, type Terminal, type ViewId } from './shell/config';
 import { NotificationArea } from './shell/NotificationArea';
-import { visibleNotices } from './shell/notifications';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
-import { fetchStartupNotifications } from './api/startupNotifications';
+import {
+  confirmNotification as confirmNotificationState,
+  createNotificationUiState,
+  nextUnconfirmedChime,
+  receiveNotifications,
+  selectQuestionConfirmation,
+} from './notifications/notificationStore';
+import { useNotificationFeed } from './notifications/useNotificationFeed';
+import { useHeaderBuzzer } from './notifications/useHeaderBuzzer';
+import { operationGuideMessage } from './shell/notifications';
 import { WeatherMapView } from './map/WeatherMapView';
+import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
+import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
+import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
 
 const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
   weather: {
@@ -44,7 +55,7 @@ export function App() {
         <p>指定された端末URLでアクセスしてください。</p>
       </main>
     );
-  return <TerminalApp terminal={terminal} />;
+  return <TerminalApp key={terminal.id} terminal={terminal} />;
 }
 function TerminalApp({ terminal }: { terminal: Terminal }) {
   const [view, setView] = useState(() => resolveView(window.location.hash, terminal.mode));
@@ -52,8 +63,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   const preview =
     import.meta.env.DEV && new URLSearchParams(window.location.search).get('shellPreview') === '1';
   const [scenario, setScenario] = useState<PreviewScenario>('empty');
-  const [notices, setNotices] = useState(() => previewNotices('empty'));
-  const [operation, setOperation] = useState('左のメニューから表示する画面を選択してください。');
+  const [previewState, setPreviewState] = useState(() => createNotificationUiState());
+  const [monitoringState, setMonitoringState] = useState<MonitoringLoadState | null>(null);
   useEffect(() => {
     const syncView = () => {
       // 本文へのスキップリンクはビュー状態として扱わない。
@@ -74,21 +85,63 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  useEffect(() => {
-    // #41 で通知 store へ接続するまで、応答を UI 状態へ保存しない。
-    void fetchStartupNotifications(terminal.id);
-  }, [terminal.id]);
+  const buzzer = useHeaderBuzzer();
+  const notificationFeed = useNotificationFeed({
+    terminalId: terminal.id,
+    mode: terminal.mode,
+    enabled: !preview,
+    onChimeRequest: buzzer.request,
+  });
   const current = views.find((item) => item.id === view)!;
-  const displayed = visibleNotices(notices, terminal.mode);
   const selectScenario = (next: PreviewScenario) => {
     setScenario(next);
-    setNotices(previewNotices(next));
-    setOperation(
-      next === 'result'
-        ? '【表示サンプル】操作が完了しました。'
-        : '左のメニューから表示する画面を選択してください。',
-    );
+    const initialState = createNotificationUiState();
+    const receivedResult = receiveNotifications(initialState, previewNotices(next), terminal.mode);
+    const received = receivedResult.state;
+    if (receivedResult.chime) buzzer.request(receivedResult.chime);
+    setPreviewState({
+      ...received,
+      operationMessage:
+        next === 'result' ? '【表示サンプル】操作が完了しました。' : received.operationMessage,
+    });
   };
+
+  const isMonitoringFailed = view === 'monitor' && monitoringState?.phase === 'failed';
+  const connection = isMonitoringFailed
+    ? {
+        failed: true,
+        lastSuccessAt: monitoringState?.data ? new Date(monitoringState.data.generatedAt) : null,
+      }
+    : { failed: preview && scenario === 'connection', lastSuccessAt: null };
+  const visibleNotificationState = preview ? previewState : notificationFeed.state;
+  const notificationState = {
+    ...visibleNotificationState,
+    operationMessage: operationGuideMessage(
+      visibleNotificationState.operationMessage,
+      isMonitoringFailed,
+      visibleNotificationState.phase === 'retrying',
+    ),
+  };
+  const confirmNotification = (feedKey: string) => {
+    const nextState = confirmNotificationState(visibleNotificationState, feedKey, terminal.mode);
+    if (preview) {
+      setPreviewState(nextState);
+    } else notificationFeed.confirm(feedKey);
+    if (buzzer.state.feedKey === feedKey) {
+      buzzer.stop();
+      const nextChime = nextUnconfirmedChime(nextState, terminal.mode);
+      if (nextChime) buzzer.request(nextChime);
+    }
+  };
+  const selectQuestion = (feedKey: string) => {
+    if (preview) {
+      setPreviewState((currentState) => selectQuestionConfirmation(currentState, feedKey));
+    } else notificationFeed.selectQuestionConfirmation(feedKey);
+  };
+  const stopBuzzer = () => {
+    buzzer.stop();
+  };
+
   return (
     <AppShell
       terminal={terminal}
@@ -96,10 +149,21 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       view={view}
       navigation={views.filter((item) => item.modes.includes(terminal.mode))}
       now={now}
-      connection={{ failed: preview && scenario === 'connection', lastSuccessAt: null }}
-      notifications={<NotificationArea notices={displayed} operation={operation} />}
+      connection={connection}
+      buzzer={buzzer.state}
+      onStopBuzzer={buzzer.state.category ? stopBuzzer : undefined}
+      notifications={
+        <NotificationArea
+          state={notificationState}
+          mode={terminal.mode}
+          onSelectQuestionConfirmation={selectQuestion}
+          onConfirm={confirmNotification}
+        />
+      }
       toolbar={
-        preview ? (
+        view === 'monitor' ? (
+          <MonitoringToolbar />
+        ) : preview ? (
           <>
             <span className="preview-label">表示確認用</span>
             <label>
@@ -116,7 +180,12 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
               </select>
             </label>
             <FilledButton
-              onClick={() => setOperation('【表示サンプル】新しい操作結果で置き換えました。')}
+              onClick={() =>
+                setPreviewState((currentState) => ({
+                  ...currentState,
+                  operationMessage: '【表示サンプル】新しい操作結果で置き換えました。',
+                }))
+              }
             >
               操作結果を表示
             </FilledButton>
@@ -126,6 +195,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     >
       {view === 'weather' ? (
         <WeatherMapView venue={terminal.venue} terminalId={terminal.id} />
+      ) : view === 'monitor' ? (
+        <MonitoringDashboard terminalId={terminal.id} onLoadStateChange={setMonitoringState} />
       ) : (
         <div className="view-placeholder">
           <span className="placeholder-symbol" aria-hidden="true">

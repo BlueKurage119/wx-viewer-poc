@@ -19,7 +19,7 @@ export interface AtomFeedEntry {
 
 export interface FeedPollResult {
   readonly feedKind: JmaXmlFeedKind;
-  readonly feedFetchOutcome: 'success' | 'failure';
+  readonly feedFetchOutcome: 'success' | 'failure' | 'aborted';
   readonly discoveredCount: number;
   readonly skippedDuplicateCount: number;
   readonly downloadedCount: number;
@@ -31,6 +31,13 @@ export interface PollCycleResult {
   readonly startedAt: UtcIso8601String;
   readonly finishedAt: UtcIso8601String;
   readonly feedResults: readonly FeedPollResult[];
+  /**
+   * このサイクルが中断で打ち切られたか。次のいずれかで true になる。
+   *  (a) executePollCycle() のフィードループ先頭の中断検査で break した(未着手のフィードが残った)
+   *  (b) feedResults に feedFetchOutcome === 'aborted' のフィードがある
+   *  (c) シャットダウン要求によりサイクル自体を開始しなかった(feedResults は空)
+   */
+  readonly aborted: boolean;
 }
 
 export const JMA_XML_FEED_DEFINITIONS: readonly JmaXmlFeedDefinition[] = [
@@ -81,4 +88,33 @@ export function getFeedDefinitionsForTrigger(
     default:
       throw new Error(`Unsupported poll trigger: ${trigger as string}`);
   }
+}
+
+export const TARGET_TELEGRAM_TYPES = [
+  'VPWW55',
+  'VPWW56',
+  'VPWW57',
+  'VPWW58',
+  'VPWW59',
+  'VPWW60',
+  'VPWW61',
+  'VPWS50',
+  'VPWP50',
+  'VPFD61',
+  'VPFW60',
+  'VPFD51',
+  'VPBS50',
+  'VPHW50',
+  'VPHW51',
+] as const;
+
+export type TargetTelegramType = (typeof TARGET_TELEGRAM_TYPES)[number];
+
+export function isTargetTelegramType(
+  telegramType: string | null,
+): telegramType is TargetTelegramType {
+  if (telegramType === null) {
+    return false;
+  }
+  return (TARGET_TELEGRAM_TYPES as readonly string[]).includes(telegramType);
 }

@@ -33,6 +33,7 @@ export type NotificationMessageDefinitionId =
   | 'system-fetch-manually-stopped'
   | 'system-fetch-manually-started'
   | 'system-force-fetch-completed'
+  | 'system-force-fetch-aborted'
   | 'system-force-fetch-failed';
 
 export interface ResolveNotificationMessageInput {
@@ -330,6 +331,15 @@ const MESSAGE_DEFINITIONS = {
     origin: 'system',
     allowedCategories: ['warning'],
     title: '強制取得完了',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'none' },
+  },
+  'system-force-fetch-aborted': {
+    id: 'system-force-fetch-aborted',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['warning'],
+    title: '強制取得中断',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'none' },
   },

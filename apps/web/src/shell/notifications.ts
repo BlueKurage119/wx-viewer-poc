@@ -1,16 +1,27 @@
-import type { TerminalMode } from './config';
-export interface ShellNotice {
-  id: string;
-  category: 'warning' | 'question' | 'emergency';
-  origin: 'weather' | 'equipment';
-  summary: string;
-  unread: boolean;
-  pending: boolean;
-}
-// 保持する配列を変更せず、表示境界でのみ端末モードによる絞り込みを行う。
+import type { NotificationFeedItem, TerminalMode } from '@wx-viewer-poc/shared';
+import {
+  INITIAL_OPERATION_MESSAGE,
+  isVisibleForTerminal,
+} from '../notifications/notificationStore';
+
+// storeを変更せず、シェル表示境界でのみ端末モードによる絞り込みを行う。
 export function visibleNotices(
-  notices: readonly ShellNotice[],
+  notices: readonly NotificationFeedItem[],
   mode: TerminalMode,
-): readonly ShellNotice[] {
-  return notices.filter((notice) => mode === 'K' || notice.origin !== 'equipment');
+): readonly NotificationFeedItem[] {
+  return notices.filter((notice) => isVisibleForTerminal(notice, mode));
+}
+
+/** 監視API障害と通知受信の再試行状態を、片方を隠さず操作ガイドへ併記する。 */
+export function operationGuideMessage(
+  notificationMessage: string,
+  monitoringFailed: boolean,
+  notificationRetrying: boolean,
+): string {
+  if (!monitoringFailed) return notificationMessage;
+  const monitoringMessage = '取得監視: 監視情報API取得不可';
+  if (!notificationRetrying || notificationMessage === INITIAL_OPERATION_MESSAGE) {
+    return monitoringMessage;
+  }
+  return `${monitoringMessage}｜通知受信: ${notificationMessage}`;
 }

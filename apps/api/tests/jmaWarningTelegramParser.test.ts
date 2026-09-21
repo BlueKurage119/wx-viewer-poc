@@ -374,7 +374,8 @@ test('未判定の対象原文を keyset で一度だけ処理し、履歴だけ
       EAST_VENUE,
       () => '2026-09-09T02:00:00.000Z',
     );
-    assert.deepEqual(outcome, { processedCount: 101 });
+    assert.equal(outcome.processedCount, 101);
+    assert.ok(outcome.elapsedMs >= 0);
     const snapshotCount = database.connection
       .prepare('SELECT COUNT(*) AS count FROM warning_current_snapshot')
       .get() as { count: number };
@@ -384,14 +385,13 @@ test('未判定の対象原文を keyset で一度だけ処理し、履歴だけ
         ?.adoptionResult,
       '警報・注意報として解析済み',
     );
-    assert.deepEqual(
-      await reprocessPendingWarningTelegramReceptions(
-        database.connection,
-        EAST_VENUE,
-        () => '2026-09-09T03:00:00.000Z',
-      ),
-      { processedCount: 0 },
+    const secondOutcome = await reprocessPendingWarningTelegramReceptions(
+      database.connection,
+      EAST_VENUE,
+      () => '2026-09-09T03:00:00.000Z',
     );
+    assert.equal(secondOutcome.processedCount, 0);
+    assert.equal(secondOutcome.elapsedMs, 0);
     const one = findTelegramReceptionById(database.connection, receptions[0]!.id)!;
     processWarningTelegramReception(
       database.connection,

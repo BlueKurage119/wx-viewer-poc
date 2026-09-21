@@ -468,6 +468,31 @@ const WARNING_TELEGRAM_TYPES = [
   'VPWS50',
 ] as const;
 
+/**
+ * 指定された会場における未判定（pending）の警報電文総数を返す。
+ */
+export function countPendingWarningTelegramReceptions(
+  connection: DatabaseConnection,
+  venueId: VenueId,
+): number {
+  if (!isVenueId(venueId)) {
+    throw new Error(`venueId must be a known VenueId: ${String(venueId)}`);
+  }
+  const typePlaceholders = WARNING_TELEGRAM_TYPES.map(() => '?').join(', ');
+  const row = connection
+    .prepare(
+      `SELECT COUNT(1) AS count FROM telegram_reception t
+       WHERE telegram_type IN (${typePlaceholders})
+         AND NOT EXISTS (
+           SELECT 1 FROM telegram_reception_adoption a
+           WHERE a.reception_id = t.id AND a.venue_id = ? AND a.adoption_decided_at IS NOT NULL
+         )`,
+    )
+    .get(...WARNING_TELEGRAM_TYPES, venueId) as { count: number };
+
+  return row.count;
+}
+
 export function listPendingWarningTelegramReceptions(
   connection: DatabaseConnection,
   venueId: VenueId,

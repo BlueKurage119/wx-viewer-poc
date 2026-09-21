@@ -771,7 +771,7 @@ F2 (#45) の設計担当が並行して別の修正を進めているため、**
 - [ ] `apps/web/src/theme/kikikuruDataColors.css` のキキクル 5 トークンが、いずれも `var(--wx-jma-hue-*)` 参照であり HEX を直書きしていない。
 - [ ] `apps/web/src/theme/weatherDataColors.css` の `--wx-data-nowcast-7` が `var(--wx-jma-hue-red)` になっている。**同ファイルの他 7 行（`nowcast-1〜6, 8`）が変更されていない**ことを `git diff` で確認する（差分が 1 行であること）。
 - [ ] `#FF2800` / `#ff2800` が `apps/web/src` 全体で `officialJmaColors.css` の 1 か所にしか存在しない。`grep -ri 'ff2800' apps/web/src` で 1 件であることを確認する。
-- [ ] **HEX リテラルの許可ファイルが `seeds.ts` / `semanticColors.ts` / `weatherDataColors.css` / `officialJmaColors.css` の 4 つに限られている。** `apps/web/tests/kikikuruLegendAndColors.test.ts` の許可一覧から `dataColors.ts` が除かれ、`officialJmaColors.css` が加わっていること。テストが通過すること。
+- [ ] **HEX リテラルの許可ファイルが `seeds.ts` / `semanticColors.ts` / `buzzerNoticeColors.ts` / `systemStatusColors.ts` / `weatherDataColors.css` / `officialJmaColors.css` の 6 つに限られている。** `apps/web/tests/kikikuruLegendAndColors.test.ts` の許可一覧から `dataColors.ts` が除かれ、`officialJmaColors.css` が加わっていること。テストが通過すること。なお `buzzerNoticeColors.ts`（main の Issue #63、PR #196）と `systemStatusColors.ts`（main の K1 監視画面）は、いずれも MD3 トーナルパレット生成用のシード色だけを持つファイルで、本 Issue の後から許可一覧に加えた。
 - [ ] `apps/web/src/theme/dataColors.ts` が削除され、`applyTheme.ts` / `index.ts` に `applyDataColors` への参照が残っていない（`grep -rn 'applyDataColors\|KIKIKURU_DATA_COLORS\|KIKIKURU_COLOR_TOKENS' apps/web/src apps/web/tests` が 0 件）。
 - [ ] `apps/web/src/index.css` が `officialJmaColors.css` と `kikikuruDataColors.css` を `@import` している。
 - [ ] ブラウザで凡例の swatch が §11.5.1 の 5 色で描画される（CSS への移行後も実際に色が付いていること。`var()` の参照切れで透明・黒になっていないこと）。

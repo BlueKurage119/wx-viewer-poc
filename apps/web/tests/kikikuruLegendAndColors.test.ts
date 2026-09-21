@@ -125,6 +125,8 @@ test('kikikuruColors: HEX リテラルが officialJmaColors.css (および既存
   const allowedHexFiles = new Set([
     'seeds.ts',
     'semanticColors.ts',
+    'buzzerNoticeColors.ts',
+    'systemStatusColors.ts',
     'weatherDataColors.css',
     'officialJmaColors.css',
   ]);
