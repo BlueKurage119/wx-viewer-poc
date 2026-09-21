@@ -6,8 +6,10 @@ import {
   createNotificationUiState,
   displayedNoticeForRow,
   notificationCounts,
+  nextUnconfirmedChime,
   noticesForRow,
   receiveNotifications,
+  selectQuestionConfirmation,
   setNotificationCursor,
   setNotificationRetry,
 } from '../src/notifications/notificationStore.ts';
@@ -74,6 +76,23 @@ test('H2 AC3/AC5: 通知ごとの確認は別通知に波及せず、ackRequired
   assert.equal(confirmed.items.find((item) => item.feedKey === 'delta:first')?.ackRequired, true);
 });
 
+test('問いかけは確認を選択しても確認済みにならず、送信時の確認処理まで選択を保持する', () => {
+  const received = receiveNotifications(
+    createNotificationUiState(),
+    [notice('delta:question', 'question')],
+    'K',
+  ).state;
+  const selected = selectQuestionConfirmation(received, 'delta:question');
+  assert.equal(selected.selectedQuestionFeedKey, 'delta:question');
+  assert.equal(selected.selectedQuestionChoice, 'confirm');
+  assert.equal(selected.confirmedFeedKeys.has('delta:question'), false);
+
+  const submitted = confirmNotification(selected, 'delta:question', 'K');
+  assert.equal(submitted.confirmedFeedKeys.has('delta:question'), true);
+  assert.equal(submitted.selectedQuestionFeedKey, null);
+  assert.equal(submitted.selectedQuestionChoice, null);
+});
+
 test('H2 AC3: 確認後に次に表示する未確認通知を既読にする', () => {
   const older = notice('delta:older', 'warning', { occurredAt: '2026-09-21T00:00:01.000Z' });
   const newer = notice('delta:newer', 'warning', { occurredAt: '2026-09-21T00:00:02.000Z' });
@@ -83,6 +102,26 @@ test('H2 AC3: 確認後に次に表示する未確認通知を既読にする', 
   const confirmed = confirmNotification(received, 'delta:newer', 'K');
   assert.equal(displayedNoticeForRow(confirmed, 'K', 'warning')?.feedKey, 'delta:older');
   assert.equal(confirmed.unreadFeedKeys.has('delta:older'), false);
+});
+
+test('H1 AC4: 確認後は残る未確認通知の最高区分・最新通知を次の鳴動対象にする', () => {
+  const older = notice('delta:older', 'question', { occurredAt: '2026-09-21T00:00:01.000Z' });
+  const newer = notice('delta:newer', 'question', { occurredAt: '2026-09-21T00:00:02.000Z' });
+  const warning = notice('delta:warning', 'warning', { occurredAt: '2026-09-21T00:00:03.000Z' });
+  const received = receiveNotifications(
+    createNotificationUiState(),
+    [older, newer, warning],
+    'K',
+  ).state;
+  assert.deepEqual(nextUnconfirmedChime(received, 'K'), {
+    category: 'question',
+    feedKey: 'delta:newer',
+  });
+  const confirmed = confirmNotification(received, 'delta:newer', 'K');
+  assert.deepEqual(nextUnconfirmedChime(confirmed, 'K'), {
+    category: 'question',
+    feedKey: 'delta:older',
+  });
 });
 
 test('H2 AC3/AC4: 問いかけ行の新着は選択状態を解除し、同一取得の鳴動要求は最高区分だけになる', () => {
@@ -96,7 +135,7 @@ test('H2 AC3/AC4: 問いかけ行の新着は選択状態を解除し、同一�
     [notice('delta:warning', 'warning'), notice('delta:emergency', 'emergency')],
     'K',
   );
-  assert.equal(result.chime, 'emergency');
+  assert.deepEqual(result.chime, { category: 'emergency', feedKey: 'delta:emergency' });
   assert.equal(result.state.selectedQuestionFeedKey, null);
   assert.equal(result.state.selectedQuestionChoice, null);
 });

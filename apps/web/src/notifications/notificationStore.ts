@@ -7,6 +7,11 @@ import type {
 export type NotificationPhase = 'starting' | 'ready' | 'retrying';
 export type ChimeCategory = 'warning' | 'question' | 'emergency';
 
+export interface ChimeRequest {
+  readonly category: ChimeCategory;
+  readonly feedKey: string;
+}
+
 export interface NotificationUiState {
   readonly items: readonly NotificationFeedItem[];
   readonly cursor: NotificationDeltaCursor | null;
@@ -70,6 +75,20 @@ export function displayedNoticeForRow(
   return notices.find((item) => !state.confirmedFeedKeys.has(item.feedKey)) ?? notices[0];
 }
 
+export function nextUnconfirmedChime(
+  state: NotificationUiState,
+  mode: TerminalMode,
+): ChimeRequest | null {
+  const candidates = state.items.filter(
+    (item) => isVisibleForTerminal(item, mode) && !state.confirmedFeedKeys.has(item.feedKey),
+  );
+  const item =
+    candidates.find((candidate) => candidate.category === 'emergency') ??
+    candidates.find((candidate) => candidate.category === 'question') ??
+    candidates.find((candidate) => candidate.category === 'warning');
+  return item ? { category: item.category, feedKey: item.feedKey } : null;
+}
+
 function markDisplayedRowsRead(
   state: NotificationUiState,
   mode: TerminalMode,
@@ -86,7 +105,7 @@ export function receiveNotifications(
   state: NotificationUiState,
   incoming: readonly NotificationFeedItem[],
   mode: TerminalMode,
-): { readonly state: NotificationUiState; readonly chime: ChimeCategory | null } {
+): { readonly state: NotificationUiState; readonly chime: ChimeRequest | null } {
   const existing = new Map(state.items.map((item) => [item.feedKey, item]));
   const newItems = incoming.filter((item) => !existing.has(item.feedKey));
   for (const item of incoming) existing.set(item.feedKey, item);
@@ -105,16 +124,12 @@ export function receiveNotifications(
       ? { selectedQuestionFeedKey: null, selectedQuestionChoice: null }
       : {}),
   };
-  const ranked = newItems
-    .filter((item) => isVisibleForTerminal(item, mode))
-    .map((item) => item.category);
-  const chime: ChimeCategory | null = ranked.includes('emergency')
-    ? 'emergency'
-    : ranked.includes('question')
-      ? 'question'
-      : ranked.includes('warning')
-        ? 'warning'
-        : null;
+  const ranked = newItems.filter((item) => isVisibleForTerminal(item, mode)).sort(compareItems);
+  const chimeItem =
+    ranked.find((item) => item.category === 'emergency') ??
+    ranked.find((item) => item.category === 'question') ??
+    ranked.find((item) => item.category === 'warning');
+  const chime = chimeItem ? { category: chimeItem.category, feedKey: chimeItem.feedKey } : null;
   return { state: { ...next, unreadFeedKeys: markDisplayedRowsRead(next, mode) }, chime };
 }
 
@@ -128,6 +143,19 @@ export function setNotificationCursor(
 
 export function setNotificationRetry(state: NotificationUiState): NotificationUiState {
   return { ...state, phase: 'retrying', operationMessage: RETRY_OPERATION_MESSAGE };
+}
+
+export function selectQuestionConfirmation(
+  state: NotificationUiState,
+  feedKey: string,
+): NotificationUiState {
+  const notice = state.items.find((item) => item.feedKey === feedKey);
+  if (!notice || notice.category === 'warning') return state;
+  return {
+    ...state,
+    selectedQuestionFeedKey: feedKey,
+    selectedQuestionChoice: 'confirm',
+  };
 }
 
 export function confirmNotification(

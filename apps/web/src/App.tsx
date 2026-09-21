@@ -4,8 +4,15 @@ import { AppShell } from './shell/AppShell';
 import { resolveTerminal, resolveView, views, type Terminal, type ViewId } from './shell/config';
 import { NotificationArea } from './shell/NotificationArea';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
-import { createNotificationUiState, receiveNotifications } from './notifications/notificationStore';
+import {
+  confirmNotification as confirmNotificationState,
+  createNotificationUiState,
+  nextUnconfirmedChime,
+  receiveNotifications,
+  selectQuestionConfirmation,
+} from './notifications/notificationStore';
 import { useNotificationFeed } from './notifications/useNotificationFeed';
+import { useHeaderBuzzer } from './notifications/useHeaderBuzzer';
 import { operationGuideMessage } from './shell/notifications';
 import { WeatherMapView } from './map/WeatherMapView';
 import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
@@ -78,16 +85,20 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  const buzzer = useHeaderBuzzer();
   const notificationFeed = useNotificationFeed({
     terminalId: terminal.id,
     mode: terminal.mode,
     enabled: !preview,
+    onChimeRequest: buzzer.request,
   });
   const current = views.find((item) => item.id === view)!;
   const selectScenario = (next: PreviewScenario) => {
     setScenario(next);
     const initialState = createNotificationUiState();
-    const received = receiveNotifications(initialState, previewNotices(next), terminal.mode).state;
+    const receivedResult = receiveNotifications(initialState, previewNotices(next), terminal.mode);
+    const received = receivedResult.state;
+    if (receivedResult.chime) buzzer.request(receivedResult.chime);
     setPreviewState({
       ...received,
       operationMessage:
@@ -111,6 +122,25 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       visibleNotificationState.phase === 'retrying',
     ),
   };
+  const confirmNotification = (feedKey: string) => {
+    const nextState = confirmNotificationState(visibleNotificationState, feedKey, terminal.mode);
+    if (preview) {
+      setPreviewState(nextState);
+    } else notificationFeed.confirm(feedKey);
+    if (buzzer.state.feedKey === feedKey) {
+      buzzer.stop();
+      const nextChime = nextUnconfirmedChime(nextState, terminal.mode);
+      if (nextChime) buzzer.request(nextChime);
+    }
+  };
+  const selectQuestion = (feedKey: string) => {
+    if (preview) {
+      setPreviewState((currentState) => selectQuestionConfirmation(currentState, feedKey));
+    } else notificationFeed.selectQuestionConfirmation(feedKey);
+  };
+  const stopBuzzer = () => {
+    buzzer.stop();
+  };
 
   return (
     <AppShell
@@ -120,7 +150,16 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       navigation={views.filter((item) => item.modes.includes(terminal.mode))}
       now={now}
       connection={connection}
-      notifications={<NotificationArea state={notificationState} mode={terminal.mode} />}
+      buzzer={buzzer.state}
+      onStopBuzzer={buzzer.state.category ? stopBuzzer : undefined}
+      notifications={
+        <NotificationArea
+          state={notificationState}
+          mode={terminal.mode}
+          onSelectQuestionConfirmation={selectQuestion}
+          onConfirm={confirmNotification}
+        />
+      }
       toolbar={
         view === 'monitor' ? (
           <MonitoringToolbar />

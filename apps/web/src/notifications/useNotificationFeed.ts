@@ -11,9 +11,10 @@ import {
   confirmNotification,
   createNotificationUiState,
   receiveNotifications,
+  selectQuestionConfirmation,
   setNotificationCursor,
   setNotificationRetry,
-  type ChimeCategory,
+  type ChimeRequest,
   type NotificationUiState,
 } from './notificationStore';
 
@@ -33,6 +34,7 @@ type Action =
     }
   | { readonly type: 'cursor'; readonly cursor: NotificationDeltaCursor; readonly message?: string }
   | { readonly type: 'retry' }
+  | { readonly type: 'select-question-confirmation'; readonly feedKey: string }
   | { readonly type: 'confirm'; readonly feedKey: string; readonly mode: TerminalMode };
 
 function reducer(state: NotificationUiState, action: Action): NotificationUiState {
@@ -45,6 +47,8 @@ function reducer(state: NotificationUiState, action: Action): NotificationUiStat
       return setNotificationCursor(state, action.cursor, action.message);
     case 'retry':
       return setNotificationRetry(state);
+    case 'select-question-confirmation':
+      return selectQuestionConfirmation(state, action.feedKey);
     case 'confirm':
       return confirmNotification(state, action.feedKey, action.mode);
   }
@@ -54,7 +58,7 @@ export interface UseNotificationFeedOptions {
   readonly terminalId: string;
   readonly mode: TerminalMode;
   readonly enabled?: boolean;
-  readonly onChimeRequest?: (category: ChimeCategory) => void;
+  readonly onChimeRequest?: (request: ChimeRequest) => void;
 }
 
 /** 起動現況と通常差分を一つのメモリ内通知storeへ合流する。 */
@@ -65,6 +69,7 @@ export function useNotificationFeed({
   onChimeRequest,
 }: UseNotificationFeedOptions): {
   readonly state: NotificationUiState;
+  readonly selectQuestionConfirmation: (feedKey: string) => void;
   readonly confirm: (feedKey: string) => void;
 } {
   const [state, dispatch] = useReducer(reducer, undefined, createNotificationUiState);
@@ -147,5 +152,10 @@ export function useNotificationFeed({
     // terminalId変更時だけ空のstoreから開始する。mode変更は端末IDと同時に起きる。
   }, [terminalId, enabled, mode]);
 
-  return { state, confirm: (feedKey) => dispatch({ type: 'confirm', feedKey, mode }) };
+  return {
+    state,
+    selectQuestionConfirmation: (feedKey) =>
+      dispatch({ type: 'select-question-confirmation', feedKey }),
+    confirm: (feedKey) => dispatch({ type: 'confirm', feedKey, mode }),
+  };
 }

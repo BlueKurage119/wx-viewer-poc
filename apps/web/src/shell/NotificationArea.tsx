@@ -7,15 +7,30 @@ import {
 export function NotificationArea({
   state,
   mode,
+  onSelectQuestionConfirmation,
+  onConfirm,
 }: {
   state: NotificationUiState;
   mode: TerminalMode;
+  onSelectQuestionConfirmation?: (feedKey: string) => void;
+  onConfirm?: (feedKey: string) => void;
 }) {
   const counts = notificationCounts(state, mode);
   return (
     <>
-      <NoticeRow row="warning" notice={displayedNoticeForRow(state, mode, 'warning')} />
-      <NoticeRow row="question" notice={displayedNoticeForRow(state, mode, 'question')} />
+      <NoticeRow
+        row="warning"
+        notice={displayedNoticeForRow(state, mode, 'warning')}
+        onConfirm={onConfirm}
+      />
+      <NoticeRow
+        row="question"
+        notice={displayedNoticeForRow(state, mode, 'question')}
+        selectedQuestionFeedKey={state.selectedQuestionFeedKey}
+        selectedQuestionChoice={state.selectedQuestionChoice}
+        onSelectQuestionConfirmation={onSelectQuestionConfirmation}
+        onConfirm={onConfirm}
+      />
       <div className="notice-row operation-row">
         <div className="notice-text" role="status" aria-live="polite" tabIndex={0}>
           {state.operationMessage}
@@ -30,12 +45,29 @@ export function NotificationArea({
 function NoticeRow({
   row,
   notice,
+  selectedQuestionFeedKey,
+  selectedQuestionChoice,
+  onSelectQuestionConfirmation,
+  onConfirm,
 }: {
   row: 'warning' | 'question';
   notice: ReturnType<typeof displayedNoticeForRow>;
+  selectedQuestionFeedKey?: string | null;
+  selectedQuestionChoice?: string | null;
+  onSelectQuestionConfirmation?: (feedKey: string) => void;
+  onConfirm?: (feedKey: string) => void;
 }) {
-  const rowClass = row === 'warning' ? 'warning-row' : 'question-row';
+  const rowClass =
+    row === 'warning'
+      ? 'warning-row'
+      : notice?.category === 'emergency'
+        ? 'emergency-row'
+        : 'question-row';
   const isQuestion = notice?.category === 'question' || notice?.category === 'emergency';
+  const isConfirmationSelected =
+    isQuestion &&
+    notice?.feedKey === selectedQuestionFeedKey &&
+    selectedQuestionChoice === 'confirm';
   const actions = notice
     ? notice.category === 'warning'
       ? ['詳細', '確認']
@@ -54,14 +86,35 @@ function NoticeRow({
       <div className="notice-controls">
         {isQuestion && (
           <div className="notice-question-choices">
-            <button type="button" disabled>
+            <button
+              type="button"
+              aria-pressed={isConfirmationSelected}
+              disabled={!notice || !onSelectQuestionConfirmation}
+              onClick={() => notice && onSelectQuestionConfirmation?.(notice.feedKey)}
+            >
               確認
             </button>
           </div>
         )}
         <div className="notice-actions">
           {actions.map((label, index) => (
-            <button key={`${label}-${index}`} type="button" disabled>
+            <button
+              key={`${label}-${index}`}
+              type="button"
+              disabled={
+                !notice ||
+                (label === '確認'
+                  ? !onConfirm
+                  : label === '送信'
+                    ? !onConfirm || !isConfirmationSelected
+                    : true)
+              }
+              onClick={() =>
+                notice &&
+                (label === '確認' || (label === '送信' && isConfirmationSelected)) &&
+                onConfirm?.(notice.feedKey)
+              }
+            >
               {label}
             </button>
           ))}

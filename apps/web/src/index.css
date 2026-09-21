@@ -130,12 +130,34 @@ button:disabled {
   font-weight: 400;
 }
 
-.header-stop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
+.app-header[data-buzzer-category='warning'],
+.app-header[data-buzzer-category='question'] {
+  animation: header-blue-blink 1s steps(2, jump-none) infinite;
+}
+
+.app-header[data-buzzer-category='emergency'] {
+  animation: header-emergency-blink 0.7s steps(2, jump-none) infinite;
+}
+
+@keyframes header-blue-blink {
+  50% {
+    background: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+  }
+}
+
+@keyframes header-emergency-blink {
+  0%,
+  49% {
+    background: var(--wx-buzzer-header-emergency-container);
+    color: var(--wx-buzzer-header-emergency-on-container);
+  }
+
+  50%,
+  100% {
+    background: var(--wx-buzzer-header-emergency-container-dark);
+    color: var(--wx-buzzer-header-emergency-on-container-dark);
+  }
 }
 
 .nav-rail {
@@ -305,24 +327,35 @@ select {
 }
 
 .has-notice.warning-row {
-  background: var(--wx-notice-warning-container);
-  color: var(--wx-notice-warning-on-container);
-  border-top-color: var(--wx-notice-warning-outline);
+  background: var(--wx-buzzer-notice-warning-container);
+  color: var(--wx-buzzer-notice-warning-on-container);
+  border-top-color: var(--wx-buzzer-notice-warning-outline);
 }
 
 .has-notice.warning-row .notice-actions button {
-  border-color: var(--wx-notice-warning-outline);
+  border-color: var(--wx-buzzer-notice-warning-outline);
 }
 
 .has-notice.question-row {
-  background: var(--wx-notice-question-container);
-  color: var(--wx-notice-question-on-container);
-  border-top-color: var(--wx-notice-question-outline);
+  background: var(--wx-buzzer-notice-question-container);
+  color: var(--wx-buzzer-notice-question-on-container);
+  border-top-color: var(--wx-buzzer-notice-question-outline);
 }
 
 .has-notice.question-row .notice-actions button,
 .has-notice.question-row .notice-question-choices button {
-  border-color: var(--wx-notice-question-outline);
+  border-color: var(--wx-buzzer-notice-question-outline);
+}
+
+.has-notice.emergency-row {
+  background: var(--wx-buzzer-notice-emergency-container);
+  color: var(--wx-buzzer-notice-emergency-on-container);
+  border-top-color: var(--wx-buzzer-notice-emergency-outline);
+}
+
+.has-notice.emergency-row .notice-actions button,
+.has-notice.emergency-row .notice-question-choices button {
+  border-color: var(--wx-buzzer-notice-emergency-outline);
 }
 
 .notice-actions {
@@ -343,6 +376,11 @@ select {
   gap: 6px;
 }
 
+.notice-question-choices button[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 2px currentColor;
+  font-weight: 700;
+}
+
 .notice-question-choices + .notice-actions {
   margin-left: 1em;
 }
@@ -358,6 +396,17 @@ select {
   background: transparent;
   color: inherit;
   font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-header[data-buzzer-category] {
+    animation: none;
+  }
+
+  .app-header[data-buzzer-category='emergency'] {
+    background: var(--md-sys-color-error-light);
+    color: var(--md-sys-color-on-error-light);
+  }
 }
 
 .notice-count {
