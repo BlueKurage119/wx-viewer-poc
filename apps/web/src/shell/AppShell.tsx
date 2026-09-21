@@ -3,6 +3,7 @@ import { applyMd3Theme } from '../theme/applyTheme';
 import { DEFAULT_THEME_SEED } from '../theme/seeds';
 import type { Terminal, ViewId } from './config';
 import { Icon } from './Icon';
+import type { HeaderBuzzerState } from '../notifications/useHeaderBuzzer';
 
 interface ShellProps {
   terminal: Terminal;
@@ -16,6 +17,7 @@ interface ShellProps {
   now: Date;
   connection: { failed: boolean; lastSuccessAt: Date | null };
   onStopBuzzer?: () => void;
+  buzzer?: HeaderBuzzerState;
   children: ReactNode;
   toolbar?: ReactNode;
   notifications: ReactNode;
@@ -46,6 +48,7 @@ export function AppShell({
   now,
   connection,
   onStopBuzzer,
+  buzzer,
   children,
   toolbar,
   notifications,
@@ -59,7 +62,11 @@ export function AppShell({
       <a className="skip-link" href="#view-content">
         本文へ移動
       </a>
-      <header className="app-header" ref={headerRef}>
+      <header
+        className="app-header"
+        ref={headerRef}
+        data-buzzer-category={buzzer?.category ?? undefined}
+      >
         <h1>{title}</h1>
         <div className="header-state">
           {connection.failed && (
@@ -92,7 +99,9 @@ export function AppShell({
           </span>
         </div>
         {onStopBuzzer && (
-          <button className="header-stop" aria-label="ブザー停止" onClick={onStopBuzzer} />
+          <button className="header-stop" type="button" onClick={onStopBuzzer}>
+            確認
+          </button>
         )}
       </header>
       <nav className="nav-rail" aria-label="画面切替">

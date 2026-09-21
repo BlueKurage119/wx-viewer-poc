@@ -96,7 +96,7 @@ test('H2 AC3/AC4: 問いかけ行の新着は選択状態を解除し、同一�
     [notice('delta:warning', 'warning'), notice('delta:emergency', 'emergency')],
     'K',
   );
-  assert.equal(result.chime, 'emergency');
+  assert.deepEqual(result.chime, { category: 'emergency', feedKey: 'delta:emergency' });
   assert.equal(result.state.selectedQuestionFeedKey, null);
   assert.equal(result.state.selectedQuestionChoice, null);
 });

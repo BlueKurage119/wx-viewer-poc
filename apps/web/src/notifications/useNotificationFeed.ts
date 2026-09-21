@@ -13,7 +13,7 @@ import {
   receiveNotifications,
   setNotificationCursor,
   setNotificationRetry,
-  type ChimeCategory,
+  type ChimeRequest,
   type NotificationUiState,
 } from './notificationStore';
 
@@ -54,7 +54,7 @@ export interface UseNotificationFeedOptions {
   readonly terminalId: string;
   readonly mode: TerminalMode;
   readonly enabled?: boolean;
-  readonly onChimeRequest?: (category: ChimeCategory) => void;
+  readonly onChimeRequest?: (request: ChimeRequest) => void;
 }
 
 /** 起動現況と通常差分を一つのメモリ内通知storeへ合流する。 */

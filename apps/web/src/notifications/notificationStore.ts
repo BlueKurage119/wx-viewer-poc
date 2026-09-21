@@ -7,6 +7,11 @@ import type {
 export type NotificationPhase = 'starting' | 'ready' | 'retrying';
 export type ChimeCategory = 'warning' | 'question' | 'emergency';
 
+export interface ChimeRequest {
+  readonly category: ChimeCategory;
+  readonly feedKey: string;
+}
+
 export interface NotificationUiState {
   readonly items: readonly NotificationFeedItem[];
   readonly cursor: NotificationDeltaCursor | null;
@@ -86,7 +91,7 @@ export function receiveNotifications(
   state: NotificationUiState,
   incoming: readonly NotificationFeedItem[],
   mode: TerminalMode,
-): { readonly state: NotificationUiState; readonly chime: ChimeCategory | null } {
+): { readonly state: NotificationUiState; readonly chime: ChimeRequest | null } {
   const existing = new Map(state.items.map((item) => [item.feedKey, item]));
   const newItems = incoming.filter((item) => !existing.has(item.feedKey));
   for (const item of incoming) existing.set(item.feedKey, item);
@@ -105,16 +110,12 @@ export function receiveNotifications(
       ? { selectedQuestionFeedKey: null, selectedQuestionChoice: null }
       : {}),
   };
-  const ranked = newItems
-    .filter((item) => isVisibleForTerminal(item, mode))
-    .map((item) => item.category);
-  const chime: ChimeCategory | null = ranked.includes('emergency')
-    ? 'emergency'
-    : ranked.includes('question')
-      ? 'question'
-      : ranked.includes('warning')
-        ? 'warning'
-        : null;
+  const ranked = newItems.filter((item) => isVisibleForTerminal(item, mode));
+  const chimeItem =
+    ranked.find((item) => item.category === 'emergency') ??
+    ranked.find((item) => item.category === 'question') ??
+    ranked.find((item) => item.category === 'warning');
+  const chime = chimeItem ? { category: chimeItem.category, feedKey: chimeItem.feedKey } : null;
   return { state: { ...next, unreadFeedKeys: markDisplayedRowsRead(next, mode) }, chime };
 }
 

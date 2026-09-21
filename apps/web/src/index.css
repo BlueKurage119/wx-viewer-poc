@@ -131,11 +131,44 @@ button:disabled {
 }
 
 .header-stop {
-  position: absolute;
-  inset: 0;
-  border: 0;
+  position: relative;
+  z-index: 1;
+  min-width: 56px;
+  height: 32px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
   background: transparent;
   color: inherit;
+}
+
+.app-header[data-buzzer-category='warning'],
+.app-header[data-buzzer-category='question'] {
+  animation: header-blue-blink 1s steps(2, jump-none) infinite;
+}
+
+.app-header[data-buzzer-category='emergency'] {
+  animation: header-emergency-blink 0.7s steps(2, jump-none) infinite;
+}
+
+@keyframes header-blue-blink {
+  50% {
+    background: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+  }
+}
+
+@keyframes header-emergency-blink {
+  0%,
+  49% {
+    background: var(--md-sys-color-error-light);
+    color: var(--md-sys-color-on-error-light);
+  }
+
+  50%,
+  100% {
+    background: var(--wx-notice-question-container);
+    color: var(--wx-notice-question-on-container);
+  }
 }
 
 .nav-rail {
@@ -325,6 +358,17 @@ select {
   border-color: var(--wx-notice-question-outline);
 }
 
+.has-notice.emergency-row {
+  background: var(--md-sys-color-error-light);
+  color: var(--md-sys-color-on-error-light);
+  border-top-color: var(--md-sys-color-on-error-light);
+}
+
+.has-notice.emergency-row .notice-actions button,
+.has-notice.emergency-row .notice-question-choices button {
+  border-color: var(--md-sys-color-on-error-light);
+}
+
 .notice-actions {
   display: flex;
   gap: 6px;
@@ -358,6 +402,12 @@ select {
   background: transparent;
   color: inherit;
   font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-header[data-buzzer-category] {
+    animation: none;
+  }
 }
 
 .notice-count {

@@ -34,7 +34,12 @@ function NoticeRow({
   row: 'warning' | 'question';
   notice: ReturnType<typeof displayedNoticeForRow>;
 }) {
-  const rowClass = row === 'warning' ? 'warning-row' : 'question-row';
+  const rowClass =
+    row === 'warning'
+      ? 'warning-row'
+      : notice?.category === 'emergency'
+        ? 'emergency-row'
+        : 'question-row';
   const isQuestion = notice?.category === 'question' || notice?.category === 'emergency';
   const actions = notice
     ? notice.category === 'warning'

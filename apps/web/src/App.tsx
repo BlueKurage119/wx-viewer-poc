@@ -6,6 +6,7 @@ import { NotificationArea } from './shell/NotificationArea';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
 import { createNotificationUiState, receiveNotifications } from './notifications/notificationStore';
 import { useNotificationFeed } from './notifications/useNotificationFeed';
+import { useHeaderBuzzer } from './notifications/useHeaderBuzzer';
 import { operationGuideMessage } from './shell/notifications';
 import { WeatherMapView } from './map/WeatherMapView';
 import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
@@ -78,10 +79,12 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  const buzzer = useHeaderBuzzer();
   const notificationFeed = useNotificationFeed({
     terminalId: terminal.id,
     mode: terminal.mode,
     enabled: !preview,
+    onChimeRequest: buzzer.request,
   });
   const current = views.find((item) => item.id === view)!;
   const selectScenario = (next: PreviewScenario) => {
@@ -111,6 +114,10 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       visibleNotificationState.phase === 'retrying',
     ),
   };
+  const stopBuzzer = () => {
+    if (buzzer.state.feedKey) notificationFeed.confirm(buzzer.state.feedKey);
+    buzzer.stop();
+  };
 
   return (
     <AppShell
@@ -120,6 +127,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       navigation={views.filter((item) => item.modes.includes(terminal.mode))}
       now={now}
       connection={connection}
+      buzzer={buzzer.state}
+      onStopBuzzer={buzzer.state.category ? stopBuzzer : undefined}
       notifications={<NotificationArea state={notificationState} mode={terminal.mode} />}
       toolbar={
         view === 'monitor' ? (
