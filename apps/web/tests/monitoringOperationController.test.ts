@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createMonitoringOperationController,
-  OPERATION_REQUEST_TIMEOUT_MS,
   type FetchControlClient,
   type FetchControlReply,
   type SubmittedOperation,
@@ -85,7 +84,7 @@ test('30秒待機後はPOSTを再送せず、同じIDを一度照会して完了
   controller.submit('stop');
   controller.submit('stop');
   assert.equal(controller.getSnapshot().phase, 'sending');
-  timers.advance(OPERATION_REQUEST_TIMEOUT_MS - 1);
+  timers.advance(29_999);
   assert.equal(finds.length, 0);
   timers.advance(1);
   await Promise.resolve();

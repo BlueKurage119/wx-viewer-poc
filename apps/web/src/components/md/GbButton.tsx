@@ -1,4 +1,5 @@
 import React from 'react';
+import { applyGbButtonState, type GbButtonStateHost } from './gbButtonState';
 
 const gbButtonRegistration =
   typeof document !== 'undefined' && typeof document.createTreeWalker === 'function'
@@ -28,9 +29,7 @@ export const GbButton = React.forwardRef<HTMLElement, GbButtonProps>(function Gb
     let cancelled = false;
     void gbButtonRegistration?.then(() => {
       if (cancelled || hostRef.current === null) return;
-      const button = hostRef.current as HTMLElement & { selected: boolean; type: string };
-      button.type = toggle ? 'toggle' : 'button';
-      button.selected = toggle && selected;
+      applyGbButtonState(hostRef.current as GbButtonStateHost, toggle, selected);
     });
     return () => {
       cancelled = true;
@@ -42,7 +41,6 @@ export const GbButton = React.forwardRef<HTMLElement, GbButtonProps>(function Gb
     size,
     square,
     type: toggle ? 'toggle' : 'button',
-    selected: toggle ? selected : undefined,
     ref: (element: HTMLElement | null) => {
       hostRef.current = element;
       if (typeof ref === 'function') ref(element);

@@ -4,7 +4,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { applyGbButtonState } from '../src/components/md/gbButtonState.ts';
 import { MonitoringDialogHost } from '../src/monitoring/MonitoringDialogHost.tsx';
+import { nextDialogFocusTarget } from '../src/monitoring/monitoringDialogFocus.ts';
 import { monitoringOperationMessage } from '../src/monitoring/monitoringOperationMessage.ts';
 import { createToolbarLocalState } from '../src/monitoring/monitoringToolbarState.ts';
 
@@ -69,13 +71,40 @@ test('ダイアログ境界: 固定タイトル・準備中表示を持ち、差
   assert.ok(custom.includes('閉じる'));
 });
 
-test('戻るアイコン: 公開paddingトークンで内部buttonを40px幅に収める', () => {
+test('戻るアイコン: 公開part上のpaddingトークンで内部buttonを40px幅に収める', () => {
   const css = readFileSync(new URL('../src/monitoring/monitoring.css', import.meta.url), 'utf8');
   const iconButtonRule = css.match(/\.monitoring-toolbar-icon-button \{([^}]*)\}/)?.[1];
+  const iconButtonPartRule = css.match(
+    /\.monitoring-toolbar-icon-button::part\(btn\) \{([^}]*)\}/,
+  )?.[1];
 
   assert.ok(iconButtonRule);
+  assert.ok(iconButtonPartRule);
   assert.ok(iconButtonRule.includes('inline-size: 40px !important;'));
   assert.ok(iconButtonRule.includes('block-size: 40px;'));
-  assert.ok(iconButtonRule.includes('--leading-space: 10px;'));
-  assert.ok(iconButtonRule.includes('--trailing-space: 10px;'));
+  assert.ok(iconButtonPartRule.includes('--leading-space: 10px;'));
+  assert.ok(iconButtonPartRule.includes('--trailing-space: 10px;'));
+});
+
+test('Labs toggle: 選択状態を公開selectedプロパティへ同じ向きで同期する', () => {
+  const button = { type: '', selected: false } as HTMLElement & {
+    type: string;
+    selected: boolean;
+  };
+  applyGbButtonState(button, true, true);
+  assert.deepEqual(button, { type: 'toggle', selected: true });
+  applyGbButtonState(button, true, false);
+  assert.deepEqual(button, { type: 'toggle', selected: false });
+});
+
+test('モーダルフォーカス: 閉じるだけでも循環し、本文の先頭・末尾でもdialog外へ出ない', () => {
+  const first = {} as HTMLElement;
+  const middle = {} as HTMLElement;
+  const last = {} as HTMLElement;
+  assert.equal(nextDialogFocusTarget([first], first, false), first);
+  assert.equal(nextDialogFocusTarget([first], first, true), first);
+  assert.equal(nextDialogFocusTarget([first, middle, last], last, false), first);
+  assert.equal(nextDialogFocusTarget([first, middle, last], first, true), last);
+  assert.equal(nextDialogFocusTarget([first, middle, last], middle, false), null);
+  assert.equal(nextDialogFocusTarget([first, middle, last], {} as HTMLElement, false), first);
 });

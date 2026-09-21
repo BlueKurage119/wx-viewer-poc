@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, type ReactNode } from 'react';
 import { GbButton } from '../components/md';
+import { nextDialogFocusTarget } from './monitoringDialogFocus';
 import type { MonitoringDialogId } from './monitoringToolbarState';
 
 const dialogTitles: Record<MonitoringDialogId, string> = {
@@ -17,6 +18,14 @@ export interface MonitoringDialogHostProps {
   readonly dialogId: MonitoringDialogId | null;
   readonly onClose: () => void;
   readonly renderContent?: (context: MonitoringDialogContentContext) => ReactNode;
+}
+
+function dialogFocusableElements(dialog: HTMLDialogElement): HTMLElement[] {
+  return [
+    ...dialog.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), md-gb-button:not([disabled])',
+    ),
+  ];
 }
 
 /** 後続の履歴・診断本文を差し込むための、モーダルの共通所有境界。 */
@@ -72,6 +81,19 @@ export function MonitoringDialogHost({
         requestClose();
       }}
       onClose={() => requestClose()}
+      onKeyDown={(event) => {
+        if (event.key !== 'Tab') return;
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const target = nextDialogFocusTarget(
+          dialogFocusableElements(dialog),
+          document.activeElement,
+          event.shiftKey,
+        );
+        if (target === null) return;
+        event.preventDefault();
+        target.focus();
+      }}
     >
       {activeId && (
         <>

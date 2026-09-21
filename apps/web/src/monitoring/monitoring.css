@@ -278,6 +278,9 @@
   inline-size: 40px !important;
   min-inline-size: 40px;
   block-size: 40px;
+}
+
+.monitoring-toolbar-icon-button::part(btn) {
   --leading-space: 10px;
   --trailing-space: 10px;
 }
