@@ -1,7 +1,5 @@
 # Issue #90 警戒レベル・通知区分のセマンティックカラー
 
-> **後続 Issue #63 による上書き（2026-09-21）。** 本書で決定した `notice-emergency` の紫系配色は、実画面への初回適用時にユーザー承認された「非常は赤背景＋白文字」に置き換えられた。現在の `--wx-notice-emergency-container` / `-on-container` / `-outline` は `SEED_ALERT_RED` の tone 40 / 100 / 80 から生成し、値は `#b4271f` / `#ffffff` / `#ffb4aa` とする。以下の紫系シード、tone 90、レベル4との色差に関する記述は Issue #90 当時の設計履歴であり、現在の非常通知行には適用しない。最新の表示仕様と受け入れ条件は `docs/design/issue-63-header-flashing-buzzer.md` §3.3 を正とする。
-
 > **レビュー5周目（本改訂）。** 変更点は1点のみ。
 >
 > - **非常ブザー（`notice-emergency`）のシードを、青寄りの紫 `#512DA8`（Material Deep Purple 700）から、気象庁の紫に近いマゼンタ寄りの `#AA00FF`（Material Purple A700）へ変更した。** 4周目で designer が要ヒアリング事項として返していた「青寄りの紫か、気象庁紫寄りか」の二択について、統括担当が両案をビジュアル比較でユーザーに提示し、**マゼンタ寄り（Purple A700 由来）を採用する**という回答を得たことによる。あわせて、Purple A700 は `SEED_ALERT_PURPLE`（Material Purple 700）と HCT 色相が 4.5 しか離れておらず、outline に tone 80 を使うと `alert-level-4-outline` と実質同色になるため、**outline のトーンを 80 → 90 に変更**してレベル4/5の outline との重複を回避した（選定は §2.8 の実測による）。§2.1・2.3・2.5・2.6・2.8・5・6・7・8 の該当箇所を更新した。非常ブザーを紫系とする方針・根拠（4周目）、レベル2〜5、`notice-warning` / `notice-question`、生成方式は変更していない。

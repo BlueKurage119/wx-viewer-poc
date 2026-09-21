@@ -14,11 +14,12 @@ export type SemanticColorToken =
 
 /**
  * カテゴリ専用シード定数。
- * Material 標準パレット由来のシードであり、HEX リテラルはこの3つのみに限定する。
+ * Material 標準パレット由来のシードであり、HEX リテラルはこの4つのみに限定する (設計書 §2.1)。
  */
 const SEED_ALERT_YELLOW = '#FFEB3B'; // Material Yellow 500
 const SEED_ALERT_RED = '#B3261E'; // Material 3 baseline error
 const SEED_ALERT_PURPLE = '#7B1FA2'; // Material Purple 700
+const SEED_NOTICE_EMERGENCY = '#AA00FF'; // Material Purple A700
 
 /** シードごとの primary TonalPalette をメモ化するキャッシュ */
 const paletteCache = new Map<string, TonalPalette>();
@@ -41,6 +42,7 @@ export function createSemanticColors(dark: boolean): Record<SemanticColorToken, 
   const yellow = getPrimaryPalette(SEED_ALERT_YELLOW);
   const red = getPrimaryPalette(SEED_ALERT_RED);
   const purple = getPrimaryPalette(SEED_ALERT_PURPLE);
+  const emergency = getPrimaryPalette(SEED_NOTICE_EMERGENCY);
 
   // 警戒レベル 2〜5 および非常ブザーはモード非依存 (light/dark 同値)
   const modeIndependentColors: Record<
@@ -68,10 +70,10 @@ export function createSemanticColors(dark: boolean): Record<SemanticColorToken, 
     '--wx-alert-level-5-on-container': hexFromArgb(yellow.tone(85)),
     '--wx-alert-level-5-outline': hexFromArgb(purple.tone(50)),
 
-    // 通知・非常ブザー (赤): 赤背景 + 白文字の塗りつぶし型
-    '--wx-notice-emergency-container': hexFromArgb(red.tone(40)),
-    '--wx-notice-emergency-on-container': hexFromArgb(red.tone(100)),
-    '--wx-notice-emergency-outline': hexFromArgb(red.tone(80)),
+    // 通知・非常ブザー (紫): 塗りつぶし型、レベル4 outline との重複回避で outline は tone 90
+    '--wx-notice-emergency-container': hexFromArgb(emergency.tone(40)),
+    '--wx-notice-emergency-on-container': hexFromArgb(emergency.tone(100)),
+    '--wx-notice-emergency-outline': hexFromArgb(emergency.tone(90)),
   };
 
   // 通知 (警報・問いかけ) のみ dark パラメータでトーンを分岐する (設計書 §2.4)

@@ -9,6 +9,7 @@ import {
   nextUnconfirmedChime,
   noticesForRow,
   receiveNotifications,
+  selectQuestionConfirmation,
   setNotificationCursor,
   setNotificationRetry,
 } from '../src/notifications/notificationStore.ts';
@@ -73,6 +74,23 @@ test('H2 AC3/AC5: 通知ごとの確認は別通知に波及せず、ackRequired
   assert.equal(notificationCounts(confirmed, 'K').pending, 1);
   assert.equal(noticesForRow(confirmed, 'K', 'question')[0]?.feedKey, 'delta:second');
   assert.equal(confirmed.items.find((item) => item.feedKey === 'delta:first')?.ackRequired, true);
+});
+
+test('問いかけは確認を選択しても確認済みにならず、送信時の確認処理まで選択を保持する', () => {
+  const received = receiveNotifications(
+    createNotificationUiState(),
+    [notice('delta:question', 'question')],
+    'K',
+  ).state;
+  const selected = selectQuestionConfirmation(received, 'delta:question');
+  assert.equal(selected.selectedQuestionFeedKey, 'delta:question');
+  assert.equal(selected.selectedQuestionChoice, 'confirm');
+  assert.equal(selected.confirmedFeedKeys.has('delta:question'), false);
+
+  const submitted = confirmNotification(selected, 'delta:question', 'K');
+  assert.equal(submitted.confirmedFeedKeys.has('delta:question'), true);
+  assert.equal(submitted.selectedQuestionFeedKey, null);
+  assert.equal(submitted.selectedQuestionChoice, null);
 });
 
 test('H2 AC3: 確認後に次に表示する未確認通知を既読にする', () => {

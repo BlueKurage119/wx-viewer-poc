@@ -29,7 +29,7 @@
 
 - `useNotificationFeed` は新着を受けた取得単位で `onChimeRequest` を呼べる境界を持つ。最高区分は `emergency > question > warning` として `notificationStore` が決定済みである。
 - `AppShell` は停止用の全面透明ボタンを受け取れるが、呼び出し元は未接続である。現在のヘッダーは MD3 primary 面、中央には受信異常表示を置く。オーナー指示により、製造時は専用ボタンを設けずヘッダー全体をアラーム停止領域とする。
-- 通知行は既存の `--wx-notice-warning-*`、`--wx-notice-question-*`、`--wx-notice-emergency-*` を使う。非常の outline は境界専用であり、面には使わない。
+- ヘッダーと下部通知行は Issue #63 専用の `--wx-buzzer-header-*`、`--wx-buzzer-notice-warning-*`、`--wx-buzzer-notice-question-*`、`--wx-buzzer-notice-emergency-*` を使う。Issue #90 の `--wx-notice-*` は一覧画面などの通知区分色として維持し、本表示には流用しない。非常の outline は境界専用であり、面には使わない。
 - 通知の確認済み状態は H2 のメモリ内 state である。ヘッダー停止を確認操作として扱ってはならない。
 
 したがって H1 は通知 store を複製せず、`onChimeRequest` と停止操作の間にだけ、ヘッダー／音声の寿命を管理する UI 専用 hook を置く。
@@ -72,9 +72,10 @@ interface HeaderBuzzerState {
 
 - warning／question のヘッダー面は通常の MD3 primary と、その dark 側の濃い青トークンを使う。通知区分ごとの警告色をヘッダー面に流用しない。
 - emergency のヘッダー面は MD3 error 系トークンの赤と濃い赤を使う。基本設計 §7.2 の「ヘッダーを赤表示」を満たす。
-- 下部通知行は、`question` を薄赤背景＋赤文字、`emergency` を赤背景＋白文字とする。`--wx-notice-question-*`／`--wx-notice-emergency-*` という役割別トークンは維持し、`notice-emergency` は A5 #90 の旧紫系定義を本 Issue のユーザー承認で上書きして、`SEED_ALERT_RED` の tone 40／100／80 から生成する。
-- 非常用の赤面に `--wx-notice-emergency-outline` を使わない。outline は通知行の境界専用である。
-- HEX／RGB は UI CSS に直書きせず、通知区分専用トークンを介して適用する。
+- 下部通知行は、`question` を薄赤背景＋赤文字、`emergency` を赤背景＋白文字とする。Issue #63 専用の `buzzer-notice-question` は light/dark とも赤シードの tone 90／10／50、`buzzer-notice-emergency` は tone 40／100／80 から生成する。Issue #90 の通知区分トークンと生成値は変更しない。
+- 選択肢のない問いかけ／非常は、「確認」で回答を選択してから「送信」で通知を確認済みにする。「確認」だけでは確認済みにせず、鳴動も止めない。
+- 非常用の赤面に `--wx-buzzer-notice-emergency-outline` を使わない。outline は通知行の境界専用である。
+- HEX／RGB は UI CSS に直書きせず、Issue #63 専用トークンを介して適用する。
 
 ## 4. 未決事項と製造保留境界
 
@@ -97,19 +98,20 @@ interface HeaderBuzzerState {
 | `apps/web/src/notifications/useHeaderBuzzer.ts` | 新規。要求の優先・停止・タイマー・音声拒否を閉じ込める hook |
 | `apps/web/src/App.tsx` | 通知 feed のチャイム要求とヘッダー hook を接続し、プレビューも同経路へ寄せる |
 | `apps/web/src/shell/AppShell.tsx` | ヘッダー状態属性、ヘッダー全体のアラーム停止操作 |
+| `apps/web/src/theme/buzzerNoticeColors.ts`、`applyTheme.ts` | Issue #90 と分離した下部表示専用トークンの生成・書き出し |
 | `apps/web/src/index.css` | トークンによる区分別 animation、非常赤面、reduced motion、既存バナーとの境界 |
 | `apps/web/tests/` | 状態遷移、優先置換、停止、アンマウント、音声拒否、表示属性の検証 |
 | `apps/web/public/audio/` | `../chime/1.wav`〜`5.wav` を複製して公開配信する配置先 |
 | `docs/licenses/` | 元の出典、MIT ライセンス全文、元の著作権者、ユーザーによる再打ち込みである旨を記録する配置先 |
 
-shared 型、API、DB migration、通知 store の区分判定、セマンティックカラー定義、スヌーズ、サーバー受領監視は変更しない。
+shared 型、API、DB migration、通知 store の区分判定、Issue #90 のセマンティックカラー定義、スヌーズ、サーバー受領監視は変更しない。
 
 ## 6. 受入条件
 
 1. `warning`、`question`、`emergency` の新着要求で、それぞれ対応するヘッダー状態と音源が開始する。複数新着では `emergency > question > warning` の最高区分だけを開始する。
 2. warning／question は通常青↔濃い青、emergency は赤↔濃い赤で表示され、下部通知行は問いかけの薄赤背景＋赤文字と非常の赤背景＋白文字を満たす。
 3. 実行中の低い区分へ高い区分が届くと高い区分へ置換し、低い区分の到着で非常・問いかけを弱めない。停止後に既存通知だけから再開しない。
-4. 各区分の音源は `loop` を有効にし、ヘッダー全体の停止操作はクリック・Enter・Spaceで実行できる。停止は音声・点滅だけを止め、通知、cursor、未読、未対応、確認済み状態を変更しない。通知行で確認した場合だけ対象通知を確認扱いにする。
+4. 各区分の音源は `loop` を有効にし、ヘッダー全体の停止操作はクリック・Enter・Spaceで実行できる。停止は音声・点滅だけを止め、通知、cursor、未読、未対応、確認済み状態を変更しない。問いかけ／非常は「確認」の選択だけでは確認済みにせず、その後の「送信」で対象通知を確認扱いにする。
 5. 音声再生が利用不能・拒否されても、例外で画面を壊さず、通知取得と視覚状態が継続する。
 6. reduced motion では点滅を止めても、非常の赤面と状態通知を残す。自動フォーカスはしない。
 7. 非常、受信異常、非常通知行を同時に表示し、通常幅・狭幅で文字、1px 以上の境界、色の組合せが判別できることを目視確認する。この確認が AD-H020 の結論であり、CAM16 距離だけを弁別保証に使わない。

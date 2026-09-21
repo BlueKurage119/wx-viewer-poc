@@ -9,6 +9,7 @@ import {
   createNotificationUiState,
   nextUnconfirmedChime,
   receiveNotifications,
+  selectQuestionConfirmation,
 } from './notifications/notificationStore';
 import { useNotificationFeed } from './notifications/useNotificationFeed';
 import { useHeaderBuzzer } from './notifications/useHeaderBuzzer';
@@ -132,6 +133,11 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       if (nextChime) buzzer.request(nextChime);
     }
   };
+  const selectQuestion = (feedKey: string) => {
+    if (preview) {
+      setPreviewState((currentState) => selectQuestionConfirmation(currentState, feedKey));
+    } else notificationFeed.selectQuestionConfirmation(feedKey);
+  };
   const stopBuzzer = () => {
     buzzer.stop();
   };
@@ -150,6 +156,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
         <NotificationArea
           state={notificationState}
           mode={terminal.mode}
+          onSelectQuestionConfirmation={selectQuestion}
           onConfirm={confirmNotification}
         />
       }

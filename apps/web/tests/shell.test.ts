@@ -17,7 +17,9 @@ import { AppShell } from '../src/shell/AppShell.tsx';
 import { NotificationArea } from '../src/shell/NotificationArea.tsx';
 import {
   createNotificationUiState,
+  displayedNoticeForRow,
   receiveNotifications,
+  selectQuestionConfirmation,
 } from '../src/notifications/notificationStore.ts';
 import type { MonitoringLoadState } from '../src/monitoring/useMonitoringStatus.ts';
 import { normalMonitoringResponseFixture } from './monitoringFixture.ts';
@@ -119,10 +121,36 @@ test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを選択肢�
   );
   assert.ok(
     html.includes(
-      '<div class="notice-question-choices"><button type="button" disabled="">確認</button></div><div class="notice-actions"><button type="button" disabled="">詳細</button><button type="button" disabled="">送信</button></div>',
+      '<div class="notice-question-choices"><button type="button" aria-pressed="false"',
     ),
   );
+  assert.ok(html.includes('disabled="">確認</button>'));
+  assert.ok(html.includes('disabled="">送信</button>'));
   assert.equal((html.match(/disabled=""/g) ?? []).length, 5);
+});
+test('Issue #63: 問いかけは確認を選択してから送信を有効化する', () => {
+  const received = receiveNotifications(
+    createNotificationUiState(),
+    previewNotices('mixed'),
+    'K',
+  ).state;
+  const callbacks = {
+    onSelectQuestionConfirmation: () => undefined,
+    onConfirm: () => undefined,
+  };
+  const initialHtml = renderToStaticMarkup(
+    el(NotificationArea, { state: received, mode: 'K', ...callbacks }),
+  );
+  assert.ok(initialHtml.includes('aria-pressed="false"'));
+  assert.ok(initialHtml.includes('disabled="">送信</button>'));
+
+  const questionFeedKey = displayedNoticeForRow(received, 'K', 'question')!.feedKey;
+  const selected = selectQuestionConfirmation(received, questionFeedKey);
+  const selectedHtml = renderToStaticMarkup(
+    el(NotificationArea, { state: selected, mode: 'K', ...callbacks }),
+  );
+  assert.ok(selectedHtml.includes('aria-pressed="true"'));
+  assert.ok(selectedHtml.includes('<button type="button">送信</button>'));
 });
 test('H1: ブザー中は専用ボタンや説明文を増やさずヘッダー全体を停止操作にする', () => {
   const terminal = terminals[0]!;

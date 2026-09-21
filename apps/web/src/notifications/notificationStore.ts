@@ -145,6 +145,19 @@ export function setNotificationRetry(state: NotificationUiState): NotificationUi
   return { ...state, phase: 'retrying', operationMessage: RETRY_OPERATION_MESSAGE };
 }
 
+export function selectQuestionConfirmation(
+  state: NotificationUiState,
+  feedKey: string,
+): NotificationUiState {
+  const notice = state.items.find((item) => item.feedKey === feedKey);
+  if (!notice || notice.category === 'warning') return state;
+  return {
+    ...state,
+    selectedQuestionFeedKey: feedKey,
+    selectedQuestionChoice: 'confirm',
+  };
+}
+
 export function confirmNotification(
   state: NotificationUiState,
   feedKey: string,

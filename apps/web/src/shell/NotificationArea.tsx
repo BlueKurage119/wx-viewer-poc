@@ -7,10 +7,12 @@ import {
 export function NotificationArea({
   state,
   mode,
+  onSelectQuestionConfirmation,
   onConfirm,
 }: {
   state: NotificationUiState;
   mode: TerminalMode;
+  onSelectQuestionConfirmation?: (feedKey: string) => void;
   onConfirm?: (feedKey: string) => void;
 }) {
   const counts = notificationCounts(state, mode);
@@ -24,6 +26,9 @@ export function NotificationArea({
       <NoticeRow
         row="question"
         notice={displayedNoticeForRow(state, mode, 'question')}
+        selectedQuestionFeedKey={state.selectedQuestionFeedKey}
+        selectedQuestionChoice={state.selectedQuestionChoice}
+        onSelectQuestionConfirmation={onSelectQuestionConfirmation}
         onConfirm={onConfirm}
       />
       <div className="notice-row operation-row">
@@ -40,10 +45,16 @@ export function NotificationArea({
 function NoticeRow({
   row,
   notice,
+  selectedQuestionFeedKey,
+  selectedQuestionChoice,
+  onSelectQuestionConfirmation,
   onConfirm,
 }: {
   row: 'warning' | 'question';
   notice: ReturnType<typeof displayedNoticeForRow>;
+  selectedQuestionFeedKey?: string | null;
+  selectedQuestionChoice?: string | null;
+  onSelectQuestionConfirmation?: (feedKey: string) => void;
   onConfirm?: (feedKey: string) => void;
 }) {
   const rowClass =
@@ -53,6 +64,10 @@ function NoticeRow({
         ? 'emergency-row'
         : 'question-row';
   const isQuestion = notice?.category === 'question' || notice?.category === 'emergency';
+  const isConfirmationSelected =
+    isQuestion &&
+    notice?.feedKey === selectedQuestionFeedKey &&
+    selectedQuestionChoice === 'confirm';
   const actions = notice
     ? notice.category === 'warning'
       ? ['詳細', '確認']
@@ -73,8 +88,9 @@ function NoticeRow({
           <div className="notice-question-choices">
             <button
               type="button"
-              disabled={!notice || !onConfirm}
-              onClick={() => notice && onConfirm?.(notice.feedKey)}
+              aria-pressed={isConfirmationSelected}
+              disabled={!notice || !onSelectQuestionConfirmation}
+              onClick={() => notice && onSelectQuestionConfirmation?.(notice.feedKey)}
             >
               確認
             </button>
@@ -85,8 +101,19 @@ function NoticeRow({
             <button
               key={`${label}-${index}`}
               type="button"
-              disabled={!notice || !onConfirm || label !== '確認'}
-              onClick={() => notice && label === '確認' && onConfirm?.(notice.feedKey)}
+              disabled={
+                !notice ||
+                (label === '確認'
+                  ? !onConfirm
+                  : label === '送信'
+                    ? !onConfirm || !isConfirmationSelected
+                    : true)
+              }
+              onClick={() =>
+                notice &&
+                (label === '確認' || (label === '送信' && isConfirmationSelected)) &&
+                onConfirm?.(notice.feedKey)
+              }
             >
               {label}
             </button>
