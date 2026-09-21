@@ -130,17 +130,6 @@ button:disabled {
   font-weight: 400;
 }
 
-.header-stop {
-  position: relative;
-  z-index: 1;
-  min-width: 56px;
-  height: 32px;
-  border: 1px solid currentColor;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-}
-
 .app-header[data-buzzer-category='warning'],
 .app-header[data-buzzer-category='question'] {
   animation: header-blue-blink 1s steps(2, jump-none) infinite;

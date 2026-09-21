@@ -7,6 +7,7 @@ import { previewNotices, scenarios, type PreviewScenario } from './shell/fixture
 import {
   confirmNotification as confirmNotificationState,
   createNotificationUiState,
+  nextUnconfirmedChime,
   receiveNotifications,
 } from './notifications/notificationStore';
 import { useNotificationFeed } from './notifications/useNotificationFeed';
@@ -120,17 +121,19 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       visibleNotificationState.phase === 'retrying',
     ),
   };
-  const stopBuzzer = () => {
-    if (buzzer.state.feedKey) notificationFeed.confirm(buzzer.state.feedKey);
-    buzzer.stop();
-  };
   const confirmNotification = (feedKey: string) => {
+    const nextState = confirmNotificationState(visibleNotificationState, feedKey, terminal.mode);
     if (preview) {
-      setPreviewState((currentState) =>
-        confirmNotificationState(currentState, feedKey, terminal.mode),
-      );
+      setPreviewState(nextState);
     } else notificationFeed.confirm(feedKey);
-    if (buzzer.state.feedKey === feedKey) buzzer.stop();
+    if (buzzer.state.feedKey === feedKey) {
+      buzzer.stop();
+      const nextChime = nextUnconfirmedChime(nextState, terminal.mode);
+      if (nextChime) buzzer.request(nextChime);
+    }
+  };
+  const stopBuzzer = () => {
+    if (buzzer.state.feedKey) confirmNotification(buzzer.state.feedKey);
   };
 
   return (

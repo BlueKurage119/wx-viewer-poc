@@ -75,6 +75,20 @@ export function displayedNoticeForRow(
   return notices.find((item) => !state.confirmedFeedKeys.has(item.feedKey)) ?? notices[0];
 }
 
+export function nextUnconfirmedChime(
+  state: NotificationUiState,
+  mode: TerminalMode,
+): ChimeRequest | null {
+  const candidates = state.items.filter(
+    (item) => isVisibleForTerminal(item, mode) && !state.confirmedFeedKeys.has(item.feedKey),
+  );
+  const item =
+    candidates.find((candidate) => candidate.category === 'emergency') ??
+    candidates.find((candidate) => candidate.category === 'question') ??
+    candidates.find((candidate) => candidate.category === 'warning');
+  return item ? { category: item.category, feedKey: item.feedKey } : null;
+}
+
 function markDisplayedRowsRead(
   state: NotificationUiState,
   mode: TerminalMode,

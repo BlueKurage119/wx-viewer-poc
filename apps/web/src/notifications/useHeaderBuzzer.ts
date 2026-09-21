@@ -22,13 +22,29 @@ export function useHeaderBuzzer(): {
   const stateRef = useRef(state);
   stateRef.current = state;
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playbackBlockedRef = useRef(false);
+  const play = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    void audio.play().then(
+      () => {
+        playbackBlockedRef.current = false;
+      },
+      () => {
+        playbackBlockedRef.current = true;
+      },
+    );
+  }, []);
   const stop = useCallback(() => {
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
       audio.currentTime = 0;
     }
-    setState({ category: null, feedKey: null });
+    playbackBlockedRef.current = false;
+    const stopped = { category: null, feedKey: null } as const;
+    stateRef.current = stopped;
+    setState(stopped);
   }, []);
   const request = useCallback(
     ({ category, feedKey }: ChimeRequest) => {
@@ -38,11 +54,24 @@ export function useHeaderBuzzer(): {
       const audio = new Audio(AUDIO_BY_CATEGORY[category]);
       audio.loop = true;
       audioRef.current = audio;
-      void audio.play().catch(() => undefined);
-      setState({ category, feedKey });
+      play();
+      const next = { category, feedKey };
+      stateRef.current = next;
+      setState(next);
     },
-    [stop],
+    [play, stop],
   );
+  useEffect(() => {
+    const retry = () => {
+      if (playbackBlockedRef.current) play();
+    };
+    window.addEventListener('pointerdown', retry, true);
+    window.addEventListener('keydown', retry, true);
+    return () => {
+      window.removeEventListener('pointerdown', retry, true);
+      window.removeEventListener('keydown', retry, true);
+    };
+  }, [play]);
   useEffect(() => stop, [stop]);
   return { state, request, stop };
 }

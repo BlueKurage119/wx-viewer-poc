@@ -28,7 +28,7 @@
 ## 2. 現状と責務境界
 
 - `useNotificationFeed` は新着を受けた取得単位で `onChimeRequest` を呼べる境界を持つ。最高区分は `emergency > question > warning` として `notificationStore` が決定済みである。
-- `AppShell` は停止用の全面透明ボタンを受け取れるが、呼び出し元は未接続である。現在のヘッダーは MD3 primary 面、中央には受信異常表示を置く。
+- `AppShell` は停止用の全面透明ボタンを受け取れるが、呼び出し元は未接続である。現在のヘッダーは MD3 primary 面、中央には受信異常表示を置く。オーナー指示により、製造時は専用ボタンを設けずヘッダー全体を確認操作領域とする。
 - 通知行は既存の `--wx-notice-warning-*`、`--wx-notice-question-*`、`--wx-notice-emergency-*` を使う。非常の outline は境界専用であり、面には使わない。
 - 通知の確認済み状態は H2 のメモリ内 state である。ヘッダー停止を確認操作として扱ってはならない。
 
@@ -65,8 +65,8 @@ interface HeaderBuzzerState {
 - hook は `request({ category, feedKey })` と `stop()`、表示用 `HeaderBuzzerState` を返す。`stop()` は `feedKey` を呼び出し元へ返し、H2 の端末内確認が完了したときにだけ音声を停止する。タイマーと `HTMLAudioElement` は hook 内で生成・破棄し、アンマウント時に必ず停止する。
 - 音源未設定または `play()` の拒否は、画面操作状態へ例外を伝播させない。必要なら開発時だけ console へ記録するが、通知取得・cursor・確認済み状態を変更しない。
 - `App.tsx` は `useNotificationFeed` のチャイム要求を、区分だけでなく表示対象の `feedKey` とともに hook の `request` へ渡す。`AppShell` には状態と確認を要求する `stop` を渡す。プレビュー fixture でも同じ経路を使う。
-- `AppShell` は状態から `data-buzzer-category` をヘッダーへ付与し、停止操作を有効な `<button type="button">` として表示する。全面透明ボタンのままキーボード操作やヘッダー内の時刻・端末名を覆う構造にはしない。
-- CSS の animation は `prefers-reduced-motion: reduce` で点滅を止め、非常時の赤面・区分名を含む支援技術向け状態文は残す。自動フォーカスはしない。
+- `AppShell` は状態から `data-buzzer-category` をヘッダーへ付与し、ブザー中だけヘッダー全体をクリック、Enter、Space で確認できる操作領域にする。専用ボタンや見れば分かる説明メッセージは追加しない。
+- CSS の animation は `prefers-reduced-motion: reduce` で点滅を止め、非常時の赤面は残す。自動フォーカスはしない。
 
 ### 3.3 色の使い分け
 
@@ -96,7 +96,7 @@ interface HeaderBuzzerState {
 | --- | --- |
 | `apps/web/src/notifications/useHeaderBuzzer.ts` | 新規。要求の優先・停止・タイマー・音声拒否を閉じ込める hook |
 | `apps/web/src/App.tsx` | 通知 feed のチャイム要求とヘッダー hook を接続し、プレビューも同経路へ寄せる |
-| `apps/web/src/shell/AppShell.tsx` | ヘッダー状態属性、停止ボタン、支援技術向け状態表示 |
+| `apps/web/src/shell/AppShell.tsx` | ヘッダー状態属性、ヘッダー全体の確認操作 |
 | `apps/web/src/index.css` | トークンによる区分別 animation、非常赤面、reduced motion、既存バナーとの境界 |
 | `apps/web/tests/` | 状態遷移、優先置換、停止、アンマウント、音声拒否、表示属性の検証 |
 | `apps/web/public/audio/` | `../chime/1.wav`〜`5.wav` を複製して公開配信する配置先 |

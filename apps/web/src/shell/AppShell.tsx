@@ -66,18 +66,18 @@ export function AppShell({
         className="app-header"
         ref={headerRef}
         data-buzzer-category={buzzer?.category ?? undefined}
+        onClick={onStopBuzzer}
+        onKeyDown={(event) => {
+          if (!onStopBuzzer || (event.key !== 'Enter' && event.key !== ' ')) return;
+          event.preventDefault();
+          onStopBuzzer();
+        }}
+        role={onStopBuzzer ? 'button' : undefined}
+        tabIndex={onStopBuzzer ? 0 : undefined}
+        aria-label={onStopBuzzer ? '通知を確認' : undefined}
       >
         <h1>{title}</h1>
         <div className="header-state">
-          {buzzer?.category && (
-            <span className="buzzer-status" role="status" aria-live="assertive">
-              {buzzer.category === 'emergency'
-                ? '非常ブザーを確認してください'
-                : buzzer.category === 'question'
-                  ? '問いかけを確認してください'
-                  : '警報を確認してください'}
-            </span>
-          )}
           {connection.failed && (
             <span className="connection-error">
               <svg
@@ -107,11 +107,6 @@ export function AppShell({
             端末名: {terminal.name}
           </span>
         </div>
-        {onStopBuzzer && (
-          <button className="header-stop" type="button" onClick={onStopBuzzer}>
-            確認
-          </button>
-        )}
       </header>
       <nav className="nav-rail" aria-label="画面切替">
         {navigation.map((item) => (

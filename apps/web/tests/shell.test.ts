@@ -124,6 +124,31 @@ test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを選択肢�
   );
   assert.equal((html.match(/disabled=""/g) ?? []).length, 5);
 });
+test('H1: ブザー中は専用ボタンや説明文を増やさずヘッダー全体を確認操作にする', () => {
+  const terminal = terminals[0]!;
+  const html = renderToStaticMarkup(
+    el(
+      AppShell,
+      {
+        terminal,
+        title: '防災気象情報',
+        view: 'weather',
+        navigation: views.filter((item) => item.modes.includes(terminal.mode)),
+        now: new Date('2026-09-21T00:00:00.000Z'),
+        connection: { failed: false, lastSuccessAt: null },
+        buzzer: { category: 'warning', feedKey: 'delta:warning' },
+        onStopBuzzer: () => undefined,
+        notifications: el('div'),
+      },
+      el('div'),
+    ),
+  );
+  assert.ok(html.includes('<header class="app-header"'));
+  assert.ok(html.includes('role="button"'));
+  assert.ok(html.includes('tabindex="0"'));
+  assert.equal(html.includes('class="header-stop"'), false);
+  assert.equal(html.includes('警報を確認してください'), false);
+});
 test('未登録HTMLアクセスのみ404対象とし、APIやモジュールを妨げない', () => {
   assert.equal(isUnknownTerminalDocument('/unknown', 'text/html'), true);
   assert.equal(isUnknownTerminalDocument('/hkeagh01/extra', 'text/html'), true);
