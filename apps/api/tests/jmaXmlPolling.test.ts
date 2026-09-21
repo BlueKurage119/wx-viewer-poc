@@ -23,6 +23,10 @@ import {
 import {
   JMA_XML_FEED_DEFINITIONS,
   getFeedDefinitionsForTrigger,
+  TARGET_TELEGRAM_TYPES,
+  isTargetTelegramType,
+  type JmaXmlFeedKind,
+  type JmaXmlPollTrigger,
 } from '../src/polling/jmaXmlFeeds.js';
 import {
   FeedBackoffManager,
@@ -315,7 +319,7 @@ test('2. Atom エントリの link.href でだけ個別電文を取得する。�
 
   try {
     const db = initializeDatabase({ databasePath, migrationsDirectory });
-    const arbitraryDocPath = '/arbitrary-opaque-token-not-constructible-from-metadata.xml';
+    const arbitraryDocPath = '/arbitrary-opaque-token_VPWW55_not-constructible-from-metadata.xml';
     const docUrl = `${server.baseUrl}${arbitraryDocPath}`;
 
     const telegramXml = createSampleTelegramXml({
@@ -1787,7 +1791,7 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
 
   try {
     const vpbs50Url = `${server.baseUrl}/data/20260909_0_VPBS50_130000.xml`;
-    const vpww53Url = `${server.baseUrl}/data/20260909_0_VPWW53_130000.xml`;
+    const vpww55Url = `${server.baseUrl}/data/20260909_0_VPWW55_130000.xml`;
     const vpfd51Url = `${server.baseUrl}/data/20260909_0_VPFD51_130000.xml`;
 
     const regularFeedXml = createSampleAtomFeed([
@@ -1797,9 +1801,9 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
         href: vpbs50Url,
       },
       {
-        id: 'urn:uuid:entry-regular-vpww53',
+        id: 'urn:uuid:entry-regular-vpww55',
         title: '気象警報・注意報',
-        href: vpww53Url,
+        href: vpww55Url,
       },
       {
         id: 'urn:uuid:entry-regular-vpfd51',
@@ -1852,7 +1856,7 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
   </Head>
 </Report>`;
 
-    const vpww53Xml = `<?xml version="1.0" encoding="UTF-8"?>
+    const vpww55Xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
   <Control>
     <Title>気象警報・注意報</Title>
@@ -1928,9 +1932,9 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
         res.end(vpbs50Xml);
         return;
       }
-      if (req.url === '/data/20260909_0_VPWW53_130000.xml') {
+      if (req.url === '/data/20260909_0_VPWW55_130000.xml') {
         res.statusCode = 200;
-        res.end(vpww53Xml);
+        res.end(vpww55Xml);
         return;
       }
       if (req.url === '/data/20260909_0_VPFD51_130000.xml') {
@@ -2488,7 +2492,7 @@ test('22-2. start() で regular, extra, regular_l, extra_l が各 1 回要求さ
 
     // タイマーによる通常ポーリングの動作確認（高頻度 2 フィードのみ増える）
     fakeNow = '2026-09-09T01:01:00.000Z';
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     await service.stop();
 
@@ -2692,7 +2696,7 @@ test('22-5. フィードは成功し個別電文 GET だけが失敗した場合
 
   try {
     const db = initializeDatabase({ databasePath, migrationsDirectory });
-    const failDocUrl = `${server.baseUrl}/data/fail_doc.xml`;
+    const failDocUrl = `${server.baseUrl}/data/20260909_0_VPWW55_130000_fail_doc.xml`;
     const feedWithDocXml = createSampleAtomFeed([
       { id: 'urn:entry-fail-doc', title: '警報', href: failDocUrl },
     ]);
@@ -2713,7 +2717,7 @@ test('22-5. フィードは成功し個別電文 GET だけが失敗した場合
         res.end(emptyFeedXml);
         return;
       }
-      if (req.url === '/data/fail_doc.xml') {
+      if (req.url === '/data/20260909_0_VPWW55_130000_fail_doc.xml') {
         // 個別電文の取得失敗
         res.statusCode = 500;
         res.end('Document Not Found');
@@ -2861,7 +2865,7 @@ test('22-6. 同時複数 start() で 4 フィードは各 1 回のみ要求さ�
     assert.equal(server.requestCounts.get('/feed/extra_l.xml'), 1);
 
     // タイマーにより通常ポーリング（高頻度）だけが再開される
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await new Promise((resolve) => setTimeout(resolve, 250));
     await service.stop();
 
     assert.ok((server.requestCounts.get('/feed/regular.xml') ?? 0) >= 2);
@@ -2883,7 +2887,7 @@ test('22-7. 同じ DB で新しいサービスインスタンスを作成する�
 
   try {
     const db = initializeDatabase({ databasePath, migrationsDirectory });
-    const docPath = '/data/test_doc_22_7.xml';
+    const docPath = '/data/20260909_0_VPWW55_130000_doc_22_7.xml';
     const docUrl = `${server.baseUrl}${docPath}`;
     const docXml = createSampleTelegramXml();
 
@@ -3838,8 +3842,8 @@ test('23-5. 個別電文のHTTP失敗・未対応構造・未対応コードは�
 
   try {
     const db = initializeDatabase({ databasePath, migrationsDirectory });
-    const docPath500 = '/data/doc-500.xml';
-    const docPathBadNs = '/data/doc-bad-ns.xml';
+    const docPath500 = '/data/20260909_0_VPWW55_130000_doc-500.xml';
+    const docPathBadNs = '/data/20260909_0_VPWW55_130000_doc-bad-ns.xml';
 
     const feedXml = createSampleAtomFeed([
       { id: 'urn:entry-500', title: '500電文', href: `${server.baseUrl}${docPath500}` },
@@ -3910,12 +3914,12 @@ test('23-5. 個別電文のHTTP失敗・未対応構造・未対応コードは�
     assert.ok(docAttemptFail);
     assert.equal(docAttemptFail.httpStatus, 500);
 
-    // 未対応形式は telegram_reception に記録
+    // 未対応構造は telegram_reception に記録
     const receptions = listTelegramReceptions(db.connection);
     assert.equal(receptions.length, 1);
     assert.deepEqual(
       receptions[0]!.adoptions.map((a) => a.adoptionResult),
-      ['未対応形式', '未対応形式'],
+      ['未対応構造', '未対応構造'],
     );
   } finally {
     if (service) {
@@ -4367,5 +4371,459 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
     }
     await server.close();
     cleanup();
+  }
+});
+
+// -------------------------------------------------------------------------------------------------
+// Issue #188 取得前電文種別フィルタの検証 (AC1〜AC5)
+// -------------------------------------------------------------------------------------------------
+test('取得前電文種別フィルタ: TARGET_TELEGRAM_TYPES が指定15種を過不足・重複なく含み、isTargetTelegramType が各値を true、非対象・null を false と判定する (AC1)', () => {
+  // 設計書 §3.2 に定義された15種
+  const expected15Types = [
+    'VPWW55',
+    'VPWW56',
+    'VPWW57',
+    'VPWW58',
+    'VPWW59',
+    'VPWW60',
+    'VPWW61',
+    'VPWS50',
+    'VPWP50',
+    'VPFD61',
+    'VPFW60',
+    'VPFD51',
+    'VPBS50',
+    'VPHW50',
+    'VPHW51',
+  ];
+
+  // 要素数と重複なし
+  assert.equal(TARGET_TELEGRAM_TYPES.length, 15);
+  const uniqueTypes = new Set(TARGET_TELEGRAM_TYPES);
+  assert.equal(uniqueTypes.size, 15);
+
+  // 定義配列の完全一致（過不足・順序）
+  assert.deepEqual([...TARGET_TELEGRAM_TYPES], expected15Types);
+
+  // 15種すべてについて isTargetTelegramType が true を返すこと
+  for (const t of expected15Types) {
+    assert.equal(isTargetTelegramType(t), true, `Expected ${t} to be recognized as target type`);
+  }
+
+  // null, 空文字, 非対象種別, 小文字, 不正形式について false を返すこと
+  const nonTargetCases = [
+    null,
+    '',
+    'VPWW54',
+    'VPWW62',
+    'VPWS51',
+    'VPAA50',
+    'VPTD60',
+    'VPFD50',
+    'VPFD52',
+    'VPBS51',
+    'VPHW52',
+    'UNKNOWN',
+    'vpww55',
+    'invalid_type',
+  ];
+  for (const nt of nonTargetCases) {
+    assert.equal(isTargetTelegramType(nt), false, `Expected ${String(nt)} to be rejected`);
+  }
+});
+
+test('取得前電文種別フィルタ: 対象電文のみ個別GET・保存・processor処理され、対象外・抽出不能URLはスキップされる（メトリクス・地域判定完全一致検証） (AC2, AC3, AC4)', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  const server = await createTestHttpServer();
+
+  try {
+    const db = initializeDatabase({ databasePath, migrationsDirectory });
+
+    // 対象電文1: VPWW55 (対象会場: 江東区 1310800) -> east会場で「警報・注意報として解析済み」
+    const targetDocPath1 = '/data/20260909000000_0_VPWW55_130000.xml';
+    const targetDocUrl1 = `${server.baseUrl}${targetDocPath1}`;
+    const targetXml1 = `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
+  <Control>
+    <Title>東京都気象警報・注意報</Title>
+    <DateTime>2026-09-09T00:00:00Z</DateTime>
+    <Status>通常</Status>
+    <EditorialOffice>気象庁</EditorialOffice>
+    <PublishingOffice>気象庁</PublishingOffice>
+  </Control>
+  <Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+    <Title>東京都気象警報・注意報</Title>
+    <ReportDateTime>2026-09-09T09:00:00+09:00</ReportDateTime>
+    <TargetDateTime>2026-09-09T09:00:00+09:00</TargetDateTime>
+    <EventID>20260909000001</EventID>
+    <InfoType>発表</InfoType>
+    <Serial>1</Serial>
+    <InfoKind>気象警報・注意報</InfoKind>
+    <InfoKindVersion>1.0_1</InfoKindVersion>
+    <Headline><Text>警報・注意報</Text></Headline>
+  </Head>
+  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/">
+    <Warning type="気象警報・注意報（市町村等）">
+      <Item>
+        <Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>
+        <Area><Name>江東区</Name><Code>1310800</Code></Area>
+      </Item>
+    </Warning>
+  </Body>
+</Report>`;
+
+    // 対象電文2: VPWW56 (対象地域外: 八王子市 1320100) -> east会場で「対象地域外」
+    const targetDocPath2 = '/data/20260909000000_0_VPWW56_130000.xml';
+    const targetDocUrl2 = `${server.baseUrl}${targetDocPath2}`;
+    const targetXml2 = `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
+  <Control>
+    <Title>東京都気象警報・注意報（八王子）</Title>
+    <DateTime>2026-09-09T00:00:00Z</DateTime>
+    <Status>通常</Status>
+    <EditorialOffice>気象庁</EditorialOffice>
+    <PublishingOffice>気象庁</PublishingOffice>
+  </Control>
+  <Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+    <Title>東京都気象警報・注意報（八王子）</Title>
+    <ReportDateTime>2026-09-09T09:00:00+09:00</ReportDateTime>
+    <TargetDateTime>2026-09-09T09:00:00+09:00</TargetDateTime>
+    <EventID>20260909000002</EventID>
+    <InfoType>発表</InfoType>
+    <Serial>1</Serial>
+    <InfoKind>気象警報・注意報</InfoKind>
+    <InfoKindVersion>1.0_1</InfoKindVersion>
+    <Headline><Text>警報・注意報</Text></Headline>
+  </Head>
+  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/">
+    <Warning type="気象警報・注意報（市町村等）">
+      <Item>
+        <Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>
+        <Area><Name>八王子市</Name><Code>1320100</Code></Area>
+      </Item>
+    </Warning>
+  </Body>
+</Report>`;
+
+    // 対象電文3: VPFD51 (時系列予報)
+    const targetDocPath3 = '/data/20260909000000_0_VPFD51_130000.xml';
+    const targetDocUrl3 = `${server.baseUrl}${targetDocPath3}`;
+    const targetXml3 = createSampleTelegramXml({
+      title: '東京都時系列予報',
+      areas: [{ code: '130010', name: '東京地方', codeType: '気象情報／府県予報区等' }],
+    });
+
+    // 対象電文4: VPBS50 (500 エラーで個別GET失敗する対象電文)
+    const targetDocPathFail = '/data/20260909000000_0_VPBS50_130000.xml';
+    const targetDocUrlFail = `${server.baseUrl}${targetDocPathFail}`;
+
+    // 対象外電文1: VPAA50
+    const nonTargetDocPath1 = '/data/20260909000000_0_VPAA50_130000.xml';
+    const nonTargetDocUrl1 = `${server.baseUrl}${nonTargetDocPath1}`;
+
+    // 対象外電文2: VPWW99
+    const nonTargetDocPath2 = '/data/20260909000000_0_VPWW99_130000.xml';
+    const nonTargetDocUrl2 = `${server.baseUrl}${nonTargetDocPath2}`;
+
+    // 種別抽出不能URL
+    const unextractableDocPath = '/data/arbitrary_opaque_name_without_type.xml';
+    const unextractableDocUrl = `${server.baseUrl}${unextractableDocPath}`;
+
+    // Atomフィード（対象5件[内1件重複] + 対象外2件 + 抽出不能1件 = 計8件）
+    const feedXml = createSampleAtomFeed([
+      { id: 'urn:entry-t1', title: 'VPWW55警報', href: targetDocUrl1 },
+      { id: 'urn:entry-nt1', title: 'VPAA50対象外', href: nonTargetDocUrl1 },
+      { id: 'urn:entry-t2', title: 'VPWW56警報(他地域)', href: targetDocUrl2 },
+      { id: 'urn:entry-un', title: '抽出不能URL', href: unextractableDocUrl },
+      { id: 'urn:entry-t3', title: 'VPFD51予報', href: targetDocUrl3 },
+      { id: 'urn:entry-nt2', title: 'VPWW99対象外', href: nonTargetDocUrl2 },
+      { id: 'urn:entry-t1-dup', title: 'VPWW55警報(重複)', href: targetDocUrl1 },
+      { id: 'urn:entry-tf', title: 'VPBS50失敗', href: targetDocUrlFail },
+    ]);
+
+    server.setHandler((req, res) => {
+      if (req.url === '/feed/regular.xml' || req.url === '/feed/extra.xml') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/xml');
+        res.end(feedXml);
+        return;
+      }
+      if (req.url === targetDocPath1) {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/xml');
+        res.end(targetXml1);
+        return;
+      }
+      if (req.url === targetDocPath2) {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/xml');
+        res.end(targetXml2);
+        return;
+      }
+      if (req.url === targetDocPath3) {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/xml');
+        res.end(targetXml3);
+        return;
+      }
+      if (req.url === targetDocPathFail) {
+        res.statusCode = 500;
+        res.end('Server Error');
+        return;
+      }
+      if (
+        req.url === nonTargetDocPath1 ||
+        req.url === nonTargetDocPath2 ||
+        req.url === unextractableDocPath
+      ) {
+        res.statusCode = 404;
+        res.end('Should not be requested');
+        return;
+      }
+      res.statusCode = 404;
+      res.end('Not found');
+    });
+
+    const customFetch: typeof fetch = (input, init) => {
+      const urlStr = String(input);
+      if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+        return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+      }
+      if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+        return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+      }
+      return fetch(input, init);
+    };
+
+    const service = new JmaXmlPollingService(db.connection, {
+      freshnessPolicy: defaultXmlFreshnessPolicy,
+      fetchFn: customFetch,
+      allowedUrlPrefixes: [server.baseUrl],
+      allowHttpForTesting: true,
+      clock: () => '2026-09-09T01:00:00Z',
+    });
+
+    const cycleResult = await service.pollFeeds('scheduled', ['regular']);
+    assert.equal(cycleResult.feedResults.length, 1);
+    const regularResult = cycleResult.feedResults[0]!;
+
+    // AC3: FeedPollResult の完全一致（6プロパティすべて、余計なプロパティなし）
+    assert.deepEqual(regularResult, {
+      feedKind: 'regular',
+      feedFetchOutcome: 'success',
+      discoveredCount: 8,
+      skippedDuplicateCount: 1,
+      downloadedCount: 3,
+      failedDocumentCount: 1,
+    });
+
+    // AC2: 個別 XML への HTTP リクエスト回数の完全一致
+    assert.equal(server.requestCounts.get(targetDocPath1), 1);
+    assert.equal(server.requestCounts.get(targetDocPath2), 1);
+    assert.equal(server.requestCounts.get(targetDocPath3), 1);
+    assert.equal(server.requestCounts.get(targetDocPathFail), 1);
+    assert.equal(server.requestCounts.get(nonTargetDocPath1) ?? 0, 0);
+    assert.equal(server.requestCounts.get(nonTargetDocPath2) ?? 0, 0);
+    assert.equal(server.requestCounts.get(unextractableDocPath) ?? 0, 0);
+
+    // AC2: fetch_attempt の件数と内容（xml_document は対象4件のみ）
+    const attempts = listFetchAttempts(db.connection);
+    const docAttempts = attempts.filter((a) => a.sourceKind === 'xml_document');
+    assert.equal(docAttempts.length, 4);
+    const docAttemptUrls = docAttempts.map((a) => a.requestUrl).sort();
+    const expectedDocUrls = [targetDocUrl1, targetDocUrl2, targetDocUrl3, targetDocUrlFail].sort();
+    assert.deepEqual(docAttemptUrls, expectedDocUrls);
+
+    // AC2: telegram_reception は成功した対象3件のみ
+    const receptions = listTelegramReceptions(db.connection);
+    assert.equal(receptions.length, 3);
+    const receptionUrls = receptions.map((r) => r.documentUrl).sort();
+    const expectedReceptionUrls = [targetDocUrl1, targetDocUrl2, targetDocUrl3].sort();
+    assert.deepEqual(receptionUrls, expectedReceptionUrls);
+
+    // AC4: 既存 processor の判定結果確認
+    // 1) targetDocUrl1 (VPWW55, 江東区) は east 会場 (江東区) で「警報・注意報として解析済み」
+    const r1 = receptions.find((r) => r.documentUrl === targetDocUrl1);
+    assert.ok(r1);
+    assert.equal(r1.telegramType, 'VPWW55');
+    const eastAdoption1 = r1.adoptions.find((a) => a.venueId === 'east');
+    assert.equal(eastAdoption1?.adoptionResult, '警報・注意報として解析済み');
+
+    // 2) targetDocUrl2 (VPWW56, 八王子市) は east 会場で「対象地域外」に到達すること
+    const r2 = receptions.find((r) => r.documentUrl === targetDocUrl2);
+    assert.ok(r2);
+    assert.equal(r2.telegramType, 'VPWW56');
+    const eastAdoption2 = r2.adoptions.find((a) => a.venueId === 'east');
+    assert.equal(eastAdoption2?.adoptionResult, '対象地域外');
+
+    // 3) targetDocUrl3 (VPFD51)
+    const r3 = receptions.find((r) => r.documentUrl === targetDocUrl3);
+    assert.ok(r3);
+    assert.equal(r3.telegramType, 'VPFD51');
+  } finally {
+    await server.close();
+    cleanup();
+  }
+});
+
+test('取得前電文種別フィルタ: 全トリガ(scheduled, manual, initial, recovery)で対象外URLは個別GETされず、対象外のみフィードでも初期取得がsuccess判定となる (AC5)', async () => {
+  const triggerCases: Array<{
+    trigger: JmaXmlPollTrigger;
+    expectedFeedKinds: readonly JmaXmlFeedKind[];
+  }> = [
+    { trigger: 'initial', expectedFeedKinds: ['regular', 'extra', 'regular_l', 'extra_l'] },
+    { trigger: 'manual', expectedFeedKinds: ['regular', 'extra'] },
+    { trigger: 'scheduled', expectedFeedKinds: ['regular', 'extra'] },
+    { trigger: 'recovery', expectedFeedKinds: ['regular', 'extra', 'regular_l', 'extra_l'] },
+  ];
+
+  for (const { trigger, expectedFeedKinds } of triggerCases) {
+    const { databasePath, cleanup } = createTempDb();
+    const server = await createTestHttpServer();
+
+    try {
+      const db = initializeDatabase({ databasePath, migrationsDirectory });
+
+      const targetDocPath = `/data/20260909000000_0_VPWW55_130000_${trigger}.xml`;
+      const targetDocUrl = `${server.baseUrl}${targetDocPath}`;
+      const nonTargetDocPath = `/data/20260909000000_0_VPAA50_130000_${trigger}.xml`;
+      const nonTargetDocUrl = `${server.baseUrl}${nonTargetDocPath}`;
+      const unextractableDocPath = `/data/invalid_name_${trigger}.xml`;
+      const unextractableDocUrl = `${server.baseUrl}${unextractableDocPath}`;
+
+      const telegramXml = createSampleTelegramXml();
+
+      // regular: 対象1件 + 対象外1件 + 抽出不能1件
+      const regularFeedXml = createSampleAtomFeed([
+        { id: `urn:entry-reg-t-${trigger}`, title: 'VPWW55', href: targetDocUrl },
+        { id: `urn:entry-reg-nt-${trigger}`, title: 'VPAA50', href: nonTargetDocUrl },
+        { id: `urn:entry-reg-ue-${trigger}`, title: 'INVALID', href: unextractableDocUrl },
+      ]);
+      // extra: 対象外のみ
+      const extraFeedXml = createSampleAtomFeed([
+        { id: `urn:entry-ext-nt-${trigger}`, title: 'VPAA50', href: nonTargetDocUrl },
+      ]);
+      // regular_l: 対象外のみ
+      const regularLFeedXml = createSampleAtomFeed([
+        { id: `urn:entry-regl-nt-${trigger}`, title: 'VPAA50', href: nonTargetDocUrl },
+      ]);
+      // extra_l: 対象外のみ
+      const extraLFeedXml = createSampleAtomFeed([
+        { id: `urn:entry-extl-nt-${trigger}`, title: 'VPAA50', href: nonTargetDocUrl },
+      ]);
+
+      server.setHandler((req, res) => {
+        if (req.url === '/feed/regular.xml') {
+          res.statusCode = 200;
+          res.end(regularFeedXml);
+          return;
+        }
+        if (req.url === '/feed/extra.xml') {
+          res.statusCode = 200;
+          res.end(extraFeedXml);
+          return;
+        }
+        if (req.url === '/feed/regular_l.xml') {
+          res.statusCode = 200;
+          res.end(regularLFeedXml);
+          return;
+        }
+        if (req.url === '/feed/extra_l.xml') {
+          res.statusCode = 200;
+          res.end(extraLFeedXml);
+          return;
+        }
+        if (req.url === targetDocPath) {
+          res.statusCode = 200;
+          res.end(telegramXml);
+          return;
+        }
+        res.statusCode = 404;
+        res.end('Not found');
+      });
+
+      const customFetch: typeof fetch = (input, init) => {
+        const urlStr = String(input);
+        if (urlStr.includes('/developer/xml/feed/regular.xml')) {
+          return fetch(`${server.baseUrl}/feed/regular.xml`, init);
+        }
+        if (urlStr.includes('/developer/xml/feed/extra.xml')) {
+          return fetch(`${server.baseUrl}/feed/extra.xml`, init);
+        }
+        if (urlStr.includes('/developer/xml/feed/regular_l.xml')) {
+          return fetch(`${server.baseUrl}/feed/regular_l.xml`, init);
+        }
+        if (urlStr.includes('/developer/xml/feed/extra_l.xml')) {
+          return fetch(`${server.baseUrl}/feed/extra_l.xml`, init);
+        }
+        return fetch(input, init);
+      };
+
+      const service = new JmaXmlPollingService(db.connection, {
+        freshnessPolicy: defaultXmlFreshnessPolicy,
+        fetchFn: customFetch,
+        allowedUrlPrefixes: [server.baseUrl],
+        allowHttpForTesting: true,
+        clock: () => '2026-09-09T01:00:00Z',
+      });
+
+      const cycleResult = await service.pollOnce(trigger);
+
+      // 1. 各トリガーに対応するフィード集合の完全一致検証
+      const actualFeedKinds = cycleResult.feedResults.map((r) => r.feedKind);
+      assert.deepEqual(actualFeedKinds, expectedFeedKinds);
+      assert.equal(cycleResult.trigger, trigger);
+      assert.equal(cycleResult.aborted, false);
+
+      // 2. 全フィードの outcome が success（対象外エントリのみのフィードがあっても failure にならない）
+      for (const feedResult of cycleResult.feedResults) {
+        assert.equal(feedResult.feedFetchOutcome, 'success');
+      }
+
+      // 3. 対象外のみのフィードのカウント検証
+      const nonTargetOnlyFeeds = expectedFeedKinds.filter((k) => k !== 'regular');
+      for (const feedKind of nonTargetOnlyFeeds) {
+        const feedRes = cycleResult.feedResults.find((r) => r.feedKind === feedKind);
+        assert.deepEqual(feedRes, {
+          feedKind,
+          feedFetchOutcome: 'success',
+          discoveredCount: 1,
+          skippedDuplicateCount: 0,
+          downloadedCount: 0,
+          failedDocumentCount: 0,
+        });
+      }
+
+      // 4. 対象1件 + 対象外1件 + 抽出不能1件 を含む regular フィードのカウント検証
+      const regularResult = cycleResult.feedResults.find((r) => r.feedKind === 'regular');
+      assert.deepEqual(regularResult, {
+        feedKind: 'regular',
+        feedFetchOutcome: 'success',
+        discoveredCount: 3,
+        skippedDuplicateCount: 0,
+        downloadedCount: 1,
+        failedDocumentCount: 0,
+      });
+
+      // 5. 対象外URL・抽出不能URLへの個別GETが 0 回、対象URLへの個別GETが 1 回
+      assert.equal(server.requestCounts.get(nonTargetDocPath) ?? 0, 0);
+      assert.equal(server.requestCounts.get(unextractableDocPath) ?? 0, 0);
+      assert.equal(server.requestCounts.get(targetDocPath), 1);
+
+      // 6. DB記録の検証: fetch_attempt（xml_document）および telegram_reception は対象URLの1件のみ
+      const attempts = listFetchAttempts(db.connection);
+      const docAttempts = attempts.filter((a) => a.sourceKind === 'xml_document');
+      assert.equal(docAttempts.length, 1);
+      assert.equal(docAttempts[0]?.requestUrl, targetDocUrl);
+      assert.equal(docAttempts[0]?.outcome, 'success');
+
+      const receptions = listTelegramReceptions(db.connection);
+      assert.equal(receptions.length, 1);
+      assert.equal(receptions[0]?.documentUrl, targetDocUrl);
+      assert.equal(receptions[0]?.telegramType, 'VPWW55');
+    } finally {
+      await server.close();
+      cleanup();
+    }
   }
 });

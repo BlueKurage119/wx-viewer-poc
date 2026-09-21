@@ -75,19 +75,19 @@ const sampleAtomXmlWith3Entries = `<?xml version="1.0" encoding="utf-8"?>
     <title>気象警報・注意報（東京都）1</title>
     <id>entry-1</id>
     <updated>2026-09-19T00:00:00Z</updated>
-    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/doc1.xml"/>
+    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc1.xml"/>
   </entry>
   <entry>
     <title>気象警報・注意報（東京都）2</title>
     <id>entry-2</id>
     <updated>2026-09-19T00:01:00Z</updated>
-    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/doc2.xml"/>
+    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc2.xml"/>
   </entry>
   <entry>
     <title>気象警報・注意報（東京都）3</title>
     <id>entry-3</id>
     <updated>2026-09-19T00:02:00Z</updated>
-    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/doc3.xml"/>
+    <link rel="alternate" type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc3.xml"/>
   </entry>
 </feed>`;
 
@@ -152,7 +152,7 @@ ${entries}
 </feed>`;
 }
 
-const DATA_BASE = 'https://www.data.jma.go.jp/developer/xml/data/';
+const DATA_BASE = 'https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_';
 
 function xmlResponse(body: string, contentType = 'application/xml'): Response {
   return new Response(body, { status: 200, headers: { 'content-type': contentType } });
@@ -299,14 +299,20 @@ test('T3: 手動サイクル中の stop() が電文境界で中断する', async
         });
       }
 
-      if (url === 'https://www.data.jma.go.jp/developer/xml/data/doc1.xml') {
+      if (
+        url ===
+        'https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc1.xml'
+      ) {
         return new Response(sampleTelegramXml, {
           status: 200,
           headers: { 'content-type': 'application/xml' },
         });
       }
 
-      if (url === 'https://www.data.jma.go.jp/developer/xml/data/doc2.xml') {
+      if (
+        url ===
+        'https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc2.xml'
+      ) {
         // 2件目の処理中に stop() を呼ぶ
         void service?.stop('stop');
         return new Response(sampleTelegramXml, {
@@ -334,7 +340,9 @@ test('T3: 手動サイクル中の stop() が電文境界で中断する', async
     assert.equal(regularResult.feedFetchOutcome, 'aborted');
     // 以降の電文 GET (doc3.xml) が発生していない
     assert.equal(
-      fetchedUrls.includes('https://www.data.jma.go.jp/developer/xml/data/doc3.xml'),
+      fetchedUrls.includes(
+        'https://www.data.jma.go.jp/developer/xml/data/20260919000000_0_VPWW55_130000_doc3.xml',
+      ),
       false,
     );
     // extra フィードはループ先頭で break されるため feedResults に入っていない
