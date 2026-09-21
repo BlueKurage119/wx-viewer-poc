@@ -294,6 +294,7 @@ select {
   margin-left: 1em;
 }
 .notice-actions button,
+.notice-question-choices button,
 .notice-count {
   height: 28px;
   min-width: 56px;
