@@ -92,16 +92,37 @@ test('H2 AC6: 監視API障害と通知受信再試行を操作ガイドで併記
     '取得監視: 監視情報API取得不可',
   );
 });
-test('H2 AC9: 通知がなくても各行に非活性の操作ボタンを表示する', () => {
+test('H2 AC9: 通知なしでは文字のない非活性ボタン枠を各行に表示する', () => {
   const html = renderToStaticMarkup(
     el(NotificationArea, {
       state: createNotificationUiState(),
       mode: 'H',
     }),
   );
-  assert.equal((html.match(/確認（送信）/g) ?? []).length, 2);
-  assert.equal((html.match(/関連（詳細）/g) ?? []).length, 2);
-  assert.equal((html.match(/disabled=""/g) ?? []).length, 4);
+  assert.equal((html.match(/disabled=""/g) ?? []).length, 5);
+  assert.equal(html.includes('確認'), false);
+  assert.equal(html.includes('詳細'), false);
+  assert.equal(html.includes('関連'), false);
+  assert.equal(html.includes('送信'), false);
+});
+test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを3ボタンで表示する', () => {
+  const state = receiveNotifications(
+    createNotificationUiState(),
+    previewNotices('mixed'),
+    'K',
+  ).state;
+  const html = renderToStaticMarkup(el(NotificationArea, { state, mode: 'K' }));
+  assert.ok(
+    html.includes(
+      '<button type="button" disabled="">詳細</button><button type="button" disabled="">確認</button>',
+    ),
+  );
+  assert.ok(
+    html.includes(
+      '<button type="button" disabled="">確認</button><button type="button" disabled="">詳細</button><button type="button" disabled="">送信</button>',
+    ),
+  );
+  assert.equal((html.match(/disabled=""/g) ?? []).length, 5);
 });
 test('未登録HTMLアクセスのみ404対象とし、APIやモジュールを妨げない', () => {
   assert.equal(isUnknownTerminalDocument('/unknown', 'text/html'), true);

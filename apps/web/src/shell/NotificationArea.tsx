@@ -14,8 +14,8 @@ export function NotificationArea({
   const counts = notificationCounts(state, mode);
   return (
     <>
-      <NoticeRow notice={displayedNoticeForRow(state, mode, 'warning')} />
-      <NoticeRow notice={displayedNoticeForRow(state, mode, 'question')} />
+      <NoticeRow row="warning" notice={displayedNoticeForRow(state, mode, 'warning')} />
+      <NoticeRow row="question" notice={displayedNoticeForRow(state, mode, 'question')} />
       <div className="notice-row operation-row">
         <div className="notice-text" role="status" aria-live="polite" tabIndex={0}>
           {state.operationMessage}
@@ -27,8 +27,21 @@ export function NotificationArea({
     </>
   );
 }
-function NoticeRow({ notice }: { notice: ReturnType<typeof displayedNoticeForRow> }) {
-  const rowClass = notice?.category === 'warning' ? 'warning-row' : 'question-row';
+function NoticeRow({
+  row,
+  notice,
+}: {
+  row: 'warning' | 'question';
+  notice: ReturnType<typeof displayedNoticeForRow>;
+}) {
+  const rowClass = row === 'warning' ? 'warning-row' : 'question-row';
+  const actions = notice
+    ? notice.category === 'warning'
+      ? ['詳細', '確認']
+      : ['確認', '詳細', '送信']
+    : rowClass === 'warning-row'
+      ? ['', '']
+      : ['', '', ''];
   return (
     <div className={`notice-row ${notice ? 'has-notice' : ''} ${rowClass}`}>
       <div
@@ -40,12 +53,11 @@ function NoticeRow({ notice }: { notice: ReturnType<typeof displayedNoticeForRow
         {notice?.summary}
       </div>
       <div className="notice-actions">
-        <button type="button" disabled>
-          確認（送信）
-        </button>
-        <button type="button" disabled>
-          関連（詳細）
-        </button>
+        {actions.map((label, index) => (
+          <button key={`${label}-${index}`} type="button" disabled>
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   );
