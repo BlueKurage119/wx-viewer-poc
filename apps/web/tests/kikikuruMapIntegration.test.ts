@@ -6,9 +6,18 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { terminals } from '../src/shell/config';
 import { sampleKikikuruTimeline } from '../src/map/fixtures';
 import { mapViewportConfiguration } from '../src/map/MapViewport';
-import { WeatherMapView } from '../src/map/WeatherMapView';
+import { getOverlayProductKey, WeatherMapView } from '../src/map/WeatherMapView';
 
 const el = React.createElement;
+
+test('WeatherMapView: ナウキャストとキキクルの往復ではオーバーレイを別インスタンスへ切り替えること', () => {
+  assert.equal(getOverlayProductKey('nowcast'), 'nowcast');
+  assert.equal(getOverlayProductKey('kikikuru-heavyrain'), 'kikikuru');
+  assert.equal(getOverlayProductKey('kikikuru-inund'), 'kikikuru');
+  assert.equal(getOverlayProductKey('kikikuru-land'), 'kikikuru');
+  assert.notEqual(getOverlayProductKey('nowcast'), getOverlayProductKey('kikikuru-heavyrain'));
+  assert.notEqual(getOverlayProductKey('kikikuru-heavyrain'), getOverlayProductKey('nowcast'));
+});
 
 test('MapViewport: Leaflet 本体・背景地図・命令的ズームが 9〜18 に固定されること (§7.2, §11.5)', () => {
   const eastTerminal = terminals.find((t) => t.venue.id === 'east')!;
@@ -28,6 +37,21 @@ test('MapViewport: Leaflet 本体・背景地図・命令的ズームが 9〜18 
     'Leaflet API に渡す setZoom(8) 相当も 9 へ丸める',
   );
   assert.equal(mapViewportConfiguration.clampMapZoom(19), 18);
+});
+
+test('MapViewport: カード差替え後は旧DOMを監視せず現在のカードを中心補正の監視対象にすること', () => {
+  const container = {} as HTMLElement;
+  const rightColumn = {} as HTMLElement;
+  const oldCard = {} as HTMLElement;
+  const currentCard = {} as HTMLElement;
+
+  const observed = mapViewportConfiguration.getObservedLayoutElements(
+    container,
+    rightColumn,
+    currentCard,
+  );
+  assert.deepEqual(observed, [container, rightColumn, currentCard]);
+  assert.equal(observed.includes(oldCard), false);
 });
 
 test('キキクル表示中は簡易カードだけを表示し、時間操作と廃止した注記を描画しないこと (§8.2, §8.3, §11.4)', () => {

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { TimelineIntent, TimelineViewModel } from '../types';
 import { LAYER_PRESENTATIONS } from '../fixtures';
@@ -24,6 +24,8 @@ export type KikikuruTileErrorState = Readonly<{
   readonly boundary: string;
   readonly count: number;
 }>;
+
+type KikikuruTargetFrame = Omit<KikikuruDisplayFrame, 'swapId'>;
 
 /**
  * 差替え完了の通知が、現在表示を待っているコマのものかを判定する。
@@ -82,7 +84,11 @@ export function useKikikuruLayerState(
   const frames = useMemo(() => toTimelineFrames(rawFrames ?? []), [rawFrames]);
   const latestFrame = frames[0] ?? null;
 
-  const target = useMemo(() => {
+  const target = useMemo<{
+    readonly display: KikikuruTargetFrame | null;
+    readonly overlay: { readonly id: string; readonly urlTemplate: string } | null;
+    readonly boundary: string;
+  }>(() => {
     if (
       !enabled ||
       !catalog ||
@@ -114,7 +120,6 @@ export function useKikikuruLayerState(
     return {
       display: {
         id: resolved.validTime,
-        swapId: `${currentLayerId}:${resolved.validTime}`,
         layerId: currentLayerId,
         label: formatJstMonthDateTime(resolved.validTime),
       },
@@ -123,15 +128,44 @@ export function useKikikuruLayerState(
     };
   }, [catalog, controlStatus, currentLayerId, enabled, latestFrame, rawFrames, terminalId]);
 
+  // enabled の往復も含め、索引・種別・提供状態の境界ごとに非同期通知を世代分離する。
+  // これにより一度外したオーバーレイの古い通知や失敗状態を、同じ URL に戻っても再利用しない。
+  const boundaryGenerationRef = useRef({ boundary: target.boundary, value: 0 });
+  if (boundaryGenerationRef.current.boundary !== target.boundary) {
+    boundaryGenerationRef.current = {
+      boundary: target.boundary,
+      value: boundaryGenerationRef.current.value + 1,
+    };
+  }
+  const targetGeneration = boundaryGenerationRef.current.value;
+  const currentTarget = target.display
+    ? {
+        ...target.display,
+        swapId: `${targetGeneration}:${target.display.layerId}:${target.display.id}`,
+      }
+    : null;
+  const scopedBoundary = `${targetGeneration}:${target.boundary}`;
+  const overlayFrame = target.overlay
+    ? { ...target.overlay, id: currentTarget?.swapId ?? target.overlay.id }
+    : null;
+
   // 画像差替えが完了するまで、カードは前に確定した画像の時刻を維持する。
   // 種別切替では layerId が一致しないため、旧種別の画像を新種別として表示しない。
   const [settledFrame, setSettledFrame] = useState<KikikuruDisplayFrame | null>(null);
-  const targetRef = useRef<KikikuruDisplayFrame | null>(target.display);
-  targetRef.current = target.display;
-  const targetBoundaryRef = useRef(target.boundary);
-  targetBoundaryRef.current = target.boundary;
-  const visibleFrame = getVisibleKikikuruFrame(settledFrame, target.display, enabled);
-  const tileErrorCount = getKikikuruTileErrorCount(tileErrors, target.boundary);
+  const targetRef = useRef<KikikuruDisplayFrame | null>(currentTarget);
+  targetRef.current = currentTarget;
+  const targetBoundaryRef = useRef(scopedBoundary);
+  targetBoundaryRef.current = scopedBoundary;
+  useEffect(() => {
+    setTileErrors((previous) =>
+      previous.boundary === scopedBoundary ? previous : { boundary: scopedBoundary, count: 0 },
+    );
+  }, [scopedBoundary]);
+  useEffect(() => {
+    if (!enabled) setSettledFrame(null);
+  }, [enabled]);
+  const visibleFrame = getVisibleKikikuruFrame(settledFrame, currentTarget, enabled);
+  const tileErrorCount = getKikikuruTileErrorCount(tileErrors, scopedBoundary);
 
   const viewModel: TimelineViewModel = {
     layerLabel: LAYER_PRESENTATIONS[visibleFrame?.layerId ?? currentLayerId].label,
@@ -158,7 +192,6 @@ export function useKikikuruLayerState(
     if (!isCurrentKikikuruSwap(currentTarget, result)) return;
 
     setSettledFrame(currentTarget);
-    setTileErrors({ boundary: targetBoundaryRef.current, count: 0 });
   }, []);
   const handleTileError = useCallback((frameId: string) => {
     const currentTarget = targetRef.current;
@@ -173,7 +206,7 @@ export function useKikikuruLayerState(
 
   return {
     viewModel,
-    overlayFrame: target.overlay,
+    overlayFrame,
     displayedLayerId: visibleFrame?.layerId ?? currentLayerId,
     handleIntent,
     handleSwapSettled,

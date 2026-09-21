@@ -40,7 +40,7 @@ test('useKikikuruLayerState: 差替え完了前は最新画像を要求しつつ
 
   // 最新コマ (2026-09-15T03:00:00.000Z) を要求するが、旧画像と新時刻を混在させない。
   assert.equal(result.viewModel.selectedFrameId, null);
-  assert.equal(result.overlayFrame?.id, 'kikikuru-heavyrain:2026-09-15T03:00:00.000Z');
+  assert.equal(result.overlayFrame?.id, '0:kikikuru-heavyrain:2026-09-15T03:00:00.000Z');
   assert.equal(result.viewModel.playing, false);
   assert.equal(result.viewModel.latestAvailable, false);
 });
@@ -79,6 +79,7 @@ test('useKikikuruLayerState: 差替え完了まで旧画像のカード・凡例
   const { flushSync } = await import('react-dom');
   const catalog = buildKikikuruCatalog(createSampleKikikuruResponse());
   let currentLayerId: 'kikikuru-heavyrain' | 'kikikuru-inund' = 'kikikuru-heavyrain';
+  let enabled = true;
   let captured: UseKikikuruLayerStateResult | null = null;
   function TestComponent() {
     captured = useKikikuruLayerState({
@@ -86,7 +87,7 @@ test('useKikikuruLayerState: 差替え完了まで旧画像のカード・凡例
       currentLayerId,
       terminalId: 'hkeagh01',
       controlStatus: 'normal',
-      enabled: true,
+      enabled,
     });
     return null;
   }
@@ -98,6 +99,7 @@ test('useKikikuruLayerState: 差替え完了まで旧画像のカード・凡例
     flushSync(() =>
       captured?.handleSwapSettled({ frameId: captured?.overlayFrame?.id ?? '', complete: true }),
     );
+    const heavyRainSwapId = captured?.overlayFrame?.id ?? '';
     assert.equal(captured?.viewModel.layerLabel, 'キキクル（大雨）');
     assert.equal(captured?.viewModel.selectedFrameLabel, '09/15 12:00');
     flushSync(() => captured?.handleTileError(captured?.overlayFrame?.id ?? ''));
@@ -105,14 +107,14 @@ test('useKikikuruLayerState: 差替え完了まで旧画像のカード・凡例
 
     currentLayerId = 'kikikuru-inund';
     flushSync(() => root.render(el(TestComponent)));
-    assert.equal(captured?.overlayFrame?.id, 'kikikuru-inund:2026-09-15T03:00:00.000Z');
+    assert.equal(captured?.overlayFrame?.id, '1:kikikuru-inund:2026-09-15T03:00:00.000Z');
     assert.equal(captured?.viewModel.layerLabel, 'キキクル（大雨）');
     assert.equal(captured?.displayedLayerId, 'kikikuru-heavyrain');
     assert.equal(captured?.statusMessage, null, '種別境界で旧タイルの失敗を持ち越さない');
 
     flushSync(() =>
       captured?.handleSwapSettled({
-        frameId: 'kikikuru-heavyrain:2026-09-15T03:00:00.000Z',
+        frameId: heavyRainSwapId,
         complete: true,
       }),
     );
@@ -127,9 +129,17 @@ test('useKikikuruLayerState: 差替え完了まで旧画像のカード・凡例
     assert.equal(captured?.displayedLayerId, 'kikikuru-inund');
     assert.equal(
       captured?.statusMessage,
-      null,
-      '正常・timeout を問わない差替え完了で失敗を解消する',
+      '一部のタイルを取得できていません',
+      'timeout でも当該 target の部分失敗を隠さない',
     );
+
+    enabled = false;
+    flushSync(() => root.render(el(TestComponent)));
+    enabled = true;
+    flushSync(() => root.render(el(TestComponent)));
+    assert.equal(captured?.viewModel.selectedFrameId, null, '無効化済み画像の時刻を再利用しない');
+    flushSync(() => captured?.handleTileError(heavyRainSwapId));
+    assert.equal(captured?.statusMessage, null, '無効化前の非同期失敗通知を無視する');
   } finally {
     root.unmount();
   }

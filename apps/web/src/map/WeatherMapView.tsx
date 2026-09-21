@@ -34,6 +34,12 @@ const NOWCAST_LAYER_OPACITY = 0.8;
 const KIKIKURU_LAYER_OPACITY = 0.75;
 const SWAP_TIMEOUT_MS = 12_000;
 
+/** ナウキャストとキキクルの間では、共通オーバーレイを必ず破棄する境界キー。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export function getOverlayProductKey(layerId: MapLayerId): 'nowcast' | 'kikikuru' {
+  return layerId === 'nowcast' ? 'nowcast' : 'kikikuru';
+}
+
 /**
  * 防災気象情報地図ビュー統括コンポーネント (F1, F2, F3, F4, F5, F6)
  *
@@ -214,11 +220,15 @@ export function WeatherMapView({
   ) : undefined;
 
   const effectiveStatusSlot = isNowcast ? nowcastStatusSlot : kikikuruStatusSlot;
+  // ナウキャストとキキクルの間では画像を引き継がない。種別間だけはキキクル側で
+  // settled 表示を維持するため、同一インスタンスの差替えを許可する。
+  const overlayProductKey = getOverlayProductKey(currentLayerId);
 
   return (
     <div className="weather-map-view" aria-label="防災気象情報ビュー">
       {/* 気象タイルオーバーレイ (F2 / F3) */}
       <WeatherTileOverlay
+        key={overlayProductKey}
         map={mapInstance}
         frame={overlayFrame}
         prefetchFrames={overlayPrefetchFrames}

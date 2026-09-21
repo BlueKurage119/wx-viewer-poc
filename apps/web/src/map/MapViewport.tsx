@@ -55,6 +55,17 @@ function createGsiPaleTileOptions(): L.TileLayerOptions {
   };
 }
 
+/** 現在マウントされているレイアウト要素だけを ResizeObserver の対象にする。 */
+function getObservedLayoutElements(
+  container: HTMLElement,
+  rightColumnElement: HTMLElement | null,
+  bottomCardElement: HTMLElement | null,
+): readonly HTMLElement[] {
+  return [container, rightColumnElement, bottomCardElement].filter(
+    (element): element is HTMLElement => element !== null,
+  );
+}
+
 /** 実装と同じ Leaflet 設定を回帰テストから検証するための公開境界。 */
 // eslint-disable-next-line react-refresh/only-export-components
 export const mapViewportConfiguration = {
@@ -64,6 +75,7 @@ export const mapViewportConfiguration = {
   clampMapZoom,
   createMapViewportOptions,
   createGsiPaleTileOptions,
+  getObservedLayoutElements,
 };
 
 /**
@@ -306,9 +318,13 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
       scheduleRecalculation();
     });
 
-    resizeObserver.observe(container);
-    if (rightColumnElement) resizeObserver.observe(rightColumnElement);
-    if (bottomCardElement) resizeObserver.observe(bottomCardElement);
+    for (const element of getObservedLayoutElements(
+      container,
+      rightColumnElement,
+      bottomCardElement,
+    )) {
+      resizeObserver.observe(element);
+    }
 
     // 初回計測
     scheduleRecalculation();
