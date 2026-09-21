@@ -77,7 +77,7 @@ test('回帰テスト: レイヤー切替時に setView / flyTo / fitBounds / pa
   assert.equal(mockMap.getZoom(), 11);
 });
 
-test('キキクル表示中の注記: 「この危険度は予測を含む判定結果です」がちょうど1か所表示されること (§8.2, §11.7)', () => {
+test('キキクル表示中は簡易カードだけを表示し、時間操作と廃止した注記を描画しないこと (§8.2, §8.3, §11.4)', () => {
   const eastTerminal = terminals.find((t) => t.venue.id === 'east')!;
 
   const html = renderToStaticMarkup(
@@ -88,12 +88,14 @@ test('キキクル表示中の注記: 「この危険度は予測を含む判定
     }),
   );
 
-  const noteText = 'この危険度は予測を含む判定結果です';
-  assert.ok(html.includes(noteText), '注記が表示されていません');
-
-  // DOM 全体で重複せずちょうど 1 回のみ出現すること
-  const occurrences = html.split(noteText).length - 1;
-  assert.equal(occurrences, 1, `注記が複数回 (${occurrences} 回) 出現しています`);
+  assert.ok(html.includes('kikikuru-status-card'));
+  assert.ok(html.includes('09/15 01:30'));
+  assert.equal(html.includes('timeline-slider'), false);
+  assert.equal(html.includes('aria-label="戻る"'), false);
+  assert.equal(html.includes('aria-label="再生"'), false);
+  assert.equal(html.includes('aria-label="現在"'), false);
+  assert.equal(html.includes('aria-label="次へ"'), false);
+  assert.equal(html.includes('この危険度は予測を含む判定結果です'), false);
 });
 
 test('キキクル表示中の画面テキストに禁止語（実況／予報／予測中／有効期限／〜まで有効／失効）が現れないこと (§8.2, §11.7)', () => {
@@ -121,11 +123,9 @@ test('キキクル表示中の画面テキストに禁止語（実況／予報�
   }
 });
 
-test('キキクル表示中かつズーム 9 以下のとき、「この縮尺では危険度分布を表示していません」が表示され、危険度なし・安全が現れないこと (§7.2, §11.5)', () => {
+test('キキクル表示中に危険度なし・安全・縮尺不足の文言が現れないこと (§7.2, §11.5)', () => {
   const eastTerminal = terminals.find((t) => t.venue.id === 'east')!;
 
-  // WeatherMapView にズーム 9 以下の状態をシミュレート
-  // statusSlot に「この縮尺では危険度分布を表示していません」が表示されることを検証
   const html = renderToStaticMarkup(
     el(WeatherMapView, {
       venue: eastTerminal.venue,
@@ -134,7 +134,6 @@ test('キキクル表示中かつズーム 9 以下のとき、「この縮尺�
     }),
   );
 
-  // 通常ズーム (11) では「この縮尺では〜」は出ない
   assert.ok(!html.includes('この縮尺では危険度分布を表示していません'));
 
   // 画面テキスト全体に「危険度なし」「安全」が現れないこと

@@ -113,16 +113,13 @@ export const sampleNowcastTimeline: TimelineViewModel = {
 };
 
 const kikikuruFrames: readonly TimelineFrame[] = [
-  { id: 'kk-ref', displayTime: '01:00', kind: 'reference', enabled: true },
-  { id: 'kk-01', displayTime: '01:10', kind: 'reference', enabled: true },
-  { id: 'kk-02', displayTime: '01:20', kind: 'reference', enabled: true },
-  { id: 'kk-03', displayTime: '01:30', kind: 'reference', enabled: true },
+  { id: 'kk-latest', displayTime: '01:30', kind: 'reference', enabled: true },
 ];
 
 export const sampleKikikuruTimeline: TimelineViewModel = {
   layerLabel: 'キキクル（大雨）',
-  selectedFrameId: 'kk-03',
-  selectedFrameLabel: '危険度判定 基準時刻 09/15 01:30',
+  selectedFrameId: 'kk-latest',
+  selectedFrameLabel: '09/15 01:30',
   frames: kikikuruFrames,
   playing: false,
   latestAvailable: true,

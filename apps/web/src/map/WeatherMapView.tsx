@@ -17,6 +17,7 @@ import { NowcastLoadingSpinner } from './nowcast/NowcastLoadingSpinner';
 import { useKikikuruCatalog } from './kikikuru/useKikikuruCatalog';
 import { useKikikuruLayerState } from './kikikuru/useKikikuruLayerState';
 import { isKikikuruLayer } from './kikikuru/kikikuruCatalog';
+import { KikikuruStatusCard } from './kikikuru/KikikuruStatusCard';
 import { WeatherTileOverlay } from './tiles/WeatherTileOverlay';
 
 export interface WeatherMapViewProps {
@@ -104,7 +105,7 @@ export function WeatherMapView({
       ? kikikuruState.catalog
       : null;
 
-  // キキクルの再生・選択制御 (種別切替時の時刻維持、member 再解決)
+  // キキクルの最新コマ・member 再解決
   const currentKikikuruLayerId = isKikikuru ? currentLayerId : 'kikikuru-heavyrain';
   const kikikuruPlayback = useKikikuruLayerState({
     catalog: kikikuruCatalog,
@@ -157,8 +158,6 @@ export function WeatherMapView({
   const handleIntent = (intent: TimelineIntent) => {
     if (isNowcast) {
       nowcastPlayback.handleIntent(intent);
-    } else if (isKikikuru) {
-      kikikuruPlayback.handleIntent(intent);
     }
     onTimelineIntent?.(intent);
   };
@@ -184,17 +183,15 @@ export function WeatherMapView({
   const handleZoomOut = () => viewportRef.current?.zoomOut();
   const handleReturnToVenue = () => viewportRef.current?.returnToVenue();
 
-  // 表示ズーム 10 未満ではキキクルの重畳を行わない (§7.2, §11.5)
-  const isZoomAllowedForKikikuru = currentZoom >= 10;
   const overlayFrame = isNowcast
     ? nowcastPlayback.overlayFrame
-    : isKikikuru && isZoomAllowedForKikikuru
+    : isKikikuru
       ? kikikuruPlayback.overlayFrame
       : null;
 
   const overlayAllowedZooms = isNowcast
     ? (nowcastCatalog?.allowedZooms ?? [10])
-    : (kikikuruCatalog?.allowedZooms ?? [10]);
+    : (kikikuruCatalog?.allowedZooms ?? []);
 
   const overlayOpacity = isNowcast ? NOWCAST_LAYER_OPACITY : KIKIKURU_LAYER_OPACITY;
   const overlayPrefetchFrames = isNowcast ? nowcastPlayback.prefetchFrames : undefined;
@@ -205,14 +202,10 @@ export function WeatherMapView({
     isNowcast &&
     nowcastPlayback.viewModel.intentFrameId !== nowcastPlayback.viewModel.settledFrameId;
 
-  // キキクル表示中のステータス注記スロット (§7.2, §8.2, §11.5, §11.7)
+  // キキクル表示中のステータス注記スロット
   const kikikuruStatusSlot = isKikikuru ? (
     <div className="timeline-status-slot">
-      <span className="kikikuru-prediction-note">この危険度は予測を含む判定結果です</span>
-      {currentZoom < 10 && (
-        <span className="kikikuru-status-message">この縮尺では危険度分布を表示していません</span>
-      )}
-      {currentZoom >= 10 && kikikuruPlayback.statusMessage && (
+      {kikikuruPlayback.statusMessage && (
         <span className="kikikuru-status-message">{kikikuruPlayback.statusMessage}</span>
       )}
     </div>
@@ -256,12 +249,20 @@ export function WeatherMapView({
         className="timeline-card-wrapper"
         aria-busy={isNowcast && isNowcastLoading ? true : undefined}
       >
-        <TimelineControlCard
-          ref={bottomCardRef}
-          viewModel={effectiveTimelineViewModel}
-          onIntent={handleIntent}
-          statusSlot={effectiveStatusSlot}
-        />
+        {isKikikuru ? (
+          <KikikuruStatusCard
+            ref={bottomCardRef}
+            viewModel={effectiveTimelineViewModel}
+            statusSlot={effectiveStatusSlot}
+          />
+        ) : (
+          <TimelineControlCard
+            ref={bottomCardRef}
+            viewModel={effectiveTimelineViewModel}
+            onIntent={handleIntent}
+            statusSlot={effectiveStatusSlot}
+          />
+        )}
       </div>
 
       {/* 4. 左下ズーム群および会場復帰 (F6) */}
