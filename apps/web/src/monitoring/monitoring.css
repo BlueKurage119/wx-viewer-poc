@@ -280,11 +280,6 @@
   block-size: 40px;
 }
 
-.monitoring-toolbar-icon-button::part(btn) {
-  --leading-space: 10px;
-  --trailing-space: 10px;
-}
-
 .monitoring-toolbar-title {
   inline-size: 120px;
   flex: 0 0 120px;

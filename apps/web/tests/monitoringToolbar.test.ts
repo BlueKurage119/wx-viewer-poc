@@ -4,11 +4,14 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { applyGbButtonState } from '../src/components/md/gbButtonState.ts';
 import { MonitoringDialogHost } from '../src/monitoring/MonitoringDialogHost.tsx';
+import { MonitoringToolbar } from '../src/monitoring/MonitoringToolbar.tsx';
 import { nextDialogFocusTarget } from '../src/monitoring/monitoringDialogFocus.ts';
 import { monitoringOperationMessage } from '../src/monitoring/monitoringOperationMessage.ts';
-import { createToolbarLocalState } from '../src/monitoring/monitoringToolbarState.ts';
+import {
+  createToolbarLocalState,
+  monitoringToolbarDefinitions,
+} from '../src/monitoring/monitoringToolbarState.ts';
 
 const el = React.createElement;
 const request = {
@@ -71,30 +74,60 @@ test('ダイアログ境界: 固定タイトル・準備中表示を持ち、差
   assert.ok(custom.includes('閉じる'));
 });
 
-test('戻るアイコン: 公開part上のpaddingトークンで内部buttonを40px幅に収める', () => {
+test('戻るアイコン: ホストを40px正方形に限定し、内部buttonのspacingを強制しない', () => {
   const css = readFileSync(new URL('../src/monitoring/monitoring.css', import.meta.url), 'utf8');
   const iconButtonRule = css.match(/\.monitoring-toolbar-icon-button \{([^}]*)\}/)?.[1];
-  const iconButtonPartRule = css.match(
-    /\.monitoring-toolbar-icon-button::part\(btn\) \{([^}]*)\}/,
-  )?.[1];
 
   assert.ok(iconButtonRule);
-  assert.ok(iconButtonPartRule);
   assert.ok(iconButtonRule.includes('inline-size: 40px !important;'));
   assert.ok(iconButtonRule.includes('block-size: 40px;'));
-  assert.ok(iconButtonPartRule.includes('--leading-space: 10px;'));
-  assert.ok(iconButtonPartRule.includes('--trailing-space: 10px;'));
+  assert.equal(css.includes('.monitoring-toolbar-icon-button::part(btn)'), false);
 });
 
-test('Labs toggle: 選択状態を公開selectedプロパティへ同じ向きで同期する', () => {
-  const button = { type: '', selected: false } as HTMLElement & {
-    type: string;
-    selected: boolean;
-  };
-  applyGbButtonState(button, true, true);
-  assert.deepEqual(button, { type: 'toggle', selected: true });
-  applyGbButtonState(button, true, false);
-  assert.deepEqual(button, { type: 'toggle', selected: false });
+test('取得操作: 通常buttonの形状を維持し、選択時だけ状態クラスと公開名を切り替える', () => {
+  const toolbarMarkup = (selectedOperation: 'start' | 'stop' | 'force_refresh' | null) =>
+    renderToStaticMarkup(
+      el(MonitoringToolbar, {
+        model: {
+          localState: { ...createToolbarLocalState('monitor-root'), selectedOperation },
+          operationState: { phase: 'idle' },
+          currentToolbar: monitoringToolbarDefinitions[0]!,
+          busy: false,
+          selectOperation: () => undefined,
+          clearSelection: () => undefined,
+          submit: () => undefined,
+          openDialog: () => undefined,
+          closeDialog: () => undefined,
+          navigate: () => undefined,
+          back: () => undefined,
+          backToRoot: () => undefined,
+        },
+      }),
+    );
+
+  const unselected = toolbarMarkup(null);
+  for (const [operation, label] of [
+    ['start', '取得開始'],
+    ['stop', '取得停止'],
+    ['force_refresh', '強制更新'],
+  ] as const) {
+    const selected = toolbarMarkup(operation);
+    assert.ok(unselected.includes(`aria-label="${label}"`));
+    assert.ok(selected.includes(`aria-label="${label}、選択中"`));
+    assert.equal((selected.match(/monitoring-toolbar-selected/g) ?? []).length, 1);
+    assert.equal((selected.match(/type="toggle"/g) ?? []).length, 0);
+    assert.equal(selected.includes('aria-pressed'), false);
+    assert.equal((selected.match(/size="sm"/g) ?? []).length, 11);
+    assert.equal((selected.match(/square=""/g) ?? []).length, 11);
+  }
+  assert.equal((unselected.match(/size="sm"/g) ?? []).length, 11);
+  assert.equal((unselected.match(/square=""/g) ?? []).length, 11);
+  const css = readFileSync(new URL('../src/monitoring/monitoring.css', import.meta.url), 'utf8');
+  const selectedRule = css.match(/\.monitoring-toolbar-selected \{([^}]*)\}/)?.[1];
+  assert.ok(selectedRule);
+  for (const forbiddenProperty of ['inline-size', 'block-size', 'border-radius', 'transform']) {
+    assert.equal(selectedRule.includes(forbiddenProperty), false);
+  }
 });
 
 test('モーダルフォーカス: 閉じるだけでも循環し、本文の先頭・末尾でもdialog外へ出ない', () => {

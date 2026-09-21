@@ -59,8 +59,7 @@ export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbar
                   disabled={busy}
                   size="sm"
                   square
-                  toggle
-                  selected={selected}
+                  aria-label={selected ? `${item.label}、選択中` : item.label}
                   onClick={() => model.selectOperation(item.operation)}
                   key={item.label}
                 >
