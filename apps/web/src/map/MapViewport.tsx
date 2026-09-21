@@ -26,6 +26,46 @@ const INITIAL_ZOOM = 11;
 const MIN_ZOOM = 9;
 const MAX_ZOOM = 18;
 
+/** 地図操作 API に渡すズームを UI の許容範囲へ正規化する。 */
+function clampMapZoom(zoom: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+}
+
+/** Leaflet 本体に一元適用する表示ズーム範囲。 */
+function createMapViewportOptions(venue: Venue): L.MapOptions {
+  return {
+    attributionControl: false,
+    zoomControl: false,
+    minZoom: MIN_ZOOM,
+    maxZoom: MAX_ZOOM,
+    center: [
+      venue.weatherTargets.mapReference.latitude,
+      venue.weatherTargets.mapReference.longitude,
+    ],
+    zoom: INITIAL_ZOOM,
+  };
+}
+
+/** 背景地図も本体と同じ範囲に固定し、8 以下の背景だけを表示しない。 */
+function createGsiPaleTileOptions(): L.TileLayerOptions {
+  return {
+    minZoom: MIN_ZOOM,
+    maxZoom: MAX_ZOOM,
+    attribution: '地理院タイル',
+  };
+}
+
+/** 実装と同じ Leaflet 設定を回帰テストから検証するための公開境界。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export const mapViewportConfiguration = {
+  initialZoom: INITIAL_ZOOM,
+  minZoom: MIN_ZOOM,
+  maxZoom: MAX_ZOOM,
+  clampMapZoom,
+  createMapViewportOptions,
+  createGsiPaleTileOptions,
+};
+
 /**
  * 会場マーカー用 SVG アイコン (F1 §2.2)
  *
@@ -121,7 +161,7 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
         if (!map) return;
         if (map.getZoom() < MAX_ZOOM) {
           setPlacement('manual');
-          map.zoomIn();
+          map.setZoom(clampMapZoom(map.getZoom() + 1));
         }
       },
       zoomOut: () => {
@@ -129,7 +169,7 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
         if (!map) return;
         if (map.getZoom() > MIN_ZOOM) {
           setPlacement('manual');
-          map.zoomOut();
+          map.setZoom(clampMapZoom(map.getZoom() - 1));
         }
       },
       returnToVenue: () => {
@@ -149,26 +189,12 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
     const container = containerRef.current;
     if (!container) return;
 
-    const map = L.map(container, {
-      attributionControl: false,
-      zoomControl: false,
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-      center: [
-        venue.weatherTargets.mapReference.latitude,
-        venue.weatherTargets.mapReference.longitude,
-      ],
-      zoom: INITIAL_ZOOM,
-    });
+    const map = L.map(container, createMapViewportOptions(venue));
     mapRef.current = map;
     onMapReadyRef.current?.(map);
 
     // 国土地理院淡色地図タイル
-    const tileLayer = L.tileLayer(GSI_PALE_TILE_URL, {
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-      attribution: '地理院タイル',
-    });
+    const tileLayer = L.tileLayer(GSI_PALE_TILE_URL, createGsiPaleTileOptions());
     tileLayer.addTo(map);
 
     // 会場マーカーの配置 (非操作要素)

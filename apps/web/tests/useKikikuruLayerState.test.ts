@@ -5,19 +5,18 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { buildKikikuruCatalog } from '../src/map/kikikuru/kikikuruCatalog';
 import {
+  getKikikuruTileErrorCount,
+  getVisibleKikikuruFrame,
+  isCurrentKikikuruSwap,
   useKikikuruLayerState,
-  transitionKikikuruLayer,
   type UseKikikuruLayerStateResult,
-  type KikikuruLayerState,
+  type KikikuruDisplayFrame,
 } from '../src/map/kikikuru/useKikikuruLayerState';
-import {
-  createSampleKikikuruResponse,
-  createSampleKikikuruFrames,
-} from './fixtures/kikikuruFixtures';
+import { createSampleKikikuruResponse } from './fixtures/kikikuruFixtures';
 
 const el = React.createElement;
 
-test('useKikikuruLayerState: 初期化時に最新コマが選択され、ラベルが MM/DD HH:mm 形式であること (§8.2, §11.7)', () => {
+test('useKikikuruLayerState: 差替え完了前は最新画像を要求しつつカード時刻を確定しないこと (§8.2, §11.7)', () => {
   const response = createSampleKikikuruResponse();
   const catalog = buildKikikuruCatalog(response);
 
@@ -39,104 +38,136 @@ test('useKikikuruLayerState: 初期化時に最新コマが選択され、ラベ
   assert.ok(captured);
   const result: UseKikikuruLayerStateResult = captured;
 
-  // 最新コマ (2026-09-15T03:00:00.000Z) が選択されていること
-  assert.equal(result.viewModel.selectedFrameId, '2026-09-15T03:00:00.000Z');
-  assert.equal(result.overlayFrame?.id, '2026-09-15T03:00:00.000Z');
-
-  // ラベルが MM/DD HH:mm 形式であること (03:00 UTC は 12:00 JST)
-  assert.equal(result.viewModel.selectedFrameLabel, '09/15 12:00');
+  // 最新コマ (2026-09-15T03:00:00.000Z) を要求するが、旧画像と新時刻を混在させない。
+  assert.equal(result.viewModel.selectedFrameId, null);
+  assert.equal(result.overlayFrame?.id, 'kikikuru-heavyrain:2026-09-15T03:00:00.000Z');
   assert.equal(result.viewModel.playing, false);
-  assert.equal(result.viewModel.latestAvailable, false); // 最新選択中は false
+  assert.equal(result.viewModel.latestAvailable, false);
 });
 
-test('transitionKikikuruLayer: 種別切替で切替先の最新コマを選び、playing が false になること (§5.2, §5.3, §11.3, §11.4)', () => {
-  const response = createSampleKikikuruResponse();
-  const catalog = buildKikikuruCatalog(response);
-
-  // 1. 大雨で過去コマを選んでいたとしても、過去選択は引き継がない。
-  const state0: KikikuruLayerState = {
-    selectedFrameId: '2026-09-15T02:00:00.000Z',
-    playing: true,
+test('useKikikuruLayerState: 差替え完了まで旧画像のカード・凡例を維持し、旧種別通知を受理しないこと', async () => {
+  const documentForClient = globalThis.document as unknown as {
+    addEventListener: () => void;
+    removeEventListener: () => void;
+    createElement: () => { setAttribute: () => void; removeAttribute: () => void };
+    defaultView: typeof globalThis.window;
+    documentElement: object;
+    activeElement: null;
   };
-
-  // 2. 浸水へ切り替え
-  const { nextState: stateInund, isOutOfRange: outInund } = transitionKikikuruLayer(
-    state0,
-    'kikikuru-inund',
-    catalog,
-  );
-
-  assert.equal(stateInund.selectedFrameId, '2026-09-15T03:00:00.000Z');
-  // 切替直後に再生が停止すること (§5.2, §11.4)
-  assert.equal(stateInund.playing, false);
-  assert.equal(outInund, false);
-
-  // 3. 土砂へ切り替え
-  const { nextState: stateLand, isOutOfRange: outLand } = transitionKikikuruLayer(
-    stateInund,
-    'kikikuru-land',
-    catalog,
-  );
-
-  // 土砂でもその種別の最新コマを表示する。
-  assert.equal(stateLand.selectedFrameId, '2026-09-15T03:00:00.000Z');
-  assert.equal(stateLand.playing, false);
-  assert.equal(outLand, false);
-});
-
-test('transitionKikikuruLayer: 切替先に過去コマがなくても利用可能な最新コマを選ぶこと (§5.3, §6.3, §11.4)', () => {
-  const baseResponse = createSampleKikikuruResponse();
-
-  // inund から 02:00:00.000Z のコマを削ったカタログを作成
-  const inundFrames = createSampleKikikuruFrames('inund', '2026-09-15T03:00:00.000Z', 37).filter(
-    (f) => f.validTime !== '2026-09-15T02:00:00.000Z',
-  );
-
-  const modifiedResponse = {
-    ...baseResponse,
-    layers: {
-      ...baseResponse.layers,
-      inund: {
-        ...baseResponse.layers.inund,
-        data: { frames: inundFrames },
-      },
+  const element = {
+    nodeType: 1,
+    nodeName: 'DIV',
+    tagName: 'DIV',
+    namespaceURI: 'http://www.w3.org/1999/xhtml',
+    ownerDocument: documentForClient,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  Object.assign(documentForClient, {
+    addEventListener() {},
+    removeEventListener() {},
+    createElement() {
+      return { style: {}, setAttribute() {}, removeAttribute() {} };
     },
-  };
-  const catalog = buildKikikuruCatalog(modifiedResponse);
+    defaultView: globalThis.window,
+    documentElement: element,
+    activeElement: null,
+  });
+  Object.assign(globalThis.window, { HTMLIFrameElement: class {} });
 
-  const state0: KikikuruLayerState = {
-    selectedFrameId: '2026-09-15T02:00:00.000Z',
-    playing: false,
-  };
+  const { createRoot } = await import('react-dom/client');
+  const { flushSync } = await import('react-dom');
+  const catalog = buildKikikuruCatalog(createSampleKikikuruResponse());
+  let currentLayerId: 'kikikuru-heavyrain' | 'kikikuru-inund' = 'kikikuru-heavyrain';
+  let captured: UseKikikuruLayerStateResult | null = null;
+  function TestComponent() {
+    captured = useKikikuruLayerState({
+      catalog,
+      currentLayerId,
+      terminalId: 'hkeagh01',
+      controlStatus: 'normal',
+      enabled: true,
+    });
+    return null;
+  }
 
-  // 02:00:00.000Z が存在しない浸水へ切り替え
-  const { nextState, isOutOfRange } = transitionKikikuruLayer(state0, 'kikikuru-inund', catalog);
+  const root = createRoot(element as unknown as Element);
+  try {
+    flushSync(() => root.render(el(TestComponent)));
+    assert.ok(captured);
+    flushSync(() =>
+      captured?.handleSwapSettled({ frameId: captured?.overlayFrame?.id ?? '', complete: true }),
+    );
+    assert.equal(captured?.viewModel.layerLabel, 'キキクル（大雨）');
+    assert.equal(captured?.viewModel.selectedFrameLabel, '09/15 12:00');
+    flushSync(() => captured?.handleTileError(captured?.overlayFrame?.id ?? ''));
+    assert.equal(captured?.statusMessage, '一部のタイルを取得できていません');
 
-  assert.equal(nextState.selectedFrameId, '2026-09-15T03:00:00.000Z');
-  assert.equal(isOutOfRange, false);
+    currentLayerId = 'kikikuru-inund';
+    flushSync(() => root.render(el(TestComponent)));
+    assert.equal(captured?.overlayFrame?.id, 'kikikuru-inund:2026-09-15T03:00:00.000Z');
+    assert.equal(captured?.viewModel.layerLabel, 'キキクル（大雨）');
+    assert.equal(captured?.displayedLayerId, 'kikikuru-heavyrain');
+    assert.equal(captured?.statusMessage, null, '種別境界で旧タイルの失敗を持ち越さない');
+
+    flushSync(() =>
+      captured?.handleSwapSettled({
+        frameId: 'kikikuru-heavyrain:2026-09-15T03:00:00.000Z',
+        complete: true,
+      }),
+    );
+    assert.equal(captured?.displayedLayerId, 'kikikuru-heavyrain');
+
+    flushSync(() => captured?.handleTileError(captured?.overlayFrame?.id ?? ''));
+    assert.equal(captured?.statusMessage, '一部のタイルを取得できていません');
+    flushSync(() =>
+      captured?.handleSwapSettled({ frameId: captured?.overlayFrame?.id ?? '', complete: false }),
+    );
+    assert.equal(captured?.viewModel.layerLabel, 'キキクル（浸水）');
+    assert.equal(captured?.displayedLayerId, 'kikikuru-inund');
+    assert.equal(
+      captured?.statusMessage,
+      null,
+      '正常・timeout を問わない差替え完了で失敗を解消する',
+    );
+  } finally {
+    root.unmount();
+  }
 });
 
-test('transitionKikikuruLayer: 切替先の最新時刻が異なる場合も、そのレイヤーの最新コマを選ぶこと', () => {
-  const baseResponse = createSampleKikikuruResponse();
-  const inundFrames = createSampleKikikuruFrames('inund', '2026-09-15T02:50:00.000Z', 37);
-  const catalog = buildKikikuruCatalog({
-    ...baseResponse,
-    layers: {
-      ...baseResponse.layers,
-      inund: { ...baseResponse.layers.inund, data: { frames: inundFrames } },
-    },
-  });
+test('キキクル: 現在の差替え通知だけが時刻を確定し、種別切替中は旧画像の種別・時刻を維持すること', () => {
+  const oldFrame: KikikuruDisplayFrame = {
+    id: '2026-09-15T02:50:00.000Z',
+    swapId: 'kikikuru-heavyrain:2026-09-15T02:50:00.000Z',
+    layerId: 'kikikuru-heavyrain',
+    label: '09/15 11:50',
+  };
+  const targetFrame: KikikuruDisplayFrame = {
+    id: '2026-09-15T03:00:00.000Z',
+    swapId: 'kikikuru-inund:2026-09-15T03:00:00.000Z',
+    layerId: 'kikikuru-inund',
+    label: '09/15 12:00',
+  };
 
-  const { nextState } = transitionKikikuruLayer(
-    { selectedFrameId: '2026-09-15T03:00:00.000Z', playing: true },
-    'kikikuru-inund',
-    catalog,
+  assert.equal(
+    isCurrentKikikuruSwap(targetFrame, { frameId: oldFrame.swapId, complete: true }),
+    false,
   );
+  assert.equal(
+    isCurrentKikikuruSwap(targetFrame, { frameId: targetFrame.swapId, complete: false }),
+    true,
+  );
+  assert.deepEqual(getVisibleKikikuruFrame(oldFrame, targetFrame, true), oldFrame);
+  assert.deepEqual(getVisibleKikikuruFrame(targetFrame, targetFrame, true), targetFrame);
+});
 
-  assert.deepEqual(nextState, {
-    selectedFrameId: '2026-09-15T02:50:00.000Z',
-    playing: false,
-  });
+test('キキクル: タイル失敗は索引・種別・有効状態の境界を越えて持ち越さないこと', () => {
+  const oldBoundary = 'true:kikikuru-heavyrain:normal:/old';
+  const newBoundary = 'true:kikikuru-inund:normal:/new';
+  const errorState = { boundary: oldBoundary, count: 2 };
+
+  assert.equal(getKikikuruTileErrorCount(errorState, oldBoundary), 2);
+  assert.equal(getKikikuruTileErrorCount(errorState, newBoundary), 0);
 });
 
 test('useKikikuruLayerState: controlStatus !== normal のときは非提供の文言が出ること (§11.8)', () => {

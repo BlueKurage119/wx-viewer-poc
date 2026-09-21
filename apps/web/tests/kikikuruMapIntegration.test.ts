@@ -3,78 +3,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { WeatherMapView } from '../src/map/WeatherMapView';
 import { terminals } from '../src/shell/config';
 import { sampleKikikuruTimeline } from '../src/map/fixtures';
+import { mapViewportConfiguration } from '../src/map/MapViewport';
+import { WeatherMapView } from '../src/map/WeatherMapView';
 
 const el = React.createElement;
 
-test('回帰テスト: レイヤー切替時に setView / flyTo / fitBounds / panTo のいずれも呼ばれないこと (§5.2, §11.3)', () => {
-  // Leaflet map インスタンスのモック
-  const calls: string[] = [];
-  const mockMap = {
-    setView() {
-      calls.push('setView');
-      return this;
-    },
-    flyTo() {
-      calls.push('flyTo');
-      return this;
-    },
-    fitBounds() {
-      calls.push('fitBounds');
-      return this;
-    },
-    panTo() {
-      calls.push('panTo');
-      return this;
-    },
-    getZoom() {
-      return 11;
-    },
-    getCenter() {
-      return { lat: 35.63159, lng: 139.79281 };
-    },
-    hasLayer() {
-      return false;
-    },
-    addLayer() {
-      return this;
-    },
-    removeLayer() {
-      return this;
-    },
-    on() {
-      return this;
-    },
-    off() {
-      return this;
-    },
-  };
-
+test('MapViewport: Leaflet 本体・背景地図・命令的ズームが 9〜18 に固定されること (§7.2, §11.5)', () => {
   const eastTerminal = terminals.find((t) => t.venue.id === 'east')!;
+  const mapOptions = mapViewportConfiguration.createMapViewportOptions(eastTerminal.venue);
+  const tileOptions = mapViewportConfiguration.createGsiPaleTileOptions();
 
-  const layers = [
-    'kikikuru-heavyrain',
-    'kikikuru-inund',
-    'kikikuru-land',
-    'nowcast',
-    'kikikuru-heavyrain',
-  ] as const;
-
-  for (const layerId of layers) {
-    renderToStaticMarkup(
-      el(WeatherMapView, {
-        venue: eastTerminal.venue,
-        selectedLayerId: layerId,
-      }),
-    );
-  }
-
-  // レイヤー切替の前後で map の移動メソッドが一切呼ばれていないこと (空配列)
-  // mockMap に対しても一切操作が行われないことの確認
-  assert.equal(calls.length, 0, `予期せぬ地図移動メソッドが呼ばれました: ${calls.join(', ')}`);
-  assert.equal(mockMap.getZoom(), 11);
+  assert.equal(mapViewportConfiguration.minZoom, 9);
+  assert.equal(mapViewportConfiguration.maxZoom, 18);
+  assert.equal(mapOptions.minZoom, 9);
+  assert.equal(mapOptions.maxZoom, 18);
+  assert.equal(mapOptions.zoom, mapViewportConfiguration.initialZoom);
+  assert.equal(tileOptions.minZoom, 9);
+  assert.equal(tileOptions.maxZoom, 18);
+  assert.equal(
+    mapViewportConfiguration.clampMapZoom(8),
+    9,
+    'Leaflet API に渡す setZoom(8) 相当も 9 へ丸める',
+  );
+  assert.equal(mapViewportConfiguration.clampMapZoom(19), 18);
 });
 
 test('キキクル表示中は簡易カードだけを表示し、時間操作と廃止した注記を描画しないこと (§8.2, §8.3, §11.4)', () => {
@@ -96,6 +49,28 @@ test('キキクル表示中は簡易カードだけを表示し、時間操作�
   assert.equal(html.includes('aria-label="現在"'), false);
   assert.equal(html.includes('aria-label="次へ"'), false);
   assert.equal(html.includes('この危険度は予測を含む判定結果です'), false);
+});
+
+test('キキクルの状態注記スロットは必要時だけ1つ描画され、空の入れ子を作らないこと', () => {
+  const eastTerminal = terminals.find((t) => t.venue.id === 'east')!;
+  const normalHtml = renderToStaticMarkup(
+    el(WeatherMapView, {
+      venue: eastTerminal.venue,
+      selectedLayerId: 'kikikuru-heavyrain',
+      timelineViewModel: sampleKikikuruTimeline,
+    }),
+  );
+  assert.equal((normalHtml.match(/timeline-status-slot/g) ?? []).length, 0);
+
+  const unavailableHtml = renderToStaticMarkup(
+    el(WeatherMapView, {
+      venue: eastTerminal.venue,
+      selectedLayerId: 'kikikuru-heavyrain',
+      controlStatus: 'training',
+    }),
+  );
+  assert.equal((unavailableHtml.match(/timeline-status-slot/g) ?? []).length, 1);
+  assert.ok(unavailableHtml.includes('この制御状態ではキキクルを提供していません'));
 });
 
 test('キキクル表示中の画面テキストに禁止語（実況／予報／予測中／有効期限／〜まで有効／失効）が現れないこと (§8.2, §11.7)', () => {

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useMemo, useCallback } from 'react';
 import type L from 'leaflet';
 import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { Venue } from '../shell/config';
@@ -61,14 +61,13 @@ export function WeatherMapView({
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
 
   // 右列 slot と時間カードの DOM 要素参照 (MapViewport の中心補正に渡す)
-  const rightColumnRef = useRef<HTMLElement>(null);
-  const bottomCardRef = useRef<HTMLDivElement>(null);
   const [rightColumnEl, setRightColumnEl] = useState<HTMLElement | null>(null);
   const [bottomCardEl, setBottomCardEl] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setRightColumnEl(rightColumnRef.current);
-    setBottomCardEl(bottomCardRef.current);
+  const setRightColumnRef = useCallback((element: HTMLElement | null) => {
+    setRightColumnEl(element);
+  }, []);
+  const setBottomCardRef = useCallback((element: HTMLDivElement | null) => {
+    setBottomCardEl(element);
   }, []);
 
   const viewportRef = useRef<MapViewportHandle>(null);
@@ -176,7 +175,8 @@ export function WeatherMapView({
     }
   };
 
-  const presentation = LAYER_PRESENTATIONS[currentLayerId];
+  const presentationLayerId = isKikikuru ? kikikuruPlayback.displayedLayerId : currentLayerId;
+  const presentation = LAYER_PRESENTATIONS[presentationLayerId];
 
   // ズーム・会場復帰操作 (F6)
   const handleZoomIn = () => viewportRef.current?.zoomIn();
@@ -203,13 +203,10 @@ export function WeatherMapView({
     nowcastPlayback.viewModel.intentFrameId !== nowcastPlayback.viewModel.settledFrameId;
 
   // キキクル表示中のステータス注記スロット
-  const kikikuruStatusSlot = isKikikuru ? (
-    <div className="timeline-status-slot">
-      {kikikuruPlayback.statusMessage && (
-        <span className="kikikuru-status-message">{kikikuruPlayback.statusMessage}</span>
-      )}
-    </div>
-  ) : undefined;
+  const kikikuruStatusSlot =
+    isKikikuru && kikikuruPlayback.statusMessage ? (
+      <span className="kikikuru-status-message">{kikikuruPlayback.statusMessage}</span>
+    ) : undefined;
 
   // ナウキャスト表示中のスピナースロット (§9.4.8)
   const nowcastStatusSlot = isNowcast ? (
@@ -251,13 +248,13 @@ export function WeatherMapView({
       >
         {isKikikuru ? (
           <KikikuruStatusCard
-            ref={bottomCardRef}
+            ref={setBottomCardRef}
             viewModel={effectiveTimelineViewModel}
             statusSlot={effectiveStatusSlot}
           />
         ) : (
           <TimelineControlCard
-            ref={bottomCardRef}
+            ref={setBottomCardRef}
             viewModel={effectiveTimelineViewModel}
             onIntent={handleIntent}
             statusSlot={effectiveStatusSlot}
@@ -277,7 +274,7 @@ export function WeatherMapView({
       <MapAttribution />
 
       {/* 6. 右側情報列スロット (F1 / G1) */}
-      <MapInformationColumnSlot ref={rightColumnRef} />
+      <MapInformationColumnSlot ref={setRightColumnRef} />
 
       {/* 7. Leaflet 地図本体 (F1) - 背景レイヤー */}
       <MapViewport
