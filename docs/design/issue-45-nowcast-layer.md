@@ -375,7 +375,8 @@ apps/web/src/map/tiles/                        ★F2 が新設する共通ディ
   index.ts                   バレル
 
 apps/web/src/components/md/
-  CircularProgress.ts       F2: md-circular-progress の型付きラッパー（§9.4.8）。index.ts のバレルに追加
+  CircularProgress.ts       F2: md-circular-progress の型付きラッパー（§9.4.8）。
+                            GbButton と同じ動的 import ガード方式。index.ts のバレルに追加
 
 apps/web/src/map/nowcast/                      F2 固有
   nowcastCatalog.ts       純関数: NowcastTimesResponse → NowcastCatalog
@@ -385,6 +386,7 @@ apps/web/src/map/nowcast/                      F2 固有
   nowcastTimeline.ts      純関数: NowcastCatalog + 選択状態 → TimelineViewModel
   nowcastLegend.ts        凡例の階級定義（トークン名とラベル）
   NowcastLoadingSpinner.tsx  読込中スピナー。statusSlot へ渡す（§9.4.8）
+  useDelayedFlag.ts       スピナーの表示遅延・最小表示時間（§9.4.8）
   index.ts                バレル
 ```
 
@@ -778,22 +780,45 @@ export interface UsePlaybackResult {
 | コンポーネントトークン | `--md-circular-progress-active-indicator-color` / `--md-circular-progress-size` / `--md-circular-progress-active-indicator-width` |
 | 既定のアクセシビリティ | 内部で `role="progressbar"` と `aria-valuemin` / `aria-valuemax` / `aria-valuenow` / `aria-label` を描画する |
 
-**`"sideEffects": ["*.css"]` 制約（06-ui-md3-protocol 必須制約 3）への対応**: 副作用目的の bare import（`import '@material/web/progress/circular-progress.js'`）は本番ビルドで黙って除去されるため書かない。既存 `apps/web/src/components/md/Button.ts` と同じく、**`@lit/react` の `createComponent` に `MdCircularProgress` クラスを値として渡す**形にする。クラスが値として参照されるため tree-shaking で落ちない。
+**`"sideEffects": ["*.css"]` 制約（06-ui-md3-protocol 必須制約 3）への対応**: 副作用目的の bare import（`import '@material/web/progress/circular-progress.js'`）は本番ビルドで黙って除去されるため書かない。**既存 `apps/web/src/components/md/GbButton.tsx` と同じ動的 import ガード方式**を採る。
 
 ```ts
-// apps/web/src/components/md/CircularProgress.ts（新規）
+// apps/web/src/components/md/CircularProgress.ts
 import React from 'react';
-import { createComponent } from '@lit/react';
-import { MdCircularProgress } from '@material/web/progress/circular-progress.js';
 
-export const CircularProgress = createComponent({
-  tagName: 'md-circular-progress',
-  elementClass: MdCircularProgress,
-  react: React,
-});
+if (typeof document !== 'undefined' && typeof document.createTreeWalker === 'function') {
+  void import('@material/web/progress/circular-progress.js');
+}
+
+export interface CircularProgressProps extends React.HTMLAttributes<HTMLElement> {
+  readonly indeterminate?: boolean;
+  readonly value?: number;
+  readonly max?: number;
+  readonly 'aria-hidden'?: 'true' | 'false' | boolean;
+}
+
+export const CircularProgress = React.forwardRef<HTMLElement, CircularProgressProps>(
+  function CircularProgress({ indeterminate, value, max, ...props }, ref) {
+    return React.createElement('md-circular-progress', {
+      ...props,
+      indeterminate: indeterminate ? '' : undefined,
+      value,
+      max,
+      ref,
+    });
+  },
+);
 ```
 
+`indeterminate` は真偽値ではなく**属性（空文字）**として渡す。カスタム要素の真偽属性は存在の有無で解釈されるためである。
+
+**`@lit/react` の `createComponent` 方式（既存 `Button.ts`）を採らない理由**: `createComponent` は `MdCircularProgress` クラスを静的 import する必要がある。その静的 import は **Node のテスト環境で落ちる**。`setupEnv.ts` のダミー `document` には `createTreeWalker` が無く、lit-html の初期化時に `TypeError` になるためである。動的 import をガードで囲めば、ブラウザーでだけ読み込まれ、テスト環境では評価されない。
+
+**動的 import が `sideEffects` 制約に抵触しない根拠**: `sideEffects` の指定が落とすのは「副作用目的の静的 bare import」であり、動的 `import()` は落ちない。実際に **既存の `GbButton` が本番で同方式で動作している**。本件でもビルド成果物に `dist/assets/circular-progress-*.js`（約 6.4 kB）が独立チャンクとして出力され、要素登録が落ちないことを統括担当が確認済みである。
+
 必須制約 5（`<md-*>` の生タグを直書きしない）に従い、**`apps/web/src/components/md/index.ts` のバレルに `CircularProgress` を追加**し、利用側はバレルから import する。
+
+**要素登録が非同期になることの影響【要実機確認】**: 動的 import のため、要素登録はチャンクの読み込み完了後になる。それまで `<md-circular-progress>` は未定義要素として描画され（何も描かれない）、登録後に反映される。スピナーは `SPINNER_SHOW_DELAY_MS = 250` の遅延を経て表示されるため、その間にチャンクの読み込みが完了している見込みが高く、**実害は小さいと考えられる**。ただし初回表示・低速回線での挙動は未検証であり、§11.4.1 で実機確認する。登録前後でカードの高さが変わらないことも併せて確認する（未定義要素は中身を持たないため、`statusSlot` の領域寸法を固定する §9.4.8 の規定で吸収される想定）。
 
 ##### 表示条件とちらつき防止【設計案】
 
@@ -930,7 +955,11 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 - [ ] **【文言なし】**画面上にスピナーに伴う文言（「読み込み中」等）が表示されない。
 - [ ] **【支援技術】**スピナー要素が `aria-hidden="true"` でアクセシビリティツリーから隠れ、読込中は `.timeline-card-wrapper` に `aria-busy="true"` が付くことを DevTools で確認する。名前のない `role="progressbar"` がツリーに残らない。
 - [ ] **【F3 に出ない】**キキクル（大雨・浸水・土砂）を選択している間はスピナーが一度も表示されず、`aria-busy` も付かないことを確認する。
-- [ ] **【依存とビルド】**`apps/web/package.json` の `dependencies` に新規パッケージが追加されていない（`md-circular-progress` は既存の `@material/web` に同梱）。`npm run build` 後の本番バンドルでスピナーが実際に描画される（`sideEffects` 制約で要素登録が落ちていない）ことを、ビルド成果物をプレビューして確認する。
+- [ ] **【依存】**`apps/web/package.json` の `dependencies` に新規パッケージが追加されていない（`md-circular-progress` は既存の `@material/web` に同梱）。
+- [ ] **【本番ビルドで要素登録が落ちていない】**`npm run build` 後に次の 2 点を確認する。
+  1. **動的 import チャンクの存在**: `ls apps/web/dist/assets/circular-progress-*.js` が 1 件以上存在する（約 6.4 kB）。`sideEffects` 制約で要素登録が除去されていれば、このチャンクは出力されない。
+  2. **実機での要素定義**: ビルド成果物をプレビューして画面を開き、DevTools のコンソールで `customElements.get('md-circular-progress')` が `undefined` **でない**ことを確認する。併せて、スピナー表示時に実際に描画されることを目視する。
+- [ ] **【登録の非同期性】**低速回線（DevTools の Slow 3G）で初回表示直後に手動操作し、チャンク読込前でもレイアウトが崩れず、読込完了後にスピナーが正しく描画されることを確認する（§9.4.8【要実機確認】）。カード高さが登録前後で変化しないことを `getBoundingClientRect()` で確認する。
 
 #### 11.4.2 その他
 
