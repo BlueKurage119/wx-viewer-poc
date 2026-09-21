@@ -174,3 +174,98 @@ test('H2 AC6: 契約外応答による再試行でも既存通知を維持する
     [1000, 2000, 4000, 8000, 16000, 30000, 30000],
   );
 });
+
+for (const category of ['warning', 'question', 'emergency'] as const) {
+  test(`Issue #200 AC1/AC4: ${category}の最終確認後は空欄とし、保持・再受信・新着を分離する`, () => {
+    const row = category === 'warning' ? 'warning' : 'question';
+    const original = notice('delta:original', category);
+    let state = receiveNotifications(createNotificationUiState(), [original], 'K').state;
+    if (category !== 'warning') {
+      state = selectQuestionConfirmation(state, original.feedKey);
+      assert.equal(displayedNoticeForRow(state, 'K', row)?.feedKey, original.feedKey);
+      assert.deepEqual(state.confirmedFeedKeys, new Set());
+    }
+    state = confirmNotification(state, original.feedKey, 'K');
+    assert.equal(displayedNoticeForRow(state, 'K', row), undefined);
+    assert.deepEqual(state.items, [original]);
+    assert.deepEqual(state.confirmedFeedKeys, new Set(['delta:original']));
+    assert.equal(state.selectedQuestionFeedKey, null);
+    assert.equal(state.selectedQuestionChoice, null);
+    const repeated = receiveNotifications(state, [original], 'K');
+    assert.equal(repeated.chime, null);
+    assert.equal(nextUnconfirmedChime(repeated.state, 'K'), null);
+    assert.equal(displayedNoticeForRow(repeated.state, 'K', row), undefined);
+    assert.deepEqual(notificationCounts(repeated.state, 'K'), { unread: 0, pending: 0 });
+    assert.deepEqual(repeated.state.items, [original]);
+    assert.deepEqual(repeated.state.confirmedFeedKeys, new Set(['delta:original']));
+    const incoming = notice('delta:new', category, { occurredAt: '2026-09-21T00:00:01.000Z' });
+    const added = receiveNotifications(repeated.state, [incoming], 'K');
+    assert.equal(displayedNoticeForRow(added.state, 'K', row)?.feedKey, 'delta:new');
+    assert.deepEqual(added.state.items, [incoming, original]);
+    assert.deepEqual(added.state.confirmedFeedKeys, new Set(['delta:original']));
+    assert.deepEqual(added.chime, { category, feedKey: 'delta:new' });
+  });
+}
+
+for (const row of ['warning', 'question'] as const) {
+  test(`Issue #200 AC2/AC5: ${row}行は区分優先でなく新→旧→空欄へ進み、既読・件数・鳴動を更新する`, () => {
+    const olderCategory = row === 'warning' ? 'warning' : 'emergency';
+    const newerCategory = row === 'warning' ? 'warning' : 'question';
+    const older = notice('delta:older', olderCategory, { ackRequired: false });
+    const newer = notice('delta:newer', newerCategory, { occurredAt: '2026-09-21T00:00:01.000Z' });
+    let state = receiveNotifications(createNotificationUiState(), [older, newer], 'K').state;
+    assert.equal(displayedNoticeForRow(state, 'K', row)?.feedKey, 'delta:newer');
+    assert.deepEqual(state.unreadFeedKeys, new Set(['delta:older']));
+    assert.deepEqual(notificationCounts(state, 'K'), { unread: 1, pending: 1 });
+    assert.deepEqual(nextUnconfirmedChime(state, 'K'), {
+      category: olderCategory,
+      feedKey: row === 'warning' ? 'delta:newer' : 'delta:older',
+    });
+    state = confirmNotification(state, 'delta:newer', 'K');
+    assert.equal(displayedNoticeForRow(state, 'K', row)?.feedKey, 'delta:older');
+    assert.deepEqual(state.unreadFeedKeys, new Set());
+    assert.deepEqual(notificationCounts(state, 'K'), { unread: 0, pending: 0 });
+    assert.deepEqual(nextUnconfirmedChime(state, 'K'), {
+      category: olderCategory,
+      feedKey: 'delta:older',
+    });
+    state = confirmNotification(state, 'delta:older', 'K');
+    assert.equal(displayedNoticeForRow(state, 'K', row), undefined);
+    assert.deepEqual(state.items, [newer, older]);
+    assert.deepEqual(notificationCounts(state, 'K'), { unread: 0, pending: 0 });
+    assert.equal(nextUnconfirmedChime(state, 'K'), null);
+  });
+
+  test(`Issue #200 AC3: ${row}行だけ全件確認しても他方の未確認通知は残る`, () => {
+    const state = receiveNotifications(
+      createNotificationUiState(),
+      [notice('delta:warning', 'warning'), notice('delta:question', 'question')],
+      'K',
+    ).state;
+    const confirmed = confirmNotification(state, `delta:${row}`, 'K');
+    const other = row === 'warning' ? 'question' : 'warning';
+    assert.equal(displayedNoticeForRow(confirmed, 'K', row), undefined);
+    assert.equal(displayedNoticeForRow(confirmed, 'K', other)?.feedKey, `delta:${other}`);
+    assert.deepEqual(confirmed.confirmedFeedKeys, new Set([`delta:${row}`]));
+    assert.deepEqual(notificationCounts(confirmed, 'K'), { unread: 0, pending: 1 });
+  });
+
+  test(`Issue #200 AC6: ${row}行のH端末はweather確認後に空欄、K端末には未確認systemが残る`, () => {
+    const category = row === 'warning' ? 'warning' : 'emergency';
+    const system = notice('delta:system', category, { origin: 'system' });
+    const weather = notice('delta:weather', category, { occurredAt: '2026-09-21T00:00:01.000Z' });
+    let state = receiveNotifications(createNotificationUiState(), [system, weather], 'H').state;
+    assert.equal(displayedNoticeForRow(state, 'H', row)?.feedKey, 'delta:weather');
+    assert.deepEqual(notificationCounts(state, 'H'), { unread: 0, pending: 1 });
+    assert.deepEqual(nextUnconfirmedChime(state, 'H'), { category, feedKey: 'delta:weather' });
+    state = confirmNotification(state, 'delta:weather', 'H');
+    assert.equal(displayedNoticeForRow(state, 'H', row), undefined);
+    assert.deepEqual(notificationCounts(state, 'H'), { unread: 0, pending: 0 });
+    assert.equal(nextUnconfirmedChime(state, 'H'), null);
+    assert.deepEqual(state.items, [weather, system]);
+    assert.deepEqual(state.confirmedFeedKeys, new Set(['delta:weather']));
+    assert.equal(displayedNoticeForRow(state, 'K', row)?.feedKey, 'delta:system');
+    assert.deepEqual(notificationCounts(state, 'K'), { unread: 1, pending: 1 });
+    assert.deepEqual(nextUnconfirmedChime(state, 'K'), { category, feedKey: 'delta:system' });
+  });
+}
