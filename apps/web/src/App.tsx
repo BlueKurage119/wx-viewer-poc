@@ -133,7 +133,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     }
   };
   const stopBuzzer = () => {
-    if (buzzer.state.feedKey) confirmNotification(buzzer.state.feedKey);
+    buzzer.stop();
   };
 
   return (

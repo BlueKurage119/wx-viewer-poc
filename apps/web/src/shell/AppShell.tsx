@@ -74,7 +74,7 @@ export function AppShell({
         }}
         role={onStopBuzzer ? 'button' : undefined}
         tabIndex={onStopBuzzer ? 0 : undefined}
-        aria-label={onStopBuzzer ? '通知を確認' : undefined}
+        aria-label={onStopBuzzer ? 'アラーム停止' : undefined}
       >
         <h1>{title}</h1>
         <div className="header-state">

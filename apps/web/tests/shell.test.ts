@@ -124,7 +124,7 @@ test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを選択肢�
   );
   assert.equal((html.match(/disabled=""/g) ?? []).length, 5);
 });
-test('H1: ブザー中は専用ボタンや説明文を増やさずヘッダー全体を確認操作にする', () => {
+test('H1: ブザー中は専用ボタンや説明文を増やさずヘッダー全体を停止操作にする', () => {
   const terminal = terminals[0]!;
   const html = renderToStaticMarkup(
     el(
@@ -146,6 +146,7 @@ test('H1: ブザー中は専用ボタンや説明文を増やさずヘッダー�
   assert.ok(html.includes('<header class="app-header"'));
   assert.ok(html.includes('role="button"'));
   assert.ok(html.includes('tabindex="0"'));
+  assert.ok(html.includes('aria-label="アラーム停止"'));
   assert.equal(html.includes('class="header-stop"'), false);
   assert.equal(html.includes('警報を確認してください'), false);
 });
