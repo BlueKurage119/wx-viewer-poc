@@ -2,6 +2,7 @@ import type {
   StartupNotificationInitializingResponse,
   StartupNotificationReadyResponse,
 } from '@wx-viewer-poc/shared';
+import { isNotificationDeltaCursor } from '@wx-viewer-poc/shared';
 import { getOrCreateTerminalSession, type TerminalSessionState } from '../session/terminalSession';
 
 export type StartupNotificationClientResult =
@@ -32,36 +33,94 @@ function isInitializing(value: unknown): value is StartupNotificationInitializin
 }
 
 function isReady(value: unknown): value is StartupNotificationReadyResponse {
-  const notifications =
-    typeof value === 'object' && value !== null
-      ? (value as { notifications?: unknown }).notifications
-      : undefined;
+  if (!isRecord(value)) return false;
+  const { notifications, session } = value;
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as { status?: unknown }).status === 'ready' &&
+    value.status === 'ready' &&
+    typeof value.terminalId === 'string' &&
+    typeof value.venueId === 'string' &&
+    typeof value.serverGenerationId === 'string' &&
+    typeof value.generatedAt === 'string' &&
+    isRecord(session) &&
+    (session.kind === 'startup' || session.kind === 'continuation') &&
+    typeof session.firstInquiredAt === 'string' &&
+    typeof value.warningClaimed === 'boolean' &&
     Array.isArray(notifications) &&
     notifications.every(isNotification) &&
-    typeof (value as { cursor?: unknown }).cursor === 'string'
+    isNotificationDeltaCursor(value.cursor)
   );
 }
 
 function isNotification(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const item = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const item = value;
   const output = item.output;
   return (
     typeof item.outputId === 'string' &&
     (item.category === 'warning' ||
       item.category === 'question' ||
       item.category === 'emergency') &&
-    (item.origin === 'weather' || item.origin === 'system') &&
+    ((item.origin === 'weather' &&
+      (item.sourceType === 'warning_current' || item.sourceType === 'bosai_bulletin')) ||
+      (item.origin === 'system' && item.sourceType === 'fetch_health')) &&
+    (item.sourceVersion === null || typeof item.sourceVersion === 'string') &&
     typeof item.occurredAt === 'string' &&
-    Array.isArray(item.targets) &&
-    typeof output === 'object' &&
-    output !== null &&
-    typeof (output as Record<string, unknown>).summary === 'string' &&
-    typeof (output as Record<string, unknown>).ackRequired === 'boolean'
+    isTargets(item.targets) &&
+    isRelatedRefs(item.relatedRefs) &&
+    typeof item.isTraining === 'boolean' &&
+    isResolvedOutput(output)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isTargets(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (target) =>
+        isRecord(target) &&
+        (target.kind === 'area' || target.kind === 'point' || target.kind === 'equipment') &&
+        typeof target.codeType === 'string' &&
+        typeof target.code === 'string' &&
+        typeof target.name === 'string',
+    )
+  );
+}
+
+function isRelatedRefs(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (ref) => isRecord(ref) && typeof ref.type === 'string' && typeof ref.ref === 'string',
+    )
+  );
+}
+
+function isMessageDefinition(value: unknown): boolean {
+  return isRecord(value) && typeof value.id === 'string' && typeof value.version === 'string';
+}
+
+function isResolvedOutput(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !isMessageDefinition(value.messageDefinition) ||
+    !isRecord(value.display)
+  ) {
+    return false;
+  }
+  const { display, action } = value;
+  return (
+    typeof value.ackRequired === 'boolean' &&
+    typeof value.summary === 'string' &&
+    typeof display.title === 'string' &&
+    (display.target === null || typeof display.target === 'string') &&
+    (display.content === null || typeof display.content === 'string') &&
+    (action === null ||
+      (isRecord(action) && action.kind === 'acknowledge' && action.label === '確認'))
   );
 }
 

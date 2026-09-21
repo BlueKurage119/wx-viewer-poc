@@ -10,6 +10,7 @@ import {
   setNotificationCursor,
   setNotificationRetry,
 } from '../src/notifications/notificationStore.ts';
+import { retryDelayMs } from '../src/notifications/useNotificationFeed.ts';
 
 function notice(
   feedKey: string,
@@ -103,4 +104,22 @@ test('H2 AC4/AC6/AC7: H端末のsystem通知は表示・件数・鳴動から除
   assert.equal(retrying.cursor, '9');
   assert.equal(retrying.items.length, 1);
   assert.equal(retrying.operationMessage, '通知を受信できません。再試行します。');
+});
+
+test('H2 AC6: 契約外応答による再試行でも既存通知を維持する', () => {
+  const received = receiveNotifications(
+    createNotificationUiState(),
+    [notice('delta:existing', 'warning')],
+    'K',
+  ).state;
+  const retrying = setNotificationRetry(received);
+  assert.deepEqual(
+    retrying.items.map((item) => item.feedKey),
+    ['delta:existing'],
+  );
+  assert.equal(retrying.phase, 'retrying');
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5, 6].map(retryDelayMs),
+    [1000, 2000, 4000, 8000, 16000, 30000, 30000],
+  );
 });
