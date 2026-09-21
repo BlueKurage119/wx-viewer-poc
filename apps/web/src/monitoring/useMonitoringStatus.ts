@@ -22,6 +22,7 @@ export function useMonitoringStatus(terminalId: string): MonitoringLoadState {
     let refreshTimer: number | null = null;
     let timeoutTimer: number | null = null;
     let latestData: MonitoringStatusResponse | null = null;
+    let hasFailed = false;
 
     const clearTimers = () => {
       if (refreshTimer !== null) window.clearTimeout(refreshTimer);
@@ -36,18 +37,22 @@ export function useMonitoringStatus(terminalId: string): MonitoringLoadState {
     const load = () => {
       if (disposed || !visible || requestController !== null) return;
       requestController = new AbortController();
-      setState(
-        latestData ? { phase: 'refreshing', data: latestData } : { phase: 'loading', data: null },
-      );
+      if (!hasFailed) {
+        setState(
+          latestData ? { phase: 'refreshing', data: latestData } : { phase: 'loading', data: null },
+        );
+      }
       timeoutTimer = window.setTimeout(() => requestController?.abort(), REQUEST_TIMEOUT_MS);
       void fetchMonitoringStatus(terminalId, requestController.signal)
         .then((data) => {
           if (disposed || !visible) return;
+          hasFailed = false;
           latestData = data;
           setState({ phase: 'ready', data });
         })
         .catch(() => {
           if (disposed || !visible) return;
+          hasFailed = true;
           setState({ phase: 'failed', data: latestData });
         })
         .finally(() => {
@@ -65,9 +70,11 @@ export function useMonitoringStatus(terminalId: string): MonitoringLoadState {
         requestController = null;
         return;
       }
-      setState(
-        latestData ? { phase: 'refreshing', data: latestData } : { phase: 'loading', data: null },
-      );
+      if (!hasFailed) {
+        setState(
+          latestData ? { phase: 'refreshing', data: latestData } : { phase: 'loading', data: null },
+        );
+      }
       load();
     };
 
