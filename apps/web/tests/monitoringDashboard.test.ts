@@ -42,7 +42,41 @@ test('K1: 通信失敗でも監視情報行に失敗メッセージを表示し�
   assert.ok(updateRow);
   assert.equal(updateRow.includes('監視情報を更新できません'), false);
   assert.equal(updateRow.includes('通信成功なし'), false);
-  assert.equal((updateRow.match(/<span/g) ?? []).length, 1);
+  assert.equal((updateRow.match(/<span/g) ?? []).length, 2);
+  assert.ok(updateRow.includes('運転時間:'));
+});
+
+test('運転時間表示: 最終表示更新の左側に「運転時間: hh:mm:ss」が表示される', () => {
+  const html = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'ready', data: monitoringResponseFixture },
+      uptimeSeconds: 3665,
+    }),
+  );
+  const updateRow = html.match(/<div class="monitoring-update-row"[^>]*>(.*?)<\/div>/)?.[1];
+
+  assert.ok(updateRow);
+  assert.ok(updateRow.includes('<span class="monitoring-uptime">運転時間: 01:01:05</span>'));
+  assert.ok(updateRow.includes('最終表示更新'));
+
+  // 運転時間が最終表示更新よりも前（左側）に位置することを検証
+  const uptimeIndex = updateRow.indexOf('運転時間: 01:01:05');
+  const lastUpdateIndex = updateRow.indexOf('最終表示更新');
+  assert.ok(uptimeIndex !== -1 && lastUpdateIndex !== -1);
+  assert.ok(uptimeIndex < lastUpdateIndex);
+});
+
+test('運転時間表示: データ未取得時（data === null）は「運転時間: —」が表示される', () => {
+  const html = renderToStaticMarkup(
+    el(MonitoringDashboardView, {
+      state: { phase: 'loading', data: null },
+    }),
+  );
+  const updateRow = html.match(/<div class="monitoring-update-row"[^>]*>(.*?)<\/div>/)?.[1];
+
+  assert.ok(updateRow);
+  assert.ok(updateRow.includes('<span class="monitoring-uptime">運転時間: —</span>'));
+  assert.ok(updateRow.includes('最終表示更新 —'));
 });
 
 test('K1: カードアイコンはMaterial Symbolsの名前をspanで描画し、SVGを使わない', () => {

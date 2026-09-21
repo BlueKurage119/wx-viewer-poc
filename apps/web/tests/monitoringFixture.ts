@@ -70,6 +70,7 @@ export const normalMonitoringResponseFixture: MonitoringStatusResponse = {
   terminalId: 'kkeagh01',
   requestedVenueId: 'east',
   serverGenerationId: 'generation-a',
+  serverStartedAt: '2026-09-20T00:00:00.000Z',
   generatedAt: '2026-09-20T05:25:28.000Z',
   operation: {
     schedulerRunning: true,
@@ -271,6 +272,7 @@ export const monitoringResponseFixture: MonitoringStatusResponse = {
   terminalId: 'kkeagh01',
   requestedVenueId: 'east',
   serverGenerationId: 'generation-a',
+  serverStartedAt: '2026-09-20T00:00:00.000Z',
   generatedAt: '2026-09-20T05:25:28.000Z',
   operation: {
     schedulerRunning: false,

@@ -536,6 +536,7 @@ test('4.4 監視API (/api/monitoring/status): venues に reprocessing が含ま�
         maxScanAttempts: 10,
       },
       serverGenerationId: 'gen-test-1',
+      serverStartedAt: '2026-09-16T00:00:00Z' as UtcIso8601String,
       now: () => '2026-09-16T02:00:00Z' as UtcIso8601String,
     });
 

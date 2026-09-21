@@ -3,6 +3,7 @@ import type { MonitoringLoadState } from './useMonitoringStatus';
 import {
   buildMonitoringCards,
   buildSourceStatusRows,
+  formatElapsedTime,
   formatJstDateTime,
   SOURCE_ROW_DEFINITIONS,
   type MonitoringCard,
@@ -10,6 +11,7 @@ import {
 } from './monitoringPresentation';
 import { buildInformationRows, type InformationRow } from './monitoringInformationRows';
 import { useMonitoringStatus } from './useMonitoringStatus';
+import { useMonitoringUptime } from './useMonitoringUptime';
 
 const SOURCE_HEADERS = [
   '取得元',
@@ -307,7 +309,17 @@ const InformationTable = memo(function InformationTable({
   );
 });
 
-export function MonitoringDashboardView({ state }: { state: MonitoringLoadState }) {
+export function MonitoringDashboardView({
+  state,
+  uptimeSeconds,
+}: {
+  state: MonitoringLoadState;
+  uptimeSeconds?: number | null;
+}) {
+  const serverUptime = useMonitoringUptime(state.data);
+  const displayUptime = uptimeSeconds !== undefined ? uptimeSeconds : serverUptime;
+  const uptimeText = displayUptime !== null ? formatElapsedTime(displayUptime) : '—';
+
   // 更新中は既存データを維持し、最終表示更新だけを継続表示する。
   const isFailed = state.phase === 'failed';
   const cards = useMemo(
@@ -326,6 +338,7 @@ export function MonitoringDashboardView({ state }: { state: MonitoringLoadState 
   return (
     <div className="monitoring-dashboard" aria-label="取得監視">
       <div className="monitoring-update-row">
+        <span className="monitoring-uptime">運転時間: {uptimeText}</span>
         <span>
           最終表示更新{' '}
           {state.data ? (

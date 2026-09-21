@@ -20,7 +20,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.monitoring-update-row span:last-child {
+.monitoring-update-row span {
   white-space: nowrap;
 }
 

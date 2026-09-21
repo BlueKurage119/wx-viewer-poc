@@ -101,6 +101,7 @@ function createStartupNotificationRuntime(
   getFetchHealth?: () => ReturnType<FetchHealthMonitorService['getLastAggregate']>,
 ) {
   const serverGenerationId = crypto.randomUUID();
+  const serverStartedAt = clock() as UtcIso8601String;
   const initialization = new StartupNotificationInitialization();
   const warningEmitDeps: WarningNotificationEmitDeps = {
     tracker: new InitialWarningNotificationTracker(),
@@ -162,6 +163,7 @@ function createStartupNotificationRuntime(
   };
   return {
     serverGenerationId,
+    serverStartedAt,
     initialization,
     startupNotifications,
     notificationDelta,
@@ -365,6 +367,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     kikikuruApi,
     fetchHealthConfig: schedule.fetchHealth,
     serverGenerationId: startupRuntime.serverGenerationId,
+    serverStartedAt: startupRuntime.serverStartedAt,
     now: () => clock() as UtcIso8601String,
   });
 
@@ -714,6 +717,7 @@ async function main(): Promise<void> {
     kikikuruApi,
     fetchHealthConfig: schedule.fetchHealth,
     serverGenerationId: startupRuntime.serverGenerationId,
+    serverStartedAt: startupRuntime.serverStartedAt,
     now: () => clock() as UtcIso8601String,
   });
 
