@@ -194,7 +194,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       }
     >
       {view === 'weather' ? (
-        <WeatherMapView venue={terminal.venue} />
+        <WeatherMapView venue={terminal.venue} terminalId={terminal.id} />
       ) : view === 'monitor' ? (
         <MonitoringDashboard terminalId={terminal.id} onLoadStateChange={setMonitoringState} />
       ) : (

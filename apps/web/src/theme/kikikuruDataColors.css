@@ -1,0 +1,7 @@
+:root {
+  --wx-data-kikikuru-imminent: var(--wx-jma-hue-dark-purple);
+  --wx-data-kikikuru-danger: var(--wx-jma-hue-purple);
+  --wx-data-kikikuru-warning: var(--wx-jma-hue-red);
+  --wx-data-kikikuru-caution: var(--wx-jma-hue-yellow);
+  --wx-data-kikikuru-none: var(--wx-jma-hue-white);
+}

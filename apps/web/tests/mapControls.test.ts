@@ -169,7 +169,7 @@ test('F5: 凡例カードは open=false で本体が描画されず再表示ボ�
   );
   assert.ok(visible.includes('雨雲ナウキャスト（降水強度）'));
   assert.ok(visible.includes('legend-close-button'));
-  assert.ok(visible.includes('80mm/h以上'));
+  assert.ok(visible.includes('80 以上 mm/h'));
 });
 
 test('F5: 出典リンクが国土地理院の地理院タイル一覧へリンクしている', () => {

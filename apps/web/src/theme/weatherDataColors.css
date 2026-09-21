@@ -1,0 +1,10 @@
+:root {
+  --wx-data-nowcast-1: #f2f2ff;
+  --wx-data-nowcast-2: #a0d2ff;
+  --wx-data-nowcast-3: #218cff;
+  --wx-data-nowcast-4: #0041ff;
+  --wx-data-nowcast-5: #faf500;
+  --wx-data-nowcast-6: #ff9900;
+  --wx-data-nowcast-7: var(--wx-jma-hue-red);
+  --wx-data-nowcast-8: #b40068;
+}
