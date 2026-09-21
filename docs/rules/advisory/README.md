@@ -25,7 +25,7 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
 - [A-02-codex-subagent-shared-work.md](A-02-codex-subagent-shared-work.md) — Codexの委任・共有作業場所・成果受領の確認例(全フェーズ)
 
 - [G-01-hearing-first-design.md](G-01-hearing-first-design.md) — ヒアリング前提の設計になっている理由、設計書の書式の手本(ヒアリング・設計)
-- [G-02-dev-server-etiquette.md](G-02-dev-server-etiquette.md) — devサーバー作法の背景(製造・検収)
+- [G-02-dev-server-etiquette.md](G-02-dev-server-etiquette.md) — devサーバー作法の背景、APIが応答しない・データが出ないときの確認(製造・検収)
 - [G-03-external-review.md](G-03-external-review.md) — 外部レビューのトリアージ・起動条件・活用実績(検収)
 - [G-04-verification-basics.md](G-04-verification-basics.md) — 検証の基本原則(実物確認・実測・反復テストの絞り込み)(設計・製造・検収)
 - [G-05-test-effectiveness-verification.md](G-05-test-effectiveness-verification.md) — 対照実験がなぜ必要か、ミューテーションテストの限界(製造・検収)
@@ -33,6 +33,7 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
 - [G-07-shared-mutable-state-fixes.md](G-07-shared-mutable-state-fixes.md) — 共有可変状態の修正が半分で終わりやすい理由と対処(製造・検収)
 - [G-08-ui-measurement-pitfalls.md](G-08-ui-measurement-pitfalls.md) — UI寸法計測の罠(`apps/web`のカード・ダッシュボード系レイアウトを触るとき)
 - [G-09-bundle-budget-underestimate.md](G-09-bundle-budget-underestimate.md) — バンドルサイズの見積り不足と目安(設計)
+- [G-10-design-consistency-pitfalls.md](G-10-design-consistency-pitfalls.md) — 設計書の内部矛盾・未実測の値・共用部品の強制挙動・操作部品の応答条件(ヒアリング・設計・検収)
 - [C-01-browser-pane-visibility-limit.md](C-01-browser-pane-visibility-limit.md) — Claude Codeのブラウザペイン固有の制約(検収、ブラウザでのUI確認を行うとき)
 - [C-02-ui-verification-backorder.md](C-02-ui-verification-backorder.md) — 機械で検証できないUI項目の逆発注の実務(検収)
 - [C-03-worktree-outside-repo.md](C-03-worktree-outside-repo.md) — worktreeをリポジトリ内に作ると起きる問題と対処(全フェーズ)
