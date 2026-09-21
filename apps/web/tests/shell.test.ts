@@ -99,13 +99,13 @@ test('H2 AC9: 通知なしでは文字のない非活性ボタン枠を各行に
       mode: 'H',
     }),
   );
-  assert.equal((html.match(/disabled=""/g) ?? []).length, 5);
+  assert.equal((html.match(/disabled=""/g) ?? []).length, 4);
   assert.equal(html.includes('確認'), false);
   assert.equal(html.includes('詳細'), false);
   assert.equal(html.includes('関連'), false);
   assert.equal(html.includes('送信'), false);
 });
-test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを3ボタンで表示する', () => {
+test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを選択肢群と常時操作2ボタンで表示する', () => {
   const state = receiveNotifications(
     createNotificationUiState(),
     previewNotices('mixed'),
@@ -119,7 +119,7 @@ test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを3ボタン
   );
   assert.ok(
     html.includes(
-      '<button type="button" disabled="">確認</button><button type="button" disabled="">詳細</button><button type="button" disabled="">送信</button>',
+      '<div class="notice-question-choices"><button type="button" disabled="">確認</button></div><div class="notice-actions"><button type="button" disabled="">詳細</button><button type="button" disabled="">送信</button></div>',
     ),
   );
   assert.equal((html.match(/disabled=""/g) ?? []).length, 5);

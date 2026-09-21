@@ -278,8 +278,20 @@ select {
 }
 .notice-actions {
   display: flex;
-  flex: 0 0 auto;
   gap: 6px;
+}
+.notice-controls,
+.notice-question-choices {
+  display: flex;
+}
+.notice-controls {
+  flex: 0 0 auto;
+}
+.notice-question-choices {
+  gap: 6px;
+}
+.notice-question-choices + .notice-actions {
+  margin-left: 1em;
 }
 .notice-actions button,
 .notice-count {
@@ -364,10 +376,12 @@ select {
     max-height: 58px;
     font-size: 12px;
   }
-  .notice-actions {
+  .notice-actions,
+  .notice-question-choices {
     gap: 2px;
   }
-  .notice-actions button {
+  .notice-actions button,
+  .notice-question-choices button {
     min-width: 44px;
     padding: 0 4px;
   }

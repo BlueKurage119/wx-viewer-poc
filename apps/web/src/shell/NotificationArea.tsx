@@ -35,13 +35,12 @@ function NoticeRow({
   notice: ReturnType<typeof displayedNoticeForRow>;
 }) {
   const rowClass = row === 'warning' ? 'warning-row' : 'question-row';
+  const isQuestion = notice?.category === 'question' || notice?.category === 'emergency';
   const actions = notice
     ? notice.category === 'warning'
       ? ['詳細', '確認']
-      : ['確認', '詳細', '送信']
-    : rowClass === 'warning-row'
-      ? ['', '']
-      : ['', '', ''];
+      : ['詳細', '送信']
+    : ['', ''];
   return (
     <div className={`notice-row ${notice ? 'has-notice' : ''} ${rowClass}`}>
       <div
@@ -52,12 +51,21 @@ function NoticeRow({
       >
         {notice?.summary}
       </div>
-      <div className="notice-actions">
-        {actions.map((label, index) => (
-          <button key={`${label}-${index}`} type="button" disabled>
-            {label}
-          </button>
-        ))}
+      <div className="notice-controls">
+        {isQuestion && (
+          <div className="notice-question-choices">
+            <button type="button" disabled>
+              確認
+            </button>
+          </div>
+        )}
+        <div className="notice-actions">
+          {actions.map((label, index) => (
+            <button key={`${label}-${index}`} type="button" disabled>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
