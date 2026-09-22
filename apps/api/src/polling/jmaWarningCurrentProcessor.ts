@@ -861,7 +861,7 @@ export async function recoverWarningCurrent(
       countParsed,
     );
     await maybeYield();
-    if (validation.valid) {
+    if (validation.valid && validation.selected.size > 0) {
       results.push({
         controlStatus: status,
         outcome: validation.selected.has('VPWS50') ? 'reused' : 'uninitialized',

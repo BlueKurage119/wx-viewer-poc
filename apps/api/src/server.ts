@@ -94,6 +94,7 @@ export interface StartServerOptions {
   /** Issue #43 §6.1: graceful shutdown の検証用。指定すると SIGTERM/SIGINT を購読する。 */
   readonly shutdownSignalSource?: SignalSource;
   readonly fetchControlNotificationIdFactory?: () => string;
+  readonly recoveryInternals?: Parameters<typeof createStartupNotificationRuntime>[3];
 }
 
 const DEFAULT_PORT = 3001;
@@ -111,10 +112,15 @@ function hasWarningRecoveryTables(
   return names.length === 3;
 }
 
-function createStartupNotificationRuntime(
+export function createStartupNotificationRuntime(
   connection: ReturnType<typeof initializeDatabase>['connection'],
   clock: () => string,
   getFetchHealth?: () => ReturnType<FetchHealthMonitorService['getLastAggregate']>,
+  recoveryInternals?: {
+    readonly setTimeout?: typeof setTimeout;
+    readonly clearTimeout?: typeof clearTimeout;
+    readonly recover?: typeof recoverWarningCurrent;
+  },
 ) {
   const serverGenerationId = crypto.randomUUID();
   const serverStartedAt = clock() as UtcIso8601String;
@@ -142,6 +148,9 @@ function createStartupNotificationRuntime(
   const progressTracker = new InMemoryStartupProgressTracker(() => clock() as UtcIso8601String);
   const recoveryTracker = new InMemoryWarningCurrentRecoveryTracker();
   const recoveryEmitter = new DatabaseRecoveryNotificationEmitter(connection);
+  const setRecoveryTimeout = recoveryInternals?.setTimeout ?? setTimeout;
+  const clearRecoveryTimeout = recoveryInternals?.clearTimeout ?? clearTimeout;
+  const runRecovery = recoveryInternals?.recover ?? recoverWarningCurrent;
   const emitRecovery = (
     venueId: (typeof VENUE_IDS)[number],
     event: 'started' | 'completed' | 'delayed' | 'failed',
@@ -161,42 +170,46 @@ function createStartupNotificationRuntime(
     config: PollingScheduleConfig['startupRecovery'],
   ) => {
     const startedAt = clock() as UtcIso8601String;
-    recoveryTracker.start(venue.venueId, startedAt);
-    emitRecovery(venue.venueId, 'started');
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let rejectDelay!: (error: unknown) => void;
     const delayedFailure = new Promise<never>((_resolve, reject) => {
       rejectDelay = reject;
     });
-    const timer = setTimeout(() => {
-      try {
-        const delayedAt = clock() as UtcIso8601String;
-        if (
-          Date.parse(delayedAt) - Date.parse(startedAt) >= config.delayedThresholdSeconds * 1000 &&
-          recoveryTracker.markDelayed(venue.venueId, delayedAt)
-        ) {
-          emitRecovery(venue.venueId, 'delayed');
-        }
-      } catch (error) {
-        rejectDelay(error);
-      }
-    }, config.delayedThresholdSeconds * 1000);
     try {
+      recoveryTracker.start(venue.venueId, startedAt);
+      emitRecovery(venue.venueId, 'started');
+      timer = setRecoveryTimeout(() => {
+        try {
+          const delayedAt = clock() as UtcIso8601String;
+          if (
+            Date.parse(delayedAt) - Date.parse(startedAt) >=
+              config.delayedThresholdSeconds * 1000 &&
+            recoveryTracker.markDelayed(venue.venueId, delayedAt)
+          ) {
+            emitRecovery(venue.venueId, 'delayed');
+          }
+        } catch (error) {
+          console.error('[api] DB復旧遅延通知の記録に失敗しました:', error);
+          rejectDelay(error);
+        }
+      }, config.delayedThresholdSeconds * 1000);
       const result = await Promise.race([
-        recoverWarningCurrent(connection, venue, {
+        runRecovery(connection, venue, {
           yieldEveryParsedReceptions: config.yieldEveryParsedReceptions,
           candidatePageSize: config.candidatePageSize,
           onProgress: (progress) => recoveryTracker.progress(venue.venueId, progress),
         }),
         delayedFailure,
       ]);
-      clearTimeout(timer);
+      if (timer) clearRecoveryTimeout(timer);
       const finishedAt = clock() as UtcIso8601String;
       recoveryTracker.complete(venue.venueId, result, finishedAt);
       emitRecovery(venue.venueId, 'completed');
       return result;
     } catch (error) {
-      clearTimeout(timer);
+      if (timer) clearRecoveryTimeout(timer);
       recoveryTracker.fail(venue.venueId, clock() as UtcIso8601String);
+      console.error('[api] DB復旧または状態通知に失敗しました:', error);
       try {
         emitRecovery(venue.venueId, 'failed');
       } catch (notificationError) {
@@ -348,6 +361,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     database.connection,
     clock,
     () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+    options.recoveryInternals,
   );
   let pollingService: JmaXmlPollingService | undefined;
   const weatherApi = createWeatherApiService({
