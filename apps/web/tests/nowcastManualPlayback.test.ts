@@ -200,6 +200,14 @@ function mountPlaybackHarness(catalog = buildNowcastCatalog(createSampleNowcastR
     flushEffects() {
       runner.flushEffects();
     },
+    update(catalog: ReturnType<typeof buildNowcastCatalog>) {
+      runner.update({
+        catalog,
+        terminalId: 'hkeagh01',
+        controlStatus: 'normal',
+        enabled: true,
+      });
+    },
     unmount() {
       runner.unmount();
     },
@@ -521,6 +529,68 @@ test('【再生との整合】手動操作で再生が停止すること (§9.4.
     harness.current.handleIntent({ type: 'next-frame' });
     harness.rerender();
     assert.equal(harness.current.viewModel.playing, false);
+  } finally {
+    harness.unmount();
+  }
+});
+
+test('【直接取得停止】imageAccess が不許可なら再生を開始しないこと', () => {
+  const blockedCatalog = buildNowcastCatalog(
+    createSampleNowcastResponse({
+      tileDeliveryProfile: 'jma-direct',
+      imageAccess: { allowed: false, reason: 'scheduled_stopped', nextAllowedAt: null },
+    }),
+  );
+  const harness = mountPlaybackHarness(blockedCatalog);
+
+  try {
+    harness.current.handleIntent({ type: 'toggle-play' });
+    harness.rerender();
+
+    assert.equal(harness.current.viewModel.playing, false);
+    assert.equal(harness.current.overlayFrame, null);
+    assert.equal(
+      harness.current.viewModel.intentFrameId,
+      harness.current.viewModel.settledFrameId,
+      '完了しない要求を残さず読込中表示を収束させること',
+    );
+  } finally {
+    harness.unmount();
+  }
+});
+
+test('【直接取得停止】再生中に imageAccess が閉じたら停止して確定コマへ収束すること', () => {
+  const allowedCatalog = buildNowcastCatalog(
+    createSampleNowcastResponse({ tileDeliveryProfile: 'jma-direct' }),
+  );
+  const blockedCatalog = buildNowcastCatalog(
+    createSampleNowcastResponse({
+      tileDeliveryProfile: 'jma-direct',
+      imageAccess: { allowed: false, reason: 'scheduled_stopped', nextAllowedAt: null },
+    }),
+  );
+  const harness = mountPlaybackHarness(allowedCatalog);
+
+  try {
+    const initialFrame = harness.current.overlayFrame;
+    assert.ok(initialFrame);
+    harness.current.handleSwapSettled({ frameId: initialFrame.id, complete: true });
+    harness.rerender();
+
+    harness.current.handleIntent({ type: 'toggle-play' });
+    harness.rerender();
+    assert.equal(harness.current.viewModel.playing, true);
+    assert.notEqual(
+      harness.current.viewModel.intentFrameId,
+      harness.current.viewModel.settledFrameId,
+    );
+
+    harness.update(blockedCatalog);
+
+    assert.equal(harness.current.viewModel.playing, false);
+    assert.equal(harness.current.overlayFrame, null);
+    assert.equal(harness.current.viewModel.intentFrameId, initialFrame.id);
+    assert.equal(harness.current.viewModel.settledFrameId, initialFrame.id);
   } finally {
     harness.unmount();
   }
