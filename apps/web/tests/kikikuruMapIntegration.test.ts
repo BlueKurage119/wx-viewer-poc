@@ -11,6 +11,7 @@ import { mapViewportConfiguration } from '../src/map/MapViewport';
 import {
   createLayerSelectHandler,
   createWeatherTileOverlayElement,
+  weatherMapViewConfiguration,
   WeatherMapView,
 } from '../src/map/WeatherMapView';
 
@@ -157,12 +158,18 @@ test('MapViewport: Leaflet 本体・背景地図・命令的ズームが 9〜18 
   assert.equal(mapOptions.zoom, mapViewportConfiguration.initialZoom);
   assert.equal(tileOptions.minZoom, 9);
   assert.equal(tileOptions.maxZoom, 18);
+  assert.equal(tileOptions.className, 'wx-map-basemap');
   assert.equal(
     mapViewportConfiguration.clampMapZoom(8),
     9,
     'Leaflet API に渡す setZoom(8) 相当も 9 へ丸める',
   );
   assert.equal(mapViewportConfiguration.clampMapZoom(19), 18);
+});
+
+test('WeatherMapView: ナウキャストだけを不透明にし、キキクルの不透明度は維持すること', () => {
+  assert.equal(weatherMapViewConfiguration.nowcastLayerOpacity, 1);
+  assert.equal(weatherMapViewConfiguration.kikikuruLayerOpacity, 0.75);
 });
 
 test('MapViewport: カード差替え後は旧DOMを監視せず現在のカードを中心補正の監視対象にすること', () => {

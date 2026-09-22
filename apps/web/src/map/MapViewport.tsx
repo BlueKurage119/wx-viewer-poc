@@ -52,6 +52,7 @@ function createGsiPaleTileOptions(): L.TileLayerOptions {
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
     attribution: '地理院タイル',
+    className: 'wx-map-basemap',
   };
 }
 

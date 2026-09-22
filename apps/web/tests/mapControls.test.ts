@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -29,9 +30,11 @@ test('F4: fixture の複数フレームでスライダー、各ボタンの属�
     }),
   );
 
-  // 選択日時と実況バッジの表示
+  // 実況と時刻は種別→時刻の順に表示する
   assert.ok(html.includes('09/15 01:30'));
   assert.ok(html.includes('実況'));
+  assert.ok(html.includes('nowcast-timeline-card'));
+  assert.ok(html.indexOf('>実況<') < html.indexOf('>09/15 01:30<'));
   assert.ok(html.includes('timeline-slider'));
   assert.ok(html.includes('aria-valuetext="実況 01:30"'));
 
@@ -49,6 +52,28 @@ test('F4: fixture の複数フレームでスライダー、各ボタンの属�
     }),
   );
   assert.ok(playingHtml.includes('aria-label="停止"'));
+});
+
+test('F2: 背景 filter とナウキャスト時刻表示のスタイルは専用境界に限定される', () => {
+  const css = readFileSync(new URL('../src/map/map.css', import.meta.url), 'utf8');
+
+  assert.match(
+    css,
+    /\.map-viewport \.wx-map-basemap\s*\{\s*filter: grayscale\(1\) brightness\(0\.66\);\s*\}/,
+  );
+  assert.match(css, /\.nowcast-timeline-card \.timeline-kind-badge\s*\{[\s\S]*?font-size: 16px;/);
+  assert.match(
+    css,
+    /\.nowcast-timeline-card \.timeline-selected-time\s*\{[\s\S]*?font-size: 20px;/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 768px\)\s*\{[\s\S]*?\.nowcast-timeline-card \.timeline-kind-badge\s*\{[\s\S]*?font-size: 14px;/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 768px\)\s*\{[\s\S]*?\.nowcast-timeline-card \.timeline-selected-time\s*\{[\s\S]*?font-size: 18px;/,
+  );
 });
 
 test('F4: 空カタログでは操作が disabled となり、「利用可能な時刻はありません」が表示される', () => {

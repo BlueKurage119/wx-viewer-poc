@@ -387,7 +387,9 @@ test('【表示日時の据え置き】読込中は表示日時ラベルが前�
     harness.rerender();
 
     const label0 = harness.current.viewModel.selectedFrameLabel;
+    const kind0 = harness.current.viewModel.selectedFrameKind;
     assert.ok(label0.length > 0);
+    assert.equal(kind0, frame0.kind);
     assert.equal(harness.current.viewModel.settledFrameId, frame0.id);
 
     // 次のコマへ進める (intent を移動)
@@ -399,6 +401,11 @@ test('【表示日時の据え置き】読込中は表示日時ラベルが前�
     assert.equal(harness.current.viewModel.intentFrameId, frame1.id);
     assert.equal(harness.current.viewModel.settledFrameId, frame0.id);
     assert.equal(harness.current.viewModel.selectedFrameLabel, label0);
+    assert.equal(harness.current.viewModel.selectedFrameKind, kind0);
+
+    harness.current.handleSwapSettled({ frameId: frame1.id, complete: true });
+    harness.rerender();
+    assert.equal(harness.current.viewModel.selectedFrameKind, frame1.kind);
   } finally {
     harness.unmount();
   }

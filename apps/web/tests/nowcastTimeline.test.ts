@@ -27,6 +27,7 @@ test('nowcastTimeline: buildNowcastTimelineViewModel は representative コマ�
 
   // 表示日時ラベルが validTime (03:00 UTC -> 12:00 JST) に対応すること
   assert.equal(viewModel.selectedFrameLabel, '09/15 12:00');
+  assert.equal(viewModel.selectedFrameKind, 'observed');
 
   // 最新実況コマを選択中なので latestAvailable は false
   assert.equal(viewModel.latestAvailable, false);
@@ -47,7 +48,25 @@ test('nowcastTimeline: 過去コマを選択中は latestAvailable が true に�
   });
 
   assert.equal(viewModel.selectedFrameLabel, '09/15 11:00');
+  assert.equal(viewModel.selectedFrameKind, 'observed');
   assert.equal(viewModel.latestAvailable, true);
+});
+
+test('nowcastTimeline: 予報コマを選択したとき、種別は選択コマ由来である', () => {
+  const response = createSampleNowcastResponse();
+  const catalog = buildNowcastCatalog(response);
+  const forecastFrame = catalog.frames.find(
+    (frame) => frame.kind === 'forecast' && frame.representative,
+  )!;
+
+  const viewModel = buildNowcastTimelineViewModel({
+    catalog,
+    selectedFrameId: forecastFrame.id,
+    playing: false,
+  });
+
+  assert.equal(viewModel.selectedFrameKind, 'forecast');
+  assert.equal(viewModel.selectedFrameLabel, formatJstMonthDateTime(forecastFrame.validTime));
 });
 
 test('nowcastTimeline: findLatestNowcastFrame は N1 実況の最新を返し、実況がない場合は最も古い予測コマを返す (§9.1)', () => {

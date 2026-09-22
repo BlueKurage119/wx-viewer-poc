@@ -426,6 +426,7 @@ export function usePlayback(params: {
     // selectedFrameId は settledFrameId を指すものとして維持 (§9.4.2)
     selectedFrameId: settledFrameId,
     selectedFrameLabel,
+    selectedFrameKind: settledFrame?.kind ?? null,
     frames: timelineFrames,
     playing,
     latestAvailable,

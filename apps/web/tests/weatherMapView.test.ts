@@ -101,7 +101,7 @@ test('WeatherMapView: キーボードフォーカス順（凡例 → レイヤ�
 
   const legendIndex = html.indexOf('class="map-legend"');
   const layerSelectorIndex = html.indexOf('class="map-layer-selector-floating"');
-  const timelineCardIndex = html.indexOf('class="timeline-control-card"');
+  const timelineCardIndex = html.indexOf('class="timeline-control-card nowcast-timeline-card"');
   const zoomControlsIndex = html.indexOf('class="map-zoom-controls"');
   const returnButtonIndex = html.indexOf('class="map-zoom-button map-return-button"');
   const viewportIndex = html.indexOf('class="map-viewport"');

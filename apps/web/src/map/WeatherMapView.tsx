@@ -30,9 +30,16 @@ export interface WeatherMapViewProps {
   onLayerSelect?: (layerId: MapLayerId) => void;
 }
 
-const NOWCAST_LAYER_OPACITY = 0.8;
+const NOWCAST_LAYER_OPACITY = 1;
 const KIKIKURU_LAYER_OPACITY = 0.75;
 const SWAP_TIMEOUT_MS = 12_000;
+
+/** 実際にオーバーレイへ渡す不透明度を回帰テストから検証する公開境界。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export const weatherMapViewConfiguration = {
+  nowcastLayerOpacity: NOWCAST_LAYER_OPACITY,
+  kikikuruLayerOpacity: KIKIKURU_LAYER_OPACITY,
+} as const;
 
 /** ナウキャストとキキクルの間では、共通オーバーレイを必ず破棄する境界キー。 */
 // eslint-disable-next-line react-refresh/only-export-components
@@ -219,7 +226,9 @@ export function WeatherMapView({
     ? (nowcastCatalog?.allowedZooms ?? [10])
     : (kikikuruCatalog?.allowedZooms ?? []);
 
-  const overlayOpacity = isNowcast ? NOWCAST_LAYER_OPACITY : KIKIKURU_LAYER_OPACITY;
+  const overlayOpacity = isNowcast
+    ? weatherMapViewConfiguration.nowcastLayerOpacity
+    : weatherMapViewConfiguration.kikikuruLayerOpacity;
   const overlayPrefetchFrames = isNowcast ? nowcastPlayback.prefetchFrames : undefined;
   const overlayRetainLoaded = isNowcast ? nowcastPlayback.retainLoaded : false;
 
