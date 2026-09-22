@@ -12,6 +12,7 @@ import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { loadPollingScheduleConfig } from '../src/config/index.js';
 import { createNotificationDeltaService } from '../src/notifications/index.js';
+import type { SignalSource } from '../src/gracefulShutdown.js';
 import {
   resolveNotificationMessage,
   toNotificationDeltaCursor,
@@ -31,6 +32,16 @@ function setup() {
   const databasePath = join(directory, 'db.sqlite3');
   const context = initializeDatabase({ databasePath, migrationsDirectory });
   return { directory, databasePath, context };
+}
+
+class RecoverySignalSource implements SignalSource {
+  private readonly listeners = new Map<'SIGTERM' | 'SIGINT', () => void>();
+  once(event: 'SIGTERM' | 'SIGINT', listener: () => void): void {
+    this.listeners.set(event, listener);
+  }
+  trigger(event: 'SIGTERM' | 'SIGINT'): void {
+    this.listeners.get(event)?.();
+  }
 }
 
 interface RecoveryRow {
@@ -692,3 +703,64 @@ test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポー�
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  test(`AC18: ${signal}を復旧中に受けてもfailed状態・失敗通知を作らずtimerをclearする`, async () => {
+    const { directory, databasePath, context } = setup();
+    context.close();
+    const signalSource = new RecoverySignalSource();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let clearCount = 0;
+    const starting = startServer({
+      config: { databasePath, migrationsDirectory },
+      port: 0,
+      enablePolling: false,
+      shutdownSignalSource: signalSource,
+      recoveryInternals: {
+        setTimeout: (() => 1 as unknown as NodeJS.Timeout) as unknown as typeof setTimeout,
+        clearTimeout: (() => {
+          clearCount += 1;
+        }) as typeof clearTimeout,
+        recover: async (_connection, venue) => {
+          if (venue.venueId === 'east') await gate;
+          return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 1 };
+        },
+      },
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      signalSource.trigger(signal);
+      release();
+      const server = await starting;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await server.close().catch(() => undefined);
+      assert.equal(clearCount, 2, '両会場の遅延timerをclearする');
+      const reopened = initializeDatabase({ databasePath, migrationsDirectory });
+      try {
+        const rows = recoveryRows(reopened.connection);
+        assert.equal(
+          rows.some((row) => row.change_type === 'database_recovery_failed'),
+          false,
+        );
+        assert.deepEqual(
+          rows.map((row) => row.change_type),
+          [
+            'database_recovery_started',
+            'database_recovery_completed',
+            'database_recovery_started',
+            'database_recovery_completed',
+          ],
+        );
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      release();
+      await starting.then((server) => server.close()).catch(() => undefined);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
