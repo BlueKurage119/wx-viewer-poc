@@ -135,6 +135,18 @@ function recoveryDump(connection: ReturnType<typeof initializeDatabase>['connect
   };
 }
 
+function logicalRecoveryState(connection: ReturnType<typeof initializeDatabase>['connection']) {
+  return {
+    streams: listWarningCurrentStreams(connection, '130000', '1310800', 'normal').map(
+      ({ id, ...stream }) => {
+        void id;
+        return stream;
+      },
+    ),
+    snapshot: logicalSnapshot(connection),
+  };
+}
+
 test('AC1: 3 statusの整合した保存済み状態は候補探索せず完全再利用し、DB dumpも不変', async () => {
   const { connection, cleanup } = createTempDb();
   try {
@@ -219,6 +231,124 @@ test('AC2: 不整合なtrainingだけを再構築し、正常なnormalを保持�
       listWarningCurrentStreams(connection, '130000', '1310800', 'normal'),
       normalBefore,
     );
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC2: 別会場の復旧はeastの3 statusのdumpを変更しない', async () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    for (const controlStatus of ['normal', 'training', 'test'] as const) {
+      save({
+        connection,
+        telegramType: 'VPWS50',
+        reportDateTime: '2026-09-09T01:00:00.000Z',
+        kindsXml: rainAdvisory,
+        controlStatus,
+      });
+    }
+    const eastBefore = recoveryDump(connection);
+    const result = await recoverWarningCurrent(connection, resolveVenueWarningContext('trc'), {
+      yieldEveryParsedReceptions: 25,
+    });
+    assert.deepEqual(
+      result.statuses.map(({ controlStatus, outcome }) => ({ controlStatus, outcome })),
+      (['normal', 'training', 'test'] as const).map((controlStatus) => ({
+        controlStatus,
+        outcome: 'uninitialized',
+      })),
+    );
+    assert.deepEqual(recoveryDump(connection), eastBefore);
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC3: 発表から訂正への意味とdumpをfallback後も保存する', async () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    save({
+      connection,
+      telegramType: 'VPWS50',
+      reportDateTime: '2026-09-09T01:00:00.000Z',
+      kindsXml: rainAdvisory,
+    });
+    save({
+      connection,
+      telegramType: 'VPWS50',
+      reportDateTime: '2026-09-09T02:00:00.000Z',
+      kindsXml: rainWarning,
+      infoType: '訂正',
+    });
+    const expected = logicalSnapshot(connection);
+    assert.equal(expected?.telegram.infoType, '訂正');
+    connection.prepare("DELETE FROM warning_current_stream WHERE control_status = 'normal'").run();
+
+    const result = await recoverWarningCurrent(connection, venue, {
+      yieldEveryParsedReceptions: 25,
+    });
+    assert.equal(result.statuses[0]?.outcome, 'rebuilt');
+    assert.deepEqual(logicalSnapshot(connection), expected);
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC3: 個別取消は対象現象を復活させず、fallback前後のdumpが一致する', async () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    save({
+      connection,
+      telegramType: 'VPWS50',
+      reportDateTime: '2026-09-09T01:00:00.000Z',
+      kindsXml: rainAdvisory,
+    });
+    save({
+      connection,
+      telegramType: 'VPWW55',
+      reportDateTime: '2026-09-09T02:00:00.000Z',
+      kindsXml: rainWarning,
+    });
+    save({
+      connection,
+      telegramType: 'VPWW55',
+      reportDateTime: '2026-09-09T03:00:00.000Z',
+      kindsXml: rainWarning,
+      infoType: '取消',
+    });
+    const expected = logicalSnapshot(connection);
+    assert.deepEqual(expected?.items, []);
+    connection.prepare("DELETE FROM warning_current_stream WHERE control_status = 'normal'").run();
+    await recoverWarningCurrent(connection, venue, { yieldEveryParsedReceptions: 25 });
+    assert.deepEqual(logicalSnapshot(connection), expected);
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC3: VPWS50取消は空の現況を維持し、fallback前後のdumpが一致する', async () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    save({
+      connection,
+      telegramType: 'VPWS50',
+      reportDateTime: '2026-09-09T01:00:00.000Z',
+      kindsXml: rainAdvisory,
+    });
+    save({
+      connection,
+      telegramType: 'VPWS50',
+      reportDateTime: '2026-09-09T02:00:00.000Z',
+      kindsXml: rainAdvisory,
+      infoType: '取消',
+    });
+    const expected = logicalSnapshot(connection);
+    assert.deepEqual(expected?.items, []);
+    assert.equal(expected?.telegram.infoType, '取消');
+    connection.prepare("DELETE FROM warning_current_stream WHERE control_status = 'normal'").run();
+    await recoverWarningCurrent(connection, venue, { yieldEveryParsedReceptions: 25 });
+    assert.deepEqual(logicalSnapshot(connection), expected);
   } finally {
     cleanup();
   }
@@ -314,7 +444,42 @@ test('AC6: 保存状態も受信履歴も全欠損なら3 statusすべてuniniti
   }
 });
 
-test('AC7: 探索中の同版競合では対象statusを書き換えない', async () => {
+test('AC4: 同版同hashは重複として許容し、同一候補を選んで再構築する', async () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    const first = save({
+      connection,
+      telegramType: 'VPWS50',
+      reportDateTime: '2026-09-09T03:00:00.000Z',
+      kindsXml: rainAdvisory,
+      apply: false,
+      urlSuffix: 'same-a',
+    });
+    const second = save({
+      connection,
+      telegramType: 'VPWS50',
+      reportDateTime: '2026-09-09T03:00:00.000Z',
+      kindsXml: rainAdvisory,
+      apply: false,
+      urlSuffix: 'same-b',
+    });
+    assert.equal(first.contentHash, second.contentHash);
+    const result = await recoverWarningCurrent(connection, venue, {
+      yieldEveryParsedReceptions: 25,
+    });
+    assert.equal(result.statuses[0]?.outcome, 'rebuilt');
+    assert.equal(result.statuses[0]?.selectedReceptionIds.length, 1);
+    assert.equal(
+      [first.id, second.id].includes(result.statuses[0]!.selectedReceptionIds[0]!),
+      true,
+    );
+    assert.equal(logicalSnapshot(connection)?.items[0]?.kindCode, '10');
+  } finally {
+    cleanup();
+  }
+});
+
+test('AC4: 同版異hashの競合では対象statusを書き換えない', async () => {
   const { connection, cleanup } = createTempDb();
   try {
     save({
@@ -360,6 +525,65 @@ test('AC7: 探索中の同版競合では対象statusを書き換えない', asy
     cleanup();
   }
 });
+
+for (const corruption of [
+  'stream指し先欠損',
+  'rawBody欠損',
+  'hash不一致',
+  'snapshot欠損',
+  'items不一致',
+] as const) {
+  test(`AC5: ${corruption}を検出して履歴から期待dumpへ復旧する`, async () => {
+    const { connection, cleanup } = createTempDb();
+    try {
+      save({
+        connection,
+        telegramType: 'VPWS50',
+        reportDateTime: '2026-09-09T01:00:00.000Z',
+        kindsXml: rainAdvisory,
+      });
+      const expected = logicalRecoveryState(connection);
+      switch (corruption) {
+        case 'stream指し先欠損':
+          connection.pragma('foreign_keys = OFF');
+          connection
+            .prepare(
+              "UPDATE warning_current_stream SET reception_id = 999999 WHERE control_status = 'normal'",
+            )
+            .run();
+          connection.pragma('foreign_keys = ON');
+          break;
+        case 'rawBody欠損':
+          connection.prepare('UPDATE telegram_reception SET raw_body = NULL').run();
+          break;
+        case 'hash不一致':
+          connection.prepare("UPDATE warning_current_stream SET content_hash = 'broken'").run();
+          break;
+        case 'snapshot欠損':
+          connection
+            .prepare("DELETE FROM warning_current_snapshot WHERE control_status = 'normal'")
+            .run();
+          break;
+        case 'items不一致':
+          connection.prepare("UPDATE warning_current_item SET kind_name = '破損した項目'").run();
+          break;
+      }
+
+      const result = await recoverWarningCurrent(connection, venue, {
+        yieldEveryParsedReceptions: 25,
+      });
+      if (corruption === 'rawBody欠損') {
+        assert.equal(result.statuses[0]?.outcome, 'uninitialized');
+        assert.deepEqual(logicalRecoveryState(connection), { streams: [], snapshot: null });
+      } else {
+        assert.equal(result.statuses[0]?.outcome, 'rebuilt');
+        assert.deepEqual(logicalRecoveryState(connection), expected);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+}
 
 test('AC7: 251件の候補を25件ずつ解析して10回以上イベントループへ制御を返す', async () => {
   const { connection, cleanup } = createTempDb();

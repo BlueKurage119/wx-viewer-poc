@@ -16,8 +16,11 @@ import {
 } from '../src/repositories/index.js';
 
 const rowCount = Number(process.argv[2] ?? 50000);
+const injectedYieldDelayMs = Number(process.argv[3] ?? 100);
 if (!Number.isSafeInteger(rowCount) || rowCount < 1)
   throw new Error('rowCount は正の整数で指定してください');
+if (!Number.isSafeInteger(injectedYieldDelayMs) || injectedYieldDelayMs < 0)
+  throw new Error('injectedYieldDelayMs は0以上の整数で指定してください');
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 const directory = mkdtempSync(join(tmpdir(), 'wx-recovery-benchmark-'));
@@ -88,6 +91,7 @@ const dumpCurrent = () =>
 // e9d312e時点の全履歴復旧と同じく、全警報原文を古い順に解析・適用する比較基準。
 const baselineStartedAt = performance.now();
 let baselineParsedReceptionCount = 0;
+let singleXmlParseReduceMaxMs = 0;
 for (const venueId of ['east', 'trc'] as const) {
   const venue = resolveVenueWarningContext(venueId);
   const ids = context.connection
@@ -100,9 +104,14 @@ for (const venueId of ['east', 'trc'] as const) {
   for (const { id } of ids) {
     const reception = findTelegramReceptionById(context.connection, id)!;
     baselineParsedReceptionCount += 1;
+    const singleStartedAt = performance.now();
     const parsed = parseWarningTelegram(reception.rawBody!, reception, venue.targetArea);
     if (parsed.ok)
       applyWarningCurrentReception(context.connection, reception, parsed.value, venue.targetArea);
+    singleXmlParseReduceMaxMs = Math.max(
+      singleXmlParseReduceMaxMs,
+      performance.now() - singleStartedAt,
+    );
   }
 }
 const baselineWallMs = performance.now() - baselineStartedAt;
@@ -142,7 +151,10 @@ const startedPromise = startServer({
         ...options,
         yieldControl: async () => {
           optimizedYieldCount += 1;
-          await new Promise<void>((resolve) => setImmediate(resolve));
+          await new Promise<void>((resolve) => {
+            if (injectedYieldDelayMs === 0) setImmediate(resolve);
+            else setTimeout(resolve, injectedYieldDelayMs);
+          });
         },
       });
       recoveryResults.push({
@@ -181,7 +193,7 @@ try {
     if (!health.ok || !monitoring.ok)
       throw new Error(`HTTP失敗: health=${health.status}, monitoring=${monitoring.status}`);
     samples.push({ healthMs, monitoringMs });
-    await sleep(10);
+    await sleep(1000);
   }
   const server = await startedPromise;
   await server.close();
@@ -233,6 +245,7 @@ try {
     receptionDistribution,
     baselineWallMs,
     baselineParsedReceptionCount,
+    singleXmlParseReduceMaxMs,
     totalRecoveryWallMs: performance.now() - startedAt,
     recoveryResults,
     optimizedCandidateParsedCount: recoveryResults.reduce(
@@ -240,6 +253,7 @@ try {
       0,
     ),
     optimizedYieldCount,
+    injectedYieldDelayMs,
     recoveryStateMatchesBaseline: optimizedDump === baselineDump,
     sampleCount: samples.length,
     healthMaxMs: Math.max(...samples.map((s) => s.healthMs)),
