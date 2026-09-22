@@ -215,7 +215,7 @@
 }
 
 .attribution-link {
-  color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-primary-tone-40);
   text-decoration: underline;
   display: inline-flex;
   align-items: center;
@@ -225,12 +225,17 @@
   border-radius: 4px;
 }
 
+.attribution-link:visited {
+  color: var(--md-sys-color-primary-tone-40);
+}
+
 .attribution-link:hover {
-  color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-primary-tone-40);
   text-decoration: underline;
 }
 
 .attribution-link:focus-visible {
+  color: var(--md-sys-color-primary-tone-40);
   outline: 2px solid var(--md-sys-color-primary);
 }
 
@@ -440,6 +445,10 @@
   font-size: 20px;
 }
 
+.kikikuru-status-card .timeline-selected-time {
+  font-size: 20px;
+}
+
 /* 中段: スライダー */
 .timeline-slider-row {
   position: relative;
@@ -593,6 +602,10 @@
   }
 
   .nowcast-timeline-card .timeline-selected-time {
+    font-size: 18px;
+  }
+
+  .kikikuru-status-card .timeline-selected-time {
     font-size: 18px;
   }
 }

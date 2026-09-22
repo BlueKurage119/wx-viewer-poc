@@ -13,6 +13,7 @@ import { LayerSelector } from '../src/map/LayerSelector.tsx';
 import { MapLegend } from '../src/map/MapLegend.tsx';
 import { MapAttribution } from '../src/map/MapAttribution.tsx';
 import { MapZoomControls } from '../src/map/MapZoomControls.tsx';
+import { KikikuruStatusCard } from '../src/map/kikikuru/KikikuruStatusCard.tsx';
 import {
   sampleNowcastTimeline,
   sampleKikikuruTimeline,
@@ -74,6 +75,26 @@ test('F2: 背景 filter とナウキャスト時刻表示のスタイルは専�
     css,
     /@media \(max-width: 768px\)\s*\{[\s\S]*?\.nowcast-timeline-card \.timeline-selected-time\s*\{[\s\S]*?font-size: 18px;/,
   );
+  assert.match(css, /\.kikikuru-status-card \.timeline-selected-time\s*\{[\s\S]*?font-size: 20px;/);
+  assert.match(
+    css,
+    /@media \(max-width: 768px\)\s*\{[\s\S]*?\.kikikuru-status-card \.timeline-selected-time\s*\{[\s\S]*?font-size: 18px;/,
+  );
+});
+
+test('F3: キキクル簡易カードは既存のレイヤー名と時刻だけを維持する', () => {
+  const html = renderToStaticMarkup(
+    el(KikikuruStatusCard, {
+      viewModel: sampleKikikuruTimeline,
+    }),
+  );
+
+  assert.ok(html.includes(sampleKikikuruTimeline.layerLabel));
+  assert.ok(html.includes(sampleKikikuruTimeline.selectedFrameLabel));
+  assert.equal(html.includes('実況'), false);
+  assert.equal(html.includes('予報'), false);
+  assert.equal(html.includes('基準'), false);
+  assert.equal(html.includes('予測'), false);
 });
 
 test('F4: 空カタログでは操作が disabled となり、「利用可能な時刻はありません」が表示される', () => {
@@ -204,6 +225,31 @@ test('F5: 出典リンクが国土地理院の地理院タイル一覧へリン�
   assert.ok(html.includes('地理院タイル'));
   assert.ok(html.includes('target="_blank"'));
   assert.ok(html.includes('rel="noreferrer"'));
+});
+
+test('F3: 出典リンクの全状態はPrimary tone 40を使い、既存の下線とフォーカス枠を維持する', () => {
+  const css = readFileSync(new URL('../src/map/map.css', import.meta.url), 'utf8');
+  const tone40 = 'var(--md-sys-color-primary-tone-40)';
+
+  for (const selector of [
+    '.attribution-link',
+    '.attribution-link:visited',
+    '.attribution-link:hover',
+    '.attribution-link:focus-visible',
+  ]) {
+    const escapedSelector = selector.replace(/[.:-]/g, '\\$&');
+    assert.match(
+      css,
+      new RegExp(`${escapedSelector}\\s*\\{[\\s\\S]*?color: ${tone40.replace(/[()]/g, '\\$&')};`),
+    );
+  }
+
+  assert.match(css, /\.attribution-link\s*\{[\s\S]*?text-decoration: underline;/);
+  assert.match(css, /\.attribution-link:hover\s*\{[\s\S]*?text-decoration: underline;/);
+  assert.match(
+    css,
+    /\.attribution-link:focus-visible\s*\{[\s\S]*?outline: 2px solid var\(--md-sys-color-primary\);/,
+  );
 });
 
 test('F6: ズームコントロールが境界ズームで正しく disabled になる', () => {

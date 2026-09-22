@@ -76,6 +76,12 @@ export function applyMd3Theme(
     root.style.setProperty(`--md-sys-color-${kebabCase(key)}`, hexFromArgb(value));
   }
 
+  // scheme の primary とは別に、背景地図上の出典リンクで使う固定 tone 40 を公開する。
+  root.style.setProperty(
+    '--md-sys-color-primary-tone-40',
+    hexFromArgb(theme.palettes.primary.tone(40)),
+  );
+
   // 地図上の会場ピンは淡色地図・ダーク操作面のどちらからも識別できるよう、
   // light scheme の error を専用 MD3 トークンとして常時公開する。
   root.style.setProperty('--md-sys-color-error-light', hexFromArgb(lightSchemeJson.error));
