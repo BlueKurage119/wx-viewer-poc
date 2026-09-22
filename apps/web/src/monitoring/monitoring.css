@@ -320,29 +320,51 @@
   color: var(--md-sys-color-on-tertiary-container);
 }
 
-.monitoring-send-ready .monitoring-toolbar-button-content-send-ready {
+md-gb-button[disabled] .monitoring-toolbar-button-container {
+  background-color: transparent;
+}
+
+md-gb-button[disabled] .monitoring-toolbar-button-content {
   color: inherit;
 }
 
-.monitoring-send-ready::part(btn) {
-  animation: monitoring-send-ready 2s ease-in-out infinite;
+.monitoring-send-ready .monitoring-toolbar-button-container {
+  animation: monitoring-send-ready-background 2s steps(1, end) infinite;
 }
 
-@keyframes monitoring-send-ready {
+.monitoring-send-ready .monitoring-toolbar-button-content-send-ready {
+  animation: monitoring-send-ready-color 2s steps(1, end) infinite;
+}
+
+@keyframes monitoring-send-ready-background {
   0%,
+  49.999%,
   100% {
     background-color: var(--md-sys-color-primary-container);
+  }
+
+  50%,
+  99.999% {
+    background-color: var(--md-sys-color-inverse-surface);
+  }
+}
+
+@keyframes monitoring-send-ready-color {
+  0%,
+  49.999%,
+  100% {
     color: var(--md-sys-color-on-primary-container);
   }
 
-  50% {
-    background-color: var(--md-sys-color-inverse-surface);
+  50%,
+  99.999% {
     color: var(--md-sys-color-inverse-primary);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .monitoring-send-ready::part(btn) {
+  .monitoring-send-ready .monitoring-toolbar-button-container,
+  .monitoring-send-ready .monitoring-toolbar-button-content-send-ready {
     animation: none;
   }
 

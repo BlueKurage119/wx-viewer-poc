@@ -92,8 +92,22 @@ test('戻るアイコンと送信可能表示: 公開GB APIだけで寸法・配
   const selectedContentRule = css.match(
     /\.monitoring-toolbar-selected \.monitoring-toolbar-button-content \{([^}]*)\}/,
   )?.[1];
-  const sendReadyRule = css.match(/\.monitoring-send-ready::part\(btn\) \{([^}]*)\}/)?.[1];
-  const keyframes = css.match(/@keyframes monitoring-send-ready \{([\s\S]*?)\n\}/)?.[1];
+  const disabledContainerRule = css.match(
+    /md-gb-button\[disabled\] \.monitoring-toolbar-button-container \{([^}]*)\}/,
+  )?.[1];
+  const disabledContentRule = css.match(
+    /md-gb-button\[disabled\] \.monitoring-toolbar-button-content \{([^}]*)\}/,
+  )?.[1];
+  const sendReadyContainerRule = css.match(
+    /\.monitoring-send-ready \.monitoring-toolbar-button-container \{([^}]*)\}/,
+  )?.[1];
+  const sendReadyContentRule = css.match(
+    /\.monitoring-send-ready \.monitoring-toolbar-button-content-send-ready \{([^}]*)\}/,
+  )?.[1];
+  const backgroundKeyframes = css.match(
+    /@keyframes monitoring-send-ready-background \{([\s\S]*?)\n\}/,
+  )?.[1];
+  const colorKeyframes = css.match(/@keyframes monitoring-send-ready-color \{([\s\S]*?)\n\}/)?.[1];
   const reducedMotionRules = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
 
   assert.ok(iconButtonFocusRule);
@@ -101,8 +115,12 @@ test('戻るアイコンと送信可能表示: 公開GB APIだけで寸法・配
   assert.ok(regularContentRule);
   assert.ok(selectedContainerRule);
   assert.ok(selectedContentRule);
-  assert.ok(sendReadyRule);
-  assert.ok(keyframes);
+  assert.ok(disabledContainerRule);
+  assert.ok(disabledContentRule);
+  assert.ok(sendReadyContainerRule);
+  assert.ok(sendReadyContentRule);
+  assert.ok(backgroundKeyframes);
+  assert.ok(colorKeyframes);
   assert.ok(reducedMotionRules);
   assert.ok(iconButtonFocusRule.includes('outline: 3px solid var(--md-sys-color-primary);'));
   assert.ok(iconButtonFocusRule.includes('outline-offset: -3px;'));
@@ -119,9 +137,24 @@ test('戻るアイコンと送信可能表示: 公開GB APIだけで寸法・配
   );
   assert.ok(selectedContentRule.includes('color: var(--md-sys-color-on-tertiary-container);'));
   assert.equal(`${selectedContainerRule}${selectedContentRule}`.includes('outline'), false);
-  assert.ok(sendReadyRule.includes('animation: monitoring-send-ready 2s ease-in-out infinite;'));
-  assert.ok(keyframes.includes('background-color: var(--md-sys-color-inverse-surface);'));
-  assert.ok(keyframes.includes('color: var(--md-sys-color-inverse-primary);'));
+  assert.ok(disabledContainerRule.includes('background-color: transparent;'));
+  assert.ok(disabledContentRule.includes('color: inherit;'));
+  assert.ok(
+    sendReadyContainerRule.includes(
+      'animation: monitoring-send-ready-background 2s steps(1, end) infinite;',
+    ),
+  );
+  assert.ok(
+    sendReadyContentRule.includes(
+      'animation: monitoring-send-ready-color 2s steps(1, end) infinite;',
+    ),
+  );
+  assert.ok(backgroundKeyframes.includes('background-color: var(--md-sys-color-inverse-surface);'));
+  assert.ok(colorKeyframes.includes('color: var(--md-sys-color-inverse-primary);'));
+  assert.ok(backgroundKeyframes.includes('49.999%'));
+  assert.ok(backgroundKeyframes.includes('99.999%'));
+  assert.ok(colorKeyframes.includes('49.999%'));
+  assert.ok(colorKeyframes.includes('99.999%'));
   for (const forbiddenProperty of [
     'opacity',
     'visibility',
@@ -134,11 +167,12 @@ test('戻るアイコンと送信可能表示: 公開GB APIだけで寸法・配
     'block-size',
     'border-radius',
   ]) {
-    assert.equal(keyframes.includes(forbiddenProperty), false);
+    assert.equal(`${backgroundKeyframes}${colorKeyframes}`.includes(forbiddenProperty), false);
   }
   assert.ok(reducedMotionRules.includes('animation: none;'));
   assert.ok(reducedMotionRules.includes('background-color: var(--md-sys-color-inverse-surface);'));
   assert.ok(reducedMotionRules.includes('color: var(--md-sys-color-inverse-primary);'));
+  assert.equal(css.includes('.monitoring-send-ready::part(btn)'), false);
   assert.equal(css.includes('overflow: clip;'), false);
   assert.equal(css.includes('.monitoring-toolbar-icon-button::part(btn)'), false);
 });
@@ -184,9 +218,10 @@ test('取得操作: 通常buttonの形状を維持し、選択時だけ状態ク
   }
   assert.equal((unselected.match(/size="sm"/g) ?? []).length, 11);
   assert.equal((unselected.match(/square=""/g) ?? []).length, 11);
-  assert.ok(unselected.includes('slot="container"'));
+  assert.equal((unselected.match(/slot="container"/g) ?? []).length, 9);
   assert.ok(unselected.includes('monitoring-toolbar-button-content'));
   assert.ok(unselected.includes('monitoring-toolbar-button-label'));
+  assert.equal((toolbarMarkup('start', true).match(/slot="container"/g) ?? []).length, 9);
   assert.equal(unselected.includes('monitoring-send-ready'), false);
   assert.equal(toolbarMarkup('start').includes('monitoring-send-ready'), true);
   assert.equal(toolbarMarkup('start', true).includes('monitoring-send-ready'), false);

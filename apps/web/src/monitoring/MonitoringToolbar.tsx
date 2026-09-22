@@ -38,9 +38,7 @@ function ToolbarButton({
 
   return (
     <GbButton {...props} className={hostClassName || undefined} disabled={disabled}>
-      {!disabled && (
-        <span aria-hidden="true" className="monitoring-toolbar-button-container" slot="container" />
-      )}
+      <span aria-hidden="true" className="monitoring-toolbar-button-container" slot="container" />
       <span className={contentClassName}>{children}</span>
     </GbButton>
   );
