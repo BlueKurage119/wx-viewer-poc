@@ -224,6 +224,7 @@ test('取得操作: 通常buttonの形状を維持し、選択時だけ状態ク
   }
   assert.equal((unselected.match(/size="sm"/g) ?? []).length, 11);
   assert.equal((unselected.match(/square=""/g) ?? []).length, 11);
+  assert.ok(unselected.includes('role="group" aria-label="監視メニュー移動"'));
   assert.equal((unselected.match(/slot="container"/g) ?? []).length, 9);
   assert.ok(unselected.includes('monitoring-toolbar-button-content'));
   assert.ok(unselected.includes('monitoring-toolbar-button-label'));

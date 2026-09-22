@@ -53,6 +53,7 @@ export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbar
     <div className="monitoring-toolbar">
       <div
         className="monitoring-toolbar-group monitoring-toolbar-navigation"
+        role="group"
         aria-label="監視メニュー移動"
       >
         <GbIconButton
