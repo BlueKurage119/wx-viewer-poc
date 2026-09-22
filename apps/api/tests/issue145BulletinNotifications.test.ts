@@ -3238,6 +3238,8 @@ test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意
       '0023_add_warning_timeseries_addition_and_scope.sql',
     );
     if (existsSync(mig0023Path)) rmSync(mig0023Path);
+    const mig0024Path = join(tempMigrationsDir, '0024_add_warning_recovery_index.sql');
+    if (existsSync(mig0024Path)) rmSync(mig0024Path);
 
     const dbPath = join(tmpDir, 'test_migration.sqlite3');
     const context = initializeDatabase({
@@ -3477,6 +3479,11 @@ test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意
         '0023_add_warning_timeseries_addition_and_scope.sql',
       );
       if (existsSync(mig0023RollbackPath)) rmSync(mig0023RollbackPath);
+      const mig0024RollbackPath = join(
+        rollbackMigrationsDir,
+        '0024_add_warning_recovery_index.sql',
+      );
+      if (existsSync(mig0024RollbackPath)) rmSync(mig0024RollbackPath);
 
       const rollbackDbPath = join(rollbackTmpDir, 'test_rollback.sqlite3');
       const rollbackContext = initializeDatabase({
@@ -3574,7 +3581,7 @@ test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意
       const applied = newContext.connection
         .prepare('SELECT version FROM __schema_migrations ORDER BY version')
         .all() as Array<{ version: number }>;
-      assert.equal(applied.at(-1)?.version, 23, '最新 version が 23 であること');
+      assert.equal(applied.at(-1)?.version, 24, '最新 version が 24 であること');
 
       // 0021 のファイル内容確認
       const mig0021Path = join(

@@ -1,6 +1,7 @@
 import type { UtcIso8601String } from './types.js';
 import type { Availability } from './availability.js';
 import type { VenueId } from './venueForecastTargets.js';
+import type { WeatherControlStatus } from './weatherApi.js';
 
 /**
  * Issue #42「E10. 監視画面向けAPI」§5.1 の稼働状態API DTO。
@@ -128,12 +129,31 @@ export interface MonitoringVenueReprocessingStatus {
   readonly elapsedMs: number | null;
 }
 
+export type MonitoringWarningRecoveryPhase = 'idle' | 'running' | 'completed' | 'failed';
+
+export interface MonitoringWarningRecoveryStatus {
+  readonly status: MonitoringWarningRecoveryPhase;
+  readonly startedAt: UtcIso8601String | null;
+  readonly finishedAt: UtcIso8601String | null;
+  readonly delayedAt: UtcIso8601String | null;
+  readonly elapsedMs: number | null;
+  readonly currentControlStatus: WeatherControlStatus | null;
+  readonly completedControlStatuses: readonly WeatherControlStatus[];
+  readonly reusedControlStatuses: readonly WeatherControlStatus[];
+  readonly rebuiltControlStatuses: readonly WeatherControlStatus[];
+  readonly parsedReceptionCount: number;
+  /** 外部へ例外詳細を漏らさず、失敗の有無だけを表す。 */
+  readonly errorCode: 'warning_current_recovery_failed' | null;
+}
+
 export interface MonitoringVenueSection {
   readonly venueId: VenueId;
   /** StartupNotificationInitialization.isReady(venueId) と同値。起動時評価が済んだか。 */
   readonly startupEvaluated: boolean;
   /** 会場ごとの未処理電文再処理ステータス */
   readonly reprocessing: MonitoringVenueReprocessingStatus;
+  /** 保存済み警報現況の起動時復旧ステータス */
+  readonly recovery: MonitoringWarningRecoveryStatus;
   /**
    * 直近の採用判定の集計。adoption_result の区分値ごとの件数。
    * 【重要】会場ごとに独立。片方の会場の失敗を全体成功に隠さない（基本設計 §8.2）。

@@ -13,3 +13,5 @@ export * from './bosaiBulletinNotificationPlanner.js';
 export * from './bosaiBulletinNotificationEmitter.js';
 export * from './notificationVenueScope.js';
 export * from './notificationDeltaService.js';
+export * from './databaseRecoveryNotificationPlanner.js';
+export * from './databaseRecoveryNotificationEmitter.js';

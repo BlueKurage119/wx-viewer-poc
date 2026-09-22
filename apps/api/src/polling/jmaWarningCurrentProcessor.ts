@@ -4,12 +4,14 @@ import {
   findWarningCurrentSnapshot,
   findWarningCurrentStream,
   listWarningCurrentStreams,
+  listWarningRecoveryCandidates,
   listWarningTelegramReceptionsForRebuild,
   saveWarningCurrentSnapshot,
   upsertWarningCurrentStream,
   deleteWarningCurrentStreams,
   deleteWarningCurrentSnapshot,
 } from '../repositories/index.js';
+import type { VenueWarningContext } from '../venueForecastTargets.js';
 import {
   INDIVIDUAL_WARNING_TELEGRAM_TYPES,
   type ControlStatus,
@@ -672,4 +674,311 @@ export function rebuildWarningCurrentFromReceptions(
   });
 
   return transaction();
+}
+
+export interface WarningCurrentRecoveryOptions {
+  readonly yieldEveryParsedReceptions: number;
+  readonly candidatePageSize?: number;
+  readonly yieldControl?: () => Promise<void>;
+  readonly onProgress?: (progress: WarningCurrentRecoveryProgress) => void;
+}
+
+export interface WarningCurrentRecoveryProgress {
+  readonly venueId: VenueWarningContext['venueId'];
+  readonly controlStatus: ControlStatus;
+  readonly phase: 'validating' | 'searching' | 'committing';
+  readonly parsedReceptionCount: number;
+  readonly reused: boolean | null;
+}
+
+export interface WarningCurrentRecoveryStatusResult {
+  readonly controlStatus: ControlStatus;
+  readonly outcome: 'reused' | 'rebuilt' | 'uninitialized';
+  readonly parsedReceptionCount: number;
+  readonly selectedReceptionIds: readonly number[];
+}
+
+export interface WarningCurrentRecoveryResult {
+  readonly venueId: VenueWarningContext['venueId'];
+  readonly statuses: readonly WarningCurrentRecoveryStatusResult[];
+  readonly parsedReceptionCount: number;
+  readonly elapsedMs: number;
+}
+
+const RECOVERY_STATUSES: readonly ControlStatus[] = ['normal', 'training', 'test'];
+
+function logicalSnapshot(snapshot: ReturnType<typeof findWarningCurrentSnapshot>): unknown {
+  if (!snapshot) return null;
+  return JSON.parse(JSON.stringify(snapshot, (key, value) => (key === 'id' ? undefined : value)));
+}
+
+function logicalStreams(streams: readonly WarningCurrentStream[]): unknown {
+  return JSON.parse(JSON.stringify(streams, (key, value) => (key === 'id' ? undefined : value)));
+}
+
+/** 選択済みポインターだけから1 statusを原子的に作り直す。 */
+function replaceRecoveryStatus(
+  connection: DatabaseConnection,
+  targetArea: WarningCurrentTargetArea,
+  status: ControlStatus,
+  selected: ReadonlyMap<WarningTelegramType, WarningCurrentStreamInput>,
+): void {
+  deleteWarningCurrentStreams(
+    connection,
+    targetArea.prefectureCode,
+    targetArea.municipalCode,
+    status,
+  );
+  deleteWarningCurrentSnapshot(connection, targetArea.municipalCode, status);
+  const ordered = ['VPWS50', ...INDIVIDUAL_WARNING_TELEGRAM_TYPES] as const;
+  for (const type of ordered) {
+    const stream = selected.get(type);
+    if (!stream) continue;
+    const reception = findTelegramReceptionById(connection, stream.receptionId);
+    if (!reception?.rawBody) throw new Error(`復旧候補の原文がありません: ${stream.receptionId}`);
+    const parsed = parseWarningTelegram(reception.rawBody, reception, targetArea);
+    if (!parsed.ok) throw new Error(`復旧候補の解析に失敗しました: ${parsed.reason}`);
+    const applied = applyWarningCurrentReception(connection, reception, parsed.value, targetArea);
+    if (!applied.applied && applied.reason === 'same_version_conflict') {
+      throw new WarningCurrentConflictError(applied.detail);
+    }
+  }
+}
+
+class RecoveryValidationRollback extends Error {
+  constructor(readonly valid: boolean) {
+    super('復旧検証用rollback');
+  }
+}
+
+function validateSavedRecoveryStatus(
+  connection: DatabaseConnection,
+  targetArea: WarningCurrentTargetArea,
+  status: ControlStatus,
+  onParsed: () => void,
+): {
+  readonly valid: boolean;
+  readonly selected: Map<WarningTelegramType, WarningCurrentStreamInput>;
+} {
+  const streams = listWarningCurrentStreams(
+    connection,
+    targetArea.prefectureCode,
+    targetArea.municipalCode,
+    status,
+  );
+  const selected = new Map<WarningTelegramType, WarningCurrentStreamInput>();
+  for (const stream of streams) {
+    if (selected.has(stream.telegramType)) return { valid: false, selected };
+    const reception = findTelegramReceptionById(connection, stream.receptionId);
+    if (
+      !reception?.rawBody ||
+      reception.contentHash !== stream.contentHash ||
+      reception.reportDateTime !== stream.reportDateTime ||
+      reception.controlDateTime !== stream.controlDateTime
+    ) {
+      return { valid: false, selected };
+    }
+    const parsed = parseWarningTelegram(reception.rawBody, reception, targetArea);
+    onParsed();
+    if (
+      !parsed.ok ||
+      parsed.value.controlStatus !== status ||
+      parsed.value.telegramType !== stream.telegramType ||
+      parsed.value.reportDateTime !== stream.reportDateTime ||
+      parsed.value.controlDateTime !== stream.controlDateTime
+    ) {
+      return { valid: false, selected };
+    }
+    selected.set(stream.telegramType, stream);
+  }
+  const before = JSON.stringify({
+    streams: logicalStreams(streams),
+    snapshot: logicalSnapshot(
+      findWarningCurrentSnapshot(connection, targetArea.municipalCode, status),
+    ),
+  });
+  try {
+    connection.transaction(() => {
+      replaceRecoveryStatus(connection, targetArea, status, selected);
+      const after = JSON.stringify({
+        streams: logicalStreams(
+          listWarningCurrentStreams(
+            connection,
+            targetArea.prefectureCode,
+            targetArea.municipalCode,
+            status,
+          ),
+        ),
+        snapshot: logicalSnapshot(
+          findWarningCurrentSnapshot(connection, targetArea.municipalCode, status),
+        ),
+      });
+      throw new RecoveryValidationRollback(before === after);
+    })();
+  } catch (error) {
+    if (error instanceof RecoveryValidationRollback) return { valid: error.valid, selected };
+    return { valid: false, selected };
+  }
+  return { valid: false, selected };
+}
+
+/** 保存済み状態を優先し、不整合statusだけを新しい候補から限定再構築する。 */
+export async function recoverWarningCurrent(
+  connection: DatabaseConnection,
+  venue: VenueWarningContext,
+  options: WarningCurrentRecoveryOptions,
+): Promise<WarningCurrentRecoveryResult> {
+  const started = Date.now();
+  const yieldControl =
+    options.yieldControl ?? (() => new Promise<void>((resolve) => setImmediate(resolve)));
+  const pageSize = options.candidatePageSize ?? 100;
+  let parsedReceptionCount = 0;
+  let sinceYield = 0;
+  const countParsed = () => {
+    parsedReceptionCount += 1;
+    sinceYield += 1;
+  };
+  const maybeYield = async () => {
+    if (sinceYield >= options.yieldEveryParsedReceptions) {
+      sinceYield = 0;
+      await yieldControl();
+    }
+  };
+  const results: WarningCurrentRecoveryStatusResult[] = [];
+  for (const status of RECOVERY_STATUSES) {
+    const statusParsedStart = parsedReceptionCount;
+    options.onProgress?.({
+      venueId: venue.venueId,
+      controlStatus: status,
+      phase: 'validating',
+      parsedReceptionCount,
+      reused: null,
+    });
+    const validation = validateSavedRecoveryStatus(
+      connection,
+      venue.targetArea,
+      status,
+      countParsed,
+    );
+    await maybeYield();
+    if (validation.valid) {
+      results.push({
+        controlStatus: status,
+        outcome: validation.selected.has('VPWS50') ? 'reused' : 'uninitialized',
+        parsedReceptionCount: parsedReceptionCount - statusParsedStart,
+        selectedReceptionIds: [...validation.selected.values()].map((s) => s.receptionId),
+      });
+      options.onProgress?.({
+        venueId: venue.venueId,
+        controlStatus: status,
+        phase: 'committing',
+        parsedReceptionCount,
+        reused: true,
+      });
+      await yieldControl();
+      continue;
+    }
+
+    const selected = new Map<WarningTelegramType, WarningCurrentStreamInput>();
+    options.onProgress?.({
+      venueId: venue.venueId,
+      controlStatus: status,
+      phase: 'searching',
+      parsedReceptionCount,
+      reused: false,
+    });
+    for (const telegramType of ['VPWS50', ...INDIVIDUAL_WARNING_TELEGRAM_TYPES] as const) {
+      let before: Parameters<typeof listWarningRecoveryCandidates>[1]['before'];
+      let selectedVersion: {
+        reportDateTime: string;
+        controlDateTime: string;
+        hash: string;
+      } | null = null;
+      let reachedOlderVersion = false;
+      do {
+        const page = listWarningRecoveryCandidates(connection, {
+          controlStatus: status,
+          telegramType,
+          before,
+          limit: pageSize,
+        });
+        for (const reception of page.receptions) {
+          const parsed = parseWarningTelegram(reception.rawBody!, reception, venue.targetArea);
+          countParsed();
+          await maybeYield();
+          if (
+            !parsed.ok ||
+            parsed.value.controlStatus !== status ||
+            parsed.value.telegramType !== telegramType
+          )
+            continue;
+          if (parsed.value.infoType !== '取消') {
+            try {
+              extractActiveKindsByPhenomenon(parsed.value);
+            } catch {
+              continue;
+            }
+          }
+          const version = {
+            reportDateTime: parsed.value.reportDateTime,
+            controlDateTime: parsed.value.controlDateTime,
+            hash: reception.contentHash ?? '',
+          };
+          if (!selectedVersion) {
+            selectedVersion = version;
+            selected.set(telegramType, {
+              prefectureCode: venue.targetArea.prefectureCode,
+              areaCode: venue.targetArea.municipalCode,
+              controlStatus: status,
+              telegramType,
+              receptionId: reception.id,
+              reportDateTime: version.reportDateTime,
+              controlDateTime: version.controlDateTime,
+              receivedAt: reception.receivedAt,
+              contentHash: version.hash,
+            });
+          } else if (
+            version.reportDateTime === selectedVersion.reportDateTime &&
+            version.controlDateTime === selectedVersion.controlDateTime &&
+            version.hash !== selectedVersion.hash
+          ) {
+            throw new WarningCurrentConflictError(
+              `復旧中に同版競合を検出しました: ${telegramType}`,
+            );
+          } else if (
+            version.reportDateTime !== selectedVersion.reportDateTime ||
+            version.controlDateTime !== selectedVersion.controlDateTime
+          ) {
+            reachedOlderVersion = true;
+            break;
+          }
+        }
+        if (reachedOlderVersion || !page.nextCursor) break;
+        before = page.nextCursor;
+      } while (before);
+    }
+    options.onProgress?.({
+      venueId: venue.venueId,
+      controlStatus: status,
+      phase: 'committing',
+      parsedReceptionCount,
+      reused: false,
+    });
+    connection.transaction(() =>
+      replaceRecoveryStatus(connection, venue.targetArea, status, selected),
+    )();
+    results.push({
+      controlStatus: status,
+      outcome: selected.has('VPWS50') ? 'rebuilt' : 'uninitialized',
+      parsedReceptionCount: parsedReceptionCount - statusParsedStart,
+      selectedReceptionIds: [...selected.values()].map((s) => s.receptionId),
+    });
+    await yieldControl();
+  }
+  return {
+    venueId: venue.venueId,
+    statuses: results,
+    parsedReceptionCount,
+    elapsedMs: Date.now() - started,
+  };
 }

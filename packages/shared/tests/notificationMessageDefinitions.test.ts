@@ -324,7 +324,7 @@ test('受け入れ条件 5: weather-warning-strengthened / weather-warning-weake
   }
 });
 
-test('受け入れ条件 6: システム通知11種の表駆動テスト（title, 許容category, 操作, 確認要否, 対象方式, 定義ID/版）', () => {
+test('受け入れ条件 6: システム通知13種の表駆動テスト（title, 許容category, 操作, 確認要否, 対象方式, 定義ID/版）', () => {
   interface SystemTestCase {
     readonly definitionId: NotificationMessageDefinitionId;
     readonly category: NotificationCategory;
@@ -355,6 +355,22 @@ test('受け入れ条件 6: システム通知11種の表駆動テスト（title
       definitionId: 'system-data-fetch-recovered',
       category: 'warning',
       expectedTitle: 'データ取得復帰',
+      expectedAckRequired: false,
+      expectedAction: null,
+      targetMode: 'notificationTargets',
+    },
+    {
+      definitionId: 'system-database-initialization-started',
+      category: 'warning',
+      expectedTitle: 'DB初期化開始',
+      expectedAckRequired: false,
+      expectedAction: null,
+      targetMode: 'notificationTargets',
+    },
+    {
+      definitionId: 'system-database-initialization-delayed',
+      category: 'warning',
+      expectedTitle: 'DB初期化遅延',
       expectedAckRequired: false,
       expectedAction: null,
       targetMode: 'notificationTargets',

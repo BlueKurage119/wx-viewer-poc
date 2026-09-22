@@ -20,6 +20,7 @@ import {
 } from './services/fetchControlService.js';
 import { registerGracefulShutdown, type SignalSource } from './gracefulShutdown.js';
 import { InMemoryStartupProgressTracker } from './monitoring/startupProgressTracker.js';
+import { InMemoryWarningCurrentRecoveryTracker } from './monitoring/warningCurrentRecoveryTracker.js';
 import {
   createMonitoringStatusService,
   type MonitoringStatusService,
@@ -44,7 +45,7 @@ import {
   type NowcastService,
   type KikikuruService,
 } from './polling/index.js';
-import { rebuildWarningCurrentFromReceptions } from './polling/jmaWarningCurrentProcessor.js';
+import { recoverWarningCurrent } from './polling/jmaWarningCurrentProcessor.js';
 import { reprocessPendingWarningTelegramReceptions } from './polling/jmaWarningTelegramProcessor.js';
 import { recoverLegacyVphwBulletinAreas } from './polling/jmaVphwProcessor.js';
 import { resolveVenueWarningContext } from './venueForecastTargets.js';
@@ -56,6 +57,8 @@ import {
   StartupNotificationInitialization,
   emitInitialWarningNotifications,
   emitInitialBosaiBulletinNotifications,
+  DatabaseRecoveryNotificationEmitter,
+  planDatabaseRecoveryNotification,
   type WarningNotificationEmitDeps,
   type BosaiNotificationEmitDeps,
 } from './notifications/index.js';
@@ -95,6 +98,19 @@ export interface StartServerOptions {
 
 const DEFAULT_PORT = 3001;
 
+function hasWarningRecoveryTables(
+  connection: ReturnType<typeof initializeDatabase>['connection'],
+): boolean {
+  const names = connection
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (
+      'telegram_reception', 'warning_current_stream', 'warning_current_snapshot'
+    )`,
+    )
+    .all() as { name: string }[];
+  return names.length === 3;
+}
+
 function createStartupNotificationRuntime(
   connection: ReturnType<typeof initializeDatabase>['connection'],
   clock: () => string,
@@ -124,15 +140,74 @@ function createStartupNotificationRuntime(
     now: clock,
   });
   const progressTracker = new InMemoryStartupProgressTracker(() => clock() as UtcIso8601String);
+  const recoveryTracker = new InMemoryWarningCurrentRecoveryTracker();
+  const recoveryEmitter = new DatabaseRecoveryNotificationEmitter(connection);
+  const emitRecovery = (
+    venueId: (typeof VENUE_IDS)[number],
+    event: 'started' | 'completed' | 'delayed' | 'failed',
+  ) => {
+    recoveryEmitter.emit(
+      planDatabaseRecoveryNotification({
+        event,
+        venueId,
+        serverGenerationId,
+        occurredAt: clock() as UtcIso8601String,
+        notificationIdFactory: () => `database-recovery:${serverGenerationId}:${venueId}:${event}`,
+      }),
+    );
+  };
+  const recoverVenue = async (
+    venue: ReturnType<typeof resolveVenueWarningContext>,
+    config: PollingScheduleConfig['startupRecovery'],
+  ) => {
+    const startedAt = clock() as UtcIso8601String;
+    recoveryTracker.start(venue.venueId, startedAt);
+    emitRecovery(venue.venueId, 'started');
+    let rejectDelay!: (error: unknown) => void;
+    const delayedFailure = new Promise<never>((_resolve, reject) => {
+      rejectDelay = reject;
+    });
+    const timer = setTimeout(() => {
+      try {
+        const delayedAt = clock() as UtcIso8601String;
+        if (
+          Date.parse(delayedAt) - Date.parse(startedAt) >= config.delayedThresholdSeconds * 1000 &&
+          recoveryTracker.markDelayed(venue.venueId, delayedAt)
+        ) {
+          emitRecovery(venue.venueId, 'delayed');
+        }
+      } catch (error) {
+        rejectDelay(error);
+      }
+    }, config.delayedThresholdSeconds * 1000);
+    try {
+      const result = await Promise.race([
+        recoverWarningCurrent(connection, venue, {
+          yieldEveryParsedReceptions: config.yieldEveryParsedReceptions,
+          candidatePageSize: config.candidatePageSize,
+          onProgress: (progress) => recoveryTracker.progress(venue.venueId, progress),
+        }),
+        delayedFailure,
+      ]);
+      clearTimeout(timer);
+      const finishedAt = clock() as UtcIso8601String;
+      recoveryTracker.complete(venue.venueId, result, finishedAt);
+      emitRecovery(venue.venueId, 'completed');
+      return result;
+    } catch (error) {
+      clearTimeout(timer);
+      recoveryTracker.fail(venue.venueId, clock() as UtcIso8601String);
+      try {
+        emitRecovery(venue.venueId, 'failed');
+      } catch (notificationError) {
+        console.error('[api] DB復旧失敗通知の記録に失敗しました:', notificationError);
+      }
+      throw error;
+    }
+  };
   const evaluateVenues = async () => {
-    recoverLegacyVphwBulletinAreas(connection);
     for (const venueId of VENUE_IDS) {
       const venue = resolveVenueWarningContext(venueId);
-      await reprocessPendingWarningTelegramReceptions(connection, venue, clock, warningEmitDeps, {
-        logger: console.log,
-        progressTracker,
-      });
-      rebuildWarningCurrentFromReceptions(connection, venue.targetArea);
       emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps);
       emitInitialBosaiBulletinNotifications(connection, venueId, bosaiEmitDeps);
       initialization.markVenueEvaluated(venueId);
@@ -170,6 +245,8 @@ function createStartupNotificationRuntime(
     warningEmitDeps,
     bosaiEmitDeps,
     progressTracker,
+    recoveryTracker,
+    recoverVenue,
     connectPolling,
     evaluateVenues,
   };
@@ -362,6 +439,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     },
     startupInitialization: startupRuntime.initialization,
     progressTracker: startupRuntime.progressTracker,
+    recoveryTracker: startupRuntime.recoveryTracker,
     weatherApi,
     nowcastApi,
     kikikuruApi,
@@ -416,26 +494,28 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
               fetchFn: options.pollingServiceOptions?.fetchFn,
             });
 
-          if (!enablePolling) {
-            return;
-          }
-
-          recoverLegacyVphwBulletinAreas(database.connection);
-          for (const venueId of VENUE_IDS) {
+          if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection);
+          for (const venueId of hasWarningRecoveryTables(database.connection) ? VENUE_IDS : []) {
             const venue = resolveVenueWarningContext(venueId);
-            await reprocessPendingWarningTelegramReceptions(
-              database.connection,
-              venue,
-              clock,
-              startupRuntime.warningEmitDeps,
-              { logger: console.log, progressTracker: startupRuntime.progressTracker },
-            );
-            rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
+            if (enablePolling) {
+              await reprocessPendingWarningTelegramReceptions(
+                database.connection,
+                venue,
+                clock,
+                startupRuntime.warningEmitDeps,
+                { logger: console.log, progressTracker: startupRuntime.progressTracker },
+              );
+            }
+            await startupRuntime.recoverVenue(venue, schedule.startupRecovery);
             emitInitialWarningNotifications(
               database.connection,
               venue.targetArea,
               startupRuntime.warningEmitDeps,
             );
+          }
+
+          if (!enablePolling) {
+            return;
           }
 
           pollingService =
@@ -712,6 +792,7 @@ async function main(): Promise<void> {
     },
     startupInitialization: startupRuntime.initialization,
     progressTracker: startupRuntime.progressTracker,
+    recoveryTracker: startupRuntime.recoveryTracker,
     weatherApi,
     nowcastApi,
     kikikuruApi,
@@ -780,32 +861,34 @@ async function main(): Promise<void> {
       enablePolling,
     });
 
-    if (!enablePolling) {
-      return;
-    }
-
-    recoverLegacyVphwBulletinAreas(database.connection);
-    for (const venueId of VENUE_IDS) {
+    if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection);
+    for (const venueId of hasWarningRecoveryTables(database.connection) ? VENUE_IDS : []) {
       if (closed) {
         return;
       }
       const venue = resolveVenueWarningContext(venueId);
-      await reprocessPendingWarningTelegramReceptions(
-        database.connection,
-        venue,
-        clock,
-        startupRuntime.warningEmitDeps,
-        { logger: console.log, progressTracker: startupRuntime.progressTracker },
-      );
+      if (enablePolling) {
+        await reprocessPendingWarningTelegramReceptions(
+          database.connection,
+          venue,
+          clock,
+          startupRuntime.warningEmitDeps,
+          { logger: console.log, progressTracker: startupRuntime.progressTracker },
+        );
+      }
       if (closed) {
         return;
       }
-      rebuildWarningCurrentFromReceptions(database.connection, venue.targetArea);
+      await startupRuntime.recoverVenue(venue, schedule.startupRecovery);
       emitInitialWarningNotifications(
         database.connection,
         venue.targetArea,
         startupRuntime.warningEmitDeps,
       );
+    }
+
+    if (!enablePolling) {
+      return;
     }
 
     if (closed) {
