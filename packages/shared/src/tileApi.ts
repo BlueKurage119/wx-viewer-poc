@@ -9,6 +9,7 @@ import type {
 import { parseWeatherApiQuery } from './weatherApi.js';
 
 export const TILE_API_ALLOWED_ZOOMS = [10] as const;
+export type TileDeliveryProfile = 'proxy' | 'jma-direct';
 
 export interface TileUpstreamAccess {
   readonly allowed: boolean;
@@ -30,6 +31,7 @@ export interface NowcastApiProduct {
 }
 
 export type NowcastTimesResponse = WeatherContext & {
+  readonly tileDeliveryProfile: TileDeliveryProfile;
   readonly status: 'ok' | 'unsupported_control_status';
   readonly window: {
     readonly from: UtcIso8601String;
@@ -57,6 +59,7 @@ export interface KikikuruApiDataset {
 }
 
 export type KikikuruTimesResponse = WeatherContext & {
+  readonly tileDeliveryProfile: TileDeliveryProfile;
   readonly status: 'ok' | 'unsupported_control_status';
   readonly catalogAccess: TileUpstreamAccess | null;
   readonly imageAccess: TileUpstreamAccess | null;
