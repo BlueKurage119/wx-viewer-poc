@@ -17,11 +17,13 @@ export function operationGuideMessage(
   notificationMessage: string,
   monitoringFailed: boolean,
   notificationRetrying: boolean,
+  operationMessage?: string | null,
 ): string {
-  if (!monitoringFailed) return notificationMessage;
-  const monitoringMessage = '取得監視: 監視情報API取得不可';
-  if (!notificationRetrying || notificationMessage === INITIAL_OPERATION_MESSAGE) {
-    return monitoringMessage;
+  const messages: string[] = [];
+  if (operationMessage) messages.push(operationMessage);
+  if (monitoringFailed) messages.push('取得監視: 監視情報API取得不可');
+  if (notificationRetrying && notificationMessage !== INITIAL_OPERATION_MESSAGE) {
+    messages.push(`通知受信: ${notificationMessage}`);
   }
-  return `${monitoringMessage}｜通知受信: ${notificationMessage}`;
+  return messages.length > 0 ? messages.join('｜') : notificationMessage;
 }
