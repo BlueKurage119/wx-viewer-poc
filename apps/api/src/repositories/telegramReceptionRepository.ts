@@ -16,6 +16,7 @@ import type {
   TelegramReceptionInput,
   TelegramReceptionSummary,
   PendingWarningTelegramPage,
+  WarningTelegramType,
   WarningTelegramRebuildPage,
 } from './types.js';
 
@@ -544,67 +545,64 @@ export function listPendingWarningTelegramReceptions(
   };
 }
 
-export function listWarningTelegramReceptionsForRebuild(
+export interface WarningRecoveryCandidateCursor {
+  readonly reportDateTime: string;
+  readonly controlDateTime: string;
+  readonly id: number;
+}
+
+/** 警報現況復旧用に、運用種別・電文種別を限定して新しい版から候補を返す。 */
+export function listWarningRecoveryCandidates(
   connection: DatabaseConnection,
-  options?: {
-    readonly after?: {
-      readonly reportDateTime: string;
-      readonly controlDateTime: string;
-      readonly id: number;
-    };
-    readonly limit?: number;
+  input: {
+    readonly controlStatus: ControlStatus;
+    readonly telegramType: WarningTelegramType;
+    readonly before?: WarningRecoveryCandidateCursor;
+    readonly limit: number;
   },
 ): WarningTelegramRebuildPage {
-  const limit = options?.limit ?? 100;
-  if (!Number.isInteger(limit) || limit <= 0 || limit > 100) {
-    throw new Error(`limit must be an integer between 1 and 100: ${limit}`);
+  if (!Number.isInteger(input.limit) || input.limit <= 0 || input.limit > 100) {
+    throw new Error(`limit must be an integer between 1 and 100: ${input.limit}`);
   }
-  if (options?.after && (!Number.isInteger(options.after.id) || options.after.id <= 0)) {
-    throw new Error(`after.id must be a positive integer: ${options.after.id}`);
-  }
-  const typePlaceholders = WARNING_TELEGRAM_TYPES.map(() => '?').join(', ');
-  const cursorClause = options?.after
+  const cursorClause = input.before
     ? `AND (
-        report_datetime > ?
-        OR (report_datetime = ? AND control_datetime > ?)
-        OR (report_datetime = ? AND control_datetime = ? AND id > ?)
+        report_datetime < ?
+        OR (report_datetime = ? AND control_datetime < ?)
+        OR (report_datetime = ? AND control_datetime = ? AND id < ?)
       )`
     : '';
-  const cursorParams = options?.after
+  const cursorParams = input.before
     ? [
-        options.after.reportDateTime,
-        options.after.reportDateTime,
-        options.after.controlDateTime,
-        options.after.reportDateTime,
-        options.after.controlDateTime,
-        options.after.id,
+        input.before.reportDateTime,
+        input.before.reportDateTime,
+        input.before.controlDateTime,
+        input.before.reportDateTime,
+        input.before.controlDateTime,
+        input.before.id,
       ]
     : [];
-
   const rows = connection
     .prepare(
       `SELECT id FROM telegram_reception
-       WHERE telegram_type IN (${typePlaceholders})
+       WHERE telegram_type = ? AND control_status = ?
          AND raw_body IS NOT NULL
          AND report_datetime IS NOT NULL
          AND control_datetime IS NOT NULL
          ${cursorClause}
-       ORDER BY report_datetime ASC, control_datetime ASC, id ASC
+       ORDER BY report_datetime DESC, control_datetime DESC, id DESC
        LIMIT ?`,
     )
-    .all(...WARNING_TELEGRAM_TYPES, ...cursorParams, limit) as { id: number }[];
-
+    .all(input.telegramType, input.controlStatus, ...cursorParams, input.limit) as { id: number }[];
   const receptions = rows.map((row) => {
     const reception = findTelegramReceptionById(connection, row.id);
     if (!reception) throw new Error(`telegram_reception が見つかりません: ${row.id}`);
     return reception;
   });
-
   const last = receptions.at(-1);
   return {
     receptions,
     nextCursor:
-      receptions.length === limit && last && last.reportDateTime && last.controlDateTime
+      receptions.length === input.limit && last?.reportDateTime && last.controlDateTime
         ? {
             reportDateTime: last.reportDateTime,
             controlDateTime: last.controlDateTime,

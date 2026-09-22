@@ -27,6 +27,7 @@ import type { NowcastApiService } from '../services/nowcastApiService.js';
 import type { KikikuruApiService } from '../services/kikikuruApiService.js';
 import { summarizeAdoptionResults } from '../repositories/telegramReceptionRepository.js';
 import type { StartupProgressTracker } from './startupProgressTracker.js';
+import type { WarningCurrentRecoveryTracker } from './warningCurrentRecoveryTracker.js';
 
 const ADOPTION_WINDOW_HOURS_DEFAULT = 24;
 
@@ -51,6 +52,7 @@ export interface MonitoringStatusServiceDependencies {
   readonly fetchHealthMonitor: Pick<FetchHealthMonitorService, 'getLastAggregate'>;
   readonly startupInitialization: StartupInitializationStatusProvider;
   readonly progressTracker?: StartupProgressTracker;
+  readonly recoveryTracker?: WarningCurrentRecoveryTracker;
   readonly weatherApi: WeatherApiService;
   readonly nowcastApi: NowcastApiService;
   readonly kikikuruApi: KikikuruApiService;
@@ -256,6 +258,19 @@ export function createMonitoringStatusService(
         venueId,
         startupEvaluated,
         reprocessing,
+        recovery: deps.recoveryTracker?.getStatus(venueId, generatedAt) ?? {
+          status: 'idle',
+          startedAt: null,
+          finishedAt: null,
+          delayedAt: null,
+          elapsedMs: null,
+          currentControlStatus: null,
+          completedControlStatuses: [],
+          reusedControlStatuses: [],
+          rebuiltControlStatuses: [],
+          parsedReceptionCount: 0,
+          errorCode: null,
+        },
         recentAdoptions,
         adoptionWindowHours,
       };

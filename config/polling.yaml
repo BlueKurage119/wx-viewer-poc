@@ -13,6 +13,10 @@ fetchHealth:
   abnormalConsecutiveFailures: 5
   abnormalElapsedSeconds: 600
   maxScanAttempts: 50
+startupRecovery:
+  delayedThresholdSeconds: 60
+  yieldEveryParsedReceptions: 25
+  candidatePageSize: 100
 periods:
   - start: '04:00'
     end: '05:00'

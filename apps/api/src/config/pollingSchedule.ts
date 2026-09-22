@@ -31,6 +31,11 @@ export interface PollingScheduleConfig {
     readonly imageCatalog: FreshnessPolicy;
   };
   readonly fetchHealth: FetchHealthConfig;
+  readonly startupRecovery: {
+    readonly delayedThresholdSeconds: number;
+    readonly yieldEveryParsedReceptions: number;
+    readonly candidatePageSize: number;
+  };
   readonly periods: readonly PollingPeriod[];
 }
 
@@ -213,6 +218,7 @@ const EXPECTED_ROOT_KEYS = new Set([
   'periods',
   'freshness',
   'fetchHealth',
+  'startupRecovery',
 ]);
 const REQUIRED_ROOT_KEYS = new Set([
   'timezone',
@@ -220,6 +226,7 @@ const REQUIRED_ROOT_KEYS = new Set([
   'periods',
   'freshness',
   'fetchHealth',
+  'startupRecovery',
 ]);
 
 export function validatePollingScheduleConfig(config: unknown): PollingScheduleConfig {
@@ -286,6 +293,44 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
   }
 
   const fetchHealth = validateFetchHealthConfig(c.fetchHealth);
+
+  if (
+    typeof c.startupRecovery !== 'object' ||
+    c.startupRecovery === null ||
+    Array.isArray(c.startupRecovery)
+  ) {
+    throw new TypeError('startupRecovery はオブジェクトである必要があります');
+  }
+  const startupRecovery = c.startupRecovery as Record<string, unknown>;
+  const expectedStartupRecoveryKeys = new Set([
+    'delayedThresholdSeconds',
+    'yieldEveryParsedReceptions',
+    'candidatePageSize',
+  ]);
+  for (const key of Object.keys(startupRecovery)) {
+    if (!expectedStartupRecoveryKeys.has(key)) {
+      throw new Error(`未知の startupRecovery 設定キーです: ${key}`);
+    }
+  }
+  for (const key of expectedStartupRecoveryKeys) {
+    if (!(key in startupRecovery)) {
+      throw new Error(`必須 startupRecovery 設定キーが不足しています: ${key}`);
+    }
+  }
+  const delayedThresholdSeconds = startupRecovery.delayedThresholdSeconds;
+  if (
+    typeof delayedThresholdSeconds !== 'number' ||
+    !Number.isSafeInteger(delayedThresholdSeconds) ||
+    delayedThresholdSeconds <= 0
+  ) {
+    throw new Error('delayedThresholdSeconds は正の安全整数である必要があります');
+  }
+  for (const key of ['yieldEveryParsedReceptions', 'candidatePageSize'] as const) {
+    const value = startupRecovery[key];
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > 100) {
+      throw new Error(`${key} は 1〜100 の安全整数である必要があります`);
+    }
+  }
 
   if (!Array.isArray(c.periods) || c.periods.length === 0) {
     throw new Error('periods は空でない配列である必要があります');
@@ -381,5 +426,10 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
   return {
     ...(config as PollingScheduleConfig),
     fetchHealth,
+    startupRecovery: {
+      delayedThresholdSeconds,
+      yieldEveryParsedReceptions: startupRecovery.yieldEveryParsedReceptions as number,
+      candidatePageSize: startupRecovery.candidatePageSize as number,
+    },
   };
 }

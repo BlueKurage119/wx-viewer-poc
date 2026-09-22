@@ -15,7 +15,7 @@ import {
 } from '../src/repositories/index.js';
 import {
   applyWarningCurrentReception,
-  rebuildWarningCurrentFromReceptions,
+  recoverWarningCurrent,
 } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { parseWarningTelegram } from '../src/polling/jmaWarningTelegramParser.js';
 import { processWarningTelegramReception } from '../src/polling/jmaWarningTelegramProcessor.js';
@@ -209,7 +209,7 @@ test('AC1: 同一 contentHash の電文を 2 回処理しても通知は 1 回�
   }
 });
 
-test('AC2: プロセス再起動を模して tracker を作り直すと、既存現況が new として再通知される', () => {
+test('AC2: プロセス再起動を模して tracker を作り直すと、既存現況が new として再通知される', async () => {
   const { connection, cleanup } = createTempDb();
   try {
     const tracker1 = new InitialWarningNotificationTracker();
@@ -246,7 +246,7 @@ test('AC2: プロセス再起動を模して tracker を作り直すと、既存
       now: () => '2026-09-12T01:00:00Z',
     };
 
-    rebuildWarningCurrentFromReceptions(connection, EAST_VENUE.targetArea);
+    await recoverWarningCurrent(connection, EAST_VENUE, { yieldEveryParsedReceptions: 25 });
     const emitResult = emitInitialWarningNotifications(
       connection,
       EAST_VENUE.targetArea,
@@ -449,7 +449,7 @@ test('AC5: 訂正は常に通知される', () => {
   }
 });
 
-test('AC6-1: 取消は解除相当として通知される（基本ケース）', () => {
+test('AC6-1: 取消は解除相当として通知される（基本ケース）', async () => {
   const { connection, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
@@ -551,7 +551,7 @@ test('AC6-1: 取消は解除相当として通知される（基本ケース）'
       tracker: trackerNew,
       now: () => '2026-09-12T02:00:00Z',
     };
-    rebuildWarningCurrentFromReceptions(connection, EAST_VENUE.targetArea);
+    await recoverWarningCurrent(connection, EAST_VENUE, { yieldEveryParsedReceptions: 25 });
     emitInitialWarningNotifications(connection, EAST_VENUE.targetArea, emitDepsNew);
 
     const snapshotAfterRebuild = findWarningCurrentSnapshot(
@@ -570,7 +570,7 @@ test('AC6-1: 取消は解除相当として通知される（基本ケース）'
   }
 });
 
-test('AC6-2: 集約側フォールバック経路（今回の欠陥の回帰テスト）', () => {
+test('AC6-2: 集約側フォールバック経路（今回の欠陥の回帰テスト）', async () => {
   const { connection, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
@@ -672,8 +672,8 @@ test('AC6-2: 集約側フォールバック経路（今回の欠陥の回帰テ�
       'sourceVersion が変化していること',
     );
 
-    // 続けて rebuildWarningCurrentFromReceptions を実行しても heavy_rain が復活せず thunder は残る
-    rebuildWarningCurrentFromReceptions(connection, EAST_VENUE.targetArea);
+    // 続けて復旧を実行しても heavy_rain が復活せず thunder は残る
+    await recoverWarningCurrent(connection, EAST_VENUE, { yieldEveryParsedReceptions: 25 });
     const snapshotAfterRebuild = findWarningCurrentSnapshot(
       connection,
       EAST_VENUE.targetArea.municipalCode,

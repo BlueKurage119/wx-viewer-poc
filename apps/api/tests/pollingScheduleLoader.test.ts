@@ -19,6 +19,11 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     abnormalElapsedSeconds: 600,
     maxScanAttempts: 50,
   };
+  const validStartupRecovery = {
+    delayedThresholdSeconds: 60,
+    yieldEveryParsedReceptions: 25,
+    candidatePageSize: 100,
+  };
 
   test('既定の config/polling.yaml を正しく読み込めること', () => {
     const config = loadPollingScheduleConfig();
@@ -28,7 +33,57 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     assert.equal(config.freshness.xml.staleAfterSeconds, 300);
     assert.equal(config.freshness.imageCatalog.staleAfterSeconds, 300);
     assert.deepEqual(config.fetchHealth, validFetchHealth);
+    assert.deepEqual(config.startupRecovery, validStartupRecovery);
     assert.equal(config.periods.length, 4);
+  });
+
+  test('起動時復旧設定は正の安全整数と上限を厳密に検証すること (Issue #193 AC13)', () => {
+    const baseConfig = loadPollingScheduleConfig();
+    assert.deepEqual(
+      validatePollingScheduleConfig({
+        ...baseConfig,
+        startupRecovery: { ...validStartupRecovery, delayedThresholdSeconds: 3 },
+      }).startupRecovery,
+      {
+        delayedThresholdSeconds: 3,
+        yieldEveryParsedReceptions: 25,
+        candidatePageSize: 100,
+      },
+    );
+
+    for (const delayedThresholdSeconds of [0, -1, 1.5, '60']) {
+      assert.throws(
+        () =>
+          validatePollingScheduleConfig({
+            ...baseConfig,
+            startupRecovery: { ...validStartupRecovery, delayedThresholdSeconds },
+          }),
+        /delayedThresholdSeconds は正の安全整数/,
+      );
+    }
+    for (const [key, value] of [
+      ['yieldEveryParsedReceptions', 0],
+      ['yieldEveryParsedReceptions', 101],
+      ['candidatePageSize', 0],
+      ['candidatePageSize', 101],
+    ] as const) {
+      assert.throws(
+        () =>
+          validatePollingScheduleConfig({
+            ...baseConfig,
+            startupRecovery: { ...validStartupRecovery, [key]: value },
+          }),
+        new RegExp(`${key} は 1〜100 の安全整数`),
+      );
+    }
+    assert.throws(
+      () =>
+        validatePollingScheduleConfig({
+          ...baseConfig,
+          startupRecovery: { ...validStartupRecovery, unknown: 1 },
+        }),
+      /未知の startupRecovery 設定キーです: unknown/,
+    );
   });
 
   test('tileDeliveryProfile は proxy と jma-direct だけを受理すること', () => {
@@ -118,6 +173,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
           fetchHealth: validFetchHealth,
           periods: [],
@@ -132,6 +188,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: { xml: { staleAfterSeconds: -10 }, imageCatalog: { staleAfterSeconds: 300 } },
           fetchHealth: validFetchHealth,
           periods: [],
@@ -144,6 +201,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: {
             xml: { staleAfterSeconds: 300, staleAfterSecond: 300 },
             imageCatalog: { staleAfterSeconds: 300 },
@@ -159,6 +217,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: {
             xml: { staleAfterSeconds: 300 },
             imageCatalog: { staleAfterSeconds: 300 },
@@ -176,6 +235,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
           periods: [],
         }),
@@ -187,6 +247,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
           fetchHealth: { ...validFetchHealth, extraKey: 1 },
           periods: [],
@@ -199,6 +260,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
           fetchHealth: { ...validFetchHealth, delayedConsecutiveFailures: 1 },
           periods: [],
@@ -211,6 +273,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
           fetchHealth: { ...validFetchHealth, maxScanAttempts: 3 },
           periods: [],
@@ -224,6 +287,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
           fetchHealth: validFetchHealth,
           periods: [
@@ -247,6 +311,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         validatePollingScheduleConfig({
           timezone: 'Asia/Tokyo',
           amedasPointRecheckSeconds: 600,
+          startupRecovery: validStartupRecovery,
           freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
           fetchHealth: validFetchHealth,
           periods: [
@@ -272,6 +337,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
       timezone: 'Asia/Tokyo',
       tileDeliveryProfile: 'proxy',
       amedasPointRecheckSeconds: 600,
+      startupRecovery: validStartupRecovery,
       freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
       fetchHealth: validFetchHealth,
       periods: [
@@ -302,6 +368,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
       timezone: 'Asia/Tokyo',
       tileDeliveryProfile: 'proxy',
       amedasPointRecheckSeconds: 600,
+      startupRecovery: validStartupRecovery,
       freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
       fetchHealth: validFetchHealth,
       periods: [
