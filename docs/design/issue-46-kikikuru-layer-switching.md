@@ -1,7 +1,7 @@
 # Issue #46 (F3) キキクル（大雨・浸水・土砂）レイヤーの表示・種別切替 設計
 
 作成日: 2026-09-15
-改訂日: 2026-09-22（ズーム下限 9 のユーザー判断を反映。§19）
+改訂日: 2026-09-22（ズーム下限 9、簡易カードの時刻拡大、地理院タイル出典リンクの視認性改善を反映。§8.3・§8.4・§19）
 対象 Issue: #46 (F3)
 依存: #44 (F1 地図基盤)、#47〜#49 (F4/F5/F6 操作面)、#39・#40 (E7/E8 索引・PNG 配信 API)、**#45 (F2 ナウキャスト) — 共通モジュールの提供元。F2 が先行して実装し、F3 はそれを import して流用する（§10）**
 
@@ -21,6 +21,8 @@
 | 7 | 最新のみ表示 | **最新コマ1枚のみ表示**へ変更。「基準」「予測を含む判定結果です」表記の削除、時刻引継ぎの廃止 | §1.1、§5.3、§6.4、§8.2、§18 |
 | 8 | キキクル専用簡易カード | **最新コマのみ表示に合わせ、操作部（スライダー、前後・再生ボタン）を持たないキキクル専用の簡易カード（`KikikuruStatusCard`）へ差し替える** | §1.1、§4.1、§6.4、§8.3、§11.4、§18 |
 | 9 | 地図の最小ズーム | **地図 UI の最小表示ズームを 9 とし、ズーム 8 以下へ操作できないようにする。表示ズーム 9 では API の `allowedZooms=[10]` に従い z10 気象タイルを縮小配置し、ナウキャスト・キキクルとも表示する** | §3.3、§4.1、§7.2、§10、§11.5、§19 |
+| 10 | 簡易カードの時刻サイズ | **キキクルの時刻をナウキャストと同じ 20px、768px 以下では同じ 18px にする。レイヤー名・文言・カード構造・時刻書式・opacity・挙動は変更しない** | §4.1、§8.3、§11.4 |
+| 11 | 地理院タイル出典リンク | **リンク文字色を Primary tone 40 にする。HEX は直書きせず、MD3 の Primary パレットから生成した専用トークンを参照する。文言・URL・DOM 構造は変更しない** | §4.1、§8.4、§11.4.2 |
 
 ## 1. 目的と範囲
 
@@ -36,8 +38,9 @@
 | 切替時の挙動 | 地図中心・ズームを保持、**常に最新の1コマを表示**（時刻引き継ぎは廃止） |
 | 表示窓 | 取得済みフレームのうち**最新の1コマ**のみをクライアント側で表示 |
 | 凡例 | 公式の階級区分・名称・配色で実仕様化し、選択中の種別に応じて差し替え。データ色トークン `--wx-data-kikikuru-*` を定義 |
-| 時刻表現 | 最新コマの時刻のみ（MM/DD HH:mm）を表示。「基準」「予測」等の表記・注意書きは削除 |
+| 時刻表現 | 最新コマの時刻のみ（MM/DD HH:mm）を、ナウキャストの時刻と同じ 20px（768px 以下は 18px）で表示。「基準」「予測」等の表記・注意書きは削除 |
 | 操作カード | **キキクル専用の簡易カード（`KikikuruStatusCard`）を作成し、キキクル時は時間操作カード（`TimelineControlCard`）と差し替えて表示する（操作部なし）** |
+| 地図出典 | 既存の「地理院タイル」リンクの文字色を、生成済み MD3 Primary パレットの tone 40 に変更する。リンクの文言・遷移先・配置は維持 |
 
 ### 1.2 この設計で実装しないもの
 
@@ -189,17 +192,23 @@
 | `apps/web/src/theme/officialJmaColors.css` | 新規（F3） | 気象庁公式配色のプリミティブ `--wx-jma-hue-*` 5 値。**HEX リテラルを書いてよい唯一のモジュール**。出典・取得日をコメントで保持（§7.4.3） |
 | `apps/web/src/theme/kikikuruDataColors.css` | 新規（F3） | キキクルのデータ色トークン `--wx-data-kikikuru-*`。値はプリミティブの `var()` 参照（§7.4.3） |
 | `apps/web/src/theme/dataColors.ts` | **削除**（F3） | §7.4.3 により不要。CSS へ移行 |
-| `apps/web/src/theme/applyTheme.ts` | 変更（F3） | `applyDataColors` の import と呼び出しを除去。他の行に触れない |
+| `apps/web/src/theme/applyTheme.ts` | 変更（F3、出典リンクの追加改訂を含む） | `applyDataColors` の import と呼び出しを除去。追加改訂では Primary パレットの tone 40 を `--md-sys-color-primary-tone-40` として生成・公開する |
 | `apps/web/src/theme/index.ts` | 変更（F3） | `dataColors` の re-export 行を除去 |
 | `apps/web/src/index.css` | 変更（F3） | 新設 CSS 2 本の `@import` を追加 |
 | `apps/web/src/theme/weatherDataColors.css` | 変更（F3、**1 行のみ**） | `--wx-data-nowcast-7` をプリミティブ参照へ。F2 所有ファイルのため他 7 行に触れない（§7.4.3） |
 | `apps/web/src/map/fixtures.ts` | 変更（F3） | キキクル 3 種の `LAYER_PRESENTATIONS` の `legendTitle` を §7.4.1 の確定値へ、`swatchToken` を `var(--wx-data-kikikuru-*)` へ。fixture 扱いを解除 |
 | `apps/web/src/map/WeatherMapView.tsx` | 変更（F2 も変更。競合注意） | キキクル選択時にオーバーレイと `KikikuruStatusCard` の切り替えを配線（§8.3） |
+| `apps/web/src/map/map.css` | 変更（追加改訂） | `.kikikuru-status-card .timeline-selected-time` をナウキャストと同じ 20px、768px 以下で 18px にする。`.attribution-link` の通常・visited・hover・focus-visible 時の文字色を `--md-sys-color-primary-tone-40` に統一し、既存の下線とフォーカス表示を維持する |
 | `apps/web/src/App.tsx` | 変更（F2 も変更。競合注意） | `WeatherMapView` へ `selectedLayerId` / `onLayerSelect` / `timelineViewModel` / `onTimelineIntent` を供給するコンテナを接続 |
-| `apps/web/tests/mapControls.test.ts` | 変更（F3） | ズーム 9 を最小値として、縮小 disabled・拡大 enabled・既定値 9 を固定する回帰テスト |
+| `apps/web/tests/mapControls.test.ts` | 変更（F3） | ズーム境界、キキクルとナウキャストの時刻サイズ一致、および出典リンクの通常・visited・hover・focus-visible の CSS 境界を直接検証する |
+| `apps/web/tests/themeTokens.test.ts` | 新規（追加改訂） | `--md-sys-color-primary-tone-40` が現在のテーマシードから `theme.palettes.primary.tone(40)` で生成され、light/dark のどちらでも同じ tone 40 を公開することを検証する |
 | `apps/web/tests/*` | 新規・変更（F3） | Leaflet の地図操作全経路が 9 未満へ到達しないこと、初期 11・最大 18・会場復帰 11、その他 §11 の検証に対応するテスト |
 
 `apps/web/src/map/LayerSelector.tsx` は**変更しない**（§5.4）。`apps/web/src/map/types.ts` の既存型、`packages/shared` の DTO、**`apps/web/src/map/TimelineControlCard.tsx`** も変更しない。ナウキャスト向けのモジュール（`nowcast/` 配下等）は変更しないが、共通地図の最小ズーム変更によりナウキャストにも同じ 9〜18 の操作範囲を適用する。
+
+**時刻拡大の追加改訂に限った変更範囲**は、原則として `apps/web/src/map/map.css` と直接対応する `apps/web/tests/mapControls.test.ts` の 2 本だけとする。既存の `.kikikuru-status-card` / `.timeline-selected-time` を利用できるため、`KikikuruStatusCard.tsx`、`WeatherMapView.tsx`、時刻整形、状態管理には変更を加えない。
+
+**出典リンクの追加改訂に限った許可変更ファイル**は、`apps/web/src/theme/applyTheme.ts`、`apps/web/src/map/map.css`、`apps/web/tests/mapControls.test.ts`、`apps/web/tests/themeTokens.test.ts` の 4 本とする。`MapAttribution.tsx` は既存のクラスで CSS を適用できるため変更しない。リンクの文言・URL・`target` / `rel`・DOM 構造・配置、およびテーマシードは変更しない。
 
 F2 (#45) が先にマージされていることが本 Issue の製造着手条件である。上記の共通モジュール 5 本を F3 側で新規作成・改変してはならない。ただし、ユーザー確定の地図全体の最小ズームを適用するため、`MapViewport.tsx` と `MapZoomControls.tsx` の最小ズーム設定および対応テストは本 Issue で変更する。F2 の実装が本書の前提（§10）と食い違っていた場合は、自己判断で F3 側に別実装を起こさず統括担当へ差し戻す。
 
@@ -678,7 +687,7 @@ F2 (#45) の設計担当が並行して別の修正を進めているため、**
 キキクル選択時は、共用の時間操作カード（`TimelineControlCard`）を使わず、**キキクル専用の簡易カード（`KikikuruStatusCard`）**へ差し替える。
 
 - **表示内容**: レイヤー名と最新時刻のみ。操作部（スライダー・各種ボタン）は持たない。
-- **スタイル**: 最小限のテキストで、色は HEX 直書きを避け MD3 トークン（`--md-sys-color-*`）を使用し、既存カードのスタイルを流用する。
+- **スタイル【確定・ユーザー承認済み】**: 最小限のテキストで、色は HEX 直書きを避け MD3 トークン（`--md-sys-color-*`）を使用し、既存カードのスタイルを流用する。最新時刻の font-size はナウキャストと完全に揃え、通常時 20px、768px 以下 18px とする。レイヤー名のサイズ・配置は変更しない。
 - **配置規約**: 既存の `WeatherMapView.tsx` 内の `<div className="timeline-card-wrapper">` と `bottomCardRef` を使い続ける形で実装する。
   ```tsx
   <div className="timeline-card-wrapper">
@@ -691,6 +700,30 @@ F2 (#45) の設計担当が並行して別の修正を進めているため、**
   ```
 - **地図中心の補正 (F1) への影響**: F1 の `MapViewport.tsx` は、下部カードの高さ（`bottomCardRef.current.offsetHeight`）を ResizeObserver で監視している。初期レイアウト確定後（`layoutSettledRef.current === true`）は、高さが変化して ResizeObserver が発火しても、`placementRef.current === 'returning'` でない限り `alignVenueCenter` は呼ばれず、`invalidateSize({ pan: false })` のみが実行される実装となっている。したがって、ナウキャスト↔キキクルの切替でカードの高さが変わっても、**Leaflet 地図の地理的中心（lat/lng）は動かず維持される**。会場マーカーは画面上で高さの差分だけ垂直方向に相対的に移動して見えるが、地図自体が勝手にパンしたりズームが変わったりすることはなく、意図せぬジャンプや会場が隠れる問題は発生しない。
 - **viewModelの整理**: `KikikuruStatusCard` では `TimelineViewModel` のうちレイヤー名とフレーム配列程度しか使用しないが、`WeatherMapView.tsx` 内の `effectiveTimelineViewModel` 等の構造を大きく壊さないよう、互換性のある渡し方とするか、キキクル分岐を削除して直接値を渡すかは実装時に整える。
+
+時刻の拡大は CSS だけで行う。カードの DOM 構造、`MM/DD HH:mm` の書式、表示する最新コマ、`statusSlot`、キキクル opacity 0.75 は変更しない。「時刻を大きくした」ことを説明するラベルや注記も追加しない。
+
+### 8.4 地理院タイル出典リンクの視認性【確定・ユーザー承認済み】
+
+#### 現行実装の事実
+
+- `MapAttribution.tsx` は「地理院タイル」という外部リンクの文言・URL・`target="_blank"`・`rel="noreferrer"` と、`attribution-link` クラスを提供している。
+- 見た目は `map.css` が担い、現行の文字色とフォーカス枠は `--md-sys-color-primary` を参照している。
+- 共通シェルはダーク固定であり、`applyMd3Theme()` が書き出す通常の `--md-sys-color-primary` は dark scheme の Primary である。これはユーザー指定の **Primary tone 40** を保証しない。
+- `docs/rules/06-ui-md3-protocol.md` は画面 CSS での HEX 直書きを禁止し、`apps/web/src/theme/` が生成する `--md-sys-color-*` の利用を必須としている。
+
+#### 採用する設計
+
+1. `applyMd3Theme()` が `theme.palettes.primary.tone(40)` を `hexFromArgb()` で変換し、専用トークン `--md-sys-color-primary-tone-40` として root へ書き出す。値を CSS・TS・テストへ HEX で複製しない。このトークンは scheme の light/dark 切替値ではなく、現在のテーマシードから得た Primary パレットの固定 tone 40 である。
+2. `.attribution-link` の通常、`:visited`、`:hover`、`:focus-visible` の**文字色**はすべて `var(--md-sys-color-primary-tone-40)` とする。visited 時にブラウザー既定の紫へ変わらず、hover / focus 時にも指定色が別色へ退行しない。
+3. リンクは通常時から下線を維持し、色だけにリンク識別を依存させない。`:focus-visible` の既存 2px outline はキーボードフォーカスを明確にするため維持し、outline 色には既存の `--md-sys-color-primary` を使う。文字色を tone 40 にする要件と、ダーク操作面用に生成されたフォーカス色の責務を分ける。
+4. `MapAttribution.tsx` はリンクの意味・遷移・アクセシビリティを、`map.css` は通常／visited／hover／focus-visible の見た目を担う。既存クラスで完結するため TSX は変更しない。
+
+#### コントラストの扱い
+
+Primary tone 40 はユーザー確定値である一方、リンク直下は単色面ではなく、`grayscale(1) brightness(0.66)` 適用後の地理院タイルで画素ごとに明度が変わる。したがって「tone 40 だから常に適合する」と推論せず、1920×1080 相当と 1024×768 相当、会場 2 地点でリンク文字と直下背景の代表画素を実測する。11px の通常文字としてコントラスト比 **4.5:1 以上**を合格基準とする。下線はリンク識別の非色手掛かりであり、文字コントラスト不足の代替にはしない。
+
+実測が 4.5:1 未満の場合は、この確定色を独断で変更したり背景カード・影を追加したりせず、不適合として統括担当へ返す。一定背景の追加などは見た目と責務を広げるため、別途ユーザー判断を受ける。
 
 
 ## 9. 共通メタ情報・availability・会場・訓練/本番
@@ -763,16 +796,29 @@ F2 設計 §6.1・§11.3 に残る「表示ズーム 8 以下では気象レイ�
 - [ ] キキクル表示中、下部中央のカードが簡易カード（`KikikuruStatusCard`）になっており、**スライダー・前へ・次へ・再生・最新へボタンが DOM に存在しない**ことを確認する。
 - [ ] キキクル表示中の簡易カードに「基準」「予測を含む判定結果です」の表記が DOM に存在しないことを確認する。
 - [ ] キキクル表示中、最新時刻が `MM/DD HH:mm` 形式で表示されている。
+- [ ] 769px 以上で、キキクル簡易カードとナウキャストカードの `.timeline-selected-time` の計算済み font-size がともに **20px** で完全一致する。768px 以下ではともに **18px** で完全一致する。`mapControls.test.ts` も通常時・media query の両方を直接検証する。
+- [ ] 1024×768 相当および 768px 以下で、拡大した時刻がカード外へはみ出さず、レイヤー名・時刻の順序と `MM/DD HH:mm` 書式が変わらない。時刻拡大に伴う説明文・ラベル・注記が追加されていない。
 - [ ] 0コマ（利用可能な時刻がない）の場合、「利用可能な時刻はありません」と表示される。
 - [ ] ナウキャスト選択中は従来どおり `TimelineControlCard` が表示され、スライダーやスピナー等の機能に影響が出ていない（F2 の受け入れ条件を満たし続ける）。
 - [ ] F4 共有コンポーネント（`TimelineControlCard.tsx`）、`types.ts`、`nowcast/`、`tiles/` 等に差分がないことを `git diff` で確認する。
-- [ ] ナウキャスト↔キキクル間で切り替えた際、カードの高さが変わっても、地図の中心（lat/lng）やズームが変わらず、意図せぬジャンプが起きないことを目視および `map.getCenter()` 等で確認する。
+- [ ] ナウキャスト↔キキクル間で切り替えた際、拡大後のカード実寸が `bottomCardRef` / `ResizeObserver` に反映され、地図の中心（lat/lng）やズームが変わらず、意図せぬジャンプや会場の隠れが起きないことを目視および `map.getCenter()` 等で確認する。
+- [ ] `git diff --name-only` で、時刻拡大のコード差分が原則 `apps/web/src/map/map.css` と直接対応テストだけであることを確認する。`KikikuruStatusCard.tsx`、レイヤー名・文言・カード構造・時刻整形・opacity・状態管理に差分がない。
 
 ### 11.4.1 表示窓（最新1コマ）
 
 - [ ] キキクルの `frames` が**索引の最新 `validTime` の1コマのみ**にフィルタされている。
 - [ ] API 応答（`/api/weather/kikikuru/times`）には古いフレームが含まれている一方、簡易カードには最新時刻1件しか出ていない。
 - [ ] `apps/api` と `packages/shared` に表示窓に関する差分がない（`git diff` で確認）。窓の適用はクライアント側だけである。
+
+### 11.4.2 地理院タイル出典リンク
+
+- [ ] `getComputedStyle()` で、`.attribution-link` の通常・visited・hover・focus-visible の文字色がすべて `--md-sys-color-primary-tone-40` の解決値と一致する。ブラウザー既定の visited 色へ変わらない。
+- [ ] `--md-sys-color-primary-tone-40` が `applyMd3Theme()` 内で `theme.palettes.primary.tone(40)` から生成されている。CSS・TS・テストにその算出色の HEX リテラルが追加されておらず、`--md-sys-color-primary` の別名にもなっていない。
+- [ ] light/dark の各呼び出しで同一テーマシード由来の tone 40 が書き出され、テーマシードを変更したテストでは対応する Primary tone 40 へ追従する。`themeTokens.test.ts` が通過する。
+- [ ] 通常時から下線が表示され、hover でも下線が消えない。キーボード操作の `:focus-visible` では既存の 2px outline が視認でき、文字色は tone 40 のままである。
+- [ ] 1920×1080 相当と 1024×768 相当、`east` / `trc` の両地点で、背景フィルター適用後のリンク直下の代表画素とリンク文字のコントラスト比を記録し、すべて **4.5:1 以上**である。未達なら不適合として記録し、未承認の背景・影・別色を追加しない。
+- [ ] 「地理院タイル」の文言、URL、`target="_blank"`、`rel="noreferrer"`、DOM 構造、右下配置が変更されていない。`MapAttribution.tsx` に差分がない。
+- [ ] `git diff --name-only` で、この追加改訂のコード差分が §4.1 の許可 4 ファイルに収まっている。テーマシード、他の地図コントロール、気象タイル色、カード構造に差分がない。
 
 ### 11.5 ズーム・タイル座標・凡例位置（AD-H058）
 
@@ -955,6 +1001,8 @@ F2 設計 §6.1・§11.3 に残る「表示ズーム 8 以下では気象レイ�
 
 - **時刻表示を残す（MM/DD HH:mm）**: 【確定】。最新コマの時刻は引き続き表示し、禁止語ルール（「実況」「予報」等を使わない）を維持する。
 - **簡易カード（`KikikuruStatusCard`）への差し替え**: 【確定】。最新1コマのみとなることに伴い、スライダーや再生ボタン等の操作部を持たないキキクル専用カードを新設し、共用カード（`TimelineControlCard`）と差し替えることとなった。
+- **時刻サイズをナウキャストと揃える**: 【確定】。通常時 20px、768px 以下 18px とし、レイヤー名・文言・カード構造・時刻書式・opacity・挙動は変更しない。
+- **地理院タイル出典リンクを Primary tone 40 にする**: 【確定】。生成した `--md-sys-color-primary-tone-40` をリンク文字へ使用し、HEX 直書き、文言・URL・構造・配置の変更は行わない。
 
 ### 18.4 Codexレビュー指摘の自動解消
 
