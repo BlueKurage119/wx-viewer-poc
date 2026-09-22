@@ -37,6 +37,7 @@
 | 19 | **手動操作のデバウンスは暫定確定（実機実測での調整前提）。5 回目検収の実測を受け、承認済みの暫定値の範囲内で 200 ms → 500 ms へ調整** | §9.4.4 |
 | 20 | **（PR #197 レビュー差し戻し）索引ポーリングの非同期競合は世代番号方式で修正する。`enabled` / `resetKey` / 可視状態のライフサイクルを分離し、旧世代の成功・失敗・`finally` を無効化する** | §5.3・§11.5.1 |
 | 21 | **（オーナー承認）白・水色の弱い降水域が背景地図へ紛れないよう、背景だけに `grayscale(1) brightness(0.66)` を適用し、ナウキャストを `opacity: 1` にする。「実況／予報」は見分けられる大きさにし、既存書式の時刻とともに表示する。これ以外の説明文は追加しない** | §6.4・§9.5 |
+| 22 | **（PR #204 Codex P1）再生タイマーによる自動送りでは、React state setter より先に `intentFrameIdRef.current` を次コマへ同期し、先読み済みレイヤーが同期完了しても通知を正しく受理する** | §9.3.6・§11.4 |
 
 **確定事項 #7 は #10 により撤回済みである。** 本書で「事前のタイル温めを行わない」と読める記述は §9.3 の改訂内容が優先する。
 
@@ -53,6 +54,7 @@
 | [06 UI/MD3 業務標準](../rules/06-ui-md3-protocol.md) §MD3 トークン使用義務の例外 | ナウキャストのデータ色は `--wx-data-nowcast-*` として定義し、取得先・取得日時とともに保存する |
 | 既存実装 `apps/web/src/map/*`、`apps/api/src/services/nowcastApiService.ts`、`apps/api/src/polling/nowcastTileStore.ts`、`packages/shared/src/tileApi.ts` | F1 の実装済み範囲と API の実在シグネチャ。サーバー側 PNG 検証は署名・IHDR・寸法のみで色タイプを限定していない |
 | `apps/web/src/map/tiles/useTileCatalogPolling.ts`、`apps/web/tests/useTileCatalogPolling.test.ts`、PR #197 の Codex P2 指摘 | 現行フックは cleanup で要求を abort しても、`load` が abort を無視して完了すると旧 `finally` がタイマーを再予約できる。現行テストは SSR の初期状態と定数だけを見ており、effect・cleanup・非同期競合を実行していない |
+| `apps/web/src/map/nowcast/usePlayback.ts`、PR #204 の Codex P1 指摘（discussion_r4067778438） | 再生タイマーは state setter だけを更新し、`intentFrameIdRef` の同期を次 render 後の effect に委ねている。先読み済みレイヤーの `onSwapSettled` がその間に同期発火すると、正しい次コマの完了通知を旧 intent として拒否する |
 | 気象庁「[雨雲の動き・雷活動度・竜巻発生確度（ナウキャスト）](https://www.jma.go.jp/bosai/nowc/)」現行画面（2026-09-22 閲覧・ブラウザーの計算済みスタイルを確認） | 地理院淡色地図のレイヤーだけに `grayscale(1) brightness(0.66)` を適用し、降水レイヤーは `filter: none`・`opacity: 1` で別レイヤーに置く。画面内には「雨雲の動き 2026年9月22日08時45分」のように名称と対象時刻を大きく表示する |
 | 青森地方気象台「[気象庁ホームページの使い方（青森県版）](https://www.data.jma.go.jp/aomori/jmahp-usage/B2/JMA_HP_B2-1.html)」（2026-09-22 閲覧） | 現行画面には「色の濃さ」があり、雨雲の降水強度色を変更できることの公式説明。「薄い／通常／濃い」の可変 UI 自体を本改訂へ含める根拠ではなく、気象データと背景を分けて視認性を調整する参考とする |
 
@@ -74,6 +76,8 @@
 **実装済みを誤って前提にしない確認（受け入れ条件 §11.1）**: 製造着手時に、`apps/web/src/map/` に索引取得・PNG 描画・再生のコードが存在しないこと、`WeatherMapView` の既定 view model が `emptyTimeline` であることを実行して確認する。
 
 **PR #197 P2 修正の変更範囲**: 変更を許可するのは `apps/web/src/map/tiles/useTileCatalogPolling.ts` と専用テスト `apps/web/tests/useTileCatalogPolling.test.ts` の 2 本（テスト入力を共用する必要が生じた場合のみ同テスト用 fixture）に限る。`WeatherMapView`、`apps/web/src/map/nowcast/`、`apps/web/src/map/kikikuru/`、上記以外の `apps/web/src/map/tiles/`、`apps/api`、`packages/shared`、設定ファイルは変更しない。レビュー指摘への返信・解決、再レビュー依頼、push、PR 操作は本設計・製造・検収の範囲外とする。
+
+**PR #204 P1 修正の変更範囲**: 変更を許可するのは `apps/web/src/map/nowcast/usePlayback.ts` と、この同期競合を実 hook で再現する直接テスト `apps/web/tests/nowcastManualPlayback.test.ts` の 2 本だけとする。`WeatherTileOverlay.tsx`、`WeatherMapView.tsx`、時間操作カード、スピナー部品、キキクル、API、共有型、設定ファイルは変更しない。レビュー指摘への返信・解決、再レビュー依頼、push、PR 操作も本設計・製造・検収の範囲外とする。
 
 ## 4. コマの取得とタイムライン構成
 
@@ -778,6 +782,50 @@ Leaflet が一度描画した `<img>` は再要求されない。この性質を
 - `WeatherTileOverlay.tsx` は共通モジュールであり、F3 も `WeatherMapView` 経由で同じインスタンスを使う。今回追加する `prefetchFrames` / `retainLoaded` は**いずれも省略可能で、省略時は従来の 2 枚ダブルバッファと同一挙動**とする。F3 が渡さなければ挙動は変わらない。
 - したがって **F3 側（`apps/web/src/map/kikikuru/` 配下）の実装変更は不要**である。F3 が将来キキクルでも先読みを使いたくなった場合は、同じ props を渡すだけでよい。
 
+#### 9.3.6 再生タイマーと同期完了通知の順序契約【PR #204 Codex P1】
+
+##### 発生する競合
+
+`scheduleNextPlaybackFrame()` のタイマー callback は、次コマに対して `setIntentFrameId(nextFrame.id)` と `setDebouncedIntentFrameId(nextFrame.id)` だけを呼んでいる。`intentFrameIdRef.current` は render 後の effect で state に追従するため、setter 呼び出し直後には旧コマを指したままである。
+
+再生中は §9.3.2 の先読み・リテンションにより、次コマの `WeatherTileOverlay` が既に読込済みの場合がある。この場合は新しい `overlayFrame` が反映された直後に `onSwapSettled({ frameId: nextFrame.id, complete: true })` が同期的に返り得る。`handleSwapSettled()` は §9.4.5 の規則に従い、通知の `frameId` と `intentFrameIdRef.current` が一致する場合だけ確定を進めるため、ref が旧値の短い期間に届いた**正しい次コマの通知を古い通知として拒否する**。
+
+その結果、タイル画像だけが次コマへ切り替わる一方、`settledFrameId` と表示日時は旧コマに据え置かれ、`intentFrameId !== settledFrameId` のままスピナーが収束しない。さらに、正しい通知は一度しか来ないため、後続 render で ref が追いついても復旧しない。
+
+##### 修正する順序
+
+再生タイマー callback は、手動操作経路（§9.4.4）が既に採用している順序と同じ契約にする。**setter より前に ref を同期する**。
+
+```ts
+playbackTimerRef.current = setTimeout(() => {
+  clearDebounceTimer();
+  intentFrameIdRef.current = nextFrame.id;
+  setIntentFrameId(nextFrame.id);
+  setDebouncedIntentFrameId(nextFrame.id);
+}, PLAYBACK_INTERVAL_MS);
+```
+
+順序契約は次のとおりである。
+
+1. `intentFrameIdRef.current = nextFrame.id` で、同一 call stack 内の完了通知が参照する命令的な最新値を先に更新する。
+2. `setIntentFrameId(nextFrame.id)` で、つまみ・loading 判定へ反映する宣言的 state を更新する。
+3. `setDebouncedIntentFrameId(nextFrame.id)` で、再生時はデバウンスせず次の overlay を要求する。
+
+この順序は再生開始、手動選択、前へ／次へ、最新へが守っている「ref → state setter」の契約と一致させる。`handleSwapSettled()` の古い通知を拒否する条件自体は緩めない。通知を無条件採用すると、本当に古い非同期完了で表示日時が巻き戻るためである。
+
+##### 回帰テスト
+
+テストはソース文字列や純関数だけを検査せず、`usePlayback` の実 hook と再生タイマーを動かす。次の順序を再現する。
+
+1. 実 hook を client render 相当の harness へ mount し、初期コマを settle させる。
+2. 再生を開始し、最初の切替を settle させて次の 1,000 ms タイマーを予約する。
+3. タイマーを発火させ、state 更新後の client render を進める。親 hook の ref 追従 effect が走る前に、先読み済み `WeatherTileOverlay` 相当の子 effect／同期 callback から次コマの `handleSwapSettled({ complete: true })` を呼ぶ。または、実 hook harness で timer callback と effect flush を分離し、setter 実行後・ref 追従 effect 前に同じ通知を呼ぶ。
+4. render を完了させ、`intentFrameId`、`settledFrameId`、`overlayFrame.id`、表示日時が同じ次コマへ収束し、`intentFrameId !== settledFrameId` から導く loading が false になってスピナーが消灯条件へ入ることを確認する。
+
+テストが原因箇所を直接固定していることを証明するため、検収時に `intentFrameIdRef.current = nextFrame.id` の 1 行だけを一時的に外して同じテストが失敗（**KILLED**）することを確認し、直ちに復元して再通過させる。変異確認のために製品コードへフラグや分岐を追加しない。
+
+変更は §3 の許可 2 ファイルだけに閉じる。再生間隔、先読み深さ、リテンション、12 秒タイムアウト、手動操作の 500 ms デバウンス、古い完了通知の拒否、表示時刻の settled 基準、スピナーの遅延・最小表示時間、キキクルの挙動は変更しない。
+
 ### 9.4 手動操作の即応性（操作意図と確定選択の分離）【設計案・4 回目検収の差し戻し】
 
 #### 9.4.1 症状と原因
@@ -1113,6 +1161,12 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 - [ ] 再生中にポーリングで新しいコマを含む応答が届いても、スライダーの目盛り数と各目盛りの時刻が変化しない。停止すると新しいコマが反映される。
 - [ ] DevTools でタイル要求を遅延（Slow 3G）させて再生し、切替時に**前コマの降水域が新しい時刻の表示として残らない**こと、および**画面の表示日時と表示中の画像が同じコマを指す**ことを確認する（表示日時だけが先に進まない）。
 - [ ] 同じく遅延させた状態で、1 コマの読み込みが 12 秒を超えた場合に再生が止まらず次へ進み、タイル欠けの状態が外部へ通知されることを確認する（`onSwapSettled` の `complete: false` をテストで検証する）。
+- [ ] **【PR #204 P1・同期完了】**`usePlayback` の実 hook と再生タイマーを動かし、タイマー callback の state setter 後に client render を進め、親 hook の ref 追従 effect より先に、先読み済み次コマの `onSwapSettled` が同期発火する順序を再現する。effect flush を分離できる実 hook harness で同じ境界を再現してもよい。ソース文字列検査や setter の mock だけで代用しない。
+- [ ] 上記の同期完了後、`intentFrameId`、`settledFrameId`、`overlayFrame.id`、表示日時がすべて同じ次コマを指す。画像だけが先へ進まず、`intentFrameId !== settledFrameId` が false に収束してスピナーが消灯条件へ入る。次の切替タイマーも従来どおり完了時点から予約され、再生が停止しない。
+- [ ] 再生タイマー callback の更新順が **`intentFrameIdRef.current` → `setIntentFrameId` → `setDebouncedIntentFrameId`** であり、手動操作経路と同じ「ref を先に同期する」契約になっている。`handleSwapSettled()` の古い通知拒否条件は変更されていない。
+- [ ] **【変異確認】**対象テストが通る状態から `intentFrameIdRef.current = nextFrame.id` の同期だけを一時的に外すと同テストが失敗し、結果を **KILLED** と記録できる。行を復元後、対象テストと通常検査が再通過する。製品コードに変異用分岐を残さない。
+- [ ] `git diff --name-only` で、PR #204 P1 のコード差分が `apps/web/src/map/nowcast/usePlayback.ts` と `apps/web/tests/nowcastManualPlayback.test.ts` の 2 本だけである。再生間隔、先読み深さ、リテンション、タイムアウト、手動デバウンス、表示文言・時刻書式、スピナー部品、キキクルに差分がない。
+
 #### 11.4.1 手動操作の即応性（§9.4・4 回目検収の差し戻し）
 
 すべてナウキャスト**停止中**の手動操作で検証する。`performance.now()` で、操作イベント（`click` / `input`）から DOM 反映までを計測する。DevTools の Network を開き、タイル要求の件数と URL を併せて記録する。
