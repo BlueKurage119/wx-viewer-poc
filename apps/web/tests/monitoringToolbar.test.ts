@@ -77,10 +77,17 @@ test('ダイアログ境界: 固定タイトル・準備中表示を持ち、差
 test('戻るアイコン: ホストを40px正方形に限定し、内部buttonのspacingを強制しない', () => {
   const css = readFileSync(new URL('../src/monitoring/monitoring.css', import.meta.url), 'utf8');
   const iconButtonRule = css.match(/\.monitoring-toolbar-icon-button \{([^}]*)\}/)?.[1];
+  const iconButtonFocusRule = css.match(
+    /\.monitoring-toolbar-icon-button:focus-within \{([^}]*)\}/,
+  )?.[1];
 
   assert.ok(iconButtonRule);
+  assert.ok(iconButtonFocusRule);
   assert.ok(iconButtonRule.includes('inline-size: 40px !important;'));
   assert.ok(iconButtonRule.includes('block-size: 40px;'));
+  assert.ok(iconButtonRule.includes('overflow: clip;'));
+  assert.ok(iconButtonFocusRule.includes('outline: 3px solid var(--md-sys-color-primary);'));
+  assert.ok(iconButtonFocusRule.includes('outline-offset: -3px;'));
   assert.equal(css.includes('.monitoring-toolbar-icon-button::part(btn)'), false);
 });
 

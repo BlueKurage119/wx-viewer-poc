@@ -278,6 +278,12 @@
   inline-size: 40px !important;
   min-inline-size: 40px;
   block-size: 40px;
+  overflow: clip;
+}
+
+.monitoring-toolbar-icon-button:focus-within {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: -3px;
 }
 
 .monitoring-toolbar-title {
