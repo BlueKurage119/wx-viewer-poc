@@ -41,6 +41,7 @@ export function computePrefetchFrames(params: {
   readonly targetFrameId: string | null;
   readonly terminalId: string;
   readonly controlStatus: WeatherControlStatus;
+  readonly catalog: NowcastCatalog;
   readonly depth?: number;
 }): readonly WeatherTileOverlayFrame[] {
   const {
@@ -48,6 +49,7 @@ export function computePrefetchFrames(params: {
     targetFrameId,
     terminalId,
     controlStatus,
+    catalog,
     depth = PLAYBACK_PREFETCH_DEPTH,
   } = params;
   if (!targetFrameId) return [];
@@ -66,13 +68,16 @@ export function computePrefetchFrames(params: {
     const f = representative[targetIndex];
     if (f && !seenIds.has(f.id)) {
       seenIds.add(f.id);
+      const urlTemplate = buildNowcastTileUrlTemplate({
+        frame: f,
+        terminalId,
+        controlStatus,
+        tileDeliveryProfile: catalog.tileDeliveryProfile,
+      });
+      if (!urlTemplate) continue;
       targets.push({
         id: f.id,
-        urlTemplate: buildNowcastTileUrlTemplate({
-          frame: f,
-          terminalId,
-          controlStatus,
-        }),
+        urlTemplate,
       });
     }
   }
@@ -441,28 +446,57 @@ export function usePlayback(params: {
       ? (activeCatalog.frames.find((f) => f.id === debouncedIntentFrameId) ?? null)
       : null;
 
+  const directAllowed =
+    activeCatalog?.tileDeliveryProfile !== 'jma-direct' ||
+    activeCatalog.imageAccess?.allowed === true;
+  const targetUrl =
+    activeCatalog &&
+    targetFrame &&
+    controlStatus === 'normal' &&
+    activeCatalog.allowedZooms.length > 0
+      ? buildNowcastTileUrlTemplate({
+          frame: targetFrame,
+          terminalId,
+          controlStatus,
+          tileDeliveryProfile: activeCatalog.tileDeliveryProfile,
+        })
+      : null;
   const overlayFrame: WeatherTileOverlayFrame | null =
-    enabled && targetFrame
+    enabled && targetFrame && directAllowed && targetUrl
       ? {
           id: targetFrame.id,
-          urlTemplate: buildNowcastTileUrlTemplate({
-            frame: targetFrame,
-            terminalId,
-            controlStatus,
-          }),
+          urlTemplate: targetUrl,
         }
       : null;
 
   // 再生先読み対象のフレーム群 (§9.3.2)
   const prefetchFrames: readonly WeatherTileOverlayFrame[] | undefined = useMemo(() => {
-    if (!enabled || !playing || !debouncedIntentFrameId) return undefined;
+    if (
+      !enabled ||
+      !playing ||
+      !debouncedIntentFrameId ||
+      !activeCatalog ||
+      !directAllowed ||
+      controlStatus !== 'normal' ||
+      activeCatalog.allowedZooms.length === 0
+    )
+      return undefined;
     return computePrefetchFrames({
       frames: playbackFramesRef.current,
       targetFrameId: debouncedIntentFrameId,
       terminalId,
       controlStatus,
+      catalog: activeCatalog,
     });
-  }, [enabled, playing, debouncedIntentFrameId, terminalId, controlStatus]);
+  }, [
+    enabled,
+    playing,
+    debouncedIntentFrameId,
+    terminalId,
+    controlStatus,
+    activeCatalog,
+    directAllowed,
+  ]);
 
   return {
     viewModel,

@@ -45,6 +45,33 @@ test('useKikikuruLayerState: 差替え完了前は最新画像を要求しつつ
   assert.equal(result.viewModel.latestAvailable, false);
 });
 
+test('useKikikuruLayerState: jma-direct だけ imageAccess をレイヤー生成条件にすること', () => {
+  const render = (tileDeliveryProfile: 'proxy' | 'jma-direct') => {
+    const catalog = buildKikikuruCatalog(
+      createSampleKikikuruResponse({
+        tileDeliveryProfile,
+        imageAccess: { allowed: false, reason: 'scheduled_stopped', nextAllowedAt: null },
+      }),
+    );
+    let captured: UseKikikuruLayerStateResult | null = null;
+    function TestComponent() {
+      captured = useKikikuruLayerState({
+        catalog,
+        currentLayerId: 'kikikuru-heavyrain',
+        terminalId: 'hkeagh01',
+        controlStatus: 'normal',
+        enabled: true,
+      });
+      return null;
+    }
+    renderToStaticMarkup(el(TestComponent));
+    assert.ok(captured);
+    return (captured as UseKikikuruLayerStateResult).overlayFrame;
+  };
+  assert.equal(render('jma-direct'), null);
+  assert.ok(render('proxy'));
+});
+
 test('useKikikuruLayerState: 差替え完了まで旧画像のカード・凡例を維持し、旧種別通知を受理しないこと', async () => {
   const documentForClient = globalThis.document as unknown as {
     addEventListener: () => void;

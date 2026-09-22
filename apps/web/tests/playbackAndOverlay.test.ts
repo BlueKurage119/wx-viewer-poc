@@ -79,6 +79,46 @@ test('usePlayback: タイムライン view model が代表コマで構築され�
   assert.equal(result.viewModel.playing, false);
 });
 
+test('usePlayback: jma-direct は imageAccess が許可されない限りレイヤーを生成しないこと', () => {
+  const deniedCatalog = buildNowcastCatalog(
+    createSampleNowcastResponse({
+      tileDeliveryProfile: 'jma-direct',
+      imageAccess: { allowed: false, reason: 'scheduled_stopped', nextAllowedAt: null },
+    }),
+  );
+  let captured: UsePlaybackResult | null = null;
+  function TestComponent() {
+    captured = usePlayback({
+      catalog: deniedCatalog,
+      terminalId: 'hkeagh01',
+      controlStatus: 'normal',
+      enabled: true,
+    });
+    return null;
+  }
+  renderToStaticMarkup(el(TestComponent));
+  assert.ok(captured);
+  assert.equal((captured as UsePlaybackResult).overlayFrame, null);
+
+  const proxyCatalog = buildNowcastCatalog(
+    createSampleNowcastResponse({
+      tileDeliveryProfile: 'proxy',
+      imageAccess: { allowed: false, reason: 'scheduled_stopped', nextAllowedAt: null },
+    }),
+  );
+  function ProxyComponent() {
+    captured = usePlayback({
+      catalog: proxyCatalog,
+      terminalId: 'hkeagh01',
+      controlStatus: 'normal',
+      enabled: true,
+    });
+    return null;
+  }
+  renderToStaticMarkup(el(ProxyComponent));
+  assert.ok((captured as UsePlaybackResult).overlayFrame);
+});
+
 test('computePrefetchFrames: 先読み深さ3で後続の代表コマが正しく生成されること (§9.3.2)', () => {
   const response = createSampleNowcastResponse();
   const catalog = buildNowcastCatalog(response);
@@ -91,6 +131,7 @@ test('computePrefetchFrames: 先読み深さ3で後続の代表コマが正し�
     targetFrameId: target.id,
     terminalId: 'hkeagh01',
     controlStatus: 'normal',
+    catalog,
     depth: 3,
   });
 
@@ -110,6 +151,7 @@ test('computePrefetchFrames: 先読み深さ3で後続の代表コマが正し�
     targetFrameId: lastTarget.id,
     terminalId: 'hkeagh01',
     controlStatus: 'normal',
+    catalog,
     depth: 3,
   });
 

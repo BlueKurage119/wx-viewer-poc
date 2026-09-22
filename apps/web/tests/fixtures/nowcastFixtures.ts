@@ -44,6 +44,7 @@ export function createSampleNowcastResponse(
   }
 
   return {
+    tileDeliveryProfile: 'proxy',
     terminalId: 'hkeagh01',
     venueId: 'east',
     controlStatus: 'normal',

@@ -221,6 +221,8 @@ test('F5: 凡例カードは open=false で本体が描画されず再表示ボ�
 
 test('F5: 出典リンクが国土地理院の地理院タイル一覧へリンクしている', () => {
   const html = renderToStaticMarkup(el(MapAttribution));
+  assert.ok(html.includes('気象庁'));
+  assert.ok(html.includes('https://www.jma.go.jp/jma/index.html'));
   assert.ok(html.includes('https://maps.gsi.go.jp/development/ichiran.html'));
   assert.ok(html.includes('地理院タイル'));
   assert.ok(html.includes('target="_blank"'));

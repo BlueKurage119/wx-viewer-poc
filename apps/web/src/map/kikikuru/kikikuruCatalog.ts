@@ -5,6 +5,7 @@ import type {
   KikikuruTimesResponse,
   WeatherContext,
   TileUpstreamAccess,
+  TileDeliveryProfile,
 } from '@wx-viewer-poc/shared';
 import type { MapLayerId, TimelineFrame } from '../types';
 
@@ -115,6 +116,7 @@ export function resolveKikikuruFrame(
 }
 
 export interface KikikuruCatalog {
+  readonly tileDeliveryProfile: TileDeliveryProfile;
   readonly context: WeatherContext;
   readonly allowedZooms: readonly number[];
   readonly catalogAccess: TileUpstreamAccess | null;
@@ -136,6 +138,7 @@ export function buildKikikuruCatalog(response: KikikuruTimesResponse): KikikuruC
 
   if (response.status === 'unsupported_control_status') {
     return {
+      tileDeliveryProfile: response.tileDeliveryProfile,
       context,
       allowedZooms: [],
       catalogAccess: response.catalogAccess ?? null,
@@ -145,6 +148,7 @@ export function buildKikikuruCatalog(response: KikikuruTimesResponse): KikikuruC
   }
 
   return {
+    tileDeliveryProfile: response.tileDeliveryProfile,
     context,
     allowedZooms: response.allowedZooms,
     catalogAccess: response.catalogAccess ?? null,

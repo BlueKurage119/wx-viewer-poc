@@ -7,6 +7,7 @@ export function parseKikikuruTimesResponse(body: unknown): KikikuruTimesResponse
   if (typeof b.terminalId !== 'string') return null;
   if (typeof b.venueId !== 'string') return null;
   if (b.status !== 'ok' && b.status !== 'unsupported_control_status') return null;
+  if (b.tileDeliveryProfile !== 'proxy' && b.tileDeliveryProfile !== 'jma-direct') return null;
   if (!('layers' in b) || typeof b.layers !== 'object' || b.layers === null) return null;
   return body as KikikuruTimesResponse;
 }
