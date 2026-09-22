@@ -23,7 +23,7 @@ export interface NotificationUiState {
   readonly selectedQuestionChoice: string | null;
 }
 
-export const INITIAL_OPERATION_MESSAGE = '左のメニューから表示する画面を選択してください。';
+export const INITIAL_OPERATION_MESSAGE = '';
 export const RETRY_OPERATION_MESSAGE = '通知を受信できません。再試行します。';
 
 export function createNotificationUiState(): NotificationUiState {

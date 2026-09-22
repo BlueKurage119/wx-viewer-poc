@@ -17,7 +17,10 @@ import { operationGuideMessage } from './shell/notifications';
 import { WeatherMapView } from './map/WeatherMapView';
 import type { MapLayerId } from './map/types';
 import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
+import { MonitoringDialogHost } from './monitoring/MonitoringDialogHost';
 import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
+import { monitoringOperationMessage } from './monitoring/monitoringOperationMessage';
+import { useMonitoringToolbar } from './monitoring/useMonitoringToolbar';
 import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
 
 const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
@@ -94,6 +97,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     enabled: !preview,
     onChimeRequest: buzzer.request,
   });
+  const monitoringToolbar = useMonitoringToolbar({ active: view === 'monitor' });
   const current = views.find((item) => item.id === view)!;
   const selectScenario = (next: PreviewScenario) => {
     setScenario(next);
@@ -116,12 +120,17 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       }
     : { failed: preview && scenario === 'connection', lastSuccessAt: null };
   const visibleNotificationState = preview ? previewState : notificationFeed.state;
+  const operationMessage = monitoringOperationMessage(
+    monitoringToolbar.localState,
+    monitoringToolbar.operationState,
+  );
   const notificationState = {
     ...visibleNotificationState,
     operationMessage: operationGuideMessage(
       visibleNotificationState.operationMessage,
       isMonitoringFailed,
       visibleNotificationState.phase === 'retrying',
+      operationMessage,
     ),
   };
   const confirmNotification = (feedKey: string) => {
@@ -164,7 +173,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       }
       toolbar={
         view === 'monitor' ? (
-          <MonitoringToolbar />
+          <MonitoringToolbar model={monitoringToolbar} />
         ) : preview ? (
           <>
             <span className="preview-label">表示確認用</span>
@@ -213,6 +222,10 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           <p>{VIEW_PLACEHOLDER[view].description}</p>
         </div>
       )}
+      <MonitoringDialogHost
+        dialogId={monitoringToolbar.localState.openDialog}
+        onClose={monitoringToolbar.closeDialog}
+      />
     </AppShell>
   );
 }

@@ -3,13 +3,13 @@
     "basetime": "20260907030000",
     "validtime": "20260907031000",
     "member": "immed1",
-    "elements": ["heavyrain"]
+    "elements": ["rain_mesh"]
   },
   {
     "basetime": "20260907030000",
     "validtime": "20260907030000",
     "member": "immed0",
-    "elements": ["heavyrain", "land"]
+    "elements": ["rain_mesh", "land"]
   },
   {
     "basetime": "20260907030000",
@@ -27,7 +27,7 @@
     "basetime": "20260907030000",
     "validtime": "20260907030000",
     "member": "immed0",
-    "elements": ["heavyrain", "land"]
+    "elements": ["rain_mesh", "land"]
   },
   {
     "basetime": "20260907030000",

@@ -90,10 +90,7 @@ test('H2 AC6: 監視API障害と通知受信再試行を操作ガイドで併記
     operationGuideMessage('通知を受信できません。再試行します。', true, true),
     '取得監視: 監視情報API取得不可｜通知受信: 通知を受信できません。再試行します。',
   );
-  assert.equal(
-    operationGuideMessage('左のメニューから表示する画面を選択してください。', true, false),
-    '取得監視: 監視情報API取得不可',
-  );
+  assert.equal(operationGuideMessage('', true, false), '取得監視: 監視情報API取得不可');
 });
 test('H2 AC9: 通知なしでは文字のない非活性ボタン枠を各行に表示する', () => {
   const html = renderToStaticMarkup(
@@ -107,6 +104,9 @@ test('H2 AC9: 通知なしでは文字のない非活性ボタン枠を各行に
   assert.equal(html.includes('詳細'), false);
   assert.equal(html.includes('関連'), false);
   assert.equal(html.includes('送信'), false);
+  assert.ok(html.includes('role="status"'));
+  assert.ok(html.includes('未読 0・未対応 0'));
+  assert.equal(html.includes('左のメニューから表示する画面を選択してください。'), false);
 });
 test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを選択肢群と常時操作2ボタンで表示する', () => {
   const state = receiveNotifications(
@@ -205,7 +205,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
   function computeShellStatus({
     view,
     monitoringState,
-    defaultOperation = '左のメニューから表示する画面を選択してください。',
+    defaultOperation = '',
   }: {
     view: ViewId;
     monitoringState: MonitoringLoadState | null;
@@ -305,7 +305,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
       monitoringState: { phase: 'ready', data: normalMonitoringResponseFixture },
     });
     assert.equal(connection.failed, false);
-    assert.equal(currentOperation, '左のメニューから表示する画面を選択してください。');
+    assert.equal(currentOperation, '');
 
     const html = renderToStaticMarkup(
       el(
@@ -329,7 +329,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
 
     assert.equal(html.includes('connection-error'), false);
     assert.equal(html.includes('受信異常'), false);
-    assert.ok(html.includes('左のメニューから表示する画面を選択してください。'));
+    assert.equal(html.includes('左のメニューから表示する画面を選択してください。'), false);
   }
 
   // 4. 監視画面エラー中に別画面（例: weather）へ切り替えた場合: バッジ・操作ガイドのクリア
@@ -339,7 +339,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
       monitoringState: { phase: 'failed', data: normalMonitoringResponseFixture },
     });
     assert.equal(connection.failed, false);
-    assert.equal(currentOperation, '左のメニューから表示する画面を選択してください。');
+    assert.equal(currentOperation, '');
 
     const html = renderToStaticMarkup(
       el(
@@ -363,7 +363,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
 
     assert.equal(html.includes('connection-error'), false);
     assert.equal(html.includes('受信異常'), false);
-    assert.ok(html.includes('左のメニューから表示する画面を選択してください。'));
+    assert.equal(html.includes('左のメニューから表示する画面を選択してください。'), false);
   }
 });
 

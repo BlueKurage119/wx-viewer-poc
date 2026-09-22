@@ -25,7 +25,7 @@ interface LayerConfig {
 }
 
 const SUPPORTED_ELEMENTS: readonly LayerConfig[] = [
-  { element: 'heavyrain', layer: 'heavyrain', imageId: 'rain_mesh' },
+  { element: 'rain_mesh', layer: 'heavyrain', imageId: 'rain_mesh' },
   { element: 'inund', layer: 'inund', imageId: 'inund' },
   { element: 'land', layer: 'land', imageId: 'land' },
 ];
