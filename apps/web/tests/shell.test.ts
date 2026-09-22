@@ -16,6 +16,7 @@ import { isUnknownTerminalDocument } from '../src/shell/terminalRouting.ts';
 import { AppShell } from '../src/shell/AppShell.tsx';
 import { NotificationArea } from '../src/shell/NotificationArea.tsx';
 import {
+  confirmNotification,
   createNotificationUiState,
   displayedNoticeForRow,
   receiveNotifications,
@@ -364,4 +365,21 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
     assert.equal(html.includes('受信異常'), false);
     assert.ok(html.includes('左のメニューから表示する画面を選択してください。'));
   }
+});
+
+test('Issue #200 AC7: 全件確認後はコールバックがあっても初期空欄と同一のHTMLに戻る', () => {
+  const initial = createNotificationUiState();
+  let state = receiveNotifications(initial, previewNotices('mixed'), 'K').state;
+  for (const item of state.items) {
+    if (item.category !== 'warning') state = selectQuestionConfirmation(state, item.feedKey);
+    state = confirmNotification(state, item.feedKey, 'K');
+  }
+  const callbacks = { onConfirm: () => undefined, onSelectQuestionConfirmation: () => undefined };
+  const render = (value: typeof state) =>
+    renderToStaticMarkup(el(NotificationArea, { state: value, mode: 'K', ...callbacks }));
+  const html = render(state);
+  assert.equal(html, render(initial));
+  assert.equal((html.match(/<button type="button" disabled=""><\/button>/g) ?? []).length, 4);
+  assert.equal((html.match(/tabindex="0"/g) ?? []).length, 1);
+  assert.equal((html.match(/notice-question-choices/g) ?? []).length, 0);
 });
