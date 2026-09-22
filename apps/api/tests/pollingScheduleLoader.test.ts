@@ -23,11 +23,29 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
   test('既定の config/polling.yaml を正しく読み込めること', () => {
     const config = loadPollingScheduleConfig();
     assert.equal(config.timezone, 'Asia/Tokyo');
+    assert.equal(config.tileDeliveryProfile, 'proxy');
     assert.equal(config.amedasPointRecheckSeconds, 600);
     assert.equal(config.freshness.xml.staleAfterSeconds, 300);
     assert.equal(config.freshness.imageCatalog.staleAfterSeconds, 300);
     assert.deepEqual(config.fetchHealth, validFetchHealth);
     assert.equal(config.periods.length, 4);
+  });
+
+  test('tileDeliveryProfile は proxy と jma-direct だけを受理すること', () => {
+    const base = loadPollingScheduleConfig();
+    assert.equal(
+      validatePollingScheduleConfig({ ...base, tileDeliveryProfile: 'jma-direct' })
+        .tileDeliveryProfile,
+      'jma-direct',
+    );
+    for (const invalid of [undefined, '', 'PROXY', 'unknown', 1]) {
+      const candidate = { ...base, tileDeliveryProfile: invalid };
+      if (invalid === undefined) delete candidate.tileDeliveryProfile;
+      assert.throws(
+        () => validatePollingScheduleConfig(candidate),
+        /tileDeliveryProfile は "proxy" または "jma-direct"/,
+      );
+    }
   });
 
   test('cwd をどこに変更しても既定URLがリポジトリルートの config/polling.yaml を解決すること (受け入れ条件 15)', () => {
@@ -252,6 +270,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     // 全区間停止
     const allStopped = validatePollingScheduleConfig({
       timezone: 'Asia/Tokyo',
+      tileDeliveryProfile: 'proxy',
       amedasPointRecheckSeconds: 600,
       freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
       fetchHealth: validFetchHealth,
@@ -281,6 +300,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     // 順序入替え
     const reordered = validatePollingScheduleConfig({
       timezone: 'Asia/Tokyo',
+      tileDeliveryProfile: 'proxy',
       amedasPointRecheckSeconds: 600,
       freshness: { xml: { staleAfterSeconds: 300 }, imageCatalog: { staleAfterSeconds: 300 } },
       fetchHealth: validFetchHealth,

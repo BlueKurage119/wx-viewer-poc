@@ -4,6 +4,7 @@ import type {
   TileUpstreamAccess,
   UtcIso8601String,
   NowcastApiProduct,
+  TileDeliveryProfile,
 } from '@wx-viewer-poc/shared';
 
 export type NowcastFrameKind = 'observed' | 'forecast';
@@ -22,6 +23,7 @@ export interface NowcastFrame {
 }
 
 export interface NowcastCatalog {
+  readonly tileDeliveryProfile: TileDeliveryProfile;
   readonly context: WeatherContext;
   readonly window: { readonly from: UtcIso8601String; readonly to: UtcIso8601String } | null;
   readonly allowedZooms: readonly number[];
@@ -50,6 +52,7 @@ export function buildNowcastCatalog(response: NowcastTimesResponse): NowcastCata
 
   if (response.status === 'unsupported_control_status' || response.window === null) {
     return {
+      tileDeliveryProfile: response.tileDeliveryProfile,
       context,
       window: null,
       allowedZooms: [],
@@ -139,6 +142,7 @@ export function buildNowcastCatalog(response: NowcastTimesResponse): NowcastCata
   });
 
   return {
+    tileDeliveryProfile: response.tileDeliveryProfile,
     context,
     window: { from: windowFrom, to: windowTo },
     allowedZooms: response.allowedZooms,

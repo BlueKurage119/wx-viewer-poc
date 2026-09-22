@@ -15,6 +15,14 @@ export function MapAttribution() {
       >
         地理院タイル
       </a>
+      <a
+        href="https://www.jma.go.jp/jma/index.html"
+        target="_blank"
+        rel="noreferrer"
+        className="attribution-link"
+      >
+        気象庁
+      </a>
     </div>
   );
 }

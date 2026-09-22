@@ -18,6 +18,9 @@ test('kikikuruTimes: 不正なレスポンスでは null を返すこと', () =>
   assert.equal(parseKikikuruTimesResponse(null), null);
   assert.equal(parseKikikuruTimesResponse('string'), null);
   assert.equal(parseKikikuruTimesResponse({ terminalId: 'test' }), null); // layers 欠落
+  const missingProfile = { ...createSampleKikikuruResponse() } as Record<string, unknown>;
+  delete missingProfile.tileDeliveryProfile;
+  assert.equal(parseKikikuruTimesResponse(missingProfile), null);
 });
 
 test('fetchKikikuruTimes: 正しい path とクエリで fetchTileCatalog を呼ぶこと (§6.1)', async () => {
