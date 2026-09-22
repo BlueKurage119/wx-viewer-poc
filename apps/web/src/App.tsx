@@ -15,6 +15,7 @@ import { useNotificationFeed } from './notifications/useNotificationFeed';
 import { useHeaderBuzzer } from './notifications/useHeaderBuzzer';
 import { operationGuideMessage } from './shell/notifications';
 import { WeatherMapView } from './map/WeatherMapView';
+import type { MapLayerId } from './map/types';
 import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
 import { MonitoringDialogHost } from './monitoring/MonitoringDialogHost';
 import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
@@ -68,6 +69,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   const [scenario, setScenario] = useState<PreviewScenario>('empty');
   const [previewState, setPreviewState] = useState(() => createNotificationUiState());
   const [monitoringState, setMonitoringState] = useState<MonitoringLoadState | null>(null);
+  const [selectedLayerId, setSelectedLayerId] = useState<MapLayerId>('nowcast');
   useEffect(() => {
     const syncView = () => {
       // 本文へのスキップリンクはビュー状態として扱わない。
@@ -203,7 +205,12 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       }
     >
       {view === 'weather' ? (
-        <WeatherMapView venue={terminal.venue} terminalId={terminal.id} />
+        <WeatherMapView
+          venue={terminal.venue}
+          terminalId={terminal.id}
+          selectedLayerId={selectedLayerId}
+          onLayerSelect={setSelectedLayerId}
+        />
       ) : view === 'monitor' ? (
         <MonitoringDashboard terminalId={terminal.id} onLoadStateChange={setMonitoringState} />
       ) : (

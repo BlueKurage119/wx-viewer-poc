@@ -14,15 +14,19 @@ const emptyJson = fs.readFileSync(
   path.join(FIXTURES_DIR, 'kikikuru_target_times_empty.json'),
   'utf-8',
 );
+const rainMeshOriginalMinimalJson = fs.readFileSync(
+  path.join(FIXTURES_DIR, 'kikikuru_target_times_rain_mesh_original_minimal.json'),
+  'utf-8',
+);
 
-test('1. heavyrain / inund / land を含む synthetic targetTimes.json から3レイヤーのフレームを抽出でき、heavyrain は rain_mesh、他は同名 imageId となる', () => {
+test('1. 上流 element rain_mesh / inund / land を含む synthetic targetTimes.json から3レイヤーのフレームを抽出でき、内部 layer heavyrain の imageId は rain_mesh、他は同名となる', () => {
   const result = parseKikikuruTargetTimes(syntheticJson);
   assert.strictEqual(result.ok, true);
   if (!result.ok) return;
 
   const { heavyrain, inund, land } = result.framesByLayer;
 
-  // heavyrain: imageId は rain_mesh
+  // 上流 rain_mesh は内部 layer heavyrain、imageId rain_mesh へ正規化される
   assert.strictEqual(heavyrain.length, 2);
   for (const f of heavyrain) {
     assert.strictEqual(f.key.layer, 'heavyrain');
@@ -44,7 +48,53 @@ test('1. heavyrain / inund / land を含む synthetic targetTimes.json から3�
   }
 });
 
-test('2. member が immed0, immed1, none の各フレームを混在させ、URL が一覧の当該値を使う（固定値置換なし）', () => {
+test('2. 実データ由来の rain_mesh 行を内部 layer heavyrain へ正規化し、inund と land も維持する', () => {
+  assert.strictEqual(rainMeshOriginalMinimalJson.includes('"rain_mesh"'), true);
+  assert.strictEqual(rainMeshOriginalMinimalJson.includes('"heavyrain"'), false);
+
+  const result = parseKikikuruTargetTimes(rainMeshOriginalMinimalJson);
+  assert.strictEqual(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepStrictEqual(result.framesByLayer.heavyrain, [
+    {
+      key: {
+        layer: 'heavyrain',
+        baseTime: '2026-09-22T02:30:00.000Z',
+        validTime: '2026-09-22T02:30:00.000Z',
+        imageId: 'rain_mesh',
+        member: 'immed0',
+      },
+      sequence: 0,
+    },
+  ]);
+  assert.deepStrictEqual(result.framesByLayer.inund, [
+    {
+      key: {
+        layer: 'inund',
+        baseTime: '2026-09-22T02:30:00.000Z',
+        validTime: '2026-09-22T02:30:00.000Z',
+        imageId: 'inund',
+        member: 'immed0',
+      },
+      sequence: 0,
+    },
+  ]);
+  assert.deepStrictEqual(result.framesByLayer.land, [
+    {
+      key: {
+        layer: 'land',
+        baseTime: '2026-09-22T02:30:00.000Z',
+        validTime: '2026-09-22T02:30:00.000Z',
+        imageId: 'land',
+        member: 'immed0',
+      },
+      sequence: 0,
+    },
+  ]);
+});
+
+test('3. member が immed0, immed1, none の各フレームを混在させ、URL が一覧の当該値を使う（固定値置換なし）', () => {
   const result = parseKikikuruTargetTimes(syntheticJson);
   assert.strictEqual(result.ok, true);
   if (!result.ok) return;
@@ -108,7 +158,7 @@ test('2. member が immed0, immed1, none の各フレームを混在させ、URL
   );
 });
 
-test('3. 対象 element がない行は当該レイヤーに入らず、重複行は1件に畳まれ、順序と sequence が決定的である', () => {
+test('4. 対象 element がない行は当該レイヤーに入らず、重複行は1件に畳まれ、順序と sequence が決定的である', () => {
   const result = parseKikikuruTargetTimes(syntheticJson);
   assert.strictEqual(result.ok, true);
   if (!result.ok) return;
@@ -158,7 +208,7 @@ test('3. 対象 element がない行は当該レイヤーに入らず、重複�
   assert.strictEqual(landFrames[2]?.sequence, 2);
 });
 
-test('4. 空一覧、不正 JSON、構造不正（2月30日、非オブジェクト、不正 member、不正 elements）の検証', () => {
+test('5. 空一覧、不正 JSON、構造不正（2月30日、非オブジェクト、不正 member、不正 elements）の検証', () => {
   // 正常空一覧
   const emptyRes = parseKikikuruTargetTimes(emptyJson);
   assert.strictEqual(emptyRes.ok, true);
@@ -188,7 +238,7 @@ test('4. 空一覧、不正 JSON、構造不正（2月30日、非オブジェク
       basetime: '20260230120000',
       validtime: '20260230120000',
       member: 'immed0',
-      elements: ['heavyrain'],
+      elements: ['rain_mesh'],
     },
   ]);
   const feb30Res = parseKikikuruTargetTimes(feb30Json);
@@ -203,7 +253,7 @@ test('4. 空一覧、不正 JSON、構造不正（2月30日、非オブジェク
       basetime: '20260907030000',
       validtime: '20260907030000',
       member: '',
-      elements: ['heavyrain'],
+      elements: ['rain_mesh'],
     },
   ]);
   const emptyMemberRes = parseKikikuruTargetTimes(emptyMemberJson);

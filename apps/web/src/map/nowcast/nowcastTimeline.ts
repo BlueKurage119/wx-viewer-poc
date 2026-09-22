@@ -80,6 +80,7 @@ export function buildNowcastTimelineViewModel(params: {
     layerLabel: '雨雲ナウキャスト',
     selectedFrameId,
     selectedFrameLabel,
+    selectedFrameKind: selectedFrame?.kind ?? null,
     frames: timelineFrames,
     playing,
     latestAvailable,

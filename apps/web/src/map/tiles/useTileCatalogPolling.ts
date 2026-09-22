@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { TileCatalogFailure, TileCatalogResult } from '../../api/tileCatalogClient';
 
 export const TILE_CATALOG_POLL_INTERVAL_MS = 60_000;
@@ -14,6 +14,16 @@ export type TileCatalogState<T> =
       readonly failure: TileCatalogFailure;
     }
   | { readonly status: 'failed'; readonly failure: TileCatalogFailure };
+
+interface PollingExecution {
+  readonly generation: number;
+  readonly controller: AbortController;
+}
+
+interface PollingTimer {
+  readonly generation: number;
+  readonly id: ReturnType<typeof setTimeout>;
+}
 
 /**
  * 索引ポーリング hook (レイヤー非依存)
@@ -35,152 +45,165 @@ export function useTileCatalogPolling<T>(params: {
 
   const failureCountRef = useRef(0);
   const lastSuccessRef = useRef<{ catalog: T; fetchedAt: number } | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const isExecutingRef = useRef(false);
+  const generationRef = useRef(0);
+  const enabledRef = useRef(enabled);
+  const visibilityRef = useRef<'visible' | 'hidden'>(
+    typeof document === 'undefined' || document.visibilityState === 'visible'
+      ? 'visible'
+      : 'hidden',
+  );
+  const activeExecutionRef = useRef<PollingExecution | null>(null);
+  const timerRef = useRef<PollingTimer | null>(null);
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current !== null) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
+  // 非同期処理は render 時点の enabled ではなく、常にこの最新値で判定する。
+  enabledRef.current = enabled;
 
-  const getNextIntervalMs = useCallback(() => {
-    if (failureCountRef.current === 0) {
-      return TILE_CATALOG_POLL_INTERVAL_MS;
-    }
-    const idx = Math.min(failureCountRef.current - 1, TILE_CATALOG_BACKOFF_MS.length - 1);
-    return TILE_CATALOG_BACKOFF_MS[idx];
-  }, []);
-
-  const executeFetch = useCallback(async () => {
-    if (!enabled) return;
-
-    // 前回の要求がまだ実行中なら中断
-    if (abortControllerRef.current !== null) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+  useEffect(() => {
+    if (!enabled) {
+      return;
     }
 
-    clearTimer();
+    const getVisibility = (): 'visible' | 'hidden' =>
+      document.visibilityState === 'visible' ? 'visible' : 'hidden';
+    let latestGeneration = generationRef.current;
+    const issueNextGeneration = () => {
+      latestGeneration += 1;
+      generationRef.current = latestGeneration;
+      return latestGeneration;
+    };
+    const clearTimer = () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current.id);
+        timerRef.current = null;
+      }
+    };
+    const abortActiveExecution = () => {
+      activeExecutionRef.current?.controller.abort();
+    };
+    const isCurrentGeneration = (generation: number) =>
+      generationRef.current === generation &&
+      enabledRef.current &&
+      visibilityRef.current === 'visible' &&
+      getVisibility() === 'visible';
+    const getNextIntervalMs = () => {
+      if (failureCountRef.current === 0) {
+        return TILE_CATALOG_POLL_INTERVAL_MS;
+      }
+      const idx = Math.min(failureCountRef.current - 1, TILE_CATALOG_BACKOFF_MS.length - 1);
+      return TILE_CATALOG_BACKOFF_MS[idx];
+    };
 
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    isExecutingRef.current = true;
+    const scheduleNextFetch = (
+      generation: number,
+      executeFetch: (value: number) => Promise<void>,
+    ) => {
+      if (!isCurrentGeneration(generation)) {
+        return;
+      }
+      clearTimer();
+      const delay = getNextIntervalMs();
+      const id = setTimeout(() => {
+        if (timerRef.current?.generation === generation && timerRef.current.id === id) {
+          timerRef.current = null;
+        }
+        void executeFetch(generation);
+      }, delay);
+      timerRef.current = { generation, id };
+    };
 
-    try {
-      const result = await loadRef.current(controller.signal);
-      if (controller.signal.aborted) {
+    const executeFetch = async (generation: number): Promise<void> => {
+      if (!isCurrentGeneration(generation)) {
         return;
       }
 
-      if (result.ok) {
-        failureCountRef.current = 0;
-        const fetchedAt = Date.now();
-        lastSuccessRef.current = { catalog: result.value, fetchedAt };
-        setState({
-          status: 'ready',
-          catalog: result.value,
-          fetchedAt,
-        });
-      } else {
+      clearTimer();
+      const controller = new AbortController();
+      const execution: PollingExecution = { generation, controller };
+      activeExecutionRef.current = execution;
+
+      try {
+        const result = await loadRef.current(controller.signal);
+        if (!isCurrentGeneration(generation)) {
+          return;
+        }
+
+        if (result.ok) {
+          failureCountRef.current = 0;
+          const fetchedAt = Date.now();
+          lastSuccessRef.current = { catalog: result.value, fetchedAt };
+          setState({ status: 'ready', catalog: result.value, fetchedAt });
+        } else {
+          failureCountRef.current += 1;
+          if (lastSuccessRef.current !== null) {
+            setState({
+              status: 'stale',
+              catalog: lastSuccessRef.current.catalog,
+              fetchedAt: lastSuccessRef.current.fetchedAt,
+              failure: result.failure,
+            });
+          } else {
+            setState({ status: 'failed', failure: result.failure });
+          }
+        }
+      } catch {
+        if (!isCurrentGeneration(generation)) {
+          return;
+        }
         failureCountRef.current += 1;
+        const failure: TileCatalogFailure = { kind: 'network' };
         if (lastSuccessRef.current !== null) {
           setState({
             status: 'stale',
             catalog: lastSuccessRef.current.catalog,
             fetchedAt: lastSuccessRef.current.fetchedAt,
-            failure: result.failure,
+            failure,
           });
         } else {
-          setState({
-            status: 'failed',
-            failure: result.failure,
-          });
+          setState({ status: 'failed', failure });
         }
+      } finally {
+        if (activeExecutionRef.current === execution) {
+          activeExecutionRef.current = null;
+        }
+        scheduleNextFetch(generation, executeFetch);
       }
-    } catch {
-      if (controller.signal.aborted) {
+    };
+
+    const startNewGeneration = (reset: boolean) => {
+      const generation = issueNextGeneration();
+      if (reset) {
+        failureCountRef.current = 0;
+        lastSuccessRef.current = null;
+        setState({ status: 'loading' });
+      }
+      void executeFetch(generation);
+    };
+
+    visibilityRef.current = getVisibility();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    startNewGeneration(true);
+
+    function handleVisibilityChange() {
+      const visibility = getVisibility();
+      if (visibilityRef.current === visibility) {
         return;
       }
-      failureCountRef.current += 1;
-      const failure: TileCatalogFailure = { kind: 'network' };
-      if (lastSuccessRef.current !== null) {
-        setState({
-          status: 'stale',
-          catalog: lastSuccessRef.current.catalog,
-          fetchedAt: lastSuccessRef.current.fetchedAt,
-          failure,
-        });
-      } else {
-        setState({
-          status: 'failed',
-          failure,
-        });
-      }
-    } finally {
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
-      }
-      isExecutingRef.current = false;
-
-      // 可視状態かつ enabled の場合のみ次回タイマーをスケジュール
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        const nextMs = getNextIntervalMs();
-        clearTimer();
-        timerRef.current = setTimeout(() => {
-          void executeFetch();
-        }, nextMs);
+      visibilityRef.current = visibility;
+      issueNextGeneration();
+      clearTimer();
+      abortActiveExecution();
+      if (visibility === 'visible') {
+        startNewGeneration(false);
       }
     }
-  }, [clearTimer, enabled, getNextIntervalMs]);
-
-  // resetKey や enabled の変更監視
-  useEffect(() => {
-    if (!enabled) {
-      clearTimer();
-      if (abortControllerRef.current !== null) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-      return;
-    }
-
-    failureCountRef.current = 0;
-    lastSuccessRef.current = null;
-    setState({ status: 'loading' });
-
-    void executeFetch();
 
     return () => {
-      clearTimer();
-      if (abortControllerRef.current !== null) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-    };
-  }, [resetKey, enabled, clearTimer, executeFetch]);
-
-  // visibilitychange の監視
-  useEffect(() => {
-    if (!enabled) return;
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        // 可視復帰時は即時取得
-        void executeFetch();
-      } else {
-        // 不可視時は次回タイマー停止
-        clearTimer();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
+      issueNextGeneration();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearTimer();
+      abortActiveExecution();
     };
-  }, [enabled, clearTimer, executeFetch]);
+  }, [resetKey, enabled]);
 
   return state;
 }

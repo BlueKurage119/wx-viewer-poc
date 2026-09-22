@@ -26,6 +26,10 @@ const emptyJson = fs.readFileSync(
   path.join(FIXTURES_DIR, 'kikikuru_target_times_empty.json'),
   'utf-8',
 );
+const rainMeshOriginalMinimalJson = fs.readFileSync(
+  path.join(FIXTURES_DIR, 'kikikuru_target_times_rain_mesh_original_minimal.json'),
+  'utf-8',
+);
 
 function createTestClient(app: ReturnType<typeof createApp>) {
   return {
@@ -487,6 +491,75 @@ test('B04: キキクル - 一覧 GET 繰り返しで fetch 0 回、DB 不変、r
     const snapAfter = findRiskSnapshot(connection, 'heavyrain')!;
     assert.equal(snapAfter.metadata.fetchedAt, snapBefore.metadata.fetchedAt);
     assert.equal(snapAfter.metadata.lastSuccessAt, snapBefore.metadata.lastSuccessAt);
+  } finally {
+    cleanup();
+  }
+});
+
+test('B05: キキクル - rain_mesh 一覧更新から時刻 API・最新フレーム・タイル URL までを一貫して正規化する', async () => {
+  const { tmpDir, connection, cleanup } = setupKikikuruEnv();
+  try {
+    const currentTime = '2026-09-22T02:40:00.000Z' as UtcIso8601String;
+    const requestedUrls: string[] = [];
+    const testFetch: typeof fetch = async (input) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.includes('targetTimes.json')) {
+        return new Response(rainMeshOriginalMinimalJson, { status: 200 });
+      }
+      return new Response(VALID_1X1_PNG, { status: 200 });
+    };
+    const service = new KikikuruService(connection, {
+      cacheRoot: tmpDir,
+      allowedZooms: [10],
+      getCatalogAccess: () => ({ allowed: true, period: {} as never, nextAllowedAt: null }),
+      getImageAccess: () => ({ allowed: true, period: {} as never, nextAllowedAt: null }),
+      freshnessPolicy: { staleAfterSeconds: 300 },
+      fetchFn: testFetch,
+      clock: () => currentTime,
+    });
+    await service.refreshTimes();
+    assert.deepStrictEqual(requestedUrls, [
+      'https://www.jma.go.jp/bosai/jmatile/data/risk/targetTimes.json',
+    ]);
+
+    const apiService = createKikikuruApiService({
+      getService: () => service,
+      enablePolling: true,
+      clock: () => currentTime,
+    });
+    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const timesResponse = await client.request(
+      '/api/weather/kikikuru/times?terminalId=hkeagh01&controlStatus=normal',
+    );
+
+    assert.equal(timesResponse.statusCode, 200);
+    assert.equal(timesResponse.json.status, 'ok');
+    for (const layer of ['heavyrain', 'inund', 'land'] as const) {
+      assert.equal(timesResponse.json.layers[layer].data.frames.length, 1);
+    }
+    const latestHeavyrainFrame = timesResponse.json.layers.heavyrain.data.frames.reduce(
+      (latest: { validTime: string }, frame: { validTime: string }) =>
+        frame.validTime > latest.validTime ? frame : latest,
+    );
+    assert.deepEqual(latestHeavyrainFrame, {
+      layer: 'heavyrain',
+      baseTime: '2026-09-22T02:30:00.000Z',
+      validTime: '2026-09-22T02:30:00.000Z',
+      imageId: 'rain_mesh',
+      member: 'immed0',
+    });
+
+    requestedUrls.length = 0;
+    const tileResponse = await client.request(
+      `/api/weather/kikikuru/heavyrain/tiles/10/909/404.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
+        latestHeavyrainFrame.baseTime,
+      )}&validTime=${encodeURIComponent(latestHeavyrainFrame.validTime)}&imageId=${latestHeavyrainFrame.imageId}&member=${encodeURIComponent(latestHeavyrainFrame.member)}`,
+    );
+    assert.equal(tileResponse.statusCode, 200);
+    assert.deepEqual(requestedUrls, [
+      'https://www.jma.go.jp/bosai/jmatile/data/risk/20260922023000/immed0/20260922023000/surf/rain_mesh/10/909/404.png',
+    ]);
   } finally {
     cleanup();
   }

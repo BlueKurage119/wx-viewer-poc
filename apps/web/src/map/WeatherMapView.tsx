@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useMemo, useCallback, type ReactElement } from 'react';
 import type L from 'leaflet';
 import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { Venue } from '../shell/config';
@@ -13,10 +13,12 @@ import { TimelineControlCard } from './TimelineControlCard';
 import { LayerSelector } from './LayerSelector';
 import { useNowcastCatalog } from './nowcast/useNowcastCatalog';
 import { usePlayback } from './nowcast/usePlayback';
+import { NowcastLoadingSpinner } from './nowcast/NowcastLoadingSpinner';
 import { useKikikuruCatalog } from './kikikuru/useKikikuruCatalog';
 import { useKikikuruLayerState } from './kikikuru/useKikikuruLayerState';
 import { isKikikuruLayer } from './kikikuru/kikikuruCatalog';
-import { WeatherTileOverlay } from './tiles/WeatherTileOverlay';
+import { KikikuruStatusCard } from './kikikuru/KikikuruStatusCard';
+import { WeatherTileOverlay, type WeatherTileOverlayProps } from './tiles/WeatherTileOverlay';
 
 export interface WeatherMapViewProps {
   venue: Venue;
@@ -28,9 +30,44 @@ export interface WeatherMapViewProps {
   onLayerSelect?: (layerId: MapLayerId) => void;
 }
 
-const NOWCAST_LAYER_OPACITY = 0.8;
+const NOWCAST_LAYER_OPACITY = 1;
 const KIKIKURU_LAYER_OPACITY = 0.75;
 const SWAP_TIMEOUT_MS = 12_000;
+
+/** 実際にオーバーレイへ渡す不透明度を回帰テストから検証する公開境界。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export const weatherMapViewConfiguration = {
+  nowcastLayerOpacity: NOWCAST_LAYER_OPACITY,
+  kikikuruLayerOpacity: KIKIKURU_LAYER_OPACITY,
+} as const;
+
+/** ナウキャストとキキクルの間では、共通オーバーレイを必ず破棄する境界キー。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export function getOverlayProductKey(layerId: MapLayerId): 'nowcast' | 'kikikuru' {
+  return layerId === 'nowcast' ? 'nowcast' : 'kikikuru';
+}
+
+/** MapViewport に触れず、選択状態だけを更新するレイヤー選択の本番経路。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export function createLayerSelectHandler(
+  controlledLayerId: MapLayerId | undefined,
+  setInternalLayerId: (layerId: MapLayerId) => void,
+  onLayerSelect: ((layerId: MapLayerId) => void) | undefined,
+): (layerId: MapLayerId) => void {
+  return (layerId) => {
+    if (controlledLayerId === undefined) setInternalLayerId(layerId);
+    onLayerSelect?.(layerId);
+  };
+}
+
+/** プロダクト境界 key を含むオーバーレイ要素を生成する。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export function createWeatherTileOverlayElement(
+  layerId: MapLayerId,
+  props: WeatherTileOverlayProps,
+): ReactElement {
+  return <WeatherTileOverlay key={getOverlayProductKey(layerId)} {...props} />;
+}
 
 /**
  * 防災気象情報地図ビュー統括コンポーネント (F1, F2, F3, F4, F5, F6)
@@ -59,14 +96,13 @@ export function WeatherMapView({
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
 
   // 右列 slot と時間カードの DOM 要素参照 (MapViewport の中心補正に渡す)
-  const rightColumnRef = useRef<HTMLElement>(null);
-  const bottomCardRef = useRef<HTMLDivElement>(null);
   const [rightColumnEl, setRightColumnEl] = useState<HTMLElement | null>(null);
   const [bottomCardEl, setBottomCardEl] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setRightColumnEl(rightColumnRef.current);
-    setBottomCardEl(bottomCardRef.current);
+  const setRightColumnRef = useCallback((element: HTMLElement | null) => {
+    setRightColumnEl(element);
+  }, []);
+  const setBottomCardRef = useCallback((element: HTMLDivElement | null) => {
+    setBottomCardEl(element);
   }, []);
 
   const viewportRef = useRef<MapViewportHandle>(null);
@@ -103,7 +139,7 @@ export function WeatherMapView({
       ? kikikuruState.catalog
       : null;
 
-  // キキクルの再生・選択制御 (種別切替時の時刻維持、member 再解決)
+  // キキクルの最新コマ・member 再解決
   const currentKikikuruLayerId = isKikikuru ? currentLayerId : 'kikikuru-heavyrain';
   const kikikuruPlayback = useKikikuruLayerState({
     catalog: kikikuruCatalog,
@@ -118,7 +154,13 @@ export function WeatherMapView({
       return controlledTimelineViewModel;
     }
     if (isNowcast) {
-      return nowcastCatalog ? nowcastPlayback.viewModel : emptyTimeline;
+      if (!nowcastCatalog) return emptyTimeline;
+      return {
+        ...nowcastPlayback.viewModel,
+        // TimelineControlCard (F4所有・変更不可) のスライダーつまみ位置 (value) は
+        // selectedFrameId から算出されるため、つまみを intentFrameId に追従させる (§9.4.2)
+        selectedFrameId: nowcastPlayback.viewModel.intentFrameId,
+      };
     }
     if (isKikikuru) {
       return kikikuruCatalog
@@ -140,18 +182,14 @@ export function WeatherMapView({
     currentLayerId,
   ]);
 
-  const handleLayerSelect = (layerId: MapLayerId) => {
-    if (controlledLayerId === undefined) {
-      setInternalLayerId(layerId);
-    }
-    onLayerSelect?.(layerId);
-  };
+  const handleLayerSelect = useMemo(
+    () => createLayerSelectHandler(controlledLayerId, setInternalLayerId, onLayerSelect),
+    [controlledLayerId, onLayerSelect],
+  );
 
   const handleIntent = (intent: TimelineIntent) => {
     if (isNowcast) {
       nowcastPlayback.handleIntent(intent);
-    } else if (isKikikuru) {
-      kikikuruPlayback.handleIntent(intent);
     }
     onTimelineIntent?.(intent);
   };
@@ -170,56 +208,63 @@ export function WeatherMapView({
     }
   };
 
-  const presentation = LAYER_PRESENTATIONS[currentLayerId];
+  const presentationLayerId = isKikikuru ? kikikuruPlayback.displayedLayerId : currentLayerId;
+  const presentation = LAYER_PRESENTATIONS[presentationLayerId];
 
   // ズーム・会場復帰操作 (F6)
   const handleZoomIn = () => viewportRef.current?.zoomIn();
   const handleZoomOut = () => viewportRef.current?.zoomOut();
   const handleReturnToVenue = () => viewportRef.current?.returnToVenue();
 
-  // 表示ズーム 10 未満ではキキクルの重畳を行わない (§7.2, §11.5)
-  const isZoomAllowedForKikikuru = currentZoom >= 10;
   const overlayFrame = isNowcast
     ? nowcastPlayback.overlayFrame
-    : isKikikuru && isZoomAllowedForKikikuru
+    : isKikikuru
       ? kikikuruPlayback.overlayFrame
       : null;
 
   const overlayAllowedZooms = isNowcast
     ? (nowcastCatalog?.allowedZooms ?? [10])
-    : (kikikuruCatalog?.allowedZooms ?? [10]);
+    : (kikikuruCatalog?.allowedZooms ?? []);
 
-  const overlayOpacity = isNowcast ? NOWCAST_LAYER_OPACITY : KIKIKURU_LAYER_OPACITY;
+  const overlayOpacity = isNowcast
+    ? weatherMapViewConfiguration.nowcastLayerOpacity
+    : weatherMapViewConfiguration.kikikuruLayerOpacity;
   const overlayPrefetchFrames = isNowcast ? nowcastPlayback.prefetchFrames : undefined;
   const overlayRetainLoaded = isNowcast ? nowcastPlayback.retainLoaded : false;
 
-  // キキクル表示中のステータス注記スロット (§7.2, §8.2, §11.5, §11.7)
-  const statusSlot = isKikikuru ? (
-    <div className="timeline-status-slot">
-      <span className="kikikuru-prediction-note">この危険度は予測を含む判定結果です</span>
-      {currentZoom < 10 && (
-        <span className="kikikuru-status-message">この縮尺では危険度分布を表示していません</span>
-      )}
-      {currentZoom >= 10 && kikikuruPlayback.statusMessage && (
-        <span className="kikikuru-status-message">{kikikuruPlayback.statusMessage}</span>
-      )}
-    </div>
+  // 雨雲ナウキャスト読込中判定 (intent !== settled §9.4.2)
+  const isNowcastLoading =
+    isNowcast &&
+    nowcastPlayback.viewModel.intentFrameId !== nowcastPlayback.viewModel.settledFrameId;
+
+  // キキクル表示中のステータス注記スロット
+  const kikikuruStatusSlot =
+    isKikikuru && kikikuruPlayback.statusMessage ? (
+      <span className="kikikuru-status-message">{kikikuruPlayback.statusMessage}</span>
+    ) : undefined;
+
+  // ナウキャスト表示中のスピナースロット (§9.4.8)
+  const nowcastStatusSlot = isNowcast ? (
+    <NowcastLoadingSpinner loading={isNowcastLoading} />
   ) : undefined;
 
+  const effectiveStatusSlot = isNowcast ? nowcastStatusSlot : kikikuruStatusSlot;
+  // ナウキャストとキキクルの間では画像を引き継がない。種別間だけはキキクル側で
+  // settled 表示を維持するため、同一インスタンスの差替えを許可する。
   return (
     <div className="weather-map-view" aria-label="防災気象情報ビュー">
       {/* 気象タイルオーバーレイ (F2 / F3) */}
-      <WeatherTileOverlay
-        map={mapInstance}
-        frame={overlayFrame}
-        prefetchFrames={overlayPrefetchFrames}
-        retainLoaded={overlayRetainLoaded}
-        allowedZooms={overlayAllowedZooms}
-        opacity={overlayOpacity}
-        swapTimeoutMs={SWAP_TIMEOUT_MS}
-        onSwapSettled={handleSwapSettled}
-        onTileError={handleTileError}
-      />
+      {createWeatherTileOverlayElement(currentLayerId, {
+        map: mapInstance,
+        frame: overlayFrame,
+        prefetchFrames: overlayPrefetchFrames,
+        retainLoaded: overlayRetainLoaded,
+        allowedZooms: overlayAllowedZooms,
+        opacity: overlayOpacity,
+        swapTimeoutMs: SWAP_TIMEOUT_MS,
+        onSwapSettled: handleSwapSettled,
+        onTileError: handleTileError,
+      })}
 
       {/* 1. 左上凡例カード／再表示ボタン (F5) */}
       <MapLegend
@@ -233,13 +278,24 @@ export function WeatherMapView({
       <LayerSelector selectedLayerId={currentLayerId} onLayerSelect={handleLayerSelect} />
 
       {/* 3. 下部中央時間操作カード (F4) */}
-      <div className="timeline-card-wrapper">
-        <TimelineControlCard
-          ref={bottomCardRef}
-          viewModel={effectiveTimelineViewModel}
-          onIntent={handleIntent}
-          statusSlot={statusSlot}
-        />
+      <div
+        className="timeline-card-wrapper"
+        aria-busy={isNowcast && isNowcastLoading ? true : undefined}
+      >
+        {isKikikuru ? (
+          <KikikuruStatusCard
+            ref={setBottomCardRef}
+            viewModel={effectiveTimelineViewModel}
+            statusSlot={effectiveStatusSlot}
+          />
+        ) : (
+          <TimelineControlCard
+            ref={setBottomCardRef}
+            viewModel={effectiveTimelineViewModel}
+            onIntent={handleIntent}
+            statusSlot={effectiveStatusSlot}
+          />
+        )}
       </div>
 
       {/* 4. 左下ズーム群および会場復帰 (F6) */}
@@ -254,7 +310,7 @@ export function WeatherMapView({
       <MapAttribution />
 
       {/* 6. 右側情報列スロット (F1 / G1) */}
-      <MapInformationColumnSlot ref={rightColumnRef} />
+      <MapInformationColumnSlot ref={setRightColumnRef} />
 
       {/* 7. Leaflet 地図本体 (F1) - 背景レイヤー */}
       <MapViewport

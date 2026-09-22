@@ -30,6 +30,14 @@
 | 12 | **ナウキャストの公式配色を共有定数として一元化する** | §7.2・§8.2 |
 | 13 | **色トークンは F3 案の 2 層構成を正とする。HEX リテラルは `officialJmaColors.css`（F3 新設）、`--wx-data-nowcast-*` はその `var()` 参照。プリミティブ化するのは両レイヤーで値が一致する `-7` の 1 トークンのみ** | §7.2 |
 | 14 | **（2 回目検収）再生 1 周目の時間の数値目標を撤廃する。「12 秒タイムアウトで必ず前進し、再生が完全停止しない」ことを条件とする。2 周目以降の 1,000 ms ± 300 ms は維持** | §9.3.1・§11.4 |
+| 15 | **（4 回目検収・オーナー所感）停止中の手動操作でつまみが最大 12 秒動かない問題を直す。操作意図と確定選択を分離し、つまみと前後ボタンの基準を intent へ、表示日時と画像は settled のまま据え置く。連打は加算し、最終 intent のコマだけを読み込む** | §9.4・§11.4.1 |
+| 16 | **表示日時ラベルは据え置き（推奨案どおり）。つまみは即座に動き、表示日時と画像は読込完了まで前のコマのまま** | §9.4.3 |
+| 17 | **キャッシュ方針は案 A（クライアント修正のみ）で確定。API 変更（案 B・案 D）は本 Issue に含めない。案 D の起票はユーザー指示があるまで行わない** | §14 |
+| 18 | **（オーナー提案）読み込み中はスピナーを表示する。文言は出さない** | §9.4.8 |
+| 19 | **手動操作のデバウンスは暫定確定（実機実測での調整前提）。5 回目検収の実測を受け、承認済みの暫定値の範囲内で 200 ms → 500 ms へ調整** | §9.4.4 |
+| 20 | **（PR #197 レビュー差し戻し）索引ポーリングの非同期競合は世代番号方式で修正する。`enabled` / `resetKey` / 可視状態のライフサイクルを分離し、旧世代の成功・失敗・`finally` を無効化する** | §5.3・§11.5.1 |
+| 21 | **（オーナー承認）白・水色の弱い降水域が背景地図へ紛れないよう、背景だけに `grayscale(1) brightness(0.66)` を適用し、ナウキャストを `opacity: 1` にする。「実況／予報」は見分けられる大きさにし、既存書式の時刻とともに表示する。これ以外の説明文は追加しない** | §6.4・§9.5 |
+| 22 | **（PR #204 Codex P1）再生タイマーによる自動送りでは、React state setter より先に `intentFrameIdRef.current` を次コマへ同期し、先読み済みレイヤーが同期完了しても通知を正しく受理する** | §9.3.6・§11.4 |
 
 **確定事項 #7 は #10 により撤回済みである。** 本書で「事前のタイル温めを行わない」と読める記述は §9.3 の改訂内容が優先する。
 
@@ -45,13 +53,17 @@
 | [07 気象データ業務標準](../rules/07-wx-data-protocol.md) | 確定/未確定の区別、`isTraining`、availability 3 状態、時刻の意味の維持 |
 | [06 UI/MD3 業務標準](../rules/06-ui-md3-protocol.md) §MD3 トークン使用義務の例外 | ナウキャストのデータ色は `--wx-data-nowcast-*` として定義し、取得先・取得日時とともに保存する |
 | 既存実装 `apps/web/src/map/*`、`apps/api/src/services/nowcastApiService.ts`、`apps/api/src/polling/nowcastTileStore.ts`、`packages/shared/src/tileApi.ts` | F1 の実装済み範囲と API の実在シグネチャ。サーバー側 PNG 検証は署名・IHDR・寸法のみで色タイプを限定していない |
+| `apps/web/src/map/tiles/useTileCatalogPolling.ts`、`apps/web/tests/useTileCatalogPolling.test.ts`、PR #197 の Codex P2 指摘 | 現行フックは cleanup で要求を abort しても、`load` が abort を無視して完了すると旧 `finally` がタイマーを再予約できる。現行テストは SSR の初期状態と定数だけを見ており、effect・cleanup・非同期競合を実行していない |
+| `apps/web/src/map/nowcast/usePlayback.ts`、PR #204 の Codex P1 指摘（discussion_r4067778438） | 再生タイマーは state setter だけを更新し、`intentFrameIdRef` の同期を次 render 後の effect に委ねている。先読み済みレイヤーの `onSwapSettled` がその間に同期発火すると、正しい次コマの完了通知を旧 intent として拒否する |
+| 気象庁「[雨雲の動き・雷活動度・竜巻発生確度（ナウキャスト）](https://www.jma.go.jp/bosai/nowc/)」現行画面（2026-09-22 閲覧・ブラウザーの計算済みスタイルを確認） | 地理院淡色地図のレイヤーだけに `grayscale(1) brightness(0.66)` を適用し、降水レイヤーは `filter: none`・`opacity: 1` で別レイヤーに置く。画面内には「雨雲の動き 2026年9月22日08時45分」のように名称と対象時刻を大きく表示する |
+| 青森地方気象台「[気象庁ホームページの使い方（青森県版）](https://www.data.jma.go.jp/aomori/jmahp-usage/B2/JMA_HP_B2-1.html)」（2026-09-22 閲覧） | 現行画面には「色の濃さ」があり、雨雲の降水強度色を変更できることの公式説明。「薄い／通常／濃い」の可変 UI 自体を本改訂へ含める根拠ではなく、気象データと背景を分けて視認性を調整する参考とする |
 
 ## 3. 実装範囲の線引き（担当範囲と既存実装の境界）
 
 | 項目 | 所有 | 本書での扱い |
 | --- | --- | --- |
-| Leaflet 地図本体・会場中心補正・ズーム・会場復帰 | F1 実装済み | 変更しない。`MapViewport` へ地図インスタンス公開の最小追加のみ行う（§8.1） |
-| 時間操作カードの枠・スライダー・ボタン・キーボード操作 | F4 実装済み | 変更しない。F2 は `TimelineViewModel` を供給し `TimelineIntent` を受ける |
+| Leaflet 地図本体・会場中心補正・ズーム・会場復帰 | F1 実装済み | 地理院背景レイヤーへ専用 class を付ける最小変更だけを行う（§6.4・§8.5）。中心補正・ズーム・会場復帰は変更しない |
+| 時間操作カードの枠・スライダー・ボタン・キーボード操作 | F4 実装済み | サマリーの「実況／予報」と時刻の視認階層だけを変更する（§9.5）。説明文、スライダー・ボタン・intent は変更しない |
 | レイヤー選択ボタン・凡例カードの枠・出典リンク | F5 実装済み | 変更しない。F2 は雨雲の凡例実値（階級・色）と気象出典を供給する |
 | ナウキャスト索引の取得・保持・ポーリング | **F2** | 本書 §5 |
 | 表示窓の絞り込み・コマ一覧の構成・N1/N2 の扱い | **F2** | 本書 §4 |
@@ -62,6 +74,10 @@
 | キキクル 3 種 | F3 (#46) | 対象外。`MapLayerId` が `nowcast` 以外のときは F2 の重ね描画を行わない |
 
 **実装済みを誤って前提にしない確認（受け入れ条件 §11.1）**: 製造着手時に、`apps/web/src/map/` に索引取得・PNG 描画・再生のコードが存在しないこと、`WeatherMapView` の既定 view model が `emptyTimeline` であることを実行して確認する。
+
+**PR #197 P2 修正の変更範囲**: 変更を許可するのは `apps/web/src/map/tiles/useTileCatalogPolling.ts` と専用テスト `apps/web/tests/useTileCatalogPolling.test.ts` の 2 本（テスト入力を共用する必要が生じた場合のみ同テスト用 fixture）に限る。`WeatherMapView`、`apps/web/src/map/nowcast/`、`apps/web/src/map/kikikuru/`、上記以外の `apps/web/src/map/tiles/`、`apps/api`、`packages/shared`、設定ファイルは変更しない。レビュー指摘への返信・解決、再レビュー依頼、push、PR 操作は本設計・製造・検収の範囲外とする。
+
+**PR #204 P1 修正の変更範囲**: 変更を許可するのは `apps/web/src/map/nowcast/usePlayback.ts` と、この同期競合を実 hook で再現する直接テスト `apps/web/tests/nowcastManualPlayback.test.ts` の 2 本だけとする。`WeatherTileOverlay.tsx`、`WeatherMapView.tsx`、時間操作カード、スピナー部品、キキクル、API、共有型、設定ファイルは変更しない。レビュー指摘への返信・解決、再レビュー依頼、push、PR 操作も本設計・製造・検収の範囲外とする。
 
 ## 4. コマの取得とタイムライン構成
 
@@ -179,7 +195,83 @@ export function buildNowcastCatalog(response: NowcastTimesResponse): NowcastCata
 4. 再生中もポーリングは続けるが、取得した新しいコマは再生停止まで一覧へ反映しない（§9.2）。
 5. `AbortController` で前回要求を中断し、応答の到着順に依存しない。アンマウント時にタイマーと要求を解除する。
 
-### 5.3 AD-H062 の結論（記録）
+### 5.3 非同期取得の世代管理【確定・PR #197 P2 修正】
+
+#### 5.3.1 修正する競合
+
+現行の `useTileCatalogPolling` は、取得開始時の `enabled` を `executeFetch` のクロージャに保持し、取得後の `finally` では可視状態だけを確認して次回タイマーを予約する。したがって、次の順序で非選択レイヤーの取得が再開し得る。
+
+1. `enabled=true` で取得 A を開始する。
+2. レイヤー切替により `enabled=false` となり、effect cleanup がタイマーを消去して A を abort する。
+3. `load` 実装が `AbortSignal` を無視して resolve / reject する。
+4. A の `finally` は開始時の `enabled=true` を保持したまま、可視状態ならタイマーを再予約する。
+5. そのタイマーが旧 `executeFetch` を呼び、非選択レイヤーの取得が再開する。
+
+同じ構造により、`resetKey=A` の旧取得が `resetKey=B` の状態・失敗回数・タイマーを汚染する、不可視化後の完了が状態を更新する、旧 `finally` が新しい取得の実行中フラグを `false` にする競合も起こり得る。`AbortSignal` は処理相手が無視でき、`enabled` のクロージャは最新値ではないため、いずれも正しさの根拠にしない。
+
+#### 5.3.2 世代と内部状態
+
+公開シグネチャ（§8.2 の `load` / `resetKey` / `enabled` と戻り値）は変更しない。フック内部に単調増加する世代番号を置き、取得開始時の世代を非同期処理へ明示的に渡す。
+
+```ts
+interface PollingExecution {
+  readonly generation: number;
+  readonly controller: AbortController;
+}
+
+interface PollingTimer {
+  readonly generation: number;
+  readonly id: ReturnType<typeof setTimeout>;
+}
+```
+
+| 内部状態 | 扱い |
+| --- | --- |
+| `generationRef` | `enabled` / `resetKey` の effect lifecycle と、実際の可視・不可視遷移ごとに増加する。値を再利用しない |
+| `enabledRef` | render ごとに最新の `enabled` を同期して保持する。非同期処理はクロージャの `enabled` を参照しない |
+| `visibilityRef` | 最新の `document.visibilityState` を保持し、同じ状態の重複 `visibilitychange` は無視する。判定時は現在の `document.visibilityState` とも一致させる |
+| `loadRef` | 現行どおり最新の `load` を保持し、各新規取得は開始時点の `loadRef.current` を 1 回呼ぶ。`load` 関数の同一性変更だけではカタログを reset しない |
+| `activeExecutionRef` | `{ generation, controller }` を保持し、既存の `abortControllerRef` と真偽値だけの `isExecutingRef` を置き換える。旧 `finally` は、自分が現在の所有者である場合だけこの ref を消去できる |
+| `timerRef` | `{ generation, id }` を 1 件だけ保持する。タイマー callback 自身も世代を検査する |
+| `failureCountRef` / `lastSuccessRef` | `resetKey` 変更または無効→有効の新 lifecycle では従来どおり初期化する。不可視→可視では保持する。旧世代の結果からは変更しない |
+
+取得結果の採用と次回予約に使う共通述語を、次の 3 条件の論理積にする。
+
+1. 取得開始時の `generation` が `generationRef.current` と一致する。
+2. 最新の `enabledRef.current` が `true` である。
+3. 最新の可視状態が `visible` である。
+
+成功値の `lastSuccessRef` / `setState`、失敗時の `failureCountRef` / `setState`、`finally` の次回タイマー予約は、すべてこの述語が真の場合だけ許可する。`controller.signal.aborted` は通信を早く止めるためのヒントとしては使うが、結果の新旧判定には使わない。これにより、abort を無視する `load`、通常値を返す `load`、例外を投げる `load` のいずれでも同じ規則になる。
+
+#### 5.3.3 lifecycle と cleanup 順序
+
+| 事象 | 世代と処理 |
+| --- | --- |
+| `enabled=true` で初回マウント | 新世代を発行し、失敗回数・前回成功を初期化して `loading` とする。可視なら即時に 1 回取得し、hidden なら復帰まで取得しない |
+| `enabled: true → false` | **最初に世代を無効化**し、その後にタイマー消去・実行中要求の abort を行う。現在の表示状態は保持し、新たな状態更新も次回予約もしない |
+| `enabled: false → true` | 新世代として `loading` から再開する。旧要求が後から完了しても、新世代の状態・タイマーへ触れない |
+| `resetKey: A → B` | cleanup で A 世代を先に無効化し、B の新世代で失敗回数・前回成功を初期化して即時取得する。A の成功・失敗・例外は B へ反映しない |
+| `visible → hidden` | **最初に世代を無効化**し、タイマー消去・実行中要求の abort を行う。現在の表示状態は保持し、hidden 中に旧要求が完了しても状態更新・予約をしない |
+| `hidden → visible` | 新世代を発行し、失敗回数・前回成功は保持したまま即時に 1 回だけ取得する |
+| effect cleanup / アンマウント | **世代無効化 → visibility listener 解除 → タイマー消去 → 要求 abort** の順とする。React StrictMode の setup → cleanup → setup でも、最初の setup の結果は 2 回目へ干渉しない |
+
+世代の無効化を abort やタイマー消去より先に行う。abort に同期して Promise の rejection が処理される、または既に timer callback が実行キューへ入っている場合にも、最初の世代判定で止めるためである。`visibilitychange` listener は `enabled=true` の lifecycle だけで 1 本登録し、cleanup で同じ関数を解除する。
+
+現行の「`resetKey` / `enabled` 監視 effect」と「`visibilitychange` 監視 effect」は、**要求開始・listener 登録・両者の cleanup を所有する 1 つの lifecycle effect に統合する**。別々の effect に世代無効化・timer 消去・abort の所有権を重複させず、1 回の遷移に対する cleanup 順序を一意にするためである。`loadRef` を最新化する effect は要求 lifecycle と独立のまま維持する。
+
+#### 5.3.4 取得・タイマーの単一所有
+
+`executeFetch(generation)` は入口で共通述語を検査し、偽なら `load` を呼ばずに終了する。開始できる場合は既存タイマーを消去し、その世代の `AbortController` を `activeExecutionRef` に登録して `load` を 1 回だけ呼ぶ。
+
+- `await load(...)` の成功・失敗結果および `catch` は、共通述語を再検査してから状態とバックオフ回数を更新する。検査に失敗した旧結果は何も変更しない。
+- `finally` は `activeExecutionRef` が自分の `{ generation, controller }` と一致する場合だけ ref を消去する。旧 `finally` が新世代の実行中要求を消去してはならない。
+- 次回予約は、`finally` で共通述語をもう一度満たした場合だけ行う。予約前に現タイマーを消去し、`timerRef` には常に 1 件だけを置く。
+- timer callback は、自分が `timerRef` の所有者ならその ref だけを `null` にし、捕捉した世代で `executeFetch(generation)` を呼ぶ。自分が所有者でなくても新しいタイマーを消去せず、`executeFetch(generation)` の入口までは進んで世代不一致で終了する。これにより、消去済み callback が実行キューに残る競合も世代判定のテスト対象になる。
+- 現行の真偽値 `isExecutingRef` は削除する。世代を持たない真偽値は旧 `finally` によって新しい取得まで `false` にできるためである。多重化防止と cleanup 対象の特定は `activeExecutionRef` と単一の `timerRef` で行う。
+
+この変更後も、現在世代については既存契約を維持する。成功後は 60 秒、連続失敗は 60 → 120 → 240 → 300 秒（以後 300 秒）、成功で 60 秒へ復帰し、失敗時は直前の成功カタログを `stale` として保持する。
+
+### 5.4 AD-H062 の結論（記録）
 
 > 画面は保存索引を読む `GET /api/weather/nowcast/times` のみを呼び、上流索引更新（`refreshTimes` 相当）を呼ばない。フロントの再読込は **60 秒固定間隔**の自動ポーリングとし、可視状態でのみ動かす。バックエンドの索引取得周期 120/60/120 秒とは独立に定義し、フロント周期を短くしても新しい索引は現れないことを実測（上流は N1 が 5 分区切りの約 6〜15 秒後、N2 がさらに約 60〜70 秒後）で確認した。F3 (#46) のキキクル索引も同じ 60 秒とし、周期とポーリング機構を共通モジュール（§8.2）に一本化してレイヤーごとに分岐させない。
 
@@ -256,9 +348,36 @@ F1 の可視矩形補正（右列幅 R・下部カード高 B を差し引いた
 
 `element` / `member` はサーバー固定のため送らない。時刻は `YYYY-MM-DDTHH:mm:ss.sssZ` の正準 UTC 表記を URL エンコードして渡す。Leaflet のテンプレートに `{z}/{x}/{y}` を残し、クエリはコマ確定時に組み立てる。任意 URL・パスを組み立てる汎用プロキシ的な記述をフロントに置かない。
 
-### 6.4 濃度（opacity）【設計案】
+### 6.4 弱い降水域の視認性と背景処理【確定・ユーザー承認済み】
 
-`NOWCAST_LAYER_OPACITY = 0.8` を提案する。実測パレットは全階級 α=255 の不透明色であり（§7.2）、淡色地図の地名・行政界が読めなくなるため、レイヤー全体の不透明度で調整する。F5 は濃度コントロールを F2 へ引き継いだが、**PoC では濃度の UI コントロールを設けず固定値とする**【設計案】。理由: 操作面を増やす前に、実画面でユーザーが視認性を監修する必要があり、可変化はその後でよい。値そのものは実画面での監修事項（要ヒアリング）。
+#### 6.4.1 気象庁の現行処理として確認できた事実
+
+2026-09-22 に気象庁の現行「雨雲の動き」をブラウザーで開き、Leaflet レイヤーの class と計算済みスタイルを確認した。
+
+- 地理院淡色地図のレイヤーには `grayscale(1) brightness(0.66)` が適用されている。
+- 同じ `tilePane` 内でも、降水レイヤーには上記 filter が継承されず、計算済みスタイルは `filter: none`・`opacity: 1` である。すなわち、**背景だけを無彩色・暗色化し、気象データ色をそのまま前面に出す**構成である。
+- URL 状態には `colordepth:deep` があり、画面には「色の濃さ」操作がある。青森地方気象台の公式解説も、この操作を「雨雲の降水強度の色の濃さを変更」と説明している。
+
+ここで確定事実とするのは、閲覧時に観測した上記の DOM / 計算済みスタイルと、公式解説が述べる機能の存在までである。気象庁がこの数値を選んだ設計意図、`deep` が内部で行う全変換、将来も同じ値であることは公開仕様として確認できていないため推測しない。
+
+#### 6.4.2 選択肢と採否
+
+| 案 | 内容 | 利点 | 欠点 | 採否 |
+| --- | --- | --- | --- | --- |
+| **A** | 気象庁と同じ `grayscale(1) brightness(0.66)` を地理院背景レイヤーだけに適用し、ナウキャストを `opacity: 1` にする | 白・水色と背景の明度差が生まれる。公式 PNG の色を合成で薄めない。実績のある値をそのまま採用できる | 背景地図の色による地物識別は減る。キキクル選択時も共通背景が暗くなる | **採用・承認済み** |
+| B | 背景は現状のまま、ナウキャストだけ `opacity: 1` にする | 変更が最小 | 最下位階級 `#f2f2ff` は淡色地図の明部と近く、主症状が残る | 不採用 |
+| C | 白・水色の降水階級へ縁取りや別色を加える | 背景によらず境界を強くできる | 気象庁の公式データ色を改変し、タイルと凡例が一致しなくなる | 不採用 |
+| D | 「薄い／通常／濃い」コントロールを同時に追加する | 利用者が好みで調整できる | 状態・操作・保存規約が増え、まず固定値を実画面監修する今回の目的を超える | 後続候補 |
+
+案 A を採用する【確定・ユーザー承認済み】。`contrast()` は追加しない。現行の気象庁画面で確認できた filter は grayscale と brightness の 2 つであり、根拠のない補正を重ねないためである。`0.66` と `opacity: 1` は本改訂の確定値とし、実装担当の判断で変更しない。
+
+#### 6.4.3 CSS 適用境界
+
+- `MapViewport.createGsiPaleTileOptions()` に `className: 'wx-map-basemap'` を追加し、`map.css` の `.map-viewport .wx-map-basemap` にだけ `filter: grayscale(1) brightness(0.66)` を指定する。Leaflet の汎用 `.leaflet-tile` や pane 全体を対象にしない。
+- ナウキャストは引き続き `WeatherTileOverlay` が `overlayPane` へ載せる。`overlayPane`、気象タイル、会場マーカー、凡例、操作カードには filter を適用しない。
+- `NOWCAST_LAYER_OPACITY` は `0.8` から **`1`** へ変更する。§7.2 の公式 RGB と PNG の α=255 をそのまま描画し、背景色との混色で薄めない。
+- 背景レイヤーは全気象種別で共通であるため、背景 filter はキキクル選択時にも残る。ただしキキクルのタイル自体は `overlayPane` にあり、色・opacity（現行 `0.75`）・凡例は変更しない。§11.3 で 3 種の回帰確認を行う。
+- 新しい HEX / RGB は追加しない。filter は色値ではなく表示処理であり、既存の MD3 / データ色トークン体系を変更しない。
 
 ## 7. PNG の健全性・位置・凡例（AD-H058）
 
@@ -369,6 +488,10 @@ apps/web/src/map/tiles/                        ★F2 が新設する共通ディ
   tileCatalogTypes.ts        共通の状態型（NowcastFetchFailure 等のレイヤー非依存部分）
   index.ts                   バレル
 
+apps/web/src/components/md/
+  CircularProgress.ts       F2: md-circular-progress の型付きラッパー（§9.4.8）。
+                            GbButton と同じ動的 import ガード方式。index.ts のバレルに追加
+
 apps/web/src/map/nowcast/                      F2 固有
   nowcastCatalog.ts       純関数: NowcastTimesResponse → NowcastCatalog
   useNowcastCatalog.ts    useTileCatalogPolling を雨雲用に束ねる
@@ -376,6 +499,8 @@ apps/web/src/map/nowcast/                      F2 固有
   usePlayback.ts          再生制御（§9）
   nowcastTimeline.ts      純関数: NowcastCatalog + 選択状態 → TimelineViewModel
   nowcastLegend.ts        凡例の階級定義（トークン名とラベル）
+  NowcastLoadingSpinner.tsx  読込中スピナー。statusSlot へ渡す（§9.4.8）
+  useDelayedFlag.ts       スピナーの表示遅延・最小表示時間（§9.4.8）
   index.ts                バレル
 ```
 
@@ -420,7 +545,7 @@ export type TileCatalogState<T> =
       readonly failure: TileCatalogFailure }
   | { readonly status: 'failed'; readonly failure: TileCatalogFailure };
 
-/** §5.2 の補助規則（即時取得・不可視停止・バックオフ・中断）をすべて内包する */
+/** §5.2・§5.3 の補助規則（即時取得・不可視停止・バックオフ・世代管理）をすべて内包する */
 export function useTileCatalogPolling<T>(params: {
   readonly load: (signal: AbortSignal) => Promise<TileCatalogResult<T>>;
   /**
@@ -496,7 +621,7 @@ export function resolveTileZoomPolicy(allowedZooms: readonly number[]): TileZoom
 | 識別子 | 用途 | 生成規則 | 所有 |
 | --- | --- | --- | --- |
 | `TimelineFrame.id` | スライダー位置の識別、`onSwapSettled` の通知、選択状態の突き合わせ | レイヤーごとに定める（F2 は `${product}:${baseTime}:${validTime}`、F3 は `validTime`） | 各レイヤー（F2 / F3） |
-| **`swapKey`** | **タイル層を差し替えるか否かの判定のみ** | `` `${frame.id} ${frame.urlTemplate}` `` | **共通モジュール（F2 所有）** |
+| **`swapKey`** | **タイル層を差し替えるか否かの判定のみ** | `` `${frame.id}\0${frame.urlTemplate}` `` | **共通モジュール（F2 所有）** |
 
 `WeatherTileOverlay` は `swapKey` が変化したら必ず差し替える。すなわち「**表示すべきタイル URL が変わったら差し替える**」という契約にする。`id` だけを見る判定は禁止する。
 
@@ -550,7 +675,7 @@ export interface MapViewportProps {
 }
 ```
 
-これ以外に F1 の中心補正・リサイズ・マーカー・背景タイル・`ViewPlacement` のロジックを変更しない。気象レイヤーは `overlayPane` に載せるため背景タイル（`tilePane`）と干渉しない。
+これ以外に F1 の中心補正・リサイズ・マーカー・`ViewPlacement` のロジックを変更しない。§6.4 の視認性改善として、`createGsiPaleTileOptions()` へ背景専用 class を追加することだけを許可する。タイル URL・pane・zoom 範囲は変更しない。気象レイヤーは `overlayPane` に載せるため、背景専用 class の filter と干渉しない。
 
 ### 8.6 状態の持ち方
 
@@ -613,7 +738,7 @@ export function useNowcastCatalog(params: {
 
 **したがって、1 周目に具体的な時間の数値目標を置かない。** ユーザー承認により、1 周目の受け入れ条件は「**ネットワーク状況により変動するが、12 秒タイムアウトで必ず前進し、再生が完全停止しない**」こととする（確定事項 #14）。1 秒間隔は 2 周目以降のリテンションで達成する。
 
-根本的に 1 周目を速くするには、`no-store` を緩めるか、サーバー側でコマ単位の先読み・まとめ配信を行う必要がある。いずれも E7 (#39) の API 契約の変更であり、本 Issue の範囲外とする（§14）。
+根本的に 1 周目を速くするには、`no-store` を緩めるか、サーバー側でコマ単位の先読み・まとめ配信を行う必要がある。いずれも E7 (#39) の API 契約の変更であり、本 Issue の範囲外とする（§14・§15）。
 
 #### 9.3.2 採用する方式
 
@@ -649,11 +774,313 @@ Leaflet が一度描画した `<img>` は再要求されない。この性質を
 
 再生停止中の手動コマ送り・スライダー操作では先読みを行わず、従来どおり active + pending の 2 枚で扱う。手動操作で切替待ちの最中に別のコマが要求された場合は、待機中のレイヤーを破棄して最後の要求だけを処理する。
 
+**手動操作の即応性は §9.4 で別途定める。** 本節はタイル層の扱いだけを述べており、つまみ位置の追従を規定しない。
+
 #### 9.3.5 F3 (#46) への影響
 
 - `usePlayback.ts` は **F2 固有**（`apps/web/src/map/nowcast/`）であり、F3 は import していない。F3 は `apps/web/src/map/kikikuru/useKikikuruLayerState.ts` に独自の再生・選択状態を持つ。したがって `usePlayback` の変更は F3 に波及しない。
 - `WeatherTileOverlay.tsx` は共通モジュールであり、F3 も `WeatherMapView` 経由で同じインスタンスを使う。今回追加する `prefetchFrames` / `retainLoaded` は**いずれも省略可能で、省略時は従来の 2 枚ダブルバッファと同一挙動**とする。F3 が渡さなければ挙動は変わらない。
 - したがって **F3 側（`apps/web/src/map/kikikuru/` 配下）の実装変更は不要**である。F3 が将来キキクルでも先読みを使いたくなった場合は、同じ props を渡すだけでよい。
+
+#### 9.3.6 再生タイマーと同期完了通知の順序契約【PR #204 Codex P1】
+
+##### 発生する競合
+
+`scheduleNextPlaybackFrame()` のタイマー callback は、次コマに対して `setIntentFrameId(nextFrame.id)` と `setDebouncedIntentFrameId(nextFrame.id)` だけを呼んでいる。`intentFrameIdRef.current` は render 後の effect で state に追従するため、setter 呼び出し直後には旧コマを指したままである。
+
+再生中は §9.3.2 の先読み・リテンションにより、次コマの `WeatherTileOverlay` が既に読込済みの場合がある。この場合は新しい `overlayFrame` が反映された直後に `onSwapSettled({ frameId: nextFrame.id, complete: true })` が同期的に返り得る。`handleSwapSettled()` は §9.4.5 の規則に従い、通知の `frameId` と `intentFrameIdRef.current` が一致する場合だけ確定を進めるため、ref が旧値の短い期間に届いた**正しい次コマの通知を古い通知として拒否する**。
+
+その結果、タイル画像だけが次コマへ切り替わる一方、`settledFrameId` と表示日時は旧コマに据え置かれ、`intentFrameId !== settledFrameId` のままスピナーが収束しない。さらに、正しい通知は一度しか来ないため、後続 render で ref が追いついても復旧しない。
+
+##### 修正する順序
+
+再生タイマー callback は、手動操作経路（§9.4.4）が既に採用している順序と同じ契約にする。**setter より前に ref を同期する**。
+
+```ts
+playbackTimerRef.current = setTimeout(() => {
+  clearDebounceTimer();
+  intentFrameIdRef.current = nextFrame.id;
+  setIntentFrameId(nextFrame.id);
+  setDebouncedIntentFrameId(nextFrame.id);
+}, PLAYBACK_INTERVAL_MS);
+```
+
+順序契約は次のとおりである。
+
+1. `intentFrameIdRef.current = nextFrame.id` で、同一 call stack 内の完了通知が参照する命令的な最新値を先に更新する。
+2. `setIntentFrameId(nextFrame.id)` で、つまみ・loading 判定へ反映する宣言的 state を更新する。
+3. `setDebouncedIntentFrameId(nextFrame.id)` で、再生時はデバウンスせず次の overlay を要求する。
+
+この順序は再生開始、手動選択、前へ／次へ、最新へが守っている「ref → state setter」の契約と一致させる。`handleSwapSettled()` の古い通知を拒否する条件自体は緩めない。通知を無条件採用すると、本当に古い非同期完了で表示日時が巻き戻るためである。
+
+##### 回帰テスト
+
+テストはソース文字列や純関数だけを検査せず、`usePlayback` の実 hook と再生タイマーを動かす。次の順序を再現する。
+
+1. 実 hook を client render 相当の harness へ mount し、初期コマを settle させる。
+2. 再生を開始し、最初の切替を settle させて次の 1,000 ms タイマーを予約する。
+3. タイマーを発火させ、state 更新後の client render を進める。親 hook の ref 追従 effect が走る前に、先読み済み `WeatherTileOverlay` 相当の子 effect／同期 callback から次コマの `handleSwapSettled({ complete: true })` を呼ぶ。または、実 hook harness で timer callback と effect flush を分離し、setter 実行後・ref 追従 effect 前に同じ通知を呼ぶ。
+4. render を完了させ、`intentFrameId`、`settledFrameId`、`overlayFrame.id`、表示日時が同じ次コマへ収束し、`intentFrameId !== settledFrameId` から導く loading が false になってスピナーが消灯条件へ入ることを確認する。
+
+テストが原因箇所を直接固定していることを証明するため、検収時に `intentFrameIdRef.current = nextFrame.id` の 1 行だけを一時的に外して同じテストが失敗（**KILLED**）することを確認し、直ちに復元して再通過させる。変異確認のために製品コードへフラグや分岐を追加しない。
+
+変更は §3 の許可 2 ファイルだけに閉じる。再生間隔、先読み深さ、リテンション、12 秒タイムアウト、手動操作の 500 ms デバウンス、古い完了通知の拒否、表示時刻の settled 基準、スピナーの遅延・最小表示時間、キキクルの挙動は変更しない。
+
+### 9.4 手動操作の即応性（操作意図と確定選択の分離）【設計案・4 回目検収の差し戻し】
+
+#### 9.4.1 症状と原因
+
+オーナーの実機所感と 4 回目検収で、**ナウキャスト停止中の手動操作でつまみが数秒〜12 秒動かない**ことが判明した。キキクル（F3）では同条件で再現しない。
+
+| 操作 | 実測 |
+| --- | --- |
+| スライダーを 18 → 3 へジャンプ | つまみの反映まで **12,070 ms**（= `swapTimeoutMs`） |
+| 「次へ」1 回 | つまみが動くまで **3,789 ms / 5,019 ms** |
+| 「次へ」を 0.4 秒間隔で 5 連打 | **1 コマしか進まない**（12,234 ms 後に index 8 → 9） |
+
+手動コマ送り中のタイル要求は 45 件（＝ 1 コマ分ちょうど）、保持レイヤーは最大 2 枚であり、**§9.3.4 は遵守されている**。先読みの競合ではなく、`Cache-Control: no-store` のもとで 45 枚を毎回再取得する所要時間そのものが待ち時間である。
+
+コード上の原因は 2 点である（`apps/web/src/map/nowcast/usePlayback.ts`）。
+
+1. `select-frame` / `previous-frame` / `next-frame` は `targetFrameId` だけを更新する。**つまみ位置と表示日時が参照する `selectedFrameId` は `handleSwapSettled`（画像の読込完了、最大 12 秒）でしか更新されない。** §9.3.2-4 の「画像と表示日時が常に同じコマを指す」という原則を、**つまみ位置にまで適用してしまっていた**。
+2. `previous-frame` / `next-frame` の遷移先を `selectedFrameId`（確定選択）から計算しているため、読込待ちの間の追加クリックはすべて同じコマを指し、握り潰される。
+
+**これは設計の欠落である。** 本書には手動操作の応答時間と、読込待ち中の入力の扱いを定める受け入れ条件がなかった。
+
+#### 9.4.2 状態の三分割
+
+画面の状態を次の 3 つに分ける。現行実装の `targetFrameId` を `intentFrameId` に改め、役割を明確にする。
+
+| 状態 | 意味 | 更新の契機 | 何に使うか |
+| --- | --- | --- | --- |
+| **`intentFrameId`**（操作意図） | 利用者が「今いる」と思っているコマ | **操作と同一フレームで即座に**更新 | **スライダーのつまみ位置**、前へ／次への**加算の基準**、読み込むタイルの決定 |
+| **`settledFrameId`**（確定選択） | 画像の読込が完了して地図に出ているコマ | `onSwapSettled`（読込完了またはタイムアウト） | **表示日時ラベル**、地図画像 |
+| `activeCatalog` | 表示中のコマ一覧 | 再生停止中はポーリングごと、再生中は固定 | スライダーの目盛り |
+
+**`intentFrameId` と `settledFrameId` が一致しない期間が、読み込み中である。** この状態は 1 つの真偽値 `loading = intentFrameId !== settledFrameId` として導出でき、別のフラグを持たない。
+
+```ts
+// apps/web/src/map/nowcast/usePlayback.ts
+export const MANUAL_INTENT_DEBOUNCE_MS = 500;
+
+export interface UsePlaybackResult {
+  /** つまみ位置は intent、表示日時ラベルは settled を指す（§9.4.3） */
+  readonly viewModel: TimelineViewModel & {
+    /** スライダーのつまみ位置。intentFrameId に即座に追従する */
+    readonly intentFrameId: string | null;
+    /** 表示日時ラベル・地図画像が指すコマ。読込完了またはタイムアウトで進む */
+    readonly settledFrameId: string | null;
+  };
+  /** デバウンス後の最終 intent だけがここに現れる（§9.4.4） */
+  readonly overlayFrame: WeatherTileOverlayFrame | null;
+  readonly prefetchFrames: readonly WeatherTileOverlayFrame[];
+  readonly handleIntent: (intent: TimelineIntent) => void;
+  readonly handleSwapSettled: (result: { frameId: string; complete: boolean }) => void;
+}
+```
+
+既存の `TimelineViewModel.selectedFrameId`（F4 が参照）は **`settledFrameId` を指すものとして維持する**。F4 の時間操作カードは表示日時ラベルにこれを使っており、意味を変えると §11.4 の「表示日時だけが先に進まない」が壊れるためである。つまみ位置には新設の `intentFrameId` を使う。F4 側の変更は、つまみの `value` を `selectedFrameId` から `intentFrameId` へ差し替える 1 か所に限る。
+
+#### 9.4.3 何を即座に動かし、何を据え置くか【確定・ユーザー承認済み】
+
+| 要素 | 連動先 | 理由 |
+| --- | --- | --- |
+| スライダーのつまみ位置 | **`intentFrameId`（即座）** | 操作への応答。つまみが指に付いてこないと操作不能に感じる |
+| 前へ／次へ／スライダーの遷移計算の基準 | **`intentFrameId`（即座）** | 連打・連続ドラッグを取りこぼさない |
+| **表示日時ラベル** | **`settledFrameId`（据え置き）** | §11.4 の「**表示日時だけが先に進まない**」を維持する。地図に出ている画像と日時が食い違ってはならない |
+| 地図のタイル画像 | `settledFrameId`（据え置き） | 同上。§9.3.2-4 の原則 |
+
+**表示日時ラベルを据え置く。ユーザー承認済み（確定事項 #16）。** 日時を intent に追従させると、地図には前のコマが出ているのに日時だけが新しくなり、「別時刻の画像を黙って表示する」（基本設計 §4.3）に当たるためである。
+
+**読み込み中であることの表示**は、プロジェクト規約「見ればわかる説明書き・ラベルは省略する」（CLAUDE.md §3.2）に従い、**文言を出さない**。代わりに**スピナー**で示す（オーナー提案・確定事項 #18）。詳細は §9.4.8。
+
+#### 9.4.4 連打・連続ドラッグ【確定・デバウンス値は暫定】
+
+- **前へ／次へは `intentFrameId` を基準に加算する。** 5 連打すれば `intentFrameId` は 5 コマ進む。握り潰さない。
+- **途中のコマのタイルは読み込まない。最終 intent のコマだけを読み込む。** 実現方法は、`WeatherTileOverlay` へ渡す `frame` を `intentFrameId` から導き、**`MANUAL_INTENT_DEBOUNCE_MS = 500` のデバウンス**を通す。連続入力が止まってから 500 ms 後の `intentFrameId` だけが `frame` になる。
+- **連続操作を束ねるのはデバウンスだけとする。** `input` / `change` の分離には依存しない（理由は下記）。スライダーのドラッグも前へ／次への連打も、同じ 1 つのデバウンスで扱う。
+
+##### デバウンス値を 200 ms から 500 ms へ変更した理由【確定・値は引き続き暫定】
+
+当初 200 ms とした（確定事項 #19、ユーザーは「実機実測での調整前提の暫定値」として承認済み）。5 回目検収の実測で、この値では実際の操作間隔を束ねられないことが判明したため、**承認された暫定値の範囲内の調整として 500 ms に変更する**。
+
+| 検証シナリオ | 200 ms での実測 | 500 ms とする根拠 |
+| --- | --- | --- |
+| 「次へ」を **0.4 秒間隔で 5 連打** | タイル要求 48 件・**distinct validTime 4 コマ分**（途中コマを読んでしまう）。100 ms 間隔なら 1 コマ分に収束しており、デバウンス機構自体は正しく動いている | 操作間隔 400 ms < 500 ms のため 1 回に束ねられる |
+| スライダーを **300 ms/step でゆっくりドラッグ**（index 0 → 23） | **264 件・22 コマ分**。50 ms/step（速い）なら 0 件で合格 | 操作間隔 300 ms < 500 ms のため 1 回に束ねられる |
+
+**代償は「最後の操作から画像の読込を開始するまでが 200 ms → 500 ms になる」ことだけ**である。つまみ位置・前へ／次への加算基準・表示日時の据え置きはいずれも `intentFrameId` に即時連動する（§9.4.2・§9.4.3）ため、**操作の体感速度は変わらない**。また 1 コマの読込自体に 0.46〜5.48 秒かかる（§14.4 実測）ため、300 ms の増分は相対的に小さい。むしろ 5 連打時は中間 4 コマの読込がなくなる分、最終コマが表示されるまでの実時間は短くなる（5 回目検収では収束まで 11.0 秒を要した。§11.4.1 で改善を実測する）。
+
+500 ms も引き続き**暫定値**とし、実機での操作感に応じて調整できるものとする。
+
+##### `input` / `change` 分離を採らない理由
+
+当初は「`range` の `input` ではつまみのみ更新し、`change`（ドラッグ終了）で読込を開始する」としていたが、**実装できないため撤回する**。
+
+- `range` 入力は F4 所有の `apps/web/src/map/TimelineControlCard.tsx` にあり、React の `range` の `onChange` はネイティブの `input` イベントに対応する。`change` を別に取るには同ファイルの変更が要る。
+- §11.4.1 の【F3 無変更】条件が同ファイルの変更を禁じている（F3 と共有するコンポーネントのため）。
+- **代替案 (c)**: `TimelineControlCard.tsx` に `input` / `change` 分離を入れる。採らない。F4 の責務境界を越え、F3 への影響評価が別途必要になるためである。将来 F4 側で扱う場合の選択肢として記録のみ残す。
+
+したがって「ドラッグ中はタイル要求 0 件」という条件は、次のように整理する。
+
+> **操作間隔が 500 ms 未満の連続操作の間は、中間コマのタイル要求が発生しない。**
+
+**500 ms 以上の間隔で止まりながらゆっくりドラッグした場合、止まった位置のコマを読み込むのは仕様どおりの挙動である**（利用者がその時刻を見ようとして止めた、と解釈する）。これは不具合ではない。
+- **既存の swapKey・pending 機構との整合**: デバウンス後に `frame` が変わると `swapKey`（§8.3）が変わる。`WeatherTileOverlay` は既に「待機中のレイヤーを破棄して最後の要求だけを処理する」（§9.3.4）実装であり、**pending の差し替え・中断はこの既存機構をそのまま使う。** 共通モジュール側に新しい中断 API を足さない。デバウンスは `usePlayback`（F2 固有）に置く。
+
+#### 9.4.5 タイムアウトと収束規則【設計案】
+
+`swapTimeoutMs`（12,000 ms）到達時の扱いを、intent 分離後も矛盾なく定めるため、次を規則とする。
+
+1. `onSwapSettled({ frameId, complete })` を受けたら、**`frameId` が現在の `intentFrameId` と一致する場合にかぎり** `settledFrameId = frameId` とする。
+2. 一致しない場合（読込中にさらに操作が入り、intent が先へ動いた場合）は `settledFrameId` を更新せず、**現在の `intentFrameId` に対する読込を継続する**。古い完了通知で表示日時を巻き戻さない。
+3. タイムアウト（`complete: false`）でも 1 と同じ判定を行う。一致すれば `settledFrameId` を進め、タイル欠けの状態を外へ通知する（表示は F8）。**タイムアウトしても intent が settled に収束することを保証し、ずれたまま固定されない。**
+4. 操作が止まれば、最後の intent に対する読込が完了またはタイムアウトして必ず `settledFrameId = intentFrameId` に収束する。収束までの上限は「デバウンス **500 ms** ＋ `swapTimeoutMs` 12,000 ms」である（§9.4.4）。
+
+#### 9.4.6 再生・最新追従との整合【確定・既存挙動の維持】
+
+- 手動操作（`select-frame` / `previous-frame` / `next-frame`）で再生を停止し `followLatest=false` にする既存挙動を変えない。
+- 再生中は `intentFrameId` を再生エンジンが進める。再生 1 周目・2 周目の挙動（§9.3、確定事項 #10・#14）を変えない。再生中の切替予約は従来どおり `onSwapSettled` を起点とする（画像が出てから 1,000 ms 後）。**デバウンスは手動操作のみに適用し、再生の自動送りには適用しない。**
+- `select-latest` は `followLatest=true` に戻し、`intentFrameId` を N1 最新コマへ即座に動かす（§9.1）。
+- ポーリングで新カタログが届いたときの規則（§9.2・§10）は `settledFrameId` ではなく `intentFrameId` を基準に判定する。手動保持中に `intentFrameId` のコマが窓外へ出た場合の扱いは従来どおり F7 (#50) の責務とし、F2 は黙って別時刻へ置き換えない。
+- 読み込み中の表示はスピナーとする（§9.4.8）。文言は出さない。
+
+#### 9.4.7 F3 (#46) への影響
+
+- 本節の変更は **`usePlayback.ts`（F2 固有）に閉じる**。デバウンス、`intentFrameId`、収束規則はいずれも F2 のモジュール内に置く。
+- **`WeatherTileOverlay.tsx`（共通モジュール）を変更しない。** §9.4.4 のとおり pending の差し替えは既存機構をそのまま使う。したがって §9.3.5 と同じ理由で **F3 側（`apps/web/src/map/kikikuru/` 配下）の実装変更は不要**であり、副作用も生じない。
+- キキクルは同条件で即応しており本症状が再現しないため、F3 設計書（`issue-46-kikikuru-layer-switching.md`）は改訂しない。キキクルの仕様変更はオーナーが別途コメントする予定である。
+- **スピナー（§9.4.8）も F3 に波及しない。** `TimelineControlCard` の既存 `statusSlot`（任意 prop）へ F2 が渡すだけであり、共有コンポーネントを変更しない。F3 は `statusSlot` を渡さないため、キキクル選択時にスピナーは描画されない。`aria-busy` も `WeatherMapView` 側でナウキャスト選択時のみ真にする。
+
+#### 9.4.8 読み込み中のスピナー【設計案・オーナー提案】
+
+##### 部品の選定【確定・実物確認済み】
+
+`md-circular-progress`（indeterminate）を使う。実物を確認した結果は次の通り。
+
+| 確認項目 | 結果 |
+| --- | --- |
+| 入手性 | **既存依存の `@material/web@^2.5.0` に同梱**。`node_modules/@material/web/progress/circular-progress.js` が実在する。**新規依存の追加は不要** |
+| 概算サイズ（非圧縮・未 minify） | `circular-progress.js` 1,099 B ＋ `internal/circular-progress.js` 1,736 B ＋ `internal/progress.js` 2,143 B ＋ styles 4,489 B ＝ **約 9.5 KB**。lit は既存の Material Web で導入済みのため増分なし |
+| コンポーネントトークン | `--md-circular-progress-active-indicator-color` / `--md-circular-progress-size` / `--md-circular-progress-active-indicator-width` |
+| 既定のアクセシビリティ | 内部で `role="progressbar"` と `aria-valuemin` / `aria-valuemax` / `aria-valuenow` / `aria-label` を描画する |
+
+**`"sideEffects": ["*.css"]` 制約（06-ui-md3-protocol 必須制約 3）への対応**: 副作用目的の bare import（`import '@material/web/progress/circular-progress.js'`）は本番ビルドで黙って除去されるため書かない。**既存 `apps/web/src/components/md/GbButton.tsx` と同じ動的 import ガード方式**を採る。
+
+```ts
+// apps/web/src/components/md/CircularProgress.ts
+import React from 'react';
+
+if (typeof document !== 'undefined' && typeof document.createTreeWalker === 'function') {
+  void import('@material/web/progress/circular-progress.js');
+}
+
+export interface CircularProgressProps extends React.HTMLAttributes<HTMLElement> {
+  readonly indeterminate?: boolean;
+  readonly value?: number;
+  readonly max?: number;
+  readonly 'aria-hidden'?: 'true' | 'false' | boolean;
+}
+
+export const CircularProgress = React.forwardRef<HTMLElement, CircularProgressProps>(
+  function CircularProgress({ indeterminate, value, max, ...props }, ref) {
+    return React.createElement('md-circular-progress', {
+      ...props,
+      indeterminate: indeterminate ? '' : undefined,
+      value,
+      max,
+      ref,
+    });
+  },
+);
+```
+
+`indeterminate` は真偽値ではなく**属性（空文字）**として渡す。カスタム要素の真偽属性は存在の有無で解釈されるためである。
+
+**`@lit/react` の `createComponent` 方式（既存 `Button.ts`）を採らない理由**: `createComponent` は `MdCircularProgress` クラスを静的 import する必要がある。その静的 import は **Node のテスト環境で落ちる**。`setupEnv.ts` のダミー `document` には `createTreeWalker` が無く、lit-html の初期化時に `TypeError` になるためである。動的 import をガードで囲めば、ブラウザーでだけ読み込まれ、テスト環境では評価されない。
+
+**動的 import が `sideEffects` 制約に抵触しない根拠**: `sideEffects` の指定が落とすのは「副作用目的の静的 bare import」であり、動的 `import()` は落ちない。実際に **既存の `GbButton` が本番で同方式で動作している**。本件でもビルド成果物に `dist/assets/circular-progress-*.js`（約 6.4 kB）が独立チャンクとして出力され、要素登録が落ちないことを統括担当が確認済みである。
+
+必須制約 5（`<md-*>` の生タグを直書きしない）に従い、**`apps/web/src/components/md/index.ts` のバレルに `CircularProgress` を追加**し、利用側はバレルから import する。
+
+**要素登録が非同期になることの影響【要実機確認】**: 動的 import のため、要素登録はチャンクの読み込み完了後になる。それまで `<md-circular-progress>` は未定義要素として描画され（何も描かれない）、登録後に反映される。スピナーは `SPINNER_SHOW_DELAY_MS = 250` の遅延を経て表示されるため、その間にチャンクの読み込みが完了している見込みが高く、**実害は小さいと考えられる**。ただし初回表示・低速回線での挙動は未検証であり、§11.4.1 で実機確認する。登録前後でカードの高さが変わらないことも併せて確認する（未定義要素は中身を持たないため、`statusSlot` の領域寸法を固定する §9.4.8 の規定で吸収される想定）。
+
+##### 表示条件とちらつき防止【設計案】
+
+- 表示条件は `loading = intentFrameId !== settledFrameId`（§9.4.2）のみとする。新しいフラグを増やさない。
+- **表示開始を `SPINNER_SHOW_DELAY_MS = 250` だけ遅らせる**。サーバー側キャッシュ命中時は 1 コマ 45 枚でも約 0.3 秒（§14.4）で終わるため、遅延がないと一瞬だけ光って消える。
+- **最小表示時間 `SPINNER_MIN_VISIBLE_MS = 400` を設ける**。遅延を超えて表示された後に即座に消えると、点滅として知覚されるため。
+- いずれも暫定値であり、§11.4.1 の実機実測で調整する。
+
+##### 配置【設計案】
+
+**時間操作カード内の既存 `statusSlot` に置く。** `TimelineControlCard` は既に `statusSlot?: ReactNode`（`apps/web/src/map/TimelineControlCard.tsx`）を持ち、選択日時の隣に描画する実装がある。ここへ渡すだけでよく、**F4 所有の共有コンポーネントを 1 行も変更しない。**
+
+- 地図上へ浮かせる案は採らない。地図中心・ズーム・ドラッグの妨げになりやすく、右側情報列・下部カードに隠れない配置規約（基本設計 §4.3）の検討が新たに要るためである。カード内なら既存のレイアウト規約をそのまま満たす。
+- カード内であっても、スピナーには `pointer-events: none` を与え、下にあるカードの操作・地図のクリックを妨げない。
+- 大きさはカードの行高に収まる小サイズとし、`--md-circular-progress-size` で指定する。スピナーの出現でカードの高さが変わると、F1 の可視矩形補正（右列幅・下部カード高の実測）が再計算されて地図が動くため、**`statusSlot` の領域はスピナーの有無にかかわらず一定の寸法を確保する**（非表示時は `visibility: hidden` 相当とし、レイアウトを動かさない）。
+
+##### 色と文言【確定】
+
+- 色は `--md-circular-progress-active-indicator-color` に MD3 のテーマ生成トークン（`--md-sys-color-primary` 等）を割り当てる。HEX を直書きしない（06-ui-md3-protocol 必須制約 1・6）。データ色トークン `--wx-data-*` は使わない（気象データの意味を持つ色ではないため）。
+- **画面に文言を出さない**（CLAUDE.md §3.2）。
+
+##### スクリーンリーダー【設計案】
+
+`md-circular-progress` は既定で `role="progressbar"` を描画する。名前のない progressbar を残すより、次の形にする。
+
+- **スピナー自体は `aria-hidden="true"` とし、支援技術から隠す**（装飾扱い）。これにより `aria-label` に文言を置く必要がなくなり、画面にもアクセシビリティツリーにも余計な文字列を出さずに済む。
+- 代わりに、**時間操作カードのラッパー（`WeatherMapView` の `.timeline-card-wrapper`）に `aria-busy={loading}` を付ける**。「表示日時がまだ追いついていない」ことを標準の属性で伝えられ、`TimelineControlCard` 本体の変更も不要である。
+- `aria-live` は使わない。読み上げのために文言を生成することになり、文言を出さない方針と衝突するためである。
+
+##### 消えるタイミング（§9.4.5 との整合）【設計案】
+
+`loading` は `intentFrameId !== settledFrameId` の導出値であるため、§9.4.5 の収束規則がそのままスピナーの消灯条件になる。
+
+| 事象 | `settledFrameId` | スピナー |
+| --- | --- | --- |
+| 読込完了し、`frameId === intentFrameId` | 進む | **消える**（最小表示時間の残りを満たしてから） |
+| 読込完了したが intent が既に先へ動いている | 進まない | **消えない**（現在の intent の読込を継続中のため。正しい挙動） |
+| 12 秒タイムアウト（`complete: false`）で `frameId === intentFrameId` | 進む | **消える。** タイル欠けの表示は F8 の責務であり、スピナーは欠けを表現しない |
+| タイル取得の失敗（`onTileError`） | 変わらない | **消えない。** `onSwapSettled` に到達するまで読込中であり、失敗の表示は F8 が行う |
+
+§9.4.5-4 により、操作が止まれば遅くとも「デバウンス 500 ms ＋ 12,000 ms」で必ず `settledFrameId = intentFrameId` に収束するため、**スピナーが消えないまま固定されることはない。**
+
+### 9.5 「実況／予報」と表示時刻の視認階層【確定・ユーザー承認済み】
+
+#### 9.5.1 表示方針
+
+ユーザー要件は「実況／予報が見分けられればよい。余計なことは書かせない」である。既存の時間操作カード内で **`実況 09/22 08:45`** または **`予報 09/22 09:00`** の 2 要素だけを表示し、現在の「時刻→小さい badge」から「大きい種別→大きい時刻」へ視認階層を改める。
+
+- 「実況／予報」は 16px、選択時刻は 20px とする。狭小画面ではそれぞれ 14px / 18px まで縮小する。
+- 日時書式は既存の `formatJstMonthDateTime(validTime)` による `MM/DD HH:mm` を維持する。種別と時刻以外の文言は追加しない。
+- 地図上へ別の時刻表示を新設しない。右側情報列との競合と、カードとの情報重複を避ける。
+- サマリーに使う種別と時刻はともに **settled frame** から作る。読込中に slider の intent が先へ動いても、画像が確定するまでは前コマの種別と時刻を維持する。
+- `TimelineViewModel` に `selectedFrameKind: TimelineFrameKind | null` だけを追加する。`usePlayback` と `buildNowcastTimelineViewModel` は settled / selected frame から値を作り、`TimelineControlCard` は slider の `selectedFrameId` からサマリー種別を逆算しない。
+
+#### 9.5.2 レイアウト・色・アクセシビリティ
+
+- `TimelineControlCard` 本体へ `nowcast-timeline-card` class を付け、16px / 20px の新スタイルはこの class 配下だけへ限定する。共通の `.timeline-selected-time` を無条件に変更して `KikikuruStatusCard` まで拡大しない。
+- 種別 badge の背景・文字色は既存の `--md-sys-color-*-container` / `--md-sys-color-on-*-container` を維持し、日時も既存の MD3 トークンだけを使う。HEX / RGB を追加しない。
+- 見た目だけでなく読み上げでも種別→時刻の順になる DOM 順序とする。自動再生で毎秒割り込み読み上げを起こさないよう、新しい `aria-live` は追加しない。
+- slider の `aria-valuetext` は現在の intent 位置を伝える役割を維持し、カードの settled 表示とは混同しない。操作ボタンの名前・順序・keyboard 操作は変更しない。
+- 拡大後のカード実寸は既存の `ResizeObserver` が `bottomCardElement` として測り、F1 の中心補正へ渡す。実況↔予報で同じ 1 行構成を維持する。
+
+#### 9.5.3 変更を許可するファイル
+
+本改訂の製造では、既存のポーリング修正範囲とは別に次だけを変更してよい。
+
+- `apps/web/src/map/MapViewport.tsx` — 地理院背景専用 class
+- `apps/web/src/map/WeatherMapView.tsx` — ナウキャスト opacity
+- `apps/web/src/map/TimelineControlCard.tsx` — サマリーの種別・時刻の順序と class
+- `apps/web/src/map/types.ts` — settled 表示用の種別
+- `apps/web/src/map/nowcast/nowcastTimeline.ts` — selected frame 由来の種別
+- `apps/web/src/map/nowcast/usePlayback.ts` — settled frame 由来の種別
+- `apps/web/src/map/fixtures.ts` — 型変更に必要な fixture 更新
+- `apps/web/src/map/map.css` — 背景 filter と種別・時刻の視認階層
+- 上記に直接対応する `apps/web/tests/` の既存テスト
+
+`WeatherTileOverlay.tsx`、`apps/web/src/map/kikikuru/`、`apps/api`、`packages/shared`、テーマの色定義、設定ファイルは変更しない。依存パッケージも追加しない。
 
 ## 10. F7（最新追従）との接点
 
@@ -686,7 +1113,7 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 
 - [ ] 製造前の `main` に対し `grep -rn "nowcast" apps/web/src` を実行し、索引取得・PNG 描画・再生のフロント実装が存在しなかったことを記録する。実装済みとして飛ばした項目がないことを確認する。
 - [ ] `WeatherMapView` に view model を渡さない既定状態では、F4 の空カタログ表示（「利用可能な時刻はありません」）が出ることを画面で確認する。F2 は fixture の時刻を通常画面に出さない。
-- [ ] `git diff --stat` で、`MapViewport.tsx` の変更が §8.4 の `getMap` / `onMapReady` 追加に限られ、中心補正・リサイズ・マーカー・背景タイルのロジックが変更されていないことを確認する。
+- [ ] `git diff` で、`MapViewport.tsx` の今回の追加変更が §6.4 の地理院背景専用 `className` に限られ、中心補正・リサイズ・マーカー・タイル URL / pane / zoom のロジックが変更されていないことを確認する。
 
 ### 11.2 初期表示とコマ一覧
 
@@ -710,6 +1137,16 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 - [ ] 凡例のスウォッチ色と、実際のタイル画像の該当階級の画素色が一致することを、降水がある時間帯のコマで確認する（画面のスクリーンショットから該当画素の RGB を拾い、トークン値と突き合わせる）。
 - [ ] 凡例に「気象庁 高解像度降水ナウキャスト」の出典が表示され、地理院タイルの出典と併存して、右側情報列・時間操作カードの背後に隠れない。
 
+#### 11.3.1 弱い降水域の視認性と filter 境界（§6.4）
+
+- [ ] `mapViewportConfiguration.createGsiPaleTileOptions()` の `className` が背景専用 class と完全一致し、同 class が地理院背景レイヤーのコンテナ 1 件だけに付くことを単体テストと実 DOM で確認する。
+- [ ] DevTools の computed style で、背景専用 class が **`grayscale(1) brightness(0.66)`**、ナウキャストを載せる `overlayPane` とその気象レイヤーが **`filter: none`** であることを確認する。会場マーカー・凡例・操作カードにも filter が掛かっていない。
+- [ ] ナウキャスト active layer の opacity が **`1`** である。元 PNG の 8 階級 RGB と画面上の降水画素を同じ座標で突き合わせ、背景との合成で色が薄まっていないことを確認する。`NOWCAST_LAYER_OPACITY = 0.8` が残っていない。
+- [ ] 0〜1 mm/h の白と 1〜5 mm/h の水色を含むコマ・同一 viewport を選び、(a) 背景 filter を DevTools で一時無効化した現行相当と、(b) filter 有効の実装後をスクリーンショットで並べる。海・市街地の双方で弱い降水域の輪郭が背景から判別しやすくなったことをユーザーが確認できる形で検収記録に残す。
+- [ ] 背景の地名・行政界・海岸線が読め、地図のパン・ズーム時にタイル境界の筋や filter のちらつきが出ないことをズーム 9 / 11 / 13 で確認する。承認済みの `brightness(0.66)` を検収中に変更しない。
+- [ ] 大雨・浸水・土砂キキクルを順に表示し、3 種とも気象タイルと凡例の色が改訂前と一致すること、キキクル active layer の opacity が現行 **`0.75`** のままであることを確認する。背景だけが暗色化され、キキクルのタイルへ grayscale が掛かっていない。
+- [ ] 「色の濃さ」UI、localStorage 項目、テーマ色・データ色トークン、依存パッケージが追加されていないことを `git diff` と `package.json` で確認する。
+
 ### 11.4 再生
 
 数値条件は周回によって分ける。**1 周目はネットワーク律速のため時間の数値目標を置かない。2 周目以降は読込済みレイヤーの保持により `opacity` 入れ替えだけで切り替わるため、1,000 ms ± 300 ms を保証できる**（§9.3.1・§9.3.2）。1 周目に数値目標を置かないのは 2 回目検収の実測（中央値 7,124 ms、個別値 1〜13 秒）と `Cache-Control: no-store` による構造的制約を踏まえたユーザー承認済みの判断である。
@@ -724,7 +1161,87 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 - [ ] 再生中にポーリングで新しいコマを含む応答が届いても、スライダーの目盛り数と各目盛りの時刻が変化しない。停止すると新しいコマが反映される。
 - [ ] DevTools でタイル要求を遅延（Slow 3G）させて再生し、切替時に**前コマの降水域が新しい時刻の表示として残らない**こと、および**画面の表示日時と表示中の画像が同じコマを指す**ことを確認する（表示日時だけが先に進まない）。
 - [ ] 同じく遅延させた状態で、1 コマの読み込みが 12 秒を超えた場合に再生が止まらず次へ進み、タイル欠けの状態が外部へ通知されることを確認する（`onSwapSettled` の `complete: false` をテストで検証する）。
+- [ ] **【PR #204 P1・同期完了】**`usePlayback` の実 hook と再生タイマーを動かし、タイマー callback の state setter 後に client render を進め、親 hook の ref 追従 effect より先に、先読み済み次コマの `onSwapSettled` が同期発火する順序を再現する。effect flush を分離できる実 hook harness で同じ境界を再現してもよい。ソース文字列検査や setter の mock だけで代用しない。
+- [ ] 上記の同期完了後、`intentFrameId`、`settledFrameId`、`overlayFrame.id`、表示日時がすべて同じ次コマを指す。画像だけが先へ進まず、`intentFrameId !== settledFrameId` が false に収束してスピナーが消灯条件へ入る。次の切替タイマーも従来どおり完了時点から予約され、再生が停止しない。
+- [ ] 再生タイマー callback の更新順が **`intentFrameIdRef.current` → `setIntentFrameId` → `setDebouncedIntentFrameId`** であり、手動操作経路と同じ「ref を先に同期する」契約になっている。`handleSwapSettled()` の古い通知拒否条件は変更されていない。
+- [ ] **【変異確認】**対象テストが通る状態から `intentFrameIdRef.current = nextFrame.id` の同期だけを一時的に外すと同テストが失敗し、結果を **KILLED** と記録できる。行を復元後、対象テストと通常検査が再通過する。製品コードに変異用分岐を残さない。
+- [ ] `git diff --name-only` で、PR #204 P1 のコード差分が `apps/web/src/map/nowcast/usePlayback.ts` と `apps/web/tests/nowcastManualPlayback.test.ts` の 2 本だけである。再生間隔、先読み深さ、リテンション、タイムアウト、手動デバウンス、表示文言・時刻書式、スピナー部品、キキクルに差分がない。
+
+#### 11.4.1 手動操作の即応性（§9.4・4 回目検収の差し戻し）
+
+すべてナウキャスト**停止中**の手動操作で検証する。`performance.now()` で、操作イベント（`click` / `input`）から DOM 反映までを計測する。DevTools の Network を開き、タイル要求の件数と URL を併せて記録する。
+
+- [ ] **【数値条件】スライダーのつまみが、操作から 200 ms 以内に新しい位置へ移動する。** 18 → 3 のジャンプ、前へ／次へのいずれでも満たすこと。改訂前の実測（ジャンプで 12,070 ms、次へ 1 回で 3,789 / 5,019 ms）から改善していることを、旧測定値と並べて記録する。タイルの読込完了を待たない。
+- [ ] **【連打】「次へ」を 0.4 秒間隔で 5 連打すると、つまみが 5 コマ進む。** 改訂前は 1 コマしか進まなかった（12,234 ms 後に index 8 → 9）。連打中の各クリックでつまみが 1 つずつ動き、握り潰されない。
+- [ ] **【最終 intent のみ読込】基準シナリオ: 「次へ」を 0.4 秒間隔で 5 連打。** この間に発生したタイル要求の **distinct `validTime` が 1 つだけ**（＝最終コマ 1 コマ分）であることを確認する。5 回目検収では 200 ms デバウンスのため 48 件・**distinct 4 コマ分**で不合格だった。件数だけを見ると 1 コマ分の枚数（初期ズーム 11 で 12 件前後、ズーム 9 相当で 45 件前後）と紛らわしいので、**必ず `validTime` の異なり数で判定する**。
+- [ ] **【ドラッグ抑止】基準シナリオ: スライダーを 300 ms/step で index 0 → 23 までゆっくりドラッグ。** ドラッグ中のタイル要求の distinct `validTime` が 1 つだけであること。5 回目検収では 264 件・**distinct 22 コマ分**で不合格だった。50 ms/step（速い）でも同様に 1 つであること。
+  **判定は「操作間隔が 500 ms 未満の連続操作の間は中間コマの要求が発生しない」**（§9.4.4）で行う。**500 ms 以上の間隔で止まりながらドラッグした場合に、止まった位置のコマを読むのは仕様どおりであり、不合格としない。**
+- [ ] **【計測方法】**上記 2 項目の distinct `validTime` は、DevTools のコンソールで次を実行して数える。Network タブの目視でも可だが、件数が多いため計測での確認を推奨する。
+
+  ```js
+  // 操作を始める前にコンソールで実行する
+  window.__seen = new Set();
+  window.__count = 0;
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      if (!entry.name.includes('/api/weather/nowcast/')) continue;
+      if (!entry.name.includes('/tiles/')) continue;
+      window.__count += 1;
+      const m = /[?&]validTime=([^&]+)/.exec(entry.name);
+      if (m) window.__seen.add(decodeURIComponent(m[1]));
+    }
+  }).observe({ type: 'resource', buffered: true });
+
+  // 操作を実行したあとに評価する
+  // __seen.size === 1 なら合格。__count（総枚数）と __seen の中身も記録する
+  console.log(window.__count, [...window.__seen]);
+  ```
+
+- [ ] **【収束時間の改善】**0.4 秒間隔の 5 連打を行い、最後のクリックから画像が出る（`settledFrameId` が追いつく）までの実時間を `performance.now()` で計測する。5 回目検収では中間 4 コマを順に読み込んだため **11.0 秒**を要した。デバウンス 500 ms により最終 1 コマだけになるため短縮される見込みであり、**改善後の実測値を記録する**（具体的な目標値は置かない。1 コマの読込に 0.46〜5.48 秒かかるため、ネットワーク状況に依存する）。
+- [ ] **【表示日時の据え置き】**読込中（つまみが動いてから画像が出るまで）、**表示日時ラベルが先に進まない**ことを確認する。日時ラベルと地図画像が常に同じコマを指す。§11.4 冒頭の原則を手動操作でも維持する。
+- [ ] **【収束】**操作を止めると、遅くとも「デバウンス 500 ms ＋ 12,000 ms」以内に表示日時ラベルとつまみが同じコマへ収束する。読込がタイムアウトした場合も収束し、ずれたまま固定されない（§9.4.5）。
+- [ ] **【古い完了の無視】**読込中にさらに操作して intent を先へ進めたとき、先行していた読込が完了しても**表示日時が巻き戻らない**ことを確認する（§9.4.5-2）。
+- [ ] **【再生との整合】**手動操作で再生が停止する既存挙動、再生中の自動送りにデバウンスが掛からないこと、§11.4 の 2 周目 1,000 ms ± 300 ms が引き続き満たされることを確認する。
+- [ ] **【F3 無変更】**`git diff` で `apps/web/src/map/kikikuru/` 配下、`apps/web/src/map/tiles/WeatherTileOverlay.tsx`、**`apps/web/src/map/TimelineControlCard.tsx`** に変更が無いことを確認する。キキクルの手動操作の即応性が本改訂の前後で変わらないことを実機で確認する。`TimelineControlCard.tsx` は `input` / `change` 分離を入れないため変更しない（§9.4.4 代替案 (c) は不採用）。
+
+##### フック単体テストの間隔カバレッジ（5 回目検収の指摘）
+
+5 回目検収で、**単体テストが 40 ms 間隔の連続操作しか検証しておらず、実機の未達がテストをすり抜けた**ことが判明した。デバウンス値より十分短い間隔だけを試すと、どんなデバウンス値でも合格してしまう。
+
+- [ ] `usePlayback` のフック単体テストに、**操作間隔 300 ms と 400 ms** の連続操作のケースを加える。いずれも **最終コマだけが `overlayFrame` になる**（中間コマが一度も `overlayFrame` に現れない）ことを検証する。
+- [ ] 併せて、**デバウンス値以上の間隔（例: 600 ms）では各コマが順に `overlayFrame` になる**ことも検証する。これは §9.4.4 のとおり仕様どおりの挙動であり、デバウンスが効きすぎていないことの確認になる。
+- [ ] `MANUAL_INTENT_DEBOUNCE_MS` を変更したら、上記の間隔もその値に対して「未満」「以上」の両側を突くように見直す。**デバウンス値を定数から読んで相対的に組み立てる**と、値の変更でテストが形骸化しない。
+
+##### スピナー（§9.4.8）
+
+- [ ] **読み込み中だけ表示される。** つまみを動かしてタイル読込が走る間にスピナーが出て、画像が出た（`settledFrameId` が追いついた）時点で消える。読込していないとき（intent と settled が一致しているとき）は表示されない。
+- [ ] **【ちらつき】**サーバー側キャッシュ命中のコマ（一度見たコマへ戻る操作）で、読込が `SPINNER_SHOW_DELAY_MS = 250` 未満に終わる場合はスピナーが**まったく出ない**。出た場合は `SPINNER_MIN_VISIBLE_MS = 400` 以上表示される。`performance.now()` で点灯・消灯時刻を記録し、両値の妥当性を評価する（不適切なら暫定値を調整して記録する）。
+- [ ] **【操作を妨げない】**スピナー表示中に、時間操作カードの全ボタン・スライダーが操作でき、スピナーの真下にある要素もクリックできる（`pointer-events: none` の確認）。地図のドラッグ・ズーム・会場復帰も妨げられない。
+- [ ] **【レイアウトを動かさない】**スピナーの表示・非表示で時間操作カードの実測高さが変化しないことを `getBoundingClientRect()` で確認する。高さが変わると F1 の可視矩形補正が再計算され地図が動くため、変化したら不合格とする。
+- [ ] **【タイムアウト・失敗】**タイル要求を遅延させて 12 秒タイムアウトに到達させ、**スピナーが消える**ことを確認する（§9.4.8 の表）。読込中にさらに操作して intent を先へ進めた場合は、先行読込が完了してもスピナーが**消えない**ことを確認する。操作を止めれば必ず消える（消えないまま固定されない）。
+- [ ] **【色】**スピナーの計算済み色が `--md-sys-color-*` 由来であることを DevTools で確認する。`apps/web/src` に `--md-circular-progress-*` へ HEX を直書きした箇所が無い。
+- [ ] **【文言なし】**画面上にスピナーに伴う文言（「読み込み中」等）が表示されない。
+- [ ] **【支援技術】**スピナー要素が `aria-hidden="true"` でアクセシビリティツリーから隠れ、読込中は `.timeline-card-wrapper` に `aria-busy="true"` が付くことを DevTools で確認する。名前のない `role="progressbar"` がツリーに残らない。
+- [ ] **【F3 に出ない】**キキクル（大雨・浸水・土砂）を選択している間はスピナーが一度も表示されず、`aria-busy` も付かないことを確認する。
+- [ ] **【依存】**`apps/web/package.json` の `dependencies` に新規パッケージが追加されていない（`md-circular-progress` は既存の `@material/web` に同梱）。
+- [ ] **【本番ビルドで要素登録が落ちていない】**`npm run build` 後に次の 2 点を確認する。
+  1. **動的 import チャンクの存在**: `ls apps/web/dist/assets/circular-progress-*.js` が 1 件以上存在する（約 6.4 kB）。`sideEffects` 制約で要素登録が除去されていれば、このチャンクは出力されない。
+  2. **実機での要素定義**: ビルド成果物をプレビューして画面を開き、DevTools のコンソールで `customElements.get('md-circular-progress')` が `undefined` **でない**ことを確認する。併せて、スピナー表示時に実際に描画されることを目視する。
+- [ ] **【登録の非同期性】**低速回線（DevTools の Slow 3G）で初回表示直後に手動操作し、チャンク読込前でもレイアウトが崩れず、読込完了後にスピナーが正しく描画されることを確認する（§9.4.8【要実機確認】）。カード高さが登録前後で変化しないことを `getBoundingClientRect()` で確認する。
+
+#### 11.4.2 その他
+
 - [ ] **表示ズーム 9（1 コマ約 144 枚）で再生**し、1 周目・2 周目それぞれの間隔とメモリ使用量を記録する。2 周目でも 1,000 ms ± 300 ms を満たさない場合は、達成できた最小ズームとともに実測値を統括担当へ報告する。
+
+#### 11.4.3 「実況／予報」と時刻表示（§9.5）
+
+- [ ] 実況コマで主行が **`実況 09/22 08:45`** の順に表示され、種別 16px・時刻 20px（狭小画面では 14px・18px）の計算済みサイズになる。既存の 11px badge / 16px 時刻のままでは不合格とする。
+- [ ] 予報コマで主行が **`予報 09/22 09:00`** の順に表示される。実況・予報とも、表示文字が種別と既存書式の時刻だけであり、それ以外の文言が追加されていない。
+- [ ] Slow 3G 相当で予報→実況、実況→予報を操作し、読込中は種別・時刻の 2 点がともに旧 settled frame のままで、画像確定と同時に同じ新 frame へ切り替わる。slider のつまみだけが intent へ先行する既存仕様は維持する。
+- [ ] スピナー表示↔非表示でもカード高が変わらず、ボタン・slider の位置と操作性、2 周目の 1,000 ms ± 300 ms が改訂前と同じである。`bottomCardElement` の実測高を用いる中心補正により、会場位置が可視矩形の中心からずれない。
+- [ ] 768px 以下で種別と時刻がカード外へはみ出さない。右側情報列、左下操作群、出典と重ならない。1024×768 とフル HD 相当の両方で確認する。
+- [ ] 読み上げ順が「実況／予報→時刻」である。自動再生用の `aria-live` が追加されておらず、slider の `aria-valuetext` と各ボタンの既存 accessible name が維持される。
+- [ ] キキクル 3 種の簡易カードは、レイヤー名・時刻の内容と文字サイズ、カード高が改訂前から変わらない。`apps/web/src/map/kikikuru/` に差分が無い。
 
 ### 11.5 ポーリング（AD-H062）
 
@@ -732,6 +1249,38 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 - [ ] タブを別タブへ切り替えて 2 分置き、その間ポーリングが止まり、戻った直後に 1 回取得されることを確認する。
 - [ ] API を停止して失敗させ、取得間隔が 60 → 120 → 240 秒へ伸びること、直前に成功したコマ一覧が画面から消えないことを確認する。API を復旧すると 60 秒間隔へ戻る。
 - [ ] レイヤーをキキクルへ切り替えて戻すと、間隔を待たず即時に 1 回取得される。
+
+#### 11.5.1 非同期競合の回帰テスト（PR #197 P2）
+
+`apps/web/tests/useTileCatalogPolling.test.ts` は、既存の SSR による初期値確認だけでなく、**実際の `useTileCatalogPolling` を `react-dom/client` の `createRoot` で client render**して effect と cleanup を実行する。React の dispatcher を自作した hook 模倣や、テスト内にポーリングロジックを複製する方法は禁止する。
+
+テストハーネスは次を備える。
+
+- `load` ごとに外部から resolve / reject できる deferred Promise と、受け取った `AbortSignal` の記録。
+- mutable な `enabled` / `resetKey` を props として再 render し、状態の render 履歴を取得できるテストコンポーネント。
+- `document.visibilityState` と `visibilitychange` listener を実際の effect へ渡す最小 DOM stub。
+- bare `setTimeout` / `clearTimeout` を計測可能にする timer stub。React の内部処理や microtask flush に使う短いタイマーは元実装へ委譲し、`60_000` / `120_000` / `240_000` / `300_000` のアプリケーションタイマーだけを `{ id, delay, callback, cleared }` として記録する。各テストの `finally` で root を unmount し、global と document の差し替えを必ず復旧する。
+- 状態・呼出回数・タイマー本数・delay は `assert.equal` / `assert.deepEqual` で完全一致させる。単なる「1 件以上」や部分一致にしない。
+
+専用テストだけの反復実行には `node --import tsx --test apps/web/tests/useTileCatalogPolling.test.ts`、最終確認には `npm run test -w apps/web` を使う。
+
+以下を独立したテスト（resolve / reject の対称ケースは table-driven test でもよい）として実行する。
+
+- [ ] **未解決取得 → 無効化**: A を未解決のまま `enabled: true → false` にし、A の signal が abort 済みであることを確認する。その後、A の `load` が abort を無視して成功値を resolve する場合と例外を reject する場合の双方で、`ready` / `stale` / `failed` への状態更新が 0 回、ポーリングタイマーが 0 件、追加 `load` が 0 回であることを確認する。
+- [ ] **`resetKey` A → B**: A の取得中に `resetKey` を B へ変更し、B を成功させて `catalog='B'` と 60,000 ms のタイマー 1 件を確定する。その後 A を成功または失敗で完了させても、状態が B のまま、失敗回数に由来する delay が変わらず、B のタイマーの id・本数が変化しないことを確認する。
+- [ ] **無効 → 再有効**: A の取得中に無効化し、再有効化で B を 1 回だけ開始する。A と B を逆順でも完了できるよう制御し、A は状態・タイマーへ影響せず、B だけが状態を更新して 60,000 ms のタイマーを 1 件だけ予約することを確認する。これとは別に、成功後に予約された旧タイマーの callback を保存してから無効→再有効とし、clear 済みの旧 callback を「既に実行キューへ入っていた」ものとして明示的に呼ぶ。旧世代の callback が新しい `load` を増やさず、新世代のタイマーを消去しないことを確認する。
+- [ ] **不可視中の完了と可視復帰**: 可視中の A 取得中に `hidden` へ変更し、A が abort 済みになることを確認する。A を abort 無視で完了させても状態更新・予約が 0 件であることを確認する。`visible` へ戻すと B が即時に **1 回だけ**始まり、B 完了後にだけ 60,000 ms のタイマーが 1 件できることを確認する。重複した同一 visibility 通知では取得を増やさない。
+- [ ] **正常系・バックオフ回帰**: 現在世代で成功すると `ready` と 60,000 ms 予約になる。続けて失敗させると直前の catalog / `fetchedAt` を完全一致で保持した `stale` となり、予約 delay が順に 60,000 / 120,000 / 240,000 / 300,000 / 300,000 ms となる。次の成功で `ready` に戻り、delay も 60,000 ms に戻る。一度も成功していない失敗は `failed` となることも確認する。
+- [ ] **StrictMode cleanup**: `<React.StrictMode>` で setup → cleanup → setup を発生させ、最初の setup の `load` を後から完了しても状態・タイマーへ影響しないこと、現在 setup の完了だけがタイマーを 1 件予約すること、unmount 後は予約 0 件であることを確認する。
+
+**ミューテーション判定（`docs/rules/05-verification-protocol.md`）**:
+
+1. 上記専用テストが通常実装で通ることを確認する。
+2. 対照実験として `useTileCatalogPolling.ts` に意味を変えないコメントだけを一時挿入し、専用テストが通る（SURVIVED）ことを確認する。コメントを戻す。
+3. 本番判定として、共通述語から `generationRef.current === generation` の比較だけを一時的に外し、`resetKey` A → B または無効→再有効のテストが状態またはタイマーの完全一致で落ちる（KILLED）ことを確認する。旧結果が abort 状態だけで止まる実装・テストにしない。
+4. ミューテーションを復旧し、専用テストと `npm run test -w apps/web` が再び通ること、`git diff` に対照実験・ミューテーションが残らないことを確認する。
+
+- [ ] `git diff --name-only` で本修正のコード差分が `apps/web/src/map/tiles/useTileCatalogPolling.ts` と `apps/web/tests/useTileCatalogPolling.test.ts`（必要時のみ専用 fixture）だけであることを確認する。特に `WeatherMapView`、`apps/web/src/map/nowcast/`、`apps/web/src/map/kikikuru/`、他の `tiles`、`apps/api`、`packages/shared`、設定ファイルに本修正の差分が無い。
 
 ### 11.6 共通モジュールの再利用性（確定事項 #8）
 
@@ -758,7 +1307,7 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 
 ### 11.8 棚卸し項目の結論記録（Issue #139 追加条件）
 
-- [ ] 設計書 §4.3・§5.3・§7.5 に AD-H057 / AD-H062 / AD-H058 の結論が記録されている。
+- [ ] 設計書 §4.3・§5.4・§7.5 に AD-H057 / AD-H062 / AD-H058 の結論が記録されている。
 - [ ] 採否待ちの保守事項（サーバー側 PNG 完全 decode 検証の追加、タイルキャッシュ容量 / LRU）が、本 Issue の修正必須へ昇格していない。
 
 **AD-H057 の結論（記録）**:
@@ -779,6 +1328,8 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 | G1 | 変更なし（右側情報列に触れない） | — |
 | L1 (#83) | 実画面での色・位置・zoom・凡例の確認結果（§11.3 の記録） | 両会場の総合受入条件 |
 
+PR #197 P2 の世代管理は共通フック内で完結し、F2 と F3 の既存呼び出しシグネチャを変えない。F3 は修正後の競合防止を自動的に受けるが、`apps/web/src/map/kikikuru/` 側のコード・設計書は変更しない。本修正から後続 Issue へ先送りする実装事項はない。
+
 ## 13. 実挙動未確認の箇所
 
 1. **実画面での地理的重ね合わせ**（降水域と海岸線・行政界の一致）。設計フェーズでは URL スキームと会場タイル座標の一致まで。§11.3 で確認する。
@@ -787,15 +1338,123 @@ F7 着手時に、この内部状態を F7 のコントローラーへ差し替�
 4. ~~先読み＋リテンション方式での実測間隔~~ **2 回目検収で実測済み**。1 周目は中央値 7,124 ms（個別 1〜13 秒）、2 周目以降は 1,005〜1,014 ms で全件合格、1 周目のレイヤー枚数は最大 16 枚まで単調増加。ズーム 9 での実測とメモリ使用量は未実施（下記 6）。
 5. **新規 REST をフロントから呼んだときの挙動全般**。#39 設計も新規 REST を実挙動未確認としている。
 6. **表示ズーム 9（1 コマ約 144 枚）での要求枚数と再生の実負荷**。枚数は机上算出であり、実ブラウザーでの実測、保持時のメモリ（約 3 MB 見積り）、2 周目で 1,000 ms を満たせるかは未実施。§11.3・§11.4 で確認する。
+7. **§9.4 の手動操作の即応性**。intent 分離とつまみの即応（5 連打で +5 コマ、各 6.5〜16.1 ms）は 5 回目検収で実測済み。**デバウンス 500 ms への変更後の挙動は未検証**であり、0.4 秒連打・300 ms/step ドラッグで最終コマだけが読み込まれるか、収束時間が 11.0 秒からどこまで改善するかを §11.4.1 で確認する。500 ms は引き続き暫定値。
+8. ~~単タイルの応答時間~~ **実測済み**（§14.4）。サーバー側キャッシュ未命中 0.46〜5.48 秒 / 枚、命中 7 ms / 枚、転送時間は無視できる。残る未確認は、ブラウザーから 45 枚を並列取得したときの実所要時間（§11.4.1 で記録する）。
+9. **上流タイルのバイト列が `baseTime`/`validTime` 確定後に不変かどうか**。公式資料で確認していない（§14.2）。案 B を採る場合は先に確認が要る。
+10. **§5.3 の世代管理を入れた実 hook の競合挙動**。設計フェーズでは現行コードの競合順序を確認したが、修正実装はまだ存在しないため実挙動未確認。§11.5.1 の client render テスト、StrictMode cleanup、ミューテーション判定で確認する。
+11. **§6.4 の背景 filter と opacity 1 による実画面の視認性**。値は気象庁の現行画面で確認したものだが、本画面の地理院淡色タイル・右側情報列・会場付近での見え方は未確認。白・水色の降水域と地名の両立は §11.3.1 で比較する。
+12. **§9.5 のカード実寸と狭小画面**。20px 時刻・16px 種別での 1024×768 / 768px 以下の収まりと中心補正は §11.4.3 で確認する。
 
-## 14. 未確定として残す事項
+## 14. `Cache-Control: no-store` とキャッシュ方針【範囲外・別 Issue 候補】
+
+**結論（確定事項 #17・ユーザー承認済み）: 本 Issue は案 A（§9.4 のクライアント側修正のみ）とする。API の変更（案 B・案 D）は今回含めない。案 D の起票はユーザーからの指示があるまで行わない。**
+
+以下は、その判断の根拠となる調査・実測と、将来の別 Issue 候補としての記録である。変更対象は `apps/api`（E7 #39 / E8 #40 の範囲）であり、本 Issue (#45) の範囲外である。
+
+4 回目検収で、待ち時間の実体が「1 コマ 45 枚を毎回取得する所要時間」であることが判明した（§9.4.1）。ただし §14.4 の実測により、**支配的なのは `no-store` ではなく上流取得の有無**であることが分かった。
+
+### 14.1 現行 `no-store` の採用理由（調査結果）
+
+[#39・#40 設計](issue-39-nowcast-kikikuru-rest-apis.md) §3.2 に根拠がある。
+
+> 全応答（エラーを含む）は `Cache-Control: no-store`。**ブラウザーキャッシュで時間窓・取得許可の再評価を迂回しない。** ETag/Last-Modified を出さず、自動 304 を抑止する。
+
+同設計の受け入れ条件 B16 にも「条件付き GET でも 304 で迂回しないこと」が入っている。`docs/basic-design.md` には対応する記述がなく、**根拠は E7 設計書の 1 か所に限られる**。理由は「バイト列が変わるから」ではなく、**「毎回サーバー側で表示窓と取得許可を評価し直すため」**である。
+
+### 14.2 同一 URL で内容が変わりうるか（調査結果）
+
+タイル URL は `product` / `z` / `x` / `y` / `terminalId` / `controlStatus` / `baseTime` / `validTime` で内容が決まる。
+
+| 観点 | 調査結果 |
+| --- | --- |
+| 画像のバイト列 | `baseTime` と `validTime` が確定したコマの上流タイルは、後から差し替わる性質のものではない。**バイト列は実質不変とみなせる**（ただし上流の再発表可能性を公式に確認したわけではない。**実挙動未確認**） |
+| 訓練／本番の混在 | `controlStatus` が URL のクエリに含まれ、`training` / `test` は 422 で画像を返さない。**同一 URL で本番と訓練が混ざることはない** |
+| 会場の違い | `terminalId` が URL に含まれる。全国同一の索引を使うが URL は端末ごとに分かれる |
+| **表示窓からの離脱** | **変わる。** `nowcastService.ts` は画像要求のたびに `catalog.window` と突き合わせ、窓外なら 404 `frame_not_available` を返す（同 §364-368）。コマは時間経過で過去 60 分の窓から外れるため、**同じ URL が 200 → 404 へ変化する** |
+| サーバー側のタイル削除 | 変わる。索引更新時に `cleanProductUnreferencedTiles` で参照されなくなったタイルを削除する（同 §254-255）。削除後は再取得または 404 になる |
+| 取得停止（`acquisition_stopped`） | 現行実装では**キャッシュ命中時には発生しない**。停止は上流取得を伴う場合の 503 であり、保存済みタイルの配信は妨げない（AD-H061）。したがってブラウザキャッシュからの配信は、サーバー側キャッシュ命中と同じ扱いとみなせる |
+
+**要点**: 変わるのは**バイト列ではなく「まだ配信してよいか」の判定**である。したがってキャッシュを許すなら、**そのコマが表示窓に残っている残り時間を超えない `max-age`** に限るのが安全である。コマの `validTime` を V とすると、窓から外れるのは `V + 60 分` であり、`max-age = max(0, (V + 60分) − now)` 秒として算出できる。これなら窓の再評価を迂回しない。
+
+安全な条件の具体案は次の形になる【設計案・未採用】。
+
+```
+Cache-Control: private, max-age=<上記で算出した秒数>, immutable
+```
+
+`private` は共有キャッシュへの保存を防ぎ、`immutable` は再検証を抑止する。エラー応答には従来どおり `no-store` を付ける。200 のみを対象とする。
+
+### 14.3 効果の見込みとリスク
+
+**効果が出る操作と、出ない操作を区別する必要がある。**
+
+§14.4 の実測（未命中 0.46〜5.5 秒 / 命中 7 ms）を前提に評価する。**ブラウザーキャッシュが省けるのは「サーバー側キャッシュ命中の 7 ms × 枚数」だけ**である点に注意する。
+
+| 操作 | ブラウザーキャッシュ化の効果 |
+| --- | --- |
+| **初回にそのコマを見るとき**（今回オーナーが指摘した手動ジャンプ・次へ） | **効果なし。** 初回は上流取得が必要で、これがボトルネックそのもの |
+| 一度見たコマへ戻る（往復操作、前へ↔次へ） | **小さい。** 2 回目以降はサーバー側が `cached` を 7 ms で返すため、45 枚でも約 0.3 秒（並列ならさらに短い）。ここを 0 にしても体感差は小さい |
+| 再生 2 周目以降 | **ほぼ無し。** 既に Leaflet のリテンション（§9.3.2）で要求 0 件を達成済み |
+| pan / zoom で保持プールを破棄した後の再生（§9.3.3） | 小さい。同じく 7 ms × 枚数の節約にとどまる |
+| レイヤーを往復（ナウキャスト ↔ キキクル） | 小さい。同上 |
+
+**結論は 2 つある。**
+
+1. **今回の症状（初回の手動操作が遅い）は、キャッシュヘッダーを変えても解消しない。** 解消するのは §9.4 のクライアント側修正だけである。
+2. **往復操作も、当初想定したほどは改善しない。** サーバー側のタイルキャッシュが既に 7 ms で応答しており、ブラウザーキャッシュが追加で省けるのはその 7 ms だけである。`no-store` の撤廃で得られる利得は、§14.3 の初稿で「大きい」と見積もったより**かなり小さい**。
+
+待ち時間を実際に縮めたいなら、効く手は**キャッシュヘッダーではなく「上流取得をいつ走らせるか」**である。すなわち、サーバー側が表示窓内のコマのタイルを事前に取得しておく（ウォーミング）ことで、`downloaded` を `cached` に変えるほうが効果が大きい。これも E7 / E8 の範囲であり、本 Issue では扱わない。
+
+リスク:
+
+- `max-age` の算出を誤ると、窓外のコマをブラウザが配信し続け、**サーバーが 404 にしたはずの古いコマが画面に出る**。E7 設計の趣旨に反する。
+- 保持期間ポリシー（#10）でサーバーがタイルを削除しても、ブラウザキャッシュには残る。削除の意図が画面まで届かない。
+- E7 の受け入れ条件 B16（304 で迂回しないこと）と正面から矛盾するため、**E7 設計書の改訂と再検収が要る**。
+- 検証の手間が増える。キャッシュの有無で挙動が変わるため、不具合の再現条件が増える。
+
+### 14.4 単タイル応答時間の実測【確定・実測】
+
+2026-09-21 夜、`http://localhost:3001` で実測した（API 起動直後は `/times` の初回応答に 875 秒かかったが、起動完了後は 0.27 秒で安定した。以下は安定後の値）。
+
+| 区分 | `X-Wx-Tile-Result` | 実測（`time_total`） | 本文サイズ |
+| --- | --- | --- | --- |
+| **サーバー側キャッシュ未命中**（上流取得が走る） | `downloaded` | **0.46 〜 5.48 秒 / 枚** | 334 〜 530 B |
+| **サーバー側キャッシュ命中**（同一 URL の再要求） | `cached` | **0.007 秒（7 ms）/ 枚** | 同上 |
+
+`time_starttransfer` と `time_total` の差はいずれも 0.1 ms 未満であり、**転送時間は無視できる。待ち時間はすべてサーバー側の処理、実体は上流（気象庁）への取得**である。本文が 334〜530 バイトしかないこととも整合する。
+
+この 2 つの数値が §14.3 と §14.5 の評価を決定づける。
+
+- 1 コマ 45 枚が**未取得**なら、0.46〜5.5 秒 × 45 枚を限られた並列度で処理することになり、**秒〜十数秒**かかる。オーナーが観測した 3.8 秒・5.0 秒・12 秒はこれで説明できる。
+- 1 コマ 45 枚が**サーバー側にキャッシュ済み**なら、7 ms × 45 枚 = 約 0.3 秒（直列換算）であり、ブラウザーの並列取得を考えればさらに短い。**`no-store` のままでも、サーバー側に載っていれば十分速い。**
+
+### 14.5 選択肢と推奨
+
+| 案 | 内容 | 利点 | 欠点 |
+| --- | --- | --- | --- |
+| **A（推奨）** | **§9.4 のクライアント側修正のみ**を本 Issue で行う。API は変更しない | 今回の症状（初回の手動操作が遅い）を直接解消する。E7 の契約・受け入れ条件に触れないため影響範囲が小さい。F3 にも波及しない | 初回にそのコマを見るときの待ち時間そのものは残る（つまみは即応するが画像は遅れて出る）。1 周目の再生は速くならない |
+| B | A に加えて API に `private, max-age, immutable` を導入する | 往復操作・レイヤー切替・pool 破棄後で、サーバー側キャッシュ命中分（7 ms × 枚数）を省ける | **実測の結果、利得が小さいことが判明した**（§14.3）。今回の症状は解消しない。E7 設計書の改訂と再検収が必要。`max-age` 算出を誤ると窓外配信の事故になる。保持期間ポリシー（#10）との整合確認も要る。**費用対効果が見合わない** |
+| C | API のみ変更し、クライアントは直さない | 実装量が少ない | **今回の症状がまったく直らない。** 採らない |
+| D | A に加えて、サーバー側で表示窓内のタイルを事前取得（ウォーミング）する | `downloaded`（0.46〜5.5 秒）を `cached`（7 ms）に変えるため、**待ち時間そのものに効く唯一の案** | E7 / E8 の取得方針と取得周期（#24）の変更であり影響が大きい。上流への要求量が増え、取得方法レポートの「一度取得した電文を繰り返し全件取得しない」方針との整合確認が要る。本 Issue の範囲外 |
+
+**推奨は案 A である。** 理由は次の 4 点。
+
+1. オーナーが指摘した症状はすべて「初回にそのコマを見るとき」であり、キャッシュヘッダーでは直らない。直せるのはクライアント側の intent 分離だけである。
+2. §9.4 を入れれば、待ち時間そのものは残っても**操作は即座に応答する**ようになり、体感上の問題は解消する見込みが高い。
+3. **案 B の利得は実測で小さいと判明した。** サーバー側キャッシュが既に 7 ms で応答しており、ブラウザーキャッシュが追加で省けるのはその分だけである。E7 の確定済み契約と受け入れ条件 B16 を覆す代償に見合わない。
+4. 待ち時間そのものを縮めたいなら案 D（サーバー側ウォーミング）のほうが筋がよいが、E7 / E8 と取得周期（#24）に跨るため、**§9.4 の実装後に体感を評価してから別 Issue として判断する**のが安全である。
+
+**案 B は積極的には勧めない。** 案 D は、§9.4 の実装後も初回表示の遅さが問題として残る場合に、別 Issue として起票することを提案する。いずれも本書では決定しない。
+
+## 15. 未確定として残す事項
 
 1. 雷・竜巻ナウキャスト、気象レイヤーの同時重ね合わせ（基本設計 §4.2【未確定】、本 Issue 対象外）。
-2. レイヤー濃度の可変 UI（§6.4。PoC では固定値）。
+2. レイヤー濃度の可変 UI（§6.4。PoC では固定値）。気象庁の「薄い／通常／濃い」に相当する UI は今回追加しない。
 3. サーバー側 PNG の完全 decode / CRC 検証の追加（AD-H058、採否待ちの保守事項）。
 4. タイルキャッシュの容量上限・LRU（AD-H059、L2 #84 の実測事項）。
-5. レイヤー濃度の値（§6.4 の 0.8）。実画面での視認性監修待ち。
-6. キキクル（F3）でも先読み・リテンションを使うか。キキクルは未来時刻を持たず再生の重要度が低いため、本書では既定オフとし採否を F3 側の判断に残す。
-7. **再生 1 周目を速くするための API 契約の変更**（`Cache-Control: no-store` の緩和、サーバー側でのコマ単位の先読み・まとめ配信）。E7 (#39) の契約変更であり本 Issue の範囲外。必要性が生じた時点で別 Issue とする。
+5. キキクル（F3）でも先読み・リテンションを使うか。キキクルは未来時刻を持たず再生の重要度が低いため、本書では既定オフとし採否を F3 側の判断に残す。
+6. **API 側の待ち時間対策**。§14 に案 A〜D と実測を整理した。キャッシュヘッダー変更（案 B）は実測の結果、利得が小さく積極的には勧めない。効くのはサーバー側ウォーミング（案 D）だが E7 (#39) / E8 (#40) / #24 に跨るため本 Issue の範囲外。§9.4 の実装後に体感を評価し、初回表示の遅さが残る場合に別 Issue として起票する。
+7. **スピナーの遅延・最小表示時間の値**（§9.4.8 の `SPINNER_SHOW_DELAY_MS = 250` / `SPINNER_MIN_VISIBLE_MS = 400`）。ちらつきの体感から実機実測で調整する暫定値。
+8. **スピナーの大きさ・位置の微調整**（§9.4.8）。`statusSlot` 内に置くことと文言を出さないことは確定だが、寸法は F4 の既存スタイルに合わせて実装時に決める。
 
 なお、先読み深さ `PLAYBACK_PREFETCH_DEPTH = 3` は 2 回目検収を経て**確定**した（§9.3.2）。1 周目の間隔短縮を深さ調整で狙わない方針のため、実測が悪いことを理由に深さを増やす変更をしない。
