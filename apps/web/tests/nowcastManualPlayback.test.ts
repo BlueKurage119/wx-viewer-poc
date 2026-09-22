@@ -563,7 +563,7 @@ test('【再生同期完了】先読み済みの次コマが effect 前に完了
       harness.current.viewModel.selectedFrameKind,
       repFrames.find((frame) => frame.id === prefetchedNextFrame.id)?.kind,
     );
-    assert.notEqual(harness.current.viewModel.selectedFrameLabel, '');
+    assert.equal(harness.current.viewModel.selectedFrameLabel, '09/15 12:10');
     assert.equal(
       harness.current.viewModel.intentFrameId !== harness.current.viewModel.settledFrameId,
       false,
