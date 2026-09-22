@@ -1,4 +1,4 @@
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { TileDeliveryProfile, UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { FreshnessPolicy } from '../polling/freshnessPolicy.js';
 import {
   validateFetchHealthConfig,
@@ -24,6 +24,7 @@ export interface PollingPeriod {
 
 export interface PollingScheduleConfig {
   readonly timezone: 'Asia/Tokyo';
+  readonly tileDeliveryProfile: TileDeliveryProfile;
   readonly amedasPointRecheckSeconds: number;
   readonly freshness: {
     readonly xml: FreshnessPolicy;
@@ -212,6 +213,15 @@ const EXPECTED_PERIOD_KEYS = new Set([
 
 const EXPECTED_ROOT_KEYS = new Set([
   'timezone',
+  'tileDeliveryProfile',
+  'amedasPointRecheckSeconds',
+  'periods',
+  'freshness',
+  'fetchHealth',
+  'startupRecovery',
+]);
+const REQUIRED_ROOT_KEYS = new Set([
+  'timezone',
   'amedasPointRecheckSeconds',
   'periods',
   'freshness',
@@ -232,7 +242,7 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
       throw new Error(`未知のルート設定キーです: ${key}`);
     }
   }
-  for (const key of EXPECTED_ROOT_KEYS) {
+  for (const key of REQUIRED_ROOT_KEYS) {
     if (!(key in c)) {
       throw new Error(`必須ルート設定キーが不足しています: ${key}`);
     }
@@ -407,6 +417,10 @@ export function validatePollingScheduleConfig(config: unknown): PollingScheduleC
     throw new Error(
       `時間帯範囲が24時間を完全に網羅していません (現在 ${currentMinute}分 / 1440分)`,
     );
+  }
+
+  if (c.tileDeliveryProfile !== 'proxy' && c.tileDeliveryProfile !== 'jma-direct') {
+    throw new Error('tileDeliveryProfile は "proxy" または "jma-direct" である必要があります');
   }
 
   return {

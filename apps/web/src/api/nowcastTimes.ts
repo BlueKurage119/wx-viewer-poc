@@ -7,6 +7,7 @@ export function parseNowcastTimesResponse(body: unknown): NowcastTimesResponse |
   if (typeof b.terminalId !== 'string') return null;
   if (typeof b.venueId !== 'string') return null;
   if (b.status !== 'ok' && b.status !== 'unsupported_control_status') return null;
+  if (b.tileDeliveryProfile !== 'proxy' && b.tileDeliveryProfile !== 'jma-direct') return null;
   if (!('products' in b) || typeof b.products !== 'object' || b.products === null) return null;
   return body as NowcastTimesResponse;
 }

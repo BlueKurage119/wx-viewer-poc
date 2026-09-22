@@ -11,6 +11,7 @@ import {
   type WeatherMetadata,
 } from '@wx-viewer-poc/shared';
 import type { NowcastService } from '../polling/nowcastService.js';
+import type { TileDeliveryProfileService } from './tileDeliveryProfileService.js';
 import {
   ImageServicesInitializingError,
   projectUpstreamAccess,
@@ -20,6 +21,7 @@ import {
 export interface NowcastApiServiceDependencies {
   readonly getService: () => NowcastService | null;
   readonly enablePolling: boolean;
+  readonly tileDeliveryProfileService: TileDeliveryProfileService;
   readonly allowedZooms?: readonly number[];
   readonly clock?: () => UtcIso8601String;
 }
@@ -46,6 +48,7 @@ export function createNowcastApiService(
 ): NowcastApiService {
   const clock = dependencies.clock ?? (() => new Date().toISOString() as UtcIso8601String);
   const allowedZooms = dependencies.allowedZooms ?? TILE_API_ALLOWED_ZOOMS;
+  const tileDeliveryProfileService = dependencies.tileDeliveryProfileService;
 
   return {
     getTimes(
@@ -54,6 +57,7 @@ export function createNowcastApiService(
     ): NowcastTimesResponse {
       if (controlStatus !== 'normal') {
         return {
+          tileDeliveryProfile: tileDeliveryProfileService.getProfile(terminal),
           terminalId: terminal.id,
           venueId: terminal.venueId,
           controlStatus,
@@ -131,6 +135,7 @@ export function createNowcastApiService(
       };
 
       return {
+        tileDeliveryProfile: tileDeliveryProfileService.getProfile(terminal),
         terminalId: terminal.id,
         venueId: terminal.venueId,
         controlStatus: 'normal',

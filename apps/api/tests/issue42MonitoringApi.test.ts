@@ -176,6 +176,7 @@ function stubNowcastApi(): NowcastApiService {
       terminal: { id: string; venueId: 'east' | 'trc' },
       controlStatus: 'normal' | 'training' | 'test',
     ) => ({
+      tileDeliveryProfile: 'proxy',
       terminalId: terminal.id,
       venueId: terminal.venueId,
       controlStatus,
@@ -216,6 +217,7 @@ function stubKikikuruApi(): KikikuruApiService {
       terminal: { id: string; venueId: 'east' | 'trc' },
       controlStatus: 'normal' | 'training' | 'test',
     ) => ({
+      tileDeliveryProfile: 'proxy',
       terminalId: terminal.id,
       venueId: terminal.venueId,
       controlStatus,

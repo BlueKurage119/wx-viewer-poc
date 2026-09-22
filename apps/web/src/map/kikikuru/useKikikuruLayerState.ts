@@ -94,6 +94,7 @@ export function useKikikuruLayerState(
       !catalog ||
       catalog.allowedZooms.length === 0 ||
       controlStatus !== 'normal' ||
+      (catalog.tileDeliveryProfile === 'jma-direct' && catalog.imageAccess?.allowed !== true) ||
       !latestFrame
     ) {
       return {
@@ -116,7 +117,15 @@ export function useKikikuruLayerState(
       frame: resolved,
       terminalId,
       controlStatus,
+      tileDeliveryProfile: catalog.tileDeliveryProfile,
     });
+    if (!urlTemplate) {
+      return {
+        display: null,
+        overlay: null,
+        boundary: `${enabled}:${currentLayerId}:${controlStatus}:none`,
+      };
+    }
     return {
       display: {
         id: resolved.validTime,

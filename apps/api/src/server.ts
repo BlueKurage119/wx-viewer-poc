@@ -66,6 +66,7 @@ import { FetchHealthMonitorService } from './monitoring/index.js';
 import { createWeatherApiService } from './services/weatherApiService.js';
 import { createNowcastApiService } from './services/nowcastApiService.js';
 import { createKikikuruApiService } from './services/kikikuruApiService.js';
+import { createStaticTileDeliveryProfileService } from './services/tileDeliveryProfileService.js';
 
 export interface StartedServer {
   readonly port: number;
@@ -375,15 +376,20 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   let imageServices: ImageServices | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
   let nowFnHolder: () => Date = () => new Date();
+  const tileDeliveryProfileService = createStaticTileDeliveryProfileService(
+    schedule.tileDeliveryProfile,
+  );
 
   const nowcastApi = createNowcastApiService({
     getService: () => imageServices?.nowcast ?? null,
     enablePolling,
+    tileDeliveryProfileService,
     clock,
   });
   const kikikuruApi = createKikikuruApiService({
     getService: () => imageServices?.kikikuru ?? null,
     enablePolling,
+    tileDeliveryProfileService,
     clock,
   });
 
@@ -730,15 +736,20 @@ async function main(): Promise<void> {
   let imageServices: ImageServices | undefined;
   let scheduler: TimeBasedPollingScheduler | undefined;
   const nowFnHolder: () => Date = () => new Date();
+  const tileDeliveryProfileService = createStaticTileDeliveryProfileService(
+    schedule.tileDeliveryProfile,
+  );
 
   const nowcastApi = createNowcastApiService({
     getService: () => imageServices?.nowcast ?? null,
     enablePolling,
+    tileDeliveryProfileService,
     clock,
   });
   const kikikuruApi = createKikikuruApiService({
     getService: () => imageServices?.kikikuru ?? null,
     enablePolling,
+    tileDeliveryProfileService,
     clock,
   });
 

@@ -54,6 +54,7 @@ export function createSampleKikikuruResponse(
   const landFrames = createSampleKikikuruFrames('land', latestTime);
 
   return {
+    tileDeliveryProfile: 'proxy',
     terminalId: 'hkeagh01',
     venueId: 'east',
     controlStatus: 'normal',
