@@ -29,7 +29,14 @@ function getKindLabel(kind?: TimelineFrameKind): string {
  */
 export const TimelineControlCard = forwardRef<HTMLDivElement, TimelineControlCardProps>(
   function TimelineControlCard({ viewModel, onIntent, statusSlot }, ref) {
-    const { selectedFrameId, selectedFrameLabel, frames, playing, latestAvailable } = viewModel;
+    const {
+      selectedFrameId,
+      selectedFrameLabel,
+      selectedFrameKind,
+      frames,
+      playing,
+      latestAvailable,
+    } = viewModel;
 
     const isEmpty = frames.length === 0;
     const currentIndex = selectedFrameId ? frames.findIndex((f) => f.id === selectedFrameId) : -1;
@@ -77,7 +84,7 @@ export const TimelineControlCard = forwardRef<HTMLDivElement, TimelineControlCar
     return (
       <section
         ref={ref}
-        className="timeline-control-card"
+        className="timeline-control-card nowcast-timeline-card"
         aria-label="時間操作"
         onWheel={(event) => event.stopPropagation()}
       >
@@ -88,12 +95,12 @@ export const TimelineControlCard = forwardRef<HTMLDivElement, TimelineControlCar
               <span className="timeline-empty-message">利用可能な時刻はありません</span>
             ) : (
               <>
-                <span className="timeline-selected-time">{selectedFrameLabel}</span>
-                {currentFrame && (
-                  <span className={`timeline-kind-badge kind-${currentFrame.kind}`}>
-                    {getKindLabel(currentFrame.kind)}
+                {selectedFrameKind && (
+                  <span className={`timeline-kind-badge kind-${selectedFrameKind}`}>
+                    {getKindLabel(selectedFrameKind)}
                   </span>
                 )}
+                <span className="timeline-selected-time">{selectedFrameLabel}</span>
               </>
             )}
             {statusSlot && <div className="timeline-status-slot">{statusSlot}</div>}

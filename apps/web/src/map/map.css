@@ -36,6 +36,11 @@
   outline: none;
 }
 
+/* 地理院背景だけを無彩色・暗色化し、気象タイルの公式色は変更しない。 */
+.map-viewport .wx-map-basemap {
+  filter: grayscale(1) brightness(0.66);
+}
+
 /* 会場マーカーピン */
 .wx-venue-marker-container {
   background: transparent;
@@ -210,7 +215,7 @@
 }
 
 .attribution-link {
-  color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-inverse-primary);
   text-decoration: underline;
   display: inline-flex;
   align-items: center;
@@ -220,12 +225,17 @@
   border-radius: 4px;
 }
 
+.attribution-link:visited {
+  color: var(--md-sys-color-inverse-primary);
+}
+
 .attribution-link:hover {
-  color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-inverse-primary);
   text-decoration: underline;
 }
 
 .attribution-link:focus-visible {
+  color: var(--md-sys-color-inverse-primary);
   outline: 2px solid var(--md-sys-color-primary);
 }
 
@@ -426,6 +436,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ナウキャストだけは、画像と同じ時刻の実況／予報を大きく表示する。 */
+.nowcast-timeline-card .timeline-kind-badge {
+  font-size: 16px;
+}
+
+.nowcast-timeline-card .timeline-selected-time {
+  font-size: 20px;
+}
+
+.kikikuru-status-card .timeline-selected-time {
+  font-size: 20px;
+}
+
 /* 中段: スライダー */
 .timeline-slider-row {
   position: relative;
@@ -572,5 +595,17 @@
   .timeline-transport-row {
     flex-wrap: wrap;
     gap: 6px;
+  }
+
+  .nowcast-timeline-card .timeline-kind-badge {
+    font-size: 14px;
+  }
+
+  .nowcast-timeline-card .timeline-selected-time {
+    font-size: 18px;
+  }
+
+  .kikikuru-status-card .timeline-selected-time {
+    font-size: 18px;
   }
 }

@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
-import type { TimelineIntent, TimelineViewModel } from '../types';
+import type { TimelineIntent, TimelineViewModel, TimelineFrame } from '../types';
 import type { WeatherTileOverlayFrame } from '../tiles/WeatherTileOverlay';
 import type { NowcastCatalog, NowcastFrame } from './nowcastCatalog';
 import { buildNowcastTileUrlTemplate } from './nowcastTileUrl';
-import { buildNowcastTimelineViewModel, findLatestNowcastFrame } from './nowcastTimeline';
+import { findLatestNowcastFrame, formatJstMonthDateTime, formatJstTime } from './nowcastTimeline';
 
 export interface UsePlaybackParams {
   readonly catalog: NowcastCatalog | null;
@@ -13,17 +13,25 @@ export interface UsePlaybackParams {
   readonly enabled: boolean;
 }
 
+export const PLAYBACK_INTERVAL_MS = 1000;
+export const PLAYBACK_PREFETCH_DEPTH = 3;
+export const MANUAL_INTENT_DEBOUNCE_MS = 500;
+
 export interface UsePlaybackResult {
-  readonly viewModel: TimelineViewModel;
+  /** つまみ位置は intent、表示日時ラベルは settled を指す（§9.4.3） */
+  readonly viewModel: TimelineViewModel & {
+    /** スライダーのつまみ位置。intentFrameId に即座に追従する */
+    readonly intentFrameId: string | null;
+    /** 表示日時ラベル・地図画像が指すコマ。読込完了またはタイムアウトで進む */
+    readonly settledFrameId: string | null;
+  };
+  /** デバウンス後の最終 intent だけがここに現れる（§9.4.4） */
   readonly overlayFrame: WeatherTileOverlayFrame | null;
   readonly prefetchFrames?: readonly WeatherTileOverlayFrame[];
   readonly retainLoaded?: boolean;
   readonly handleIntent: (intent: TimelineIntent) => void;
   readonly handleSwapSettled: (result: { frameId: string; complete: boolean }) => void;
 }
-
-export const PLAYBACK_INTERVAL_MS = 1000;
-export const PLAYBACK_PREFETCH_DEPTH = 3;
 
 /**
  * 再生先読み対象のフレーム群を計算する純関数 (§9.3.2)
@@ -74,6 +82,12 @@ export function computePrefetchFrames(params: {
 
 /**
  * ナウキャストのタイムライン再生・選択コントローラー (§9, §10)
+ *
+ * 手動操作の即応性 (§9.4):
+ * - intentFrameId: スライダーつまみ、前後の加算基準、読み込むタイルの決定
+ * - settledFrameId: 画像読込完了またはタイムアウトで更新。表示日時ラベルと地図画像
+ * - activeCatalog: 表示中のコマ一覧
+ * - MANUAL_INTENT_DEBOUNCE_MS (500ms) で連続操作中の読込を抑止し最終 intent のみ読み込む
  */
 export function usePlayback(params: {
   readonly catalog: NowcastCatalog | null;
@@ -86,11 +100,18 @@ export function usePlayback(params: {
   // 画面に適用中のカタログ (再生中は固定)
   const [activeCatalog, setActiveCatalog] = useState<NowcastCatalog | null>(catalog);
 
-  // 画面に表示確定しているコマ ID
-  const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
+  // 確定選択 (画像の読込完了またはタイムアウトで進む。表示日時ラベル・地図画像)
+  const [settledFrameId, setSettledFrameId] = useState<string | null>(null);
 
-  // WeatherTileOverlay でロード中の目標コマ ID
-  const [targetFrameId, setTargetFrameId] = useState<string | null>(() => {
+  // 操作意図 (操作と同一フレームで即座に更新。つまみ位置・加算の基準)
+  const [intentFrameId, setIntentFrameId] = useState<string | null>(() => {
+    if (!catalog) return null;
+    const latest = findLatestNowcastFrame(catalog.frames);
+    return latest?.id ?? null;
+  });
+
+  // デバウンス後の最終 intent (WeatherTileOverlay へ渡す要求コマ)
+  const [debouncedIntentFrameId, setDebouncedIntentFrameId] = useState<string | null>(() => {
     if (!catalog) return null;
     const latest = findLatestNowcastFrame(catalog.frames);
     return latest?.id ?? null;
@@ -103,12 +124,23 @@ export function usePlayback(params: {
   const [followLatest, setFollowLatest] = useState(true);
 
   const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackFramesRef = useRef<readonly NowcastFrame[]>([]);
   const latestCatalogRef = useRef<NowcastCatalog | null>(catalog);
+  const intentFrameIdRef = useRef<string | null>(intentFrameId);
+  const playingRef = useRef<boolean>(playing);
 
   useEffect(() => {
     latestCatalogRef.current = catalog;
   }, [catalog]);
+
+  useEffect(() => {
+    intentFrameIdRef.current = intentFrameId;
+  }, [intentFrameId]);
+
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
 
   const clearPlaybackTimer = useCallback(() => {
     if (playbackTimerRef.current !== null) {
@@ -117,12 +149,32 @@ export function usePlayback(params: {
     }
   }, []);
 
+  const clearDebounceTimer = useCallback(() => {
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, []);
+
+  // 手動操作用デバウンス実行 (500ms)
+  const triggerManualDebounce = useCallback((targetId: string) => {
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedIntentFrameId(targetId);
+      debounceTimerRef.current = null;
+    }, MANUAL_INTENT_DEBOUNCE_MS);
+  }, []);
+
   // カタログ更新時の同期処理 (§9.2, §10)
   useEffect(() => {
     if (!catalog) {
       setActiveCatalog(null);
-      setSelectedFrameId(null);
-      setTargetFrameId(null);
+      setSettledFrameId(null);
+      setIntentFrameId(null);
+      setDebouncedIntentFrameId(null);
+      clearDebounceTimer();
       return;
     }
 
@@ -135,37 +187,41 @@ export function usePlayback(params: {
 
     const latestFrame = findLatestNowcastFrame(catalog.frames);
 
-    if (selectedFrameId === null) {
-      // 初回カタログ取得時: 代表最新コマを選択
+    if (intentFrameId === null) {
+      // 初回カタログ取得時: 代表最新コマを選択 (即座にロード開始)
       if (latestFrame) {
-        setTargetFrameId(latestFrame.id);
+        setIntentFrameId(latestFrame.id);
+        setDebouncedIntentFrameId(latestFrame.id);
       }
       return;
     }
 
     if (followLatest) {
       // 最新追従中: 最新代表コマへ進める
-      if (latestFrame && latestFrame.id !== selectedFrameId) {
-        setTargetFrameId(latestFrame.id);
+      if (latestFrame && latestFrame.id !== intentFrameId) {
+        setIntentFrameId(latestFrame.id);
+        setDebouncedIntentFrameId(latestFrame.id);
       }
     } else {
       // 手動保持中: 現在のコマが新しいカタログに存在するか確認
-      const exists = catalog.frames.some((f) => f.id === selectedFrameId);
+      const exists = catalog.frames.some((f) => f.id === intentFrameId);
       if (!exists && latestFrame) {
-        setTargetFrameId(latestFrame.id);
+        setIntentFrameId(latestFrame.id);
+        setDebouncedIntentFrameId(latestFrame.id);
       }
     }
-  }, [catalog, playing, followLatest, selectedFrameId]);
+  }, [catalog, playing, followLatest, intentFrameId, clearDebounceTimer]);
 
   // enabled が false (非選択レイヤー) になった場合は再生停止
   useEffect(() => {
     if (!enabled) {
       setPlaying(false);
       clearPlaybackTimer();
+      clearDebounceTimer();
     }
-  }, [enabled, clearPlaybackTimer]);
+  }, [enabled, clearPlaybackTimer, clearDebounceTimer]);
 
-  // 次の再生コマをスケジュールする
+  // 次の再生コマをスケジュールする (再生自動送りにはデバウンスを適用しない §9.4.6)
   const scheduleNextPlaybackFrame = useCallback(
     (currentFrameId: string, framesList: readonly NowcastFrame[]) => {
       clearPlaybackTimer();
@@ -181,27 +237,34 @@ export function usePlayback(params: {
       const nextFrame = representativeFrames[nextIndex]!;
 
       playbackTimerRef.current = setTimeout(() => {
-        setTargetFrameId(nextFrame.id);
+        clearDebounceTimer();
+        intentFrameIdRef.current = nextFrame.id;
+        setIntentFrameId(nextFrame.id);
+        setDebouncedIntentFrameId(nextFrame.id);
       }, PLAYBACK_INTERVAL_MS);
     },
-    [clearPlaybackTimer],
+    [clearPlaybackTimer, clearDebounceTimer],
   );
 
-  // WeatherTileOverlay の swap 完了通知ハンドラ (§9.3)
+  // WeatherTileOverlay の swap 完了通知ハンドラ (§9.3, §9.4.5)
   const handleSwapSettled = useCallback(
     (result: { frameId: string; complete: boolean }) => {
-      // ロード完了 (または 12 秒タイムアウト) した瞬間に、画面の選択コマを進める
-      setSelectedFrameId(result.frameId);
+      // §9.4.5: frameId が現在の intentFrameId と一致する場合にかぎり settledFrameId を進める
+      // 一致しない場合（読込中にさらに操作が入り intent が動いた場合）は更新せず、現在の読込を継続
+      // 古い完了通知で表示日時を巻き戻さない
+      if (result.frameId === intentFrameIdRef.current) {
+        setSettledFrameId(result.frameId);
+      }
 
-      if (playing) {
+      if (playingRef.current) {
         // 再生中は切替完了時点から 1,000 ms 後に次コマを予約
         scheduleNextPlaybackFrame(result.frameId, playbackFramesRef.current);
       }
     },
-    [playing, scheduleNextPlaybackFrame],
+    [scheduleNextPlaybackFrame],
   );
 
-  // タイムライン操作 intent ハンドラ
+  // タイムライン操作 intent ハンドラ (§9.4)
   const handleIntent = useCallback(
     (intent: TimelineIntent) => {
       const currentList = activeCatalog ? activeCatalog.frames.filter((f) => f.representative) : [];
@@ -210,32 +273,39 @@ export function usePlayback(params: {
       switch (intent.type) {
         case 'toggle-play': {
           if (!playing) {
-            // 再生開始: 現在のコマ一覧を固定し、次コマへ進める
+            // 再生開始: 現在のコマ一覧を固定し、次コマへ進める (デバウンスなし)
             clearPlaybackTimer();
+            clearDebounceTimer();
             playbackFramesRef.current = currentList;
             setPlaying(true);
             setFollowLatest(false);
 
-            const currentIndex = currentList.findIndex((f) => f.id === selectedFrameId);
+            const baseId = intentFrameIdRef.current ?? settledFrameId;
+            const currentIndex = currentList.findIndex((f) => f.id === baseId);
             let nextIndex = currentIndex + 1;
             if (nextIndex >= currentList.length || nextIndex < 0) {
               nextIndex = 0;
             }
             const nextFrame = currentList[nextIndex]!;
-            setTargetFrameId(nextFrame.id);
+            intentFrameIdRef.current = nextFrame.id;
+            setIntentFrameId(nextFrame.id);
+            setDebouncedIntentFrameId(nextFrame.id);
           } else {
             // 再生停止: タイマー停止し、最新カタログを反映
             clearPlaybackTimer();
+            clearDebounceTimer();
             setPlaying(false);
 
             if (latestCatalogRef.current) {
               setActiveCatalog(latestCatalogRef.current);
               const latestList = latestCatalogRef.current.frames.filter((f) => f.representative);
-              const exists = latestList.some((f) => f.id === selectedFrameId);
+              const exists = latestList.some((f) => f.id === intentFrameIdRef.current);
               if (!exists) {
                 const latestFrame = findLatestNowcastFrame(latestCatalogRef.current.frames);
                 if (latestFrame) {
-                  setTargetFrameId(latestFrame.id);
+                  intentFrameIdRef.current = latestFrame.id;
+                  setIntentFrameId(latestFrame.id);
+                  setDebouncedIntentFrameId(latestFrame.id);
                 }
               }
             }
@@ -250,7 +320,9 @@ export function usePlayback(params: {
 
           const target = currentList.find((f) => f.id === intent.frameId);
           if (target) {
-            setTargetFrameId(target.id);
+            intentFrameIdRef.current = target.id;
+            setIntentFrameId(target.id);
+            triggerManualDebounce(target.id);
           }
           break;
         }
@@ -260,10 +332,14 @@ export function usePlayback(params: {
           setPlaying(false);
           setFollowLatest(false);
 
-          const currentIndex = currentList.findIndex((f) => f.id === selectedFrameId);
+          // 加算基準は intentFrameIdRef.current (§9.4.4: 握り潰さず加算)
+          const currentId = intentFrameIdRef.current;
+          const currentIndex = currentList.findIndex((f) => f.id === currentId);
           if (currentIndex > 0) {
             const prev = currentList[currentIndex - 1]!;
-            setTargetFrameId(prev.id);
+            intentFrameIdRef.current = prev.id;
+            setIntentFrameId(prev.id);
+            triggerManualDebounce(prev.id);
           }
           break;
         }
@@ -273,10 +349,14 @@ export function usePlayback(params: {
           setPlaying(false);
           setFollowLatest(false);
 
-          const currentIndex = currentList.findIndex((f) => f.id === selectedFrameId);
+          // 加算基準は intentFrameIdRef.current (§9.4.4: 5連打で+5コマ)
+          const currentId = intentFrameIdRef.current;
+          const currentIndex = currentList.findIndex((f) => f.id === currentId);
           if (currentIndex >= 0 && currentIndex < currentList.length - 1) {
             const next = currentList[currentIndex + 1]!;
-            setTargetFrameId(next.id);
+            intentFrameIdRef.current = next.id;
+            setIntentFrameId(next.id);
+            triggerManualDebounce(next.id);
           }
           break;
         }
@@ -288,42 +368,77 @@ export function usePlayback(params: {
 
           const latest = findLatestNowcastFrame(activeCatalog?.frames ?? []);
           if (latest) {
-            setTargetFrameId(latest.id);
+            intentFrameIdRef.current = latest.id;
+            setIntentFrameId(latest.id);
+            triggerManualDebounce(latest.id);
           }
           break;
         }
       }
     },
-    [activeCatalog, playing, selectedFrameId, clearPlaybackTimer],
+    [
+      activeCatalog,
+      playing,
+      settledFrameId,
+      clearPlaybackTimer,
+      clearDebounceTimer,
+      triggerManualDebounce,
+    ],
   );
 
   // アンマウント時タイマークリア
   useEffect(() => {
     return () => {
       clearPlaybackTimer();
+      clearDebounceTimer();
     };
-  }, [clearPlaybackTimer]);
+  }, [clearPlaybackTimer, clearDebounceTimer]);
 
-  // タイムライン ViewModel の生成
-  const viewModel = activeCatalog
-    ? buildNowcastTimelineViewModel({
-        catalog: activeCatalog,
-        selectedFrameId,
-        playing,
-      })
-    : {
-        layerLabel: '雨雲ナウキャスト',
-        selectedFrameId: null,
-        selectedFrameLabel: '',
-        frames: [],
-        playing: false,
-        latestAvailable: false,
-      };
+  // タイムライン ViewModel の生成 (§9.4.2, §9.4.3)
+  const timelineFrames: TimelineFrame[] = (activeCatalog?.frames ?? [])
+    .filter((f) => f.representative)
+    .map((f) => ({
+      id: f.id,
+      displayTime: formatJstTime(f.validTime),
+      kind: f.kind,
+      enabled: true,
+    }));
 
-  // WeatherTileOverlay 用の frame オブジェクト
+  // 表示日時ラベルは settledFrameId から決定 (読込完了まで前のコマを維持 §9.4.3)
+  const settledFrame =
+    activeCatalog && settledFrameId
+      ? (activeCatalog.frames.find((f) => f.id === settledFrameId) ?? null)
+      : null;
+
+  const selectedFrameLabel =
+    settledFrame !== null ? formatJstMonthDateTime(settledFrame.validTime) : '';
+
+  // 「現在」ボタン活性判定は intentFrameId が最新かどうか
+  const latestFrame = activeCatalog ? findLatestNowcastFrame(activeCatalog.frames) : null;
+  const isAtLatest =
+    latestFrame !== null && intentFrameId !== null && latestFrame.id === intentFrameId;
+  const latestAvailable = latestFrame !== null && !isAtLatest;
+
+  const viewModel: TimelineViewModel & {
+    readonly intentFrameId: string | null;
+    readonly settledFrameId: string | null;
+  } = {
+    layerLabel: '雨雲ナウキャスト',
+    // selectedFrameId は settledFrameId を指すものとして維持 (§9.4.2)
+    selectedFrameId: settledFrameId,
+    selectedFrameLabel,
+    selectedFrameKind: settledFrame?.kind ?? null,
+    frames: timelineFrames,
+    playing,
+    latestAvailable,
+    intentFrameId,
+    settledFrameId,
+  };
+
+  // WeatherTileOverlay 用の frame オブジェクト (デバウンス後の最終 intent のみ要求 §9.4.4)
   const targetFrame =
-    activeCatalog && targetFrameId
-      ? (activeCatalog.frames.find((f) => f.id === targetFrameId) ?? null)
+    activeCatalog && debouncedIntentFrameId
+      ? (activeCatalog.frames.find((f) => f.id === debouncedIntentFrameId) ?? null)
       : null;
 
   const overlayFrame: WeatherTileOverlayFrame | null =
@@ -340,14 +455,14 @@ export function usePlayback(params: {
 
   // 再生先読み対象のフレーム群 (§9.3.2)
   const prefetchFrames: readonly WeatherTileOverlayFrame[] | undefined = useMemo(() => {
-    if (!enabled || !playing || !targetFrameId) return undefined;
+    if (!enabled || !playing || !debouncedIntentFrameId) return undefined;
     return computePrefetchFrames({
       frames: playbackFramesRef.current,
-      targetFrameId,
+      targetFrameId: debouncedIntentFrameId,
       terminalId,
       controlStatus,
     });
-  }, [enabled, playing, targetFrameId, terminalId, controlStatus]);
+  }, [enabled, playing, debouncedIntentFrameId, terminalId, controlStatus]);
 
   return {
     viewModel,

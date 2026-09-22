@@ -11,6 +11,8 @@ export type TimelineViewModel = Readonly<{
   layerLabel: string;
   selectedFrameId: string | null;
   selectedFrameLabel: string;
+  /** ナウキャストの表示サマリー専用。画像と同じ settled コマの種別を持つ。 */
+  selectedFrameKind?: TimelineFrameKind | null;
   frames: readonly TimelineFrame[];
   playing: boolean;
   latestAvailable: boolean;

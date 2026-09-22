@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -12,6 +13,7 @@ import { LayerSelector } from '../src/map/LayerSelector.tsx';
 import { MapLegend } from '../src/map/MapLegend.tsx';
 import { MapAttribution } from '../src/map/MapAttribution.tsx';
 import { MapZoomControls } from '../src/map/MapZoomControls.tsx';
+import { KikikuruStatusCard } from '../src/map/kikikuru/KikikuruStatusCard.tsx';
 import {
   sampleNowcastTimeline,
   sampleKikikuruTimeline,
@@ -29,9 +31,11 @@ test('F4: fixture の複数フレームでスライダー、各ボタンの属�
     }),
   );
 
-  // 選択日時と実況バッジの表示
+  // 実況と時刻は種別→時刻の順に表示する
   assert.ok(html.includes('09/15 01:30'));
   assert.ok(html.includes('実況'));
+  assert.ok(html.includes('nowcast-timeline-card'));
+  assert.ok(html.indexOf('>実況<') < html.indexOf('>09/15 01:30<'));
   assert.ok(html.includes('timeline-slider'));
   assert.ok(html.includes('aria-valuetext="実況 01:30"'));
 
@@ -49,6 +53,48 @@ test('F4: fixture の複数フレームでスライダー、各ボタンの属�
     }),
   );
   assert.ok(playingHtml.includes('aria-label="停止"'));
+});
+
+test('F2: 背景 filter とナウキャスト時刻表示のスタイルは専用境界に限定される', () => {
+  const css = readFileSync(new URL('../src/map/map.css', import.meta.url), 'utf8');
+
+  assert.match(
+    css,
+    /\.map-viewport \.wx-map-basemap\s*\{\s*filter: grayscale\(1\) brightness\(0\.66\);\s*\}/,
+  );
+  assert.match(css, /\.nowcast-timeline-card \.timeline-kind-badge\s*\{[\s\S]*?font-size: 16px;/);
+  assert.match(
+    css,
+    /\.nowcast-timeline-card \.timeline-selected-time\s*\{[\s\S]*?font-size: 20px;/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 768px\)\s*\{[\s\S]*?\.nowcast-timeline-card \.timeline-kind-badge\s*\{[\s\S]*?font-size: 14px;/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 768px\)\s*\{[\s\S]*?\.nowcast-timeline-card \.timeline-selected-time\s*\{[\s\S]*?font-size: 18px;/,
+  );
+  assert.match(css, /\.kikikuru-status-card \.timeline-selected-time\s*\{[\s\S]*?font-size: 20px;/);
+  assert.match(
+    css,
+    /@media \(max-width: 768px\)\s*\{[\s\S]*?\.kikikuru-status-card \.timeline-selected-time\s*\{[\s\S]*?font-size: 18px;/,
+  );
+});
+
+test('F3: キキクル簡易カードは既存のレイヤー名と時刻だけを維持する', () => {
+  const html = renderToStaticMarkup(
+    el(KikikuruStatusCard, {
+      viewModel: sampleKikikuruTimeline,
+    }),
+  );
+
+  assert.ok(html.includes(sampleKikikuruTimeline.layerLabel));
+  assert.ok(html.includes(sampleKikikuruTimeline.selectedFrameLabel));
+  assert.equal(html.includes('実況'), false);
+  assert.equal(html.includes('予報'), false);
+  assert.equal(html.includes('基準'), false);
+  assert.equal(html.includes('予測'), false);
 });
 
 test('F4: 空カタログでは操作が disabled となり、「利用可能な時刻はありません」が表示される', () => {
@@ -74,6 +120,7 @@ test('F4: キキクルの reference フレームで基準バッジと時刻が�
     ...sampleKikikuruTimeline,
     selectedFrameId: 'kk-ref',
     selectedFrameLabel: '09/15 01:00',
+    frames: [{ id: 'kk-ref', displayTime: '01:00', kind: 'reference' as const, enabled: true }],
   };
   const html = renderToStaticMarkup(
     el(TimelineControlCard, {
@@ -180,12 +227,39 @@ test('F5: 出典リンクが国土地理院の地理院タイル一覧へリン�
   assert.ok(html.includes('rel="noreferrer"'));
 });
 
+test('F3: 出典リンクの全状態は既存のinverse primaryを使い、既存の下線とフォーカス枠を維持する', () => {
+  const css = readFileSync(new URL('../src/map/map.css', import.meta.url), 'utf8');
+  const inversePrimary = 'var(--md-sys-color-inverse-primary)';
+
+  for (const selector of [
+    '.attribution-link',
+    '.attribution-link:visited',
+    '.attribution-link:hover',
+    '.attribution-link:focus-visible',
+  ]) {
+    const escapedSelector = selector.replace(/[.:-]/g, '\\$&');
+    assert.match(
+      css,
+      new RegExp(
+        `${escapedSelector}\\s*\\{[^}]*color: ${inversePrimary.replace(/[()]/g, '\\$&')};`,
+      ),
+    );
+  }
+
+  assert.match(css, /\.attribution-link\s*\{[\s\S]*?text-decoration: underline;/);
+  assert.match(css, /\.attribution-link:hover\s*\{[\s\S]*?text-decoration: underline;/);
+  assert.match(
+    css,
+    /\.attribution-link:focus-visible\s*\{[\s\S]*?outline: 2px solid var\(--md-sys-color-primary\);/,
+  );
+});
+
 test('F6: ズームコントロールが境界ズームで正しく disabled になる', () => {
   // zoom 10 (通常) -> 両方 enabled
   const normalHtml = renderToStaticMarkup(
     el(MapZoomControls, {
       currentZoom: 10,
-      minZoom: 5,
+      minZoom: 9,
       maxZoom: 18,
       onZoomIn: () => {},
       onZoomOut: () => {},
@@ -195,11 +269,11 @@ test('F6: ズームコントロールが境界ズームで正しく disabled に
   assert.equal(normalHtml.includes('disabled="" aria-label="地図を拡大"'), false);
   assert.equal(normalHtml.includes('disabled="" aria-label="地図を縮小"'), false);
 
-  // zoom 5 (最小) -> 縮小 disabled
+  // zoom 9 (最小) -> 縮小 disabled
   const minHtml = renderToStaticMarkup(
     el(MapZoomControls, {
-      currentZoom: 5,
-      minZoom: 5,
+      currentZoom: 9,
+      minZoom: 9,
       maxZoom: 18,
       onZoomIn: () => {},
       onZoomOut: () => {},
@@ -213,7 +287,7 @@ test('F6: ズームコントロールが境界ズームで正しく disabled に
   const maxHtml = renderToStaticMarkup(
     el(MapZoomControls, {
       currentZoom: 18,
-      minZoom: 5,
+      minZoom: 9,
       maxZoom: 18,
       onZoomIn: () => {},
       onZoomOut: () => {},
@@ -228,4 +302,18 @@ test('F6: ズームコントロールが境界ズームで正しく disabled に
   // ボタン要素内にテキスト文字「会場へ戻る」が直接描画されていないこと
   assert.equal(maxHtml.includes('>会場へ戻る<'), false);
   assert.equal(maxHtml.includes('>会場の初期位置に戻る<'), false);
+});
+
+test('F6: 既定の最小ズームは9であり、縮小ボタンはズーム9で無効になる', () => {
+  const html = renderToStaticMarkup(
+    el(MapZoomControls, {
+      currentZoom: 9,
+      onZoomIn: () => {},
+      onZoomOut: () => {},
+      onReturnToVenue: () => {},
+    }),
+  );
+
+  assert.ok(html.includes('disabled="" aria-label="地図を縮小"'));
+  assert.equal(html.includes('disabled="" aria-label="地図を拡大"'), false);
 });

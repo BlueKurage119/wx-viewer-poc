@@ -7,7 +7,6 @@ import {
   toTimelineFrames,
   resolveKikikuruFrame,
   buildKikikuruCatalog,
-  KIKIKURU_DISPLAY_WINDOW_MS,
 } from '../src/map/kikikuru/kikikuruCatalog';
 import {
   createSampleKikikuruFrames,
@@ -29,50 +28,13 @@ test('kikikuruCatalog: レイヤー ID 相互変換と判定が正確である�
   assert.equal(toMapLayerId('land'), 'kikikuru-land');
 });
 
-test('toTimelineFrames: 索引の最新 validTime を基準に過去3時間窓を適用し、クライアントの Date.now() に依存しないこと (§11.4.1)', () => {
+test('toTimelineFrames: 索引の最新 validTime の1コマだけを返すこと (§6.4, §11.4.1)', () => {
   const latestTime = '2026-09-15T03:00:00.000Z';
   const frames = createSampleKikikuruFrames('heavyrain', latestTime, 37);
 
-  // 1. 引数 now を渡さない場合
-  const result1 = toTimelineFrames(frames);
-
-  // 2. 引数 now に未来の日時を渡した場合
-  const futureNow = new Date('2026-12-31T23:59:59.000Z');
-  const result2 = toTimelineFrames(frames, futureNow);
-
-  // 3. 引数 now に過去の日時を渡した場合
-  const pastNow = new Date('2020-01-01T00:00:00.000Z');
-  const result3 = toTimelineFrames(frames, pastNow);
-
-  // クライアントの時計に依存せず、常に同一のコマ一覧が返る
-  assert.equal(result1.length, result2.length);
-  assert.equal(result1.length, result3.length);
-  assert.deepEqual(result1, result2);
-  assert.deepEqual(result1, result3);
-});
-
-test('toTimelineFrames: ちょうど3時間前のコマが含まれる (閉区間) こと (§11.4.1)', () => {
-  const latestTime = '2026-09-15T03:00:00.000Z'; // 03:00
-  // 10分刻み37コマ (03:00 から過去6時間＝前日 21:00 まで)
-  const frames = createSampleKikikuruFrames('heavyrain', latestTime, 37);
-
   const timelineFrames = toTimelineFrames(frames);
-
-  // 03:00 から過去 3 時間 (180分) ＝ 00:00
-  // 10分刻みで 00:00, 00:10, ..., 03:00 のちょうど 19 コマになる
-  assert.equal(timelineFrames.length, 19);
-
-  // 最古コマがちょうど 3 時間前の 00:00:00.000Z
-  const oldestFrame = timelineFrames[0]!;
-  assert.equal(oldestFrame.validTime, '2026-09-15T00:00:00.000Z');
-
-  // 最新コマが 03:00:00.000Z
-  const latestFrame = timelineFrames[timelineFrames.length - 1]!;
-  assert.equal(latestFrame.validTime, '2026-09-15T03:00:00.000Z');
-
-  // 差分がちょうど 3 時間 (180 分)
-  const diffMs = Date.parse(latestFrame.validTime) - Date.parse(oldestFrame.validTime);
-  assert.equal(diffMs, KIKIKURU_DISPLAY_WINDOW_MS);
+  assert.equal(timelineFrames.length, 1);
+  assert.equal(timelineFrames[0]?.validTime, latestTime);
 });
 
 test('toTimelineFrames: 生成した TimelineFrame の kind が全件 reference であること (§11.7)', () => {

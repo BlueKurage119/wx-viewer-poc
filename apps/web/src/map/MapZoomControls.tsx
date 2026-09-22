@@ -15,7 +15,7 @@ export interface MapZoomControlsProps {
  */
 export function MapZoomControls({
   currentZoom,
-  minZoom = 5,
+  minZoom = 9,
   maxZoom = 18,
   onZoomIn,
   onZoomOut,

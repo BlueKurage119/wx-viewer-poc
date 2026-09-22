@@ -10,8 +10,6 @@ import type { MapLayerId, TimelineFrame } from '../types';
 
 export type KikikuruMapLayerId = 'kikikuru-heavyrain' | 'kikikuru-inund' | 'kikikuru-land';
 
-export const KIKIKURU_DISPLAY_WINDOW_MS = 3 * 60 * 60 * 1000; // 過去 3 時間 (180 分)
-
 export function isKikikuruLayer(id: MapLayerId): id is KikikuruMapLayerId {
   return id === 'kikikuru-heavyrain' || id === 'kikikuru-inund' || id === 'kikikuru-land';
 }
@@ -77,15 +75,9 @@ export function formatJstMonthDateTime(isoString: string): string {
 }
 
 /**
- * 表示窓（過去 3 時間）を適用したうえで TimelineFrame (KikikuruFrameRef) へ変換する（§6.4）
- * 窓の基準は「索引が持つ最新 validTime」であり、クライアントの時計ではない。
- * 引数 now はインターフェース互換のために受けるが、窓の計算には使用しない。
+ * 索引の最新 validTime の1コマだけを TimelineFrame (KikikuruFrameRef) へ変換する（§6.4）
  */
-export function toTimelineFrames(
-  frames: readonly KikikuruApiFrame[],
-  _now?: Date,
-): readonly KikikuruFrameRef[] {
-  void _now;
+export function toTimelineFrames(frames: readonly KikikuruApiFrame[]): readonly KikikuruFrameRef[] {
   if (!frames || frames.length === 0) {
     return [];
   }
@@ -97,28 +89,19 @@ export function toTimelineFrames(
   }
 
   const latestMs = Math.max(...validTimes);
-  const visible = frames.filter((f) => {
-    const ms = Date.parse(f.validTime);
-    // 境界は以上・以下の閉区間とし、ちょうど 3 時間前のコマを含める
-    return !Number.isNaN(ms) && latestMs - ms <= KIKIKURU_DISPLAY_WINDOW_MS;
-  });
-
-  // validTime 昇順にソート
-  const sorted = [...visible].sort((a, b) => {
-    return Date.parse(a.validTime) - Date.parse(b.validTime);
-  });
-
-  return sorted.map((f) => ({
-    id: f.validTime,
-    layer: f.layer,
-    baseTime: f.baseTime,
-    validTime: f.validTime,
-    imageId: f.imageId,
-    member: f.member,
-    displayTime: formatJstTime(f.validTime),
-    kind: 'reference' as const,
-    enabled: true,
-  }));
+  return frames
+    .filter((f) => Date.parse(f.validTime) === latestMs)
+    .map((f) => ({
+      id: f.validTime,
+      layer: f.layer,
+      baseTime: f.baseTime,
+      validTime: f.validTime,
+      imageId: f.imageId,
+      member: f.member,
+      displayTime: formatJstTime(f.validTime),
+      kind: 'reference' as const,
+      enabled: true,
+    }));
 }
 
 /**
