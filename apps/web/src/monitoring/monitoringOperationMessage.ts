@@ -12,23 +12,23 @@ export function monitoringOperationMessage(
   operation: OperationState,
 ): string | null {
   if (local.selectedOperation !== null) {
-    return `全体：${operationLabel(local.selectedOperation)}を選択中／送信で実行`;
+    return `${operationLabel(local.selectedOperation)}を選択中／送信で実行`;
   }
   if (operation.phase === 'idle') return null;
   if (operation.phase === 'sending')
-    return `全体：${operationLabel(operation.request.operationKind)}を送信中`;
+    return `${operationLabel(operation.request.operationKind)}を送信中`;
   if (operation.phase === 'checking')
-    return `全体：${operationLabel(operation.request.operationKind)}の結果を確認中`;
+    return `${operationLabel(operation.request.operationKind)}の結果を確認中`;
   if (operation.phase === 'completed') {
-    return `全体：${operationLabel(operation.request.operationKind)}が${operation.response.result === 'success' ? '完了しました' : '失敗しました'}`;
+    return `${operationLabel(operation.request.operationKind)}が${operation.response.result === 'success' ? '完了しました' : '失敗しました'}`;
   }
   if (operation.phase === 'unknown') {
-    return `全体：${operationLabel(operation.request.operationKind)}の結果が不明です（要求の記録を確認できません）`;
+    return `${operationLabel(operation.request.operationKind)}の結果が不明です（要求の記録を確認できません）`;
   }
   if (operation.phase === 'unverifiable') {
-    return `全体：${operationLabel(operation.request.operationKind)}の結果を確認できません（通信・応答異常）`;
+    return `${operationLabel(operation.request.operationKind)}の結果を確認できません（通信・応答異常）`;
   }
   return operation.request
-    ? `全体：${operationLabel(operation.request.operationKind)}の要求を受け付けられませんでした`
-    : '全体：取得操作の要求を準備できませんでした';
+    ? `${operationLabel(operation.request.operationKind)}の要求を受け付けられませんでした`
+    : '取得操作の要求を準備できませんでした';
 }

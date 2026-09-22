@@ -274,11 +274,18 @@
   inline-size: 120px;
 }
 
-.monitoring-toolbar-icon-button {
-  inline-size: 40px !important;
-  min-inline-size: 40px;
-  block-size: 40px;
-  overflow: clip;
+.monitoring-toolbar-button-container {
+  display: block;
+  background-color: var(--md-sys-color-primary-container);
+  border-radius: var(--md-sys-shape-corner-md);
+}
+
+.monitoring-toolbar-button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--md-sys-color-on-primary-container);
 }
 
 .monitoring-toolbar-icon-button:focus-within {
@@ -305,11 +312,47 @@
   line-height: 1;
 }
 
-.monitoring-toolbar-selected {
-  outline: 2px solid var(--md-sys-color-primary);
-  outline-offset: -2px;
-  background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container);
+.monitoring-toolbar-selected .monitoring-toolbar-button-container {
+  background-color: var(--md-sys-color-tertiary-container);
+}
+
+.monitoring-toolbar-selected .monitoring-toolbar-button-content {
+  color: var(--md-sys-color-on-tertiary-container);
+}
+
+.monitoring-send-ready .monitoring-toolbar-button-content-send-ready {
+  color: inherit;
+}
+
+.monitoring-send-ready::part(btn) {
+  animation: monitoring-send-ready 2s ease-in-out infinite;
+}
+
+@keyframes monitoring-send-ready {
+  0%,
+  100% {
+    background-color: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+  }
+
+  50% {
+    background-color: var(--md-sys-color-inverse-surface);
+    color: var(--md-sys-color-inverse-primary);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monitoring-send-ready::part(btn) {
+    animation: none;
+  }
+
+  .monitoring-send-ready .monitoring-toolbar-button-container {
+    background-color: var(--md-sys-color-inverse-surface);
+  }
+
+  .monitoring-send-ready .monitoring-toolbar-button-content-send-ready {
+    color: var(--md-sys-color-inverse-primary);
+  }
 }
 
 .monitoring-dialog {

@@ -41,7 +41,7 @@ test('操作行: 選択中は最新結果より優先し、完了後はsuccess/f
         fetchControlState: 'stopped',
       },
     }),
-    '全体：取得停止を選択中／送信で実行',
+    '取得停止を選択中／送信で実行',
   );
   assert.equal(
     monitoringOperationMessage(createToolbarLocalState('monitor-root'), {
@@ -49,8 +49,13 @@ test('操作行: 選択中は最新結果より優先し、完了後はsuccess/f
       request,
       reason: 'network',
     }),
-    '全体：取得停止の結果を確認できません（通信・応答異常）',
+    '取得停止の結果を確認できません（通信・応答異常）',
   );
+  const source = readFileSync(
+    new URL('../src/monitoring/monitoringOperationMessage.ts', import.meta.url),
+    'utf8',
+  );
+  assert.equal(source.includes('全体：'), false);
 });
 
 test('ダイアログ境界: 固定タイトル・準備中表示を持ち、差し込み本文だけを置換する', () => {
@@ -74,32 +79,82 @@ test('ダイアログ境界: 固定タイトル・準備中表示を持ち、差
   assert.ok(custom.includes('閉じる'));
 });
 
-test('戻るアイコン: ホストを40px正方形に限定し、内部buttonのspacingを強制しない', () => {
+test('戻るアイコンと送信可能表示: 公開GB APIだけで寸法・配色・色遷移を定義する', () => {
   const css = readFileSync(new URL('../src/monitoring/monitoring.css', import.meta.url), 'utf8');
-  const iconButtonRule = css.match(/\.monitoring-toolbar-icon-button \{([^}]*)\}/)?.[1];
   const iconButtonFocusRule = css.match(
     /\.monitoring-toolbar-icon-button:focus-within \{([^}]*)\}/,
   )?.[1];
+  const regularContainerRule = css.match(/\.monitoring-toolbar-button-container \{([^}]*)\}/)?.[1];
+  const regularContentRule = css.match(/\.monitoring-toolbar-button-content \{([^}]*)\}/)?.[1];
+  const selectedContainerRule = css.match(
+    /\.monitoring-toolbar-selected \.monitoring-toolbar-button-container \{([^}]*)\}/,
+  )?.[1];
+  const selectedContentRule = css.match(
+    /\.monitoring-toolbar-selected \.monitoring-toolbar-button-content \{([^}]*)\}/,
+  )?.[1];
+  const sendReadyRule = css.match(/\.monitoring-send-ready::part\(btn\) \{([^}]*)\}/)?.[1];
+  const keyframes = css.match(/@keyframes monitoring-send-ready \{([\s\S]*?)\n\}/)?.[1];
+  const reducedMotionRules = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
 
-  assert.ok(iconButtonRule);
   assert.ok(iconButtonFocusRule);
-  assert.ok(iconButtonRule.includes('inline-size: 40px !important;'));
-  assert.ok(iconButtonRule.includes('block-size: 40px;'));
-  assert.ok(iconButtonRule.includes('overflow: clip;'));
+  assert.ok(regularContainerRule);
+  assert.ok(regularContentRule);
+  assert.ok(selectedContainerRule);
+  assert.ok(selectedContentRule);
+  assert.ok(sendReadyRule);
+  assert.ok(keyframes);
+  assert.ok(reducedMotionRules);
   assert.ok(iconButtonFocusRule.includes('outline: 3px solid var(--md-sys-color-primary);'));
   assert.ok(iconButtonFocusRule.includes('outline-offset: -3px;'));
+  assert.ok(
+    regularContainerRule.includes('background-color: var(--md-sys-color-primary-container);'),
+  );
+  assert.ok(regularContainerRule.includes('border-radius: var(--md-sys-shape-corner-md);'));
+  assert.ok(regularContentRule.includes('color: var(--md-sys-color-on-primary-container);'));
+  assert.ok(regularContentRule.includes('display: inline-flex;'));
+  assert.ok(regularContentRule.includes('align-items: center;'));
+  assert.ok(regularContentRule.includes('gap: 8px;'));
+  assert.ok(
+    selectedContainerRule.includes('background-color: var(--md-sys-color-tertiary-container);'),
+  );
+  assert.ok(selectedContentRule.includes('color: var(--md-sys-color-on-tertiary-container);'));
+  assert.equal(`${selectedContainerRule}${selectedContentRule}`.includes('outline'), false);
+  assert.ok(sendReadyRule.includes('animation: monitoring-send-ready 2s ease-in-out infinite;'));
+  assert.ok(keyframes.includes('background-color: var(--md-sys-color-inverse-surface);'));
+  assert.ok(keyframes.includes('color: var(--md-sys-color-inverse-primary);'));
+  for (const forbiddenProperty of [
+    'opacity',
+    'visibility',
+    'display',
+    'transform',
+    'filter',
+    'outline',
+    'padding',
+    'inline-size',
+    'block-size',
+    'border-radius',
+  ]) {
+    assert.equal(keyframes.includes(forbiddenProperty), false);
+  }
+  assert.ok(reducedMotionRules.includes('animation: none;'));
+  assert.ok(reducedMotionRules.includes('background-color: var(--md-sys-color-inverse-surface);'));
+  assert.ok(reducedMotionRules.includes('color: var(--md-sys-color-inverse-primary);'));
+  assert.equal(css.includes('overflow: clip;'), false);
   assert.equal(css.includes('.monitoring-toolbar-icon-button::part(btn)'), false);
 });
 
 test('取得操作: 通常buttonの形状を維持し、選択時だけ状態クラスと公開名を切り替える', () => {
-  const toolbarMarkup = (selectedOperation: 'start' | 'stop' | 'force_refresh' | null) =>
+  const toolbarMarkup = (
+    selectedOperation: 'start' | 'stop' | 'force_refresh' | null,
+    busy = false,
+  ) =>
     renderToStaticMarkup(
       el(MonitoringToolbar, {
         model: {
           localState: { ...createToolbarLocalState('monitor-root'), selectedOperation },
           operationState: { phase: 'idle' },
           currentToolbar: monitoringToolbarDefinitions[0]!,
-          busy: false,
+          busy,
           selectOperation: () => undefined,
           clearSelection: () => undefined,
           submit: () => undefined,
@@ -129,12 +184,40 @@ test('取得操作: 通常buttonの形状を維持し、選択時だけ状態ク
   }
   assert.equal((unselected.match(/size="sm"/g) ?? []).length, 11);
   assert.equal((unselected.match(/square=""/g) ?? []).length, 11);
+  assert.ok(unselected.includes('slot="container"'));
+  assert.ok(unselected.includes('monitoring-toolbar-button-content'));
+  assert.ok(unselected.includes('monitoring-toolbar-button-label'));
+  assert.equal(unselected.includes('monitoring-send-ready'), false);
+  assert.equal(toolbarMarkup('start').includes('monitoring-send-ready'), true);
+  assert.equal(toolbarMarkup('start', true).includes('monitoring-send-ready'), false);
   const css = readFileSync(new URL('../src/monitoring/monitoring.css', import.meta.url), 'utf8');
-  const selectedRule = css.match(/\.monitoring-toolbar-selected \{([^}]*)\}/)?.[1];
-  assert.ok(selectedRule);
+  const selectedRules = [
+    css.match(
+      /\.monitoring-toolbar-selected \.monitoring-toolbar-button-container \{([^}]*)\}/,
+    )?.[1],
+    css.match(/\.monitoring-toolbar-selected \.monitoring-toolbar-button-content \{([^}]*)\}/)?.[1],
+  ].join('');
+  assert.ok(selectedRules);
   for (const forbiddenProperty of ['inline-size', 'block-size', 'border-radius', 'transform']) {
-    assert.equal(selectedRule.includes(forbiddenProperty), false);
+    assert.equal(selectedRules.includes(forbiddenProperty), false);
   }
+});
+
+test('戻るアイコン: 型付きラッパーをバレル経由で使い、通常buttonのclipを持ち込まない', () => {
+  const toolbarSource = readFileSync(
+    new URL('../src/monitoring/MonitoringToolbar.tsx', import.meta.url),
+    'utf8',
+  );
+  const barrelSource = readFileSync(
+    new URL('../src/components/md/index.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.ok(toolbarSource.includes("import { GbButton, GbIconButton } from '../components/md';"));
+  assert.ok(toolbarSource.includes('<GbIconButton'));
+  assert.equal(toolbarSource.includes('md-gb-icon-button'), false);
+  assert.equal(toolbarSource.includes('overflow: clip'), false);
+  assert.ok(barrelSource.includes("export { GbIconButton } from './GbIconButton';"));
 });
 
 test('モーダルフォーカス: 閉じるだけでも循環し、本文の先頭・末尾でもdialog外へ出ない', () => {
