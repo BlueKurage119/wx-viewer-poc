@@ -109,6 +109,8 @@ test('戻るアイコンと送信可能表示: 公開GB APIだけで寸法・配
   )?.[1];
   const colorKeyframes = css.match(/@keyframes monitoring-send-ready-color \{([\s\S]*?)\n\}/)?.[1];
   const reducedMotionRules = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+  const disabledBackground = 'hsl(from var(--md-sys-color-on-surface) h s l / 10%)';
+  const disabledForeground = 'hsl(from var(--md-sys-color-on-surface) h s l / 38%)';
 
   assert.ok(iconButtonFocusRule);
   assert.ok(regularContainerRule);
@@ -137,8 +139,12 @@ test('戻るアイコンと送信可能表示: 公開GB APIだけで寸法・配
   );
   assert.ok(selectedContentRule.includes('color: var(--md-sys-color-on-tertiary-container);'));
   assert.equal(`${selectedContainerRule}${selectedContentRule}`.includes('outline'), false);
-  assert.ok(disabledContainerRule.includes('background-color: transparent;'));
-  assert.ok(disabledContentRule.includes('color: inherit;'));
+  assert.ok(disabledContainerRule.includes(`background-color: ${disabledBackground};`));
+  assert.ok(disabledContentRule.includes(`color: ${disabledForeground};`));
+  assert.ok(css.includes('.monitoring-toolbar md-gb-icon-button[disabled]::part(icon-btn)'));
+  assert.ok(css.includes(`--container-color: ${disabledBackground};`));
+  assert.ok(css.includes(`--icon-color: ${disabledForeground};`));
+  assert.ok(css.includes(`--label-text-color: ${disabledForeground};`));
   assert.ok(
     sendReadyContainerRule.includes(
       'animation: monitoring-send-ready-background 2s steps(1, end) infinite;',

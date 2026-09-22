@@ -320,12 +320,22 @@
   color: var(--md-sys-color-on-tertiary-container);
 }
 
+.monitoring-toolbar md-gb-button[disabled]::part(btn),
+.monitoring-toolbar md-gb-icon-button[disabled]::part(icon-btn) {
+  --container-color: hsl(from var(--md-sys-color-on-surface) h s l / 10%);
+  --icon-color: hsl(from var(--md-sys-color-on-surface) h s l / 38%);
+}
+
+.monitoring-toolbar md-gb-button[disabled]::part(btn) {
+  --label-text-color: hsl(from var(--md-sys-color-on-surface) h s l / 38%);
+}
+
 md-gb-button[disabled] .monitoring-toolbar-button-container {
-  background-color: transparent;
+  background-color: hsl(from var(--md-sys-color-on-surface) h s l / 10%);
 }
 
 md-gb-button[disabled] .monitoring-toolbar-button-content {
-  color: inherit;
+  color: hsl(from var(--md-sys-color-on-surface) h s l / 38%);
 }
 
 .monitoring-send-ready .monitoring-toolbar-button-container {
