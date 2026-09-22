@@ -238,6 +238,7 @@ export function usePlayback(params: {
 
       playbackTimerRef.current = setTimeout(() => {
         clearDebounceTimer();
+        intentFrameIdRef.current = nextFrame.id;
         setIntentFrameId(nextFrame.id);
         setDebouncedIntentFrameId(nextFrame.id);
       }, PLAYBACK_INTERVAL_MS);

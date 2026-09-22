@@ -24,6 +24,8 @@ interface HookHarnessRunner<P, R> {
   readonly result: R;
   update(newProps: P): R;
   rerender(): R;
+  rerenderWithoutEffects(): R;
+  flushEffects(): R;
   unmount(): void;
 }
 
@@ -116,7 +118,15 @@ function createHookHarness() {
       let currentProps = initialProps;
       let latestResult: R;
 
-      function run(): R {
+      function flushPendingEffects() {
+        const effectsToRun = pendingEffects;
+        pendingEffects = [];
+        for (const effect of effectsToRun) {
+          effect();
+        }
+      }
+
+      function run(flushEffects = true): R {
         let loops = 0;
         do {
           loops++;
@@ -128,12 +138,10 @@ function createHookHarness() {
           internals.H = dispatcher;
           latestResult = hookFn(currentProps);
 
-          const effectsToRun = pendingEffects;
-          pendingEffects = [];
-          for (const effect of effectsToRun) {
-            effect();
+          if (flushEffects) {
+            flushPendingEffects();
           }
-        } while (isDirty);
+        } while (flushEffects && isDirty);
 
         return latestResult;
       }
@@ -149,6 +157,13 @@ function createHookHarness() {
           return run();
         },
         rerender() {
+          return run();
+        },
+        rerenderWithoutEffects() {
+          return run(false);
+        },
+        flushEffects() {
+          flushPendingEffects();
           return run();
         },
         unmount() {
@@ -178,6 +193,12 @@ function mountPlaybackHarness(catalog = buildNowcastCatalog(createSampleNowcastR
     },
     rerender() {
       runner.rerender();
+    },
+    rerenderWithoutEffects() {
+      runner.rerenderWithoutEffects();
+    },
+    flushEffects() {
+      runner.flushEffects();
     },
     unmount() {
       runner.unmount();
@@ -500,6 +521,54 @@ test('【再生との整合】手動操作で再生が停止すること (§9.4.
     harness.current.handleIntent({ type: 'next-frame' });
     harness.rerender();
     assert.equal(harness.current.viewModel.playing, false);
+  } finally {
+    harness.unmount();
+  }
+});
+
+test('【再生同期完了】先読み済みの次コマが effect 前に完了しても表示が収束すること (§9.3.6, §11.4)', async () => {
+  const catalog = buildNowcastCatalog(createSampleNowcastResponse());
+  const repFrames = catalog.frames.filter((f) => f.representative);
+  const harness = mountPlaybackHarness(catalog);
+
+  try {
+    const initialFrame = harness.current.overlayFrame;
+    assert.ok(initialFrame, '初期コマがあること');
+    harness.current.handleSwapSettled({ frameId: initialFrame.id, complete: true });
+    harness.rerender();
+
+    harness.current.handleIntent({ type: 'toggle-play' });
+    harness.rerender();
+    const firstPlaybackFrame = harness.current.overlayFrame;
+    assert.ok(firstPlaybackFrame, '再生開始時の次コマがあること');
+    harness.current.handleSwapSettled({ frameId: firstPlaybackFrame.id, complete: true });
+    harness.rerender();
+
+    await new Promise((resolve) => setTimeout(resolve, 1050));
+
+    // タイマーのstate setterをrenderに反映するが、親hookのref追従effectはまだ実行しない。
+    harness.rerenderWithoutEffects();
+    const prefetchedNextFrame = harness.current.overlayFrame;
+    assert.ok(prefetchedNextFrame, '先読み済みの次コマがあること');
+    assert.notEqual(prefetchedNextFrame.id, firstPlaybackFrame.id);
+
+    // 子の onSwapSettled 相当が、親hookのref追従effectより先に同期発火する。
+    harness.current.handleSwapSettled({ frameId: prefetchedNextFrame.id, complete: true });
+    harness.flushEffects();
+
+    assert.equal(harness.current.viewModel.intentFrameId, prefetchedNextFrame.id);
+    assert.equal(harness.current.viewModel.settledFrameId, prefetchedNextFrame.id);
+    assert.equal(harness.current.overlayFrame?.id, prefetchedNextFrame.id);
+    assert.equal(
+      harness.current.viewModel.selectedFrameKind,
+      repFrames.find((frame) => frame.id === prefetchedNextFrame.id)?.kind,
+    );
+    assert.notEqual(harness.current.viewModel.selectedFrameLabel, '');
+    assert.equal(
+      harness.current.viewModel.intentFrameId !== harness.current.viewModel.settledFrameId,
+      false,
+      '読込中・スピナー表示条件が解消すること',
+    );
   } finally {
     harness.unmount();
   }
