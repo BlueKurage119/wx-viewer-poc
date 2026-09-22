@@ -7,8 +7,8 @@ K1で配置済みの監視ツールバーを活性化し、取得操作の「選
 対象ブランチは `feature/issue-75-monitoring-toolbar`。設計フェーズの成果物は本書1本のみ。コード・設定・他文書・ブランチ・コミットは変更しない。
 
 - 【確定】はIssue #75のヒアリングと統括担当の補足による。基本設計の【設計案】【未確定】全体を確定へ変更するものではない。
-- 【設計案】は具体的な実装方針を示す。離脱後の照会継続とダイアログ骨組みは追加判断により確定し、§10に承認記録を残す。今回の要ヒアリング事項は解消済み。
-- 数値の根拠はコード確認・ヒアリング・暫定設計を区別する。ブラウザ実測は本設計では行っていない。
+- 【設計案】は具体的な実装方針を示す。離脱後の照会継続、ダイアログ骨組み、通常buttonの維持、配色・送信可能表示・ナビゲーション専用部品・操作行文言は追加判断により確定し、§10に承認記録を残す。今回の要ヒアリング事項は解消済み。
+- 数値の根拠はコード確認・ヒアリング・暫定設計を区別する。今回の改訂では現在のテーマ生成値から文字コントラストを算出したが、ブラウザ実測は行っていない。
 
 ## 2. 参照資料と既存実装の確認
 
@@ -18,16 +18,18 @@ K1で配置済みの監視ツールバーを活性化し、取得操作の「選
 | 今回のヒアリングと統括担当の補足 | 本書§3の確定事項。送信中はPOST待機と結果照会を含む。404/通信不能は照会を終了し選択解除。再実行は明示的な新規選択・新UUIDで行う |
 | 追加の承認判断（§10） | A1：monitor離脱後も同一IDの照会・共通操作行表示を継続。B1：K2でMD3に沿うモーダル骨組みを実装し、後続へ内容の差し込み境界を渡す |
 | 実画面確認に基づく設計変更（§10-C） | Material Labsの切替用プロパティで形状が崩れるとのユーザー指摘を反映。通常ボタンを維持し、MD3の状態クラス・操作行・アクセシブル名で選択状態を示す |
+| ユーザーによる最終UI監修（§10-D） | 通常・選択中・送信可能のトークン、送信可能時の2秒色遷移、reduced-motion、Material Icon Buttonへの置換、操作行の初期空欄と「全体：」廃止、フォーカスリング据置きを確定 |
 | [基本設計 §8.1〜8.2](../basic-design.md) | 全体一括操作、認証は別作業、停止中の強制更新は自動取得を再開しない |
 | [K1設計](issue-74-monitoring-dashboard-layout.md)、[K6設計](issue-79-source-status-table.md) | 既存ツールバーの配置・寸法・折返し、停止理由等のAPI不足の申し送り |
 | [E11設計](issue-43-fetch-control-api.md)、`packages/shared/src/fetchControl.ts` | 操作種別、UUID、200/202レスポンスのフィールド。レスポンス検証関数は未実装 |
 | `apps/api/src/app.ts`、`services/fetchControlService.ts` | 初回POSTは完了まで待つ。200でも `result: failure` がある。GETは200/202/404。503は受付不可。GETにterminalId等のクエリを付けると400 |
-| `apps/web/src/monitoring/MonitoringToolbar.tsx`、`monitoring.css` | 現在は8個の無効な `GbButton`。既存の順番・グループを維持。文字ボタン幅120px、`size="sm"`、`square`、グループ内8px、グループ間24px、toolbarは折返し・高さ自動 |
+| `apps/web/src/monitoring/MonitoringToolbar.tsx`、`monitoring.css` | 現在は11個とも`GbButton`。戻る2個はホスト40pxに`overflow: clip`を指定して内部52pxを切っている。文字ボタン幅120px、`size="sm"`、`square`、グループ内8px、グループ間24px、toolbarは折返し・高さ自動 |
 | `apps/web/src/App.tsx`、`shell/AppShell.tsx` | `TerminalApp`はビュー切替でも存続し、`MonitoringToolbar`/`MonitoringDashboard`はmonitor表示時だけマウント。既存toolbarスロットを利用できる |
 | `shell/NotificationArea.tsx`、`notifications/notificationStore.ts`、`shell/notifications.ts` | 操作行は `state.operationMessage`、警報・問いかけ行は `items`等から独立に算出。通知の差分受信でoperationMessageが初期案内へ戻るため、操作状態を通知ストアへ直接上書きすると消える |
 | `api/monitoringStatus.ts`、`monitoring/useMonitoringStatus.ts` | 監視情報のDTO検証、5秒間隔の直列ポーリング、非表示時の中断。これは操作結果照会とは別のライフサイクル |
-| `components/md/GbButton.tsx`、`components/md/index.ts` | 型付きラッパーはdisabled/aria属性/refを渡せる。Labs登録はラッパー内部の動的import。現状バレルはGbButtonのみ |
-| `apps/web/src/index.css`、`theme/applyTheme.ts` | Material typography CSSと日本語typefaceを既に導入。surface-container系・scrim等のスキーム色、shapeのmdトークンをダイアログ骨組みに再利用 |
+| `components/md/GbButton.tsx`、`components/md/index.ts` | 型付きラッパーはdisabled/aria属性/refを渡せる。Labs登録はラッパー内部の動的import。現状バレルはGbButtonのみで、アイコン専用ボタンのラッパー追加が必要 |
+| `@material/web/labs/gb/components/iconbutton/md-gb-icon-button.js`（導入済み依存内） | 公開APIは `color`、`size`、`square`、`type`、`disabled`、aria属性と公開CSS part/custom properties。`size="sm"` は高さ40px、幅指定なしではaspect-ratio 1となるため、clipで通常ボタンを切る方式を置換できる |
+| `apps/web/src/index.css`、`theme/applyTheme.ts` | Material typography CSSと日本語typefaceを既に導入。surface-container系・scrim等のスキーム色、shapeのmdトークンを再利用。現在の既定seedで通常配色と送信可能配色はいずれもlight/dark双方で4.5:1以上 |
 | [棚卸し](../audit-epic-a-d.md) | AD-H023、AD-H064、AD-H121の結論を§9に記録 |
 | [設計標準](../rules/02-design-protocol.md)、[開発フロー](../rules/01-dev-workflow-protocol.md)、[UI標準](../rules/06-ui-md3-protocol.md)、[検証標準](../rules/05-verification-protocol.md) | 成果物境界、承認ゲート、MD3、テストの対照実験・red確認 |
 | [G-01](../rules/advisory/G-01-hearing-first-design.md)、[G-10](../rules/advisory/G-10-design-consistency-pitfalls.md)、[G-08](../rules/advisory/G-08-ui-measurement-pitfalls.md)、[G-09](../rules/advisory/G-09-bundle-budget-underestimate.md) | 確定事項と案を分離、共用部品の実装確認、フォント待機後の寸法測定。未実測のバンドル上限は設定しない |
@@ -38,9 +40,9 @@ K1で配置済みの監視ツールバーを活性化し、取得操作の「選
 
 ### 3.1 取得操作
 
-1. 「取得開始」「取得停止」「強制更新」は単一選択。別ボタンで切替、同じボタン再押下で解除。選択・解除ではAPIを呼ばず、監視データも変更しない。通常のbuttonを維持し、選択状態の表示はMD3の状態クラス・操作行の「選択中」文言・アクセシブル名で行う（§7.3〜7.4）。
+1. 「取得開始」「取得停止」「強制更新」は単一選択。別ボタンで切替、同じボタン再押下で解除。選択・解除ではAPIを呼ばず、監視データも変更しない。通常のbuttonを維持し、選択状態の表示はMD3の状態クラス、通常時と異なるtertiary系配色、操作行の「選択中」文言・アクセシブル名で行う（§7.3〜7.4）。
 2. 送信時だけ `crypto.randomUUID()` によりUUIDを1つ生成し、E11へ `{ requestId }` を送る。UUIDを生成できない場合はPOSTせず、日本語で要求準備失敗を示す。会場・取得元の選択、操作者の捏造、認証実装は行わない。
-3. POST待機と結果照会中は取得操作3個・クリア・送信を無効にする。内部でも同期的な実行中ガードを置き、同じ描画フレームの二重押下を防ぐ。
+3. 選択により送信が可能になったときは、送信ボタンだけを通常配色とinverse配色の滑らかな色遷移で強調する。POST待機と結果照会中は取得操作3個・クリア・送信を無効にし、送信可能アニメーションも同期的に停止する。内部でも同期的な実行中ガードを置き、同じ描画フレームの二重押下を防ぐ。
 4. HTTP応答待ちのタイムアウトは暫定30秒（ユーザー指定。実測値ではない）。操作全体の失敗期限ではない。POSTを待てなくなったら同じUUIDでGET照会する。POSTを自動再送しない。
 5. GETの202は継続照会、200は本文のsuccess/failureに従って完了、404は結果不明、通信不能は結果確認不能。結果不明/確認不能で照会を終了し選択解除する。専用再試行ボタンは追加しない。再操作はユーザーが改めて選択・送信し、新しいUUIDを使う。
 6. 完了・結果不明・確認不能後は未選択となる。既存のサーバー側処理、重複防止、強制更新集約、履歴記録、通知生成の責任はE11に維持する。
@@ -61,7 +63,7 @@ K1で配置済みの監視ツールバーを活性化し、取得操作の「選
 
 - 現行ツールバーをルート `monitor-root` として登録する。実在しない子メニューやURL連動は追加しない。
 - `toolbarId`ごとの定義と履歴スタックを用意し、ルートへ戻る/一つ前へ戻る機構を実装する。子階層の挙動はテスト内だけの定義で検証する。
-- `<<`/`<`は正方形のアイコン専用ボタンとして常時配置。ルートで無効、子階層で有効。Material Symbolsは `keyboard_double_arrow_left` / `keyboard_arrow_left`。
+- `<<`/`<`は `GbIconButton`（導入済みMaterial Webの `md-gb-icon-button` を型付きラップ）による正方形のアイコン専用ボタンとして常時配置する。`color="filled" size="sm" square type="button"`を用い、ルートで無効、子階層で有効。Material Symbolsは `keyboard_double_arrow_left` / `keyboard_arrow_left`。通常buttonを40pxでclipする方式は廃止する。
 - メニュー名は固定幅を確保し、ルートでは空欄、子階層では表示。名前の長さで後続ボタンの開始位置を変えない。
 - 「クリア」は `close` と文字を併記して常時配置。未送信の操作選択だけを初期化し、解除対象なし/送信中は無効。階層履歴・ダイアログ・送信済み要求・完了結果を消すためには使わない。
 - 「送信」は既存ボタンを `arrow_forward` と文字の併記へ改修し、常時配置。未選択/送信中は無効。通知の問いかけ行にある送信とは独立した操作である。
@@ -79,13 +81,14 @@ K1で配置済みの監視ツールバーを活性化し、取得操作の「選
 | `apps/web/src/monitoring/monitoringOperationMessage.ts`（新規） | 操作状態から日本語の操作行メッセージへ変換 |
 | `apps/web/src/monitoring/MonitoringToolbar.tsx`（既存） | state/actionsを受け取る表示、選択・直接開く・戻る・クリア・送信 |
 | `apps/web/src/monitoring/MonitoringDialogHost.tsx`（新規） | 4種のダイアログ識別・MD3骨組み・モーダル開閉・フォーカストラップ/復帰。内容の差し込み点 |
-| `apps/web/src/monitoring/monitoring.css`（既存） | 既存寸法を基にナビゲーション・固定幅名・クリアを追加、選択/フォーカス/折返し。ダイアログのsurface・本文・action配置 |
+| `apps/web/src/components/md/GbIconButton.tsx`（新規）、`components/md/index.ts`（既存） | `md-gb-icon-button`をラッパー内の動的importで登録し、公開APIをReact propsとして型付けしてバレルからexport |
+| `apps/web/src/monitoring/monitoring.css`（既存） | ナビゲーション専用部品・固定幅名・クリア、通常/選択/送信可能の配色と色遷移、既存フォーカスリング、折返し。ダイアログのsurface・本文・action配置 |
 | `apps/web/src/App.tsx`（既存） | TerminalAppにhookを配置、既存toolbar/notificationスロットへ接続、ダイアログホストを配置 |
-| `apps/web/src/shell/notifications.ts`（既存） | 操作メッセージ・監視API異常・通知API異常を同じ行で合成。既存呼出しとテストを更新 |
+| `apps/web/src/notifications/notificationStore.ts`、`apps/web/src/shell/notifications.ts`（既存） | 初期操作メッセージを空文字列にし、取得操作・監視API異常・通知API異常を同じ行で合成。既存呼出しとテストを更新 |
 | `apps/web/tests/fetchControl.test.ts`、`monitoringToolbarState.test.ts`、`monitoringOperationController.test.ts`、`monitoringToolbar.test.ts`（新規） | API境界・状態遷移・競合/タイマー・表示/開閉の検証 |
 | 既存 `monitoringDashboard.test.ts`、`shell.test.ts` 等の該当テスト | K1の「8個すべて無効」の旧期待と操作ガイド合成の期待を今回の仕様へ更新 |
 
-`NotificationArea`・notification storeのデータモデル変更、API/shared DTO拡張、監視カードの状態変更は不要。Materialラッパーの追加が必要になった場合はバレル経由で公開し、用途を本Issueに限定する。依存追加・共通テスト設定変更・他画面の改修は予定しない。
+`NotificationArea`・notification storeの型変更、API/shared DTO拡張、監視カードの状態変更は不要。notification storeは初期操作メッセージ定数の値だけを空文字列へ変える。Materialラッパーは既存依存内のGB icon buttonだけをバレル経由で公開し、用途を本Issueに限定する。依存追加・共通テスト設定変更・他画面の改修は予定しない。
 
 ### 4.2 内部型と関数シグネチャ
 
@@ -152,6 +155,8 @@ function monitoringOperationMessage(
   operation: OperationState,
 ): string | null;
 ```
+
+`GbIconButton`はReact標準button propsからMaterial側と衝突する項目を除き、少なくとも `color: 'filled' | 'tonal' | 'outlined' | 'standard'`、`size: 'xs' | 'sm' | 'md' | 'lg' | 'xl'`、`square?: boolean`を型で公開する。`disabled`、`type="button"`、`aria-label`、`title`、ref、click/keyboardイベントは既存`GbButton`と同様に透過する。登録用importはラッパー内のブラウザ条件付きdynamic importとし、呼出し側のbare importや生の`<md-gb-icon-button>`タグは許可しない。
 
 hookの戻り値は `localState`、`operationState`、`currentToolbar`、`busy`、`selectOperation(kind)`、`clearSelection()`、`submit()`、`openDialog(id)`、`closeDialog()`、`navigate(id)`、`back()`、`backToRoot()`。`useMonitoringToolbar({ active: view === 'monitor', definitions, rootId })` をTerminalApp直下で呼ぶ。操作ボタンは選択のみ、送信イベントだけがcontroller.submitを呼ぶ。
 
@@ -252,19 +257,19 @@ function operationGuideMessage(
 ): string;
 ```
 
-優先順は「取得操作の選択/進行/最新結果」「監視情報API取得不可」「通知受信再試行」。意味の異なる状態を `｜` で同じ操作行へ併記し、通知の通常案内だけを省略する。操作メッセージがない場合は従来表示を維持する。警報・問いかけ行を操作結果で上書きしない。操作行の未読・未対応件数も従来どおり。
+優先順は「取得操作の選択/進行/最新結果」「監視情報API取得不可」「通知受信再試行」。意味の異なる状態を `｜` で同じ操作行へ併記する。初期プレースホルダー「左のメニューから表示する画面を選択してください。」は廃止し、`INITIAL_OPERATION_MESSAGE`を空文字列にする。取得操作・監視API障害・通知再試行のいずれもない初期状態では、既存の操作行DOMと件数表示を残したまま `role="status"` の本文を空欄とする。警報・問いかけ行を操作結果で上書きしない。操作行の未読・未対応件数も従来どおり。
 
 | 状態 | 操作メッセージ例 |
 | --- | --- |
-| 選択中 | `全体：取得停止を選択中／送信で実行` |
-| POST待機 | `全体：取得停止を送信中` |
-| 結果照会 | `全体：取得停止の結果を確認中` |
-| success / failure | `全体：取得停止が完了しました` / `全体：取得停止に失敗しました` |
-| 404 | `全体：取得停止の結果が不明です（要求の記録を確認できません）` |
-| 確認不能 | `全体：取得停止の結果を確認できません（通信・応答異常）` |
-| 受付拒否 | `全体：取得停止の要求を受け付けられませんでした` |
+| 選択中 | `取得停止を選択中／送信で実行` |
+| POST待機 | `取得停止を送信中` |
+| 結果照会 | `取得停止の結果を確認中` |
+| success / failure | `取得停止が完了しました` / `取得停止に失敗しました` |
+| 404 | `取得停止の結果が不明です（要求の記録を確認できません）` |
+| 確認不能 | `取得停止の結果を確認できません（通信・応答異常）` |
+| 受付拒否 | `取得停止の要求を受け付けられませんでした` |
 
-対象「全体」を選択時から明示する。新たな選択中は最新結果に代えて選択案内、選択解除時は保持中の最新結果へ戻す。結果自動消去タイマーは追加しない。E11がサーバーで生成する通知は既存feedから別途受け取り、クライアントで通知を複製しない。K2操作自体からブザー・チャイム・既読化を発生させない。
+本ツールバーが全体一括である事実は操作UIとE11契約で明らかなため、監視ツールバーが生成する全メッセージから接頭辞「全体：」を除く。UUID準備失敗も `取得操作の要求を準備できませんでした` とする。新たな選択中は最新結果に代えて選択案内、選択解除時は保持中の最新結果へ戻す。結果自動消去タイマーは追加しない。E11がサーバーで生成する通知は既存feedから別途受け取り、クライアントで通知を複製しない。K2操作自体からブザー・チャイム・既読化を発生させない。
 
 ### 7.2 ダイアログ境界【確定：B1承認済み】
 
@@ -315,22 +320,26 @@ interface MonitoringDialogHostProps {
 ### 7.3 レイアウト・表示【設計案】
 
 - 既存AppShell.toolbarを使用し、本体下/通知上の固定配置を維持する。文字ボタンは既存120px幅・smの40px高・squareを維持する。新設のクリアも同寸法。上下の配置を別領域へ移さない。
-- 戻る2個はホストを40×40pxの正方形とする。既存の `.monitoring-toolbar-group md-gb-button { inline-size:120px }` を専用クラスとコンポーネントの公開されたサイズ指定手段で限定的に調整する。Material内部buttonの40×40pxへの厳密な寸法一致は要求しない。通常ボタンの形状を壊す内部DOMの書換え・非公開実装への注入は行わず、通常利用幅と検収幅で見切れ・視覚的重なり・誤操作・横overflowがないことを実ブラウザで確認する。狭幅ではグループ単位で折り返す。
+- 戻る2個は`GbButton`ではなく`GbIconButton`を使い、`size="sm"`の公開寸法と幅指定なしの正方形を利用してホスト・描画面・ヒット領域を40×40pxに一致させる。`.monitoring-toolbar-icon-button`の`overflow: clip`や内部buttonを切る寸法補正は削除する。`::part`を含む公開スタイル口以外のShadow DOM selector、JSによる`shadowRoot`書換え、非公開ARIA管理オブジェクトへの注入は禁止する。通常利用幅と検収幅で端切れ・重なり・誤操作・横overflowがないことを実ブラウザで確認する。
 - メニュー名領域は `inline-size:120px; flex:0 0 120px` を案とする（既存文字ボタン幅を基準にした値で、実測で導いた値ではない）。空欄でも領域を確保。長い名前は省略し、title等で全文を提示する。
 - 戻る2個とメニュー名を先頭グループ、既存の操作グループを中央、クリア/送信を末尾グループとする。グループ内8px・グループ間24pxを維持し、末尾グループは右寄せする。全11ボタンとなる。
 - 上記数値から1行の必要内容幅は1448px（先頭216 + 開始停止248 + 強制120 + 履歴376 + 診断120 + 末尾248 + グループ間120）。これはCSS設計計算であり実測値ではない。K1の1080px閾値を流用しない。
 - 狭幅では既存同様グループ単位で折り返し、toolbar自身の高さを広げる。最小グループ幅を下回る極端な幅は今回の新規保証対象としない。検収は既存の760px未満を含め、内容幅600pxまで実施する。文字ボタンの縮小やtoolbar横スクロールで回避しない。
-- 配色は既存 `--md-sys-color-*` のみ。通常/選択のトークン対応は暫定とし、製造後のユーザー監修で調整する。HEX/RGBの直書き・新たな警戒色を設けない。
-- 取得操作は通常のbuttonのまま維持し、Material Labsの `type="toggle"` / `selected` は使用しない。Materialの形状遷移を選択状態の表現へ流用せず、選択によって寸法・角丸・配置・変形を変更しない。
-- 選択中の視覚表現はアプリ側の状態クラスと既存MD3トークンによる枠/背景で行う。通常ボタンの公開されたスタイル指定手段を用い、内部DOMへの書換えで表現しない。操作行の「選択中」文言、disabled、送信/照会中の文字も維持し、色だけで状態を表さない。
+- 配色は既存 `--md-sys-color-*` のみを、Material GB buttonが公開するCSS part/custom properties経由で使用する。HEX/RGB/HSLの直書きや新規色トークンは追加しない。通常の文字付き操作ボタンは背景 `var(--md-sys-color-primary-container)`、文字と併記アイコン `var(--md-sys-color-on-primary-container)` とする。ここで通常とは、選択中・送信可能・disabledの専用状態に該当しない取得操作、履歴・診断、クリア、送信をいう。disabledはMaterial標準状態を維持する。
+- 取得操作は通常のbuttonのまま維持し、Material Labsの `type="toggle"` / `selected` は使用しない。選択中はアプリ側の状態クラスから背景 `var(--md-sys-color-tertiary-container)`、文字 `var(--md-sys-color-on-tertiary-container)` を公開スタイル口へ渡す。選択状態専用のoutline/borderは設けず、現行の角丸12px、120×40px、配置、変形なしを維持する。操作行の「選択中」文言と公開aria-labelも併用し、色だけで状態を表さない。選択中にキーボードフォーカスが重なった場合のフォーカスリングは次項の既存仕様を優先して表示する。
+- フォーカスリングは今回変更しない。現行の `.monitoring-toolbar-icon-button:focus-within` による `3px solid var(--md-sys-color-primary)`・内側3pxの輪郭を含め、現在の挙動・色を維持する。取得操作等のMaterial標準focus-visibleも変更せず、今回の選択クラスやアニメーションからoutline、focus-ringトークン、フォーカス時の色を上書きしない。
+- 送信可能（未送信の取得操作が選択済み、かつbusyでない）では、送信ボタンの公開CSS partにだけ `monitoring-send-ready` アニメーションを適用する。1周期は正確に2秒、`ease-in-out`、無限反復とし、0%/100%を通常配色、50%を背景 `var(--md-sys-color-inverse-surface)`・文字と矢印アイコン `var(--md-sys-color-inverse-primary)` とする。`background-color`と`color`を連続補間し、opacity、visibility、display、transform、filter、outline、寸法、padding、角丸をkeyframesへ含めない。これにより表示/非表示の明滅ではなく低速の色遷移だけを行う。
+- 送信ボタンがdisabledのとき、送信処理開始でbusyになったとき、クリア・同一操作再押下・ダイアログ開閉・階層移動で選択解除したとき、monitor画面から離脱してツールバーがunmountしたときはアニメーションを停止し、残留animation/timerを持たない。CSS animationだけで実現し、JSタイマーは追加しない。`prefers-reduced-motion: reduce`ではanimationを適用せず、送信可能な間は背景 `inverse-surface`、文字・矢印 `inverse-primary` に固定する。
+- 文字コントラストの合格基準はWCAG AAの通常文字4.5:1以上とする。現在の`DEFAULT_THEME_SEED`から生成した値では、`primary-container`/`on-primary-container`がlight 13.27:1・dark 7.22:1、`inverse-surface`/`inverse-primary`がlight 7.76:1・dark 5.00:1で基準を満たす。製造・検収でもトークン名の文字列比較だけで済ませず、実際に解決したlight/dark両方の色から相対輝度を再計算する。
+- 青緑系の将来候補 `#589BA2` は今回使用せず、テーマ・セマンティック色・コンポーネント局所変数のいずれにも定義しない。後続監修で採用判断があるまでは必須トークンにしない。
 
 ### 7.4 キーボードと読み上げ
 
-- 戻るボタンはaria-label/titleをそれぞれ「最初のメニューへ戻る」「一つ前のメニューへ戻る」とする。アイコンspanはaria-hidden。文字付きボタンでもアイコン名を読み上げない。
+- 戻る`GbIconButton`はaria-label/titleをそれぞれ「最初のメニューへ戻る」「一つ前のメニューへ戻る」とする。アイコンspanはaria-hidden。文字付きボタンでもアイコン名を読み上げない。
 - 取得操作の選択時は公開されたaria-labelでアクセシブル名を「取得開始、選択中」「取得停止、選択中」「強制更新、選択中」とし、解除時はそれぞれ通常名へ戻す。視覚上のボタンラベルは変えず、選択中の文字は既存の操作行に表示する。`aria-pressed` をMaterial内部へ注入する方式は採用しない。
-- GbButtonのホストにaria-labelを付けただけで完了とせず、実ブラウザのアクセシビリティツリーで実際の操作対象の名前が選択/解除に追従することと、内部buttonのdisabled時のキー操作を確認する。ラッパーを介する場合も公開された属性・プロパティを使い、非公開のARIA管理オブジェクトやShadow DOM内部へ書き込まない。
+- GbButton/GbIconButtonのホストにaria-labelを付けただけで完了とせず、実ブラウザのアクセシビリティツリーで実際の操作対象の名前が選択/解除に追従することと、内部buttonのdisabled時のキー操作を確認する。ラッパーを介する場合も公開された属性・プロパティを使い、非公開のARIA管理オブジェクトやShadow DOM内部へ書き込まない。
 - Tab/Shift+TabとEnter/Spaceで利用できる。矢印キー移動を実装しない状態で `role="toolbar"` を付けず、名前付きgroupでまとめる。フォーカス輪郭はMD3のoutline/primary等を使用する。
-- 操作行は既存 `role="status" aria-live="polite"` を利用して選択状態と進行・結果を通知し、同じ202の反復で同一文言を書き直して読み上げを連打しない。ボタンに別のlive領域を追加しない。
+- 操作行は既存 `role="status" aria-live="polite"` を利用し、初期状態は空欄、選択後だけ接頭辞「全体：」のない選択状態・進行・結果を通知する。同じ202の反復で同一文言を書き直して読み上げを連打しない。ボタンに別のlive領域を追加しない。
 - 送信は `aria-label="取得操作を送信"` として、問いかけ行の送信と名前を区別する。問いかけの確認選択と取得操作選択は互いに変更しない。
 
 ## 8. 検証計画・受け入れ条件
@@ -340,7 +349,7 @@ interface MonitoringDialogHostProps {
 各条件には§10で承認済みのA1/B1を反映する。離脱後の照会・共通操作行表示と、4入口のモーダル骨組みをK2の検収対象に含める。
 
 - [ ] **AC01 選択だけでは実行しない**：fetchを記録するテストで開始→停止→停止再押下を行う。選択がstart→stop→nullと即座に変わり、POST/GETが0件、監視データも不変である。
-- [ ] **AC02 送信の対応**：3操作を各1回、選択→送信する。§5の各URL・本文1キー・別々のUUIDと完全一致する。送信前に操作行へ「全体」と操作名が表示される。
+- [ ] **AC02 送信の対応**：3操作を各1回、選択→送信する。§5の各URL・本文1キー・別々のUUIDと完全一致する。送信前の操作行は `取得開始を選択中／送信で実行` 等と完全一致し、接頭辞「全体：」を含まない。
 - [ ] **AC03 二重送信防止**：POSTを保留し同じフレームで送信2回、操作選択/クリアを呼ぶ。UUID生成・POSTは各1回、選択変更は拒否。UIでも3操作・クリア・送信がdisabledとなる。
 - [ ] **AC04 30秒は操作失敗期限でない**：POSTを保留し29999msではGETなし、30000msで同一UUIDへGETが1回発生する。failureではなく確認中、POSTは合計1件である。JSON本文読取中の停滞も同様に確認する。
 - [ ] **AC05 202継続**：POST 202→GET 202→GET 200を返す。応答完了から5秒の直列GET、busy継続、200後に選択解除・全タイマー解放を確認する。202を30秒超継続しても操作全体をfailureにしない。
@@ -349,19 +358,19 @@ interface MonitoringDialogHostProps {
 - [ ] **AC08 応答検証**：wrong ID/kind/target、必須フィールド欠落、enum不正、日時不正、duplicateの型不正、HTML/壊れたJSON、HTTPとstatus不一致を1項目ずつ作る。完了成功へ遷移しない。POSTの場合は同じIDでGET、GETの場合は確認不能で終わる。未知の追加キーは受理する。
 - [ ] **AC09 受付拒否と500**：POSTの400/409/503を包絡込みで返し、受付拒否・再送なしを確認する。POST 500では同一IDをGETする。任意errorMessageにHTMLや内部URLを入れても、その文字列やHTMLが画面に出ない。
 - [ ] **AC10 遅延応答の競合**：POSTタイムアウト後にGETをcompletedへ進めてから旧POSTを解決する。完了結果を古い応答で上書きしない。dispose後のresolve/rejectも新たな更新・照会を起こさない。
-- [ ] **AC11 クリア**：未選択で無効、選択後に有効、押下で未選択・POSTなしとなる。送信/照会中は無効。終了後の結果をクリアで消さず、サーバーのキャンセル呼出しも存在しない。
+- [ ] **AC11 クリア**：未選択で無効、選択後に有効、押下で未選択・POSTなしとなる。送信/照会中は無効。終了後の結果をクリアで消さず、サーバーのキャンセル呼出しも存在しない。選択解除と同時に送信可能アニメーションが停止し、送信ボタンがdisabled状態へ戻る。
 - [ ] **AC12 履歴・診断入口と内容境界**：取得操作を選択後、4入口を順に開く。送信不要で別IDのホストが開き、§7.2の各タイトル・準備中の1文・閉じるを表示し、選択が解除される。閉じるボタン/Escapeでも未選択となる。履歴/診断API・取得制御API呼出しは0件。テストでrenderContentへ識別可能な本文を渡すと準備中表示だけが置き換わり、共通タイトル/action/開閉は維持される。ID変更時は旧本文状態が残らない。
 - [ ] **AC13 モーダルとMD3骨組み**：キーボードで各入口を開き、タイトルと既定本文が読み取れ、閉じるへフォーカスし、Tab/Shift+Tabで背景へ抜けず、Escapeで入口へ戻る。背景はクリック操作も受け付けない。送信中に開閉しても同じ要求が続く。幅600px/1280pxのviewportでsurface/typography/右寄せactionが§7.2のトークン・配置を使用し、長いテスト本文でも閉じるが画面内に残ることを確認する。
 - [ ] **AC14 階層**：テスト専用のroot→child→grandchild定義でnavigate/back/backToRootを実行し、履歴とタイトルが完全一致する。移動で選択解除、現在ID/未登録IDへの移動はno-op。ルート2ボタンはdisabled、子階層は有効、本番定義には子階層・URL更新がない。
 - [ ] **AC15 monitor離脱**：未送信選択後に別ビューへ移動し戻ると未選択。送信/照会中に移動しても同じIDの照会が続き、共通操作行へ結果が出る。戻ってもPOSTし直さず、ダイアログは閉じている。
 - [ ] **AC16 非表示と破棄**：202後にdocumentをhiddenにし、新規GET予約が止まることを偽時計で確認。visibleで同一IDのGETを1回再開。TerminalApp破棄で待機要求abort・全タイマー/listener/購読解放。サーバーへの取消要求は0件である。
-- [ ] **AC17 通知との共存**：警報・問いかけ・選択中の問いかけ確認を持つ通知stateで取得操作を選択/送信/完了する。これらのID・内容・未読/未対応集合は変わらず操作行だけが変わる。監視API障害・通知受信再試行が同時に発生しても操作結果と両障害案内が併記される。
+- [ ] **AC17 通知との共存・操作行文言**：初期notification stateを描画し、操作行本文が空文字列、初期プレースホルダーがDOMに存在しない一方、`role="status"`と未読/未対応件数は残ることを確認する。警報・問いかけ・選択中の問いかけ確認を持つstateで取得操作を選択/送信/完了し、これらのID・内容・未読/未対応集合は変わらず操作行だけが変わる。全操作状態とUUID準備失敗のメッセージが§7.1と完全一致し「全体：」を含まない。監視API障害・通知受信再試行が同時に発生しても操作結果と両障害案内が`｜`で併記される。
 - [ ] **AC18 ダッシュボードの独立**：監視DTOを固定し選択・送信・成功を行う。取得運転カード/表は楽観更新されず、次の監視DTO受信時だけ更新される。停止中の強制更新成功で「自動取得有効」をクライアントが作らない。
-- [ ] **AC19 配置・寸法**：フォントとMaterial登録完了後、ユーザーの通常利用幅と内容幅1448px/1447px/600pxで実ブラウザ確認し、通常利用幅の測定値も記録する。11個のボタン、既存文字ボタン120×40px、戻る2個のホスト40×40px、名前120pxを確認する。Material内部buttonの厳密な寸法一致は合否条件にしない。戻るボタンの見切れ・隣接領域との視覚的重なり・横overflowがなく、各ボタンをポインター/キーボードで個別に操作して意図した戻り動作だけが発火し、誤操作が生じないことを確認する。通常形状を維持した公開手段で実現し、非公開内部DOMの書換えを追加していない。狭幅ではグループ単位折返し、最後のクリア/送信グループ右寄せ、ボタン縮小なし。本文・通知の重なりも確認する。
-- [ ] **AC20 名前と状態の安定**：テスト専用子メニューで短い/長いタイトルを切り替える。タイトル領域幅と後続先頭ボタンのx座標が変わらない。ルートでは文字だけ空になる。未選択/選択/送信中/disabledの高さが変わらない。
-- [ ] **AC21 アクセシビリティと選択表現**：Tab/Enter/Spaceで3取得操作をそれぞれ選択・解除し、実ブラウザAX上の操作対象の名前が「取得開始」↔「取得開始、選択中」等へ完全一致で切り替わることを確認する。通常buttonのまま、公開aria-labelとMD3の状態クラスを使っており、Materialの切替用プロパティ・内部ARIA注入・形状遷移を選択表現に利用していない。状態クラスと操作行の「選択中」文言が追従し、選択/解除で通常ボタンの形状や配置が崩れない。戻るのaria-label/title、アイコン非読み上げ、内部buttonのdisabled、フォーカス可視、既存role=statusによる状態通知も確認する。問いかけの送信と取得操作の送信を識別できる。
-- [ ] **AC22 本番ビルド**：buildした画面でもGbButtonがupgradeされ、文字・4アイコン・disabled/選択が機能する。bare import、生mdタグ、色の直書き、依存バージョン変更が追加されていない。
-- [ ] **AC23 品質・範囲**：`npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run test -w apps/web`、`npm run build`を実行し成功する。追加テストは検証標準どおり意味を変えない対照実験後に実装を壊してredを確認し、変更を復旧する。新規結果領域、履歴実体、認証、API/shared変更、他画面の配置変更がないことをdiffで確認する。
+- [ ] **AC19 配置・寸法・ナビゲーション部品**：フォントとMaterial登録完了後、ユーザーの通常利用幅と内容幅1448px/1447px/600pxで実ブラウザ確認し、通常利用幅の測定値も記録する。11個のボタン、文字ボタン120×40px、戻る2個の`GbIconButton`ホスト・描画面・ヒット領域40×40px、名前120pxを確認する。戻るアイコンが中央表示され、端切れ・clip・視覚的重なり・横overflowがなく、2ボタン間の余白を押しても発火しないこと、各中央のポインター操作とEnter/Spaceで意図した戻りだけが発火することを確認する。ルートでは常時表示のままdisabledで内部buttonも発火しない。静的テストで`GbIconButton`がバレル経由、`color="filled" size="sm" square type="button"`、公開APIだけを使用し、旧`overflow: clip`とShadow DOM書換えがないことを確認する。既存の3px primaryフォーカス輪郭は色・太さ・offset・欠けの有無が改訂前と一致する。狭幅ではグループ単位折返し、最後のクリア/送信グループ右寄せ、ボタン縮小なし。本文・通知の重なりも確認する。
+- [ ] **AC20 名前・状態・アニメーション中の寸法安定**：テスト専用子メニューで短い/長いタイトルを切り替え、タイトル領域幅と後続先頭ボタンのx座標が変わらず、ルートでは文字だけ空になることを確認する。未選択/選択/送信可能の0%・50%・100%/送信中/disabledで全文字ボタンの120×40px、角丸12px、グループ位置が変わらない。送信可能色遷移中もoutline、opacity、visibility、display、transform、filter、padding、寸法を変えず、再レイアウト・横overflowを起こさない。
+- [ ] **AC21 アクセシビリティ・配色・送信可能表示**：Tab/Enter/Spaceで3取得操作をそれぞれ選択・解除し、実ブラウザAX上の名前が「取得開始」↔「取得開始、選択中」等へ完全一致で切り替わることを確認する。通常button・公開aria-label・状態クラスを使い、toggle/selected/aria-pressed・内部ARIA注入・形状遷移を使わない。機械テストで通常、選択中、送信可能、disabled/busy/離脱、reduced-motionのクラス・CSSを検査し、選択専用outlineがなく、通常はprimary-container/on-primary-container、選択中はtertiary-container/on-tertiary-containerであることを確認する。送信可能時は公開part上のanimationが `2s ease-in-out infinite`、0%/100%が通常配色、50%がinverse-surface/inverse-primaryで、色以外のkeyframe propertyがないことを確認する。実ブラウザではanimationを0ms/1000ms/2000msへ一時停止して解決済み背景・文字・矢印色と連続遷移を測定し、送信開始・disabled・選択解除・離脱ではanimationが0件になることを確認する。reduced-motionではanimation 0件かつinverse配色固定とする。light/dark双方の通常・inverse配色を相対輝度から再計算し4.5:1以上とする。状態クラスと接頭辞なしの操作行が追従し、既存フォーカス可視性、`role="status"`、戻るaria-label/title、アイコン非読み上げ、問いかけ送信との識別も確認する。
+- [ ] **AC22 本番ビルド**：buildした画面でもGbButton/GbIconButtonがupgradeされ、文字・4アイコン・disabled/選択・送信可能アニメーションとreduced-motion固定色が機能する。`apps/web`にラッパー外のbare import、生mdタグ、Shadow DOM注入、色の直書き、`#589BA2`の使用・定義、依存バージョン変更が追加されていない。
+- [ ] **AC23 品質・範囲**：`npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run test -w apps/web`、`npm run build`を実行し成功する。追加テストは検証標準どおり意味を変えない対照実験後に、通常/選択トークンの取り違え、2秒→別値、reduce固定色の削除、初期文言または「全体：」の復活、icon button→旧GbButtonのいずれかを個別に壊して対応テストがredになることを確認し、変更を復旧する。新規結果領域、履歴実体、認証、API/shared変更、他画面の配置変更がないことをdiffで確認する。
 
 ## 9. 棚卸し結論と後続Issueへの引き継ぎ
 
@@ -377,7 +386,7 @@ interface MonitoringDialogHostProps {
 - **K5 #78**：要求識別子と結果を照合可能にする。再照会の専用UI、ページ再読込後の復元は別設計。actorId等をK2で補完しない。
 - **階層拡張**：後続はtoolbar定義を追加してnavigate項目を接続する。共通の戻る/メニュー名/クリア/送信を複製しない。未送信の選択解除契約を維持する。
 - **監視状態APIの不足**：K1/K6から引き継いだ停止理由・停止処理中・強制更新中・再試行待ちの汎用DTO拡張はK2の既存E11接続から分離する。今回の操作行は「当該要求を送信/照会している」事実だけを表示し、サーバー内の停止処理中等を推定しない。全端末の進行状態をダッシュボードへ表示する要件は後続の設計判断として残す。
-- **配色監修**：暫定MD3配色を実装後にユーザーが監修する。これを機能実装の阻害要因にしない。
+- **配色・強調監修**：§10-Dのユーザー監修で通常・選択中・送信可能の配色とreduced-motionを確定済み。青緑系候補は今回見送りであり、後続が独自に必須色へ昇格させない。フォーカスリングの変更は今回の監修範囲外とする。
 
 ## 10. 承認記録
 
@@ -389,7 +398,7 @@ interface MonitoringDialogHostProps {
 
 【確定】ユーザーの承認判断を統括担当から受領し、B1を採用した。K2でMaterial Designの世界観に合うダイアログ骨組みを実装する。4入口に対応するタイトル・準備中の最小表示・閉じる、モーダル、フォーカストラップ/復帰、Escapeを備える。ネイティブdialogに既存MD3のsurface/typography/action配置を適用し、共通ホストへ後続K3/K4/K8の本文を差し込む（§7.2、AC12/AC13）。実データ・一覧・検索・原文・診断内容は後続の責務とする。
 
-以上により、この設計で追加ヒアリングを要した2点は解消した。配色の実装後監修と§11の実挙動確認は継続して残る。
+以上により、この時点で追加ヒアリングを要した2点は解消した。配色等の実装後監修は後記Dで確定した。
 
 ### C. 実画面確認による取得操作ボタンの選択表現の変更
 
@@ -398,6 +407,18 @@ interface MonitoringDialogHostProps {
 選択中は既存MD3トークンの状態クラスと操作行の「選択中」文言で示す。支援技術には公開aria-labelを通じて「取得開始、選択中」等のアクセシブル名を伝え、解除時に通常名へ戻す。Material内部へ押下状態を注入する方式は採用しない。実ブラウザAXで名前の反映を確認する（§7.3〜7.4、AC21）。
 
 【確定】追加のユーザー判断では、戻るボタンはある程度のブラウザ幅で問題なく表示できているため、Shadow内部buttonまで40×40pxへ矯正する要件を撤回した。ホストの40×40px正方形は維持し、通常利用幅と検収幅で見切れ・視覚的重なり・誤操作・横overflowがなく、狭幅でグループ単位に折り返すことを合格条件とする。Material内部buttonの厳密な寸法一致を要求せず、通常形状を壊さない公開手段と実ブラウザ確認を用いる（AC19）。主修正は取得操作に適用した切替用プロパティの撤回である。
+
+### D. ユーザーによる最終UI監修
+
+【確定】通常の文字付き操作ボタンは`primary-container`/`on-primary-container`、選択中は紫系の`tertiary-container`/`on-tertiary-container`を使用する。選択中専用の追加枠線は設けず、12px角丸の通常buttonを維持する。Cで確定したtoggle/selected/aria-pressed不使用と公開aria-labelによる選択名は変えない。現行フォーカスリングの挙動・primary色・太さ・offsetは変更せず、今回の監修改修の対象外とする。
+
+【確定】送信可能時は送信ボタンだけを通常配色と`inverse-surface`/`inverse-primary`の間で滑らかに往復させる。仕様値は2秒/周期、ease-in-out、無限反復とし、色以外を点滅・変形させない。disabled、送信開始、選択解除、画面離脱で停止する。`prefers-reduced-motion: reduce`ではアニメーションせずinverse配色へ固定する。現行テーマ生成値ではlight/dark双方の通常・inverse各組が4.5:1以上であるが、製造後も解決済み色で再検証する（§7.3、AC20/AC21）。
+
+【確定】戻る2ボタンは通常`GbButton`の端をclipする方式を廃止し、導入済みMaterial WebのGB icon buttonを新しい型付き`GbIconButton`から使う。`size="sm"`・正方形の公開APIにより、ホスト・描画・ヒット領域、disabled、中央表示、ポインター/キーボード操作を両立する。Cの「内部button厳密40pxは合否対象外」という判断は、通常buttonを継続する場合の矯正禁止を示した履歴として残すが、Dでは専用icon button自体が40×40pxで完全表示されることを合格条件へ更新する。Shadow DOMの直接変更は禁止を維持する（§7.3、AC19）。
+
+【確定】操作行の初期プレースホルダーを廃止して本文を空欄とし、監視ツールバーが生成する全メッセージから「全体：」を除く。操作行DOM、live region、警報・問いかけ行、未読/未対応件数、障害案内の併記は維持する（§7.1、AC02/AC17）。青緑系候補`#589BA2`は今回使用・定義せず、将来候補の記録に留める。
+
+以上の監修内容は確定済みであり、製造方式を左右する未確定事項はない。実ブラウザでのicon button描画、色補間、reduced-motion、各停止条件は§11のとおり未確認であり、AC19〜AC22で検収する。
 
 ## 11. 実挙動未確認・設計フェーズの確認結果
 
@@ -410,5 +431,9 @@ interface MonitoringDialogHostProps {
 - 承認反映の改訂着手時は本書だけが未追跡の新規ファイルで、他の差分はなかった。改訂でも本書のみを変更し、A1/B1の確定とMD3ダイアログ骨組み・内容境界・受け入れ条件を整合させた。
 - 初回設計終了時の差分は本書の新規追加のみ。`git diff --no-index --check /dev/null docs/design/issue-75-monitoring-toolbar.md` で空白エラーなしを確認した。当時は依存関係（node_modules）が未導入のためPrettierは実行していない。コード変更・コミットを伴わない設計段階のためlint/typecheck/テスト/buildは実行していない。
 - §10-Cの改訂着手時には製造・検証中のコード等の既存差分があった。これらを変更せず、本書だけを改訂した。設計書の差分と空白を再確認し、コミットは行わない。
+- §10-Dの改訂着手時は`git -c core.fsmonitor=false status --porcelain`が空であり、既存の未コミット差分はなかった。本改訂の変更対象は本書だけとする。
+- §10-Dの改訂ではコード・テスト・ブラウザを変更せず、導入済みMaterial Webの型定義/CSSと現行テーマ生成だけを静的確認した。`GbIconButton`の40×40px完全表示、選択配色、2秒の滑らかな色補間、停止条件、reduced-motion固定色、操作行文言は**実挙動未確認**であり、独立した製造・検収担当がAC17/AC19〜AC23を実行する。
+- 現在の`DEFAULT_THEME_SEED`から相対輝度を算出し、通常配色はlight 13.27:1・dark 7.22:1、送信可能のinverse配色はlight 7.76:1・dark 5.00:1だった。これは現行生成ロジックの静的確認値であり、将来のseed/theme変更後も保証する定数ではないため、実ブラウザの解決済み色による再検証をAC21へ残す。
+- §10-Dの改訂終了時は本書だけが変更され、`git diff --check`と本書へのPrettier checkが成功した。コード・設定・ブランチ・コミット・push・PR更新は行っていない。
 
 作成: Codex (GPT-6 Astra)。設計承認後のコミット署名は `Co-Authored-By: Codex (GPT-6 Astra) <noreply@openai.com>`。
