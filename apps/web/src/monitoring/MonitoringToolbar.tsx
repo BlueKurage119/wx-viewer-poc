@@ -88,53 +88,55 @@ export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbar
           </span>
         )}
       </div>
-      {currentToolbar.groups.map((group) => (
-        <div className="monitoring-toolbar-group" key={group.map((item) => item.label).join('-')}>
-          {group.map((item) => {
-            if (item.kind === 'operation') {
-              const selected = localState.selectedOperation === item.operation;
+      <div className="monitoring-toolbar-scroll">
+        {currentToolbar.groups.map((group) => (
+          <div className="monitoring-toolbar-group" key={group.map((item) => item.label).join('-')}>
+            {group.map((item) => {
+              if (item.kind === 'operation') {
+                const selected = localState.selectedOperation === item.operation;
+                return (
+                  <ToolbarButton
+                    color="filled"
+                    disabled={busy}
+                    size="sm"
+                    square
+                    aria-label={selected ? `${item.label}、選択中` : item.label}
+                    onClick={() => model.selectOperation(item.operation)}
+                    key={item.label}
+                    selected={selected}
+                  >
+                    {item.label}
+                  </ToolbarButton>
+                );
+              }
+              if (item.kind === 'dialog') {
+                return (
+                  <ToolbarButton
+                    color="filled"
+                    size="sm"
+                    square
+                    onClick={() => model.openDialog(item.dialogId)}
+                    key={item.label}
+                  >
+                    {item.label}
+                  </ToolbarButton>
+                );
+              }
               return (
                 <ToolbarButton
                   color="filled"
-                  disabled={busy}
                   size="sm"
                   square
-                  aria-label={selected ? `${item.label}、選択中` : item.label}
-                  onClick={() => model.selectOperation(item.operation)}
+                  onClick={() => model.navigate(item.toolbarId)}
                   key={item.label}
-                  selected={selected}
                 >
                   {item.label}
                 </ToolbarButton>
               );
-            }
-            if (item.kind === 'dialog') {
-              return (
-                <ToolbarButton
-                  color="filled"
-                  size="sm"
-                  square
-                  onClick={() => model.openDialog(item.dialogId)}
-                  key={item.label}
-                >
-                  {item.label}
-                </ToolbarButton>
-              );
-            }
-            return (
-              <ToolbarButton
-                color="filled"
-                size="sm"
-                square
-                onClick={() => model.navigate(item.toolbarId)}
-                key={item.label}
-              >
-                {item.label}
-              </ToolbarButton>
-            );
-          })}
-        </div>
-      ))}
+            })}
+          </div>
+        ))}
+      </div>
       <div className="monitoring-toolbar-group monitoring-toolbar-submit">
         <ToolbarButton
           color="filled"
