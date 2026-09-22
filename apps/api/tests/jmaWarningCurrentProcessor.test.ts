@@ -22,7 +22,7 @@ import {
 } from '../src/repositories/index.js';
 import {
   applyWarningCurrentReception,
-  rebuildWarningCurrentFromReceptions,
+  recoverWarningCurrent,
 } from '../src/polling/jmaWarningCurrentProcessor.js';
 import {
   processWarningTelegramReceptionForAllVenues,
@@ -596,7 +596,7 @@ test('9. VPWS50 の正常な no_warning は available かつ明細0件で、未�
   }
 });
 
-test('10. 受信履歴からの復旧 (rebuildWarningCurrentFromReceptions) が冪等であり、逆順受信でも同じ状態になる', () => {
+test('10. 受信履歴からの復旧が冪等であり、逆順受信でも同じ状態になる', async () => {
   const { connection, cleanup } = createTempDb();
   try {
     // 2 つの電文を保存
@@ -612,11 +612,9 @@ test('10. 受信履歴からの復旧 (rebuildWarningCurrentFromReceptions) が�
     assert.equal(liveSnapshot.items[0]!.kindCode, '03');
 
     // 復旧を実行（1回目）
-    const rebuildResult1 = rebuildWarningCurrentFromReceptions(
-      connection,
-      DEFAULT_WARNING_CURRENT_TARGET_AREA,
-    );
-    assert.equal(rebuildResult1.applied, true);
+    await recoverWarningCurrent(connection, resolveVenueWarningContext('east'), {
+      yieldEveryParsedReceptions: 25,
+    });
 
     const snapRebuilt1 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
     assert.equal(snapRebuilt1.metadata.sourceVersion, liveSnapshot.metadata.sourceVersion);
@@ -626,11 +624,9 @@ test('10. 受信履歴からの復旧 (rebuildWarningCurrentFromReceptions) が�
     );
 
     // 復旧を実行（2回目 - 冪等性）
-    const rebuildResult2 = rebuildWarningCurrentFromReceptions(
-      connection,
-      DEFAULT_WARNING_CURRENT_TARGET_AREA,
-    );
-    assert.equal(rebuildResult2.applied, true);
+    await recoverWarningCurrent(connection, resolveVenueWarningContext('east'), {
+      yieldEveryParsedReceptions: 25,
+    });
 
     const snapRebuilt2 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
     assert.equal(snapRebuilt2.metadata.sourceVersion, liveSnapshot.metadata.sourceVersion);
@@ -756,7 +752,7 @@ test('AC7: 保存済み現況からの更新 - 一時 DB に保存後再接続�
   }
 });
 
-test('AC8: 復旧と同一版 - 2 回の復旧で最終現況・sourceVersion・既存履歴件数が同一となり、受信履歴・通知履歴が増加しない', () => {
+test('AC8: 復旧と同一版 - 2 回の復旧で最終現況・sourceVersion・既存履歴件数が同一となり、受信履歴・通知履歴が増加しない', async () => {
   const { connection, cleanup } = createTempDb();
   try {
     // 1. 原文を受信・保存
@@ -784,22 +780,18 @@ test('AC8: 復旧と同一版 - 2 回の復旧で最終現況・sourceVersion・
     assert.equal(initialNotificationCount, 0);
 
     // 2. 1 回目の復旧
-    const result1 = rebuildWarningCurrentFromReceptions(
-      connection,
-      DEFAULT_WARNING_CURRENT_TARGET_AREA,
-    );
-    assert.equal(result1.applied, true);
+    await recoverWarningCurrent(connection, resolveVenueWarningContext('east'), {
+      yieldEveryParsedReceptions: 25,
+    });
     const snap1 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
     assert.ok(snap1);
     assert.equal(getReceptionCount(), initialReceptionCount);
     assert.equal(getNotificationCount(), initialNotificationCount);
 
     // 3. 2 回目の復旧 (同一版・冪等性)
-    const result2 = rebuildWarningCurrentFromReceptions(
-      connection,
-      DEFAULT_WARNING_CURRENT_TARGET_AREA,
-    );
-    assert.equal(result2.applied, true);
+    await recoverWarningCurrent(connection, resolveVenueWarningContext('east'), {
+      yieldEveryParsedReceptions: 25,
+    });
     const snap2 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
     assert.ok(snap2);
 
@@ -1049,7 +1041,7 @@ test('AC9: #114 統合境界 - 2会場×3 controlStatus の更新・保持・再
         for (const vId of VENUE_IDS) {
           const venue = resolveVenueWarningContext(vId);
           await reprocessPendingWarningTelegramReceptions(connection, venue, clock);
-          rebuildWarningCurrentFromReceptions(connection, venue.targetArea);
+          await recoverWarningCurrent(connection, venue, { yieldEveryParsedReceptions: 25 });
         }
       };
 

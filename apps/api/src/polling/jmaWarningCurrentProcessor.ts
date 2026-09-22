@@ -5,7 +5,6 @@ import {
   findWarningCurrentStream,
   listWarningCurrentStreams,
   listWarningRecoveryCandidates,
-  listWarningTelegramReceptionsForRebuild,
   saveWarningCurrentSnapshot,
   upsertWarningCurrentStream,
   deleteWarningCurrentStreams,
@@ -385,297 +384,6 @@ export function applyWarningCurrentReception(
   return transaction();
 }
 
-/**
- * 保存済み受信履歴から現況スナップショットおよびストリームポインターを再構成する（起動時復旧）。
- * HTTP GET や履歴追記は一切行わず、冪等に動作する。
- */
-export function rebuildWarningCurrentFromReceptions(
-  connection: DatabaseConnection,
-  targetArea: WarningCurrentTargetArea,
-): WarningCurrentApplyResult {
-  // controlStatus ('normal', 'training', 'test') ごとに復旧候補を収集
-  const candidatesByStatus = new Map<
-    ControlStatus,
-    Map<WarningTelegramType, WarningCurrentStreamInput>
-  >();
-
-  let after:
-    | { readonly reportDateTime: string; readonly controlDateTime: string; readonly id: number }
-    | undefined;
-
-  // 100件 keyset pagination で読み込み
-  do {
-    const page = listWarningTelegramReceptionsForRebuild(connection, { after, limit: 100 });
-    for (const reception of page.receptions) {
-      if (!reception.rawBody) continue;
-
-      const parseResult = parseWarningTelegram(reception.rawBody, reception, targetArea);
-      if (!parseResult.ok) continue;
-
-      const parsed = parseResult.value;
-      if (
-        parsed.infoType !== null &&
-        parsed.infoType !== '発表' &&
-        parsed.infoType !== '訂正' &&
-        parsed.infoType !== '取消'
-      )
-        continue;
-
-      if (parsed.infoType !== '取消') {
-        try {
-          extractActiveKindsByPhenomenon(parsed);
-        } catch {
-          continue;
-        }
-      }
-
-      let statusMap = candidatesByStatus.get(parsed.controlStatus);
-      if (!statusMap) {
-        statusMap = new Map();
-        candidatesByStatus.set(parsed.controlStatus, statusMap);
-      }
-
-      const existing = statusMap.get(parsed.telegramType);
-      if (existing) {
-        if (parsed.reportDateTime < existing.reportDateTime) {
-          continue;
-        }
-        if (parsed.reportDateTime === existing.reportDateTime) {
-          if (parsed.controlDateTime < existing.controlDateTime) {
-            continue;
-          }
-          if (parsed.controlDateTime === existing.controlDateTime) {
-            if (reception.contentHash === existing.contentHash) {
-              continue;
-            } else {
-              throw new WarningCurrentConflictError(
-                `復旧中に同時刻かつ異なる contentHash の同版競合を検出しました: telegramType=${parsed.telegramType}`,
-              );
-            }
-          }
-        }
-      }
-
-      statusMap.set(parsed.telegramType, {
-        prefectureCode: targetArea.prefectureCode,
-        areaCode: targetArea.municipalCode,
-        controlStatus: parsed.controlStatus,
-        telegramType: parsed.telegramType,
-        receptionId: reception.id,
-        reportDateTime: parsed.reportDateTime,
-        controlDateTime: parsed.controlDateTime,
-        receivedAt: reception.receivedAt,
-        contentHash: reception.contentHash ?? '',
-      });
-    }
-
-    after = page.nextCursor ?? undefined;
-  } while (after);
-
-  // トランザクション内で各 controlStatus のポインターとスナップショットを再構成
-  const transaction = connection.transaction((): WarningCurrentApplyResult => {
-    // 既定の normal の結果を返す
-    let normalResult: WarningCurrentApplyResult = {
-      applied: false,
-      reason: 'uninitialized',
-      detail: '有効な VPWS50 による初期化が完了していません',
-    };
-
-    const allStatuses: readonly ControlStatus[] = ['normal', 'training', 'test'];
-
-    for (const status of allStatuses) {
-      deleteWarningCurrentStreams(
-        connection,
-        targetArea.prefectureCode,
-        targetArea.municipalCode,
-        status,
-      );
-
-      const statusMap = candidatesByStatus.get(status);
-      const vpws50StreamInput = statusMap?.get('VPWS50');
-
-      if (!statusMap || !vpws50StreamInput) {
-        // VPWS50 がない場合、スナップショットは作らず既存があれば削除
-        deleteWarningCurrentSnapshot(connection, targetArea.municipalCode, status);
-        if (status === 'normal') {
-          normalResult = {
-            applied: false,
-            reason: 'uninitialized',
-            detail: '有効な VPWS50 による初期化が完了していません',
-          };
-        }
-        // 他の個別ストリームポインターがあれば保存しておく（初期化前ポインター保持）
-        if (statusMap) {
-          for (const streamInput of statusMap.values()) {
-            upsertWarningCurrentStream(connection, streamInput);
-          }
-        }
-        continue;
-      }
-
-      // ストリームポインターを一括保存
-      const streamEntities = new Map<WarningTelegramType, WarningCurrentStream>();
-      for (const streamInput of statusMap.values()) {
-        const saved = upsertWarningCurrentStream(connection, streamInput);
-        streamEntities.set(saved.telegramType, saved);
-      }
-
-      // VPWS50 を再パース
-      const vpws50Reception = findTelegramReceptionById(connection, vpws50StreamInput.receptionId);
-      if (!vpws50Reception || !vpws50Reception.rawBody) {
-        throw new Error(
-          `復旧用 VPWS50 電文の取得に失敗しました: receptionId=${vpws50StreamInput.receptionId}`,
-        );
-      }
-      const vpws50ParseResult = parseWarningTelegram(
-        vpws50Reception.rawBody,
-        vpws50Reception,
-        targetArea,
-      );
-      if (!vpws50ParseResult.ok) {
-        throw new Error(`復旧用 VPWS50 電文の再解析に失敗しました: ${vpws50ParseResult.reason}`);
-      }
-      const vpws50Parsed = vpws50ParseResult.value;
-
-      // 個別ストリームを再パース
-      const individualMap = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>();
-      const cancelledMap = new Map<IndividualWarningTelegramType, ParsedWarningTelegram>();
-      for (const [type, s] of statusMap) {
-        if (type !== 'VPWS50') {
-          const indReception = findTelegramReceptionById(connection, s.receptionId);
-          if (indReception?.rawBody) {
-            const indParse = parseWarningTelegram(indReception.rawBody, indReception, targetArea);
-            if (indParse.ok) {
-              if (indParse.value.infoType === '取消') {
-                cancelledMap.set(type as IndividualWarningTelegramType, indParse.value);
-              } else {
-                individualMap.set(type as IndividualWarningTelegramType, indParse.value);
-              }
-            }
-          }
-        }
-      }
-
-      // 現況合成
-      let reduction: WarningCurrentReductionResult;
-      if (vpws50Parsed.infoType === '取消') {
-        // H1 / §4.6.1: VPWS50 取消時は現況を空にする
-        reduction = {
-          items: [],
-          contributingTelegramTypes: ['VPWS50'],
-        };
-      } else {
-        reduction = reduceWarningCurrent(vpws50Parsed, individualMap, cancelledMap);
-      }
-
-      // メタ情報構成
-      const contributingStreams: Array<{
-        telegramType: WarningTelegramType;
-        reportDateTime: string;
-        controlDateTime: string;
-        contentHash: string;
-        receivedAt: string;
-        infoType: string | null;
-        eventId: string | null;
-      }> = [];
-
-      for (const type of reduction.contributingTelegramTypes) {
-        const s = statusMap.get(type);
-        if (s) {
-          const telegramParsed =
-            type === 'VPWS50'
-              ? vpws50Parsed
-              : (individualMap.get(type as IndividualWarningTelegramType) ??
-                cancelledMap.get(type as IndividualWarningTelegramType));
-          contributingStreams.push({
-            telegramType: type,
-            reportDateTime: s.reportDateTime,
-            controlDateTime: s.controlDateTime,
-            contentHash: s.contentHash,
-            receivedAt: s.receivedAt,
-            infoType: telegramParsed?.infoType ?? null,
-            eventId: telegramParsed?.eventId ?? null,
-          });
-        }
-      }
-
-      const sourceVersion = computeSourceVersion(contributingStreams);
-
-      const baseReportDateTime =
-        contributingStreams[0]?.reportDateTime ?? vpws50StreamInput.reportDateTime;
-      const maxReportDateTime = contributingStreams.reduce(
-        (max, s) => (s.reportDateTime > max ? s.reportDateTime : max),
-        baseReportDateTime,
-      );
-      const baseReceivedAt = contributingStreams[0]?.receivedAt ?? vpws50StreamInput.receivedAt;
-      const maxReceivedAt = contributingStreams.reduce(
-        (max, s) => (s.receivedAt > max ? s.receivedAt : max),
-        baseReceivedAt,
-      );
-
-      const candidates = contributingStreams.filter((s) => s.reportDateTime === maxReportDateTime);
-      const streamOrder: readonly WarningTelegramType[] = [
-        'VPWS50',
-        ...INDIVIDUAL_WARNING_TELEGRAM_TYPES,
-      ];
-      candidates.sort(
-        (a, b) => streamOrder.indexOf(a.telegramType) - streamOrder.indexOf(b.telegramType),
-      );
-      const primaryMeta = candidates.at(-1) ?? contributingStreams[0]!;
-
-      const existingSnapshot = findWarningCurrentSnapshot(
-        connection,
-        targetArea.municipalCode,
-        status,
-      );
-      const beforeItems = existingSnapshot ? existingSnapshot.items : [];
-      const changes = diffWarningCurrent(beforeItems, reduction.items);
-
-      const snapshot = saveWarningCurrentSnapshot(connection, {
-        areaCode: targetArea.municipalCode,
-        areaName: targetArea.displayName,
-        metadata: {
-          source: 'jma_xml_warning_current',
-          issuedAt: maxReportDateTime,
-          validAt: null,
-          validFrom: null,
-          validTo: null,
-          fetchedAt: maxReceivedAt,
-          lastSuccessAt: maxReceivedAt,
-          availability: 'available',
-          sourceVersion,
-        },
-        telegram: {
-          controlStatus: status,
-          infoType: primaryMeta.infoType ?? '発表',
-          eventId: primaryMeta.eventId ?? null,
-          reportDateTime: maxReportDateTime,
-          controlDateTime: primaryMeta.controlDateTime,
-        },
-        items: reduction.items,
-      });
-
-      if (status === 'normal') {
-        const normalizedInfoType =
-          primaryMeta.infoType === '訂正' || primaryMeta.infoType === '取消'
-            ? primaryMeta.infoType
-            : '発表';
-        normalResult = {
-          applied: true,
-          origin: existingSnapshot ? 'normal' : 'initial',
-          snapshot,
-          changes,
-          infoType: normalizedInfoType,
-        };
-      }
-    }
-
-    return normalResult;
-  });
-
-  return transaction();
-}
-
 export interface WarningCurrentRecoveryOptions {
   readonly yieldEveryParsedReceptions: number;
   readonly candidatePageSize?: number;
@@ -751,15 +459,15 @@ class RecoveryValidationRollback extends Error {
   }
 }
 
-function validateSavedRecoveryStatus(
+async function validateSavedRecoveryStatus(
   connection: DatabaseConnection,
   targetArea: WarningCurrentTargetArea,
   status: ControlStatus,
-  onParsed: () => void,
-): {
+  onParsed: () => Promise<void>,
+): Promise<{
   readonly valid: boolean;
   readonly selected: Map<WarningTelegramType, WarningCurrentStreamInput>;
-} {
+}> {
   const streams = listWarningCurrentStreams(
     connection,
     targetArea.prefectureCode,
@@ -779,7 +487,7 @@ function validateSavedRecoveryStatus(
       return { valid: false, selected };
     }
     const parsed = parseWarningTelegram(reception.rawBody, reception, targetArea);
-    onParsed();
+    await onParsed();
     if (
       !parsed.ok ||
       parsed.value.controlStatus !== status ||
@@ -854,13 +562,15 @@ export async function recoverWarningCurrent(
       parsedReceptionCount,
       reused: null,
     });
-    const validation = validateSavedRecoveryStatus(
+    const validation = await validateSavedRecoveryStatus(
       connection,
       venue.targetArea,
       status,
-      countParsed,
+      async () => {
+        countParsed();
+        await maybeYield();
+      },
     );
-    await maybeYield();
     if (validation.valid && validation.selected.size > 0) {
       results.push({
         controlStatus: status,

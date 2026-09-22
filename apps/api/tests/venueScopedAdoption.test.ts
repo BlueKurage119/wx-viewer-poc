@@ -21,7 +21,7 @@ import {
   processWarningTelegramReception,
   reprocessPendingWarningTelegramReceptions,
 } from '../src/polling/jmaWarningTelegramProcessor.js';
-import { rebuildWarningCurrentFromReceptions } from '../src/polling/jmaWarningCurrentProcessor.js';
+import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
@@ -346,7 +346,7 @@ test('§7-6 起動時の冪等性: 再処理＋再構築を2回実行しても�
           venue,
           () => '2026-09-09T00:01:00.000Z',
         );
-        rebuildWarningCurrentFromReceptions(db.connection, venue.targetArea);
+        await recoverWarningCurrent(db.connection, venue, { yieldEveryParsedReceptions: 25 });
       }
 
       const receptionCount1 = listTelegramReceptions(db.connection).length;
@@ -371,7 +371,7 @@ test('§7-6 起動時の冪等性: 再処理＋再構築を2回実行しても�
           venue,
           () => '2026-09-09T00:02:00.000Z',
         );
-        rebuildWarningCurrentFromReceptions(db.connection, venue.targetArea);
+        await recoverWarningCurrent(db.connection, venue, { yieldEveryParsedReceptions: 25 });
       }
 
       const receptionCount2 = listTelegramReceptions(db.connection).length;

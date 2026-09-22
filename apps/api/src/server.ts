@@ -168,6 +168,7 @@ export function createStartupNotificationRuntime(
   const recoverVenue = async (
     venue: ReturnType<typeof resolveVenueWarningContext>,
     config: PollingScheduleConfig['startupRecovery'],
+    afterStarted?: () => Promise<void>,
   ) => {
     const startedAt = clock() as UtcIso8601String;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -193,6 +194,7 @@ export function createStartupNotificationRuntime(
           rejectDelay(error);
         }
       }, config.delayedThresholdSeconds * 1000);
+      await afterStarted?.();
       const result = await Promise.race([
         runRecovery(connection, venue, {
           yieldEveryParsedReceptions: config.yieldEveryParsedReceptions,
@@ -511,16 +513,17 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
           if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection);
           for (const venueId of hasWarningRecoveryTables(database.connection) ? VENUE_IDS : []) {
             const venue = resolveVenueWarningContext(venueId);
-            if (enablePolling) {
-              await reprocessPendingWarningTelegramReceptions(
-                database.connection,
-                venue,
-                clock,
-                startupRuntime.warningEmitDeps,
-                { logger: console.log, progressTracker: startupRuntime.progressTracker },
-              );
-            }
-            await startupRuntime.recoverVenue(venue, schedule.startupRecovery);
+            await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
+              if (enablePolling) {
+                await reprocessPendingWarningTelegramReceptions(
+                  database.connection,
+                  venue,
+                  clock,
+                  startupRuntime.warningEmitDeps,
+                  { logger: console.log, progressTracker: startupRuntime.progressTracker },
+                );
+              }
+            });
             emitInitialWarningNotifications(
               database.connection,
               venue.targetArea,
@@ -881,19 +884,20 @@ async function main(): Promise<void> {
         return;
       }
       const venue = resolveVenueWarningContext(venueId);
-      if (enablePolling) {
-        await reprocessPendingWarningTelegramReceptions(
-          database.connection,
-          venue,
-          clock,
-          startupRuntime.warningEmitDeps,
-          { logger: console.log, progressTracker: startupRuntime.progressTracker },
-        );
-      }
-      if (closed) {
-        return;
-      }
-      await startupRuntime.recoverVenue(venue, schedule.startupRecovery);
+      await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
+        if (enablePolling) {
+          await reprocessPendingWarningTelegramReceptions(
+            database.connection,
+            venue,
+            clock,
+            startupRuntime.warningEmitDeps,
+            { logger: console.log, progressTracker: startupRuntime.progressTracker },
+          );
+        }
+        if (closed) {
+          throw new Error('DB復旧中にサーバー停止が要求されました');
+        }
+      });
       emitInitialWarningNotifications(
         database.connection,
         venue.targetArea,

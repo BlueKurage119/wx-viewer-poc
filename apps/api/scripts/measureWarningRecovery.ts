@@ -1,11 +1,19 @@
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpus, freemem, totalmem, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { initializeDatabase } from '../src/database/index.js';
 import { startServer } from '../src/server.js';
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
+import { applyWarningCurrentReception } from '../src/polling/jmaWarningCurrentProcessor.js';
+import { parseWarningTelegram } from '../src/polling/jmaWarningTelegramParser.js';
+import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
+import {
+  deleteWarningCurrentSnapshot,
+  deleteWarningCurrentStreams,
+  findTelegramReceptionById,
+} from '../src/repositories/index.js';
 
 const rowCount = Number(process.argv[2] ?? 50000);
 if (!Number.isSafeInteger(rowCount) || rowCount < 1)
@@ -17,29 +25,111 @@ const databasePath = join(directory, 'benchmark.sqlite3');
 const port = 32000 + Math.floor(Math.random() * 1000);
 const context = initializeDatabase({ databasePath, migrationsDirectory });
 
-const rawBody = `<?xml version="1.0"?><Report xmlns="http://xml.kishou.go.jp/jmaxml1/"><Control><Title>気象警報・注意報</Title><DateTime>2026-09-01T00:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁本庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control><Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都気象警報・注意報</Title><ReportDateTime>2026-09-01T00:00:00Z</ReportDateTime><TargetDateTime>2026-09-01T00:00:00Z</TargetDateTime><EventID>BENCH</EventID><InfoType>発表</InfoType><Serial>1</Serial><InfoKind>気象警報・注意報</InfoKind><InfoKindVersion>1.0_1</InfoKindVersion><Headline><Text>benchmark</Text></Headline></Head><Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/"><Warning type="気象警報・注意報（市町村等）"><Item><Area><Name>札幌市</Name><Code>0110000</Code></Area><Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status></Kind></Item></Warning></Body></Report>`;
-const hash = crypto.createHash('sha256').update(rawBody).digest('hex');
+const rawBodyTemplate = `<?xml version="1.0"?><Report xmlns="http://xml.kishou.go.jp/jmaxml1/"><Control><Title>気象警報・注意報</Title><DateTime>__DATETIME__</DateTime><Status>通常</Status><EditorialOffice>気象庁本庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control><Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都気象警報・注意報</Title><ReportDateTime>__DATETIME__</ReportDateTime><TargetDateTime>__DATETIME__</TargetDateTime><EventID>BENCH</EventID><InfoType>発表</InfoType><Serial>1</Serial><InfoKind>気象警報・注意報</InfoKind><InfoKindVersion>1.0_1</InfoKindVersion><Headline><Text>benchmark</Text></Headline></Head><Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/"><Warning type="気象警報・注意報（市町村等）"><Item><Area><Name>__AREA_NAME__</Name><Code>__AREA_CODE__</Code></Area><Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status></Kind></Item></Warning></Body></Report>`;
 const insert = context.connection.prepare(`INSERT INTO telegram_reception (
   fetch_attempt_id, feed_kind, feed_entry_id, document_url, telegram_type, title,
   control_status, info_type, event_id, serial, control_datetime, report_datetime,
   target_datetime, received_at, raw_body, body_bytes, content_hash
 ) VALUES (NULL, 'extra', ?, ?, 'VPWS50', 'benchmark', 'normal', '発表', 'BENCH', '1',
-  '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z',
-  '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z', ?, ?, ?)`);
+  ?, ?, ?, ?, ?, ?, ?)`);
 context.connection.transaction(() => {
-  for (let i = 0; i < rowCount; i += 1)
+  for (let i = 0; i < rowCount; i += 1) {
+    const dateTime = new Date(Date.UTC(2026, 8, 1) + i * 1000).toISOString();
+    const east = i % 2 === 0;
+    const sentinel = rowCount > 5000 && i >= rowCount - 2500;
+    const rawBody = rawBodyTemplate
+      .replaceAll('__DATETIME__', dateTime)
+      .replace('__AREA_NAME__', sentinel ? '対象外' : east ? '江東区' : '大田区')
+      .replace('__AREA_CODE__', sentinel ? '9999999' : east ? '1310800' : '1311100');
+    const hash = crypto.createHash('sha256').update(rawBody).digest('hex');
     insert.run(
       `bench-${i}`,
       `https://example.invalid/${i}`,
+      dateTime,
+      dateTime,
+      dateTime,
+      dateTime,
       rawBody,
       Buffer.byteLength(rawBody),
       hash,
     );
+  }
 })();
+
+const dumpCurrent = () =>
+  JSON.stringify({
+    streams: context.connection
+      .prepare(
+        `SELECT prefecture_code, area_code, control_status, telegram_type,
+         report_datetime, control_datetime, received_at, content_hash
+         FROM warning_current_stream ORDER BY prefecture_code, area_code, control_status, telegram_type`,
+      )
+      .all(),
+    snapshots: context.connection
+      .prepare(
+        `SELECT area_code, area_name, control_status, info_type, event_id, report_datetime,
+         control_datetime, source, issued_at, valid_at, valid_from, valid_to, fetched_at,
+         last_success_at, availability, source_version
+         FROM warning_current_snapshot ORDER BY area_code, control_status`,
+      )
+      .all(),
+    items: context.connection
+      .prepare(
+        `SELECT s.area_code, s.control_status, i.sequence, i.kind_code, i.kind_name,
+         i.kind_status, i.last_kind_code, i.last_kind_name, i.significancy_code,
+         i.significancy_name, i.warning_level, i.attention_text, i.kind_issued_at,
+         i.source_telegram FROM warning_current_item i
+         JOIN warning_current_snapshot s ON s.id = i.snapshot_id
+         ORDER BY s.area_code, s.control_status, i.sequence`,
+      )
+      .all(),
+  });
+
+// e9d312e時点の全履歴復旧と同じく、全警報原文を古い順に解析・適用する比較基準。
+const baselineStartedAt = performance.now();
+let baselineParsedReceptionCount = 0;
+for (const venueId of ['east', 'trc'] as const) {
+  const venue = resolveVenueWarningContext(venueId);
+  const ids = context.connection
+    .prepare(
+      `SELECT id FROM telegram_reception
+       WHERE raw_body IS NOT NULL AND report_datetime IS NOT NULL AND control_datetime IS NOT NULL
+       ORDER BY report_datetime ASC, control_datetime ASC, id ASC`,
+    )
+    .all() as Array<{ id: number }>;
+  for (const { id } of ids) {
+    const reception = findTelegramReceptionById(context.connection, id)!;
+    baselineParsedReceptionCount += 1;
+    const parsed = parseWarningTelegram(reception.rawBody!, reception, venue.targetArea);
+    if (parsed.ok)
+      applyWarningCurrentReception(context.connection, reception, parsed.value, venue.targetArea);
+  }
+}
+const baselineWallMs = performance.now() - baselineStartedAt;
+const baselineDump = dumpCurrent();
+for (const venueId of ['east', 'trc'] as const) {
+  const target = resolveVenueWarningContext(venueId).targetArea;
+  for (const status of ['normal', 'training', 'test'] as const) {
+    deleteWarningCurrentStreams(
+      context.connection,
+      target.prefectureCode,
+      target.municipalCode,
+      status,
+    );
+    deleteWarningCurrentSnapshot(context.connection, target.municipalCode, status);
+  }
+}
+const receptionDistribution = context.connection
+  .prepare(
+    `SELECT control_status AS controlStatus, telegram_type AS telegramType, COUNT(*) AS count
+     FROM telegram_reception GROUP BY control_status, telegram_type ORDER BY control_status, telegram_type`,
+  )
+  .all();
 context.close();
 
 const recoveryResults: Array<{ venueId: string; elapsedMs: number; parsedReceptionCount: number }> =
   [];
+let optimizedYieldCount = 0;
 let completed = false;
 const startedAt = performance.now();
 const startedPromise = startServer({
@@ -48,7 +138,13 @@ const startedPromise = startServer({
   enablePolling: false,
   recoveryInternals: {
     recover: async (connection, venue, options) => {
-      const result = await recoverWarningCurrent(connection, venue, options);
+      const result = await recoverWarningCurrent(connection, venue, {
+        ...options,
+        yieldControl: async () => {
+          optimizedYieldCount += 1;
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        },
+      });
       recoveryResults.push({
         venueId: result.venueId,
         elapsedMs: result.elapsedMs,
@@ -85,21 +181,66 @@ try {
     if (!health.ok || !monitoring.ok)
       throw new Error(`HTTP失敗: health=${health.status}, monitoring=${monitoring.status}`);
     samples.push({ healthMs, monitoringMs });
-    await sleep(1000);
+    await sleep(10);
   }
   const server = await startedPromise;
   await server.close();
+  const verify = initializeDatabase({ databasePath, migrationsDirectory });
+  const optimizedDump = JSON.stringify({
+    streams: verify.connection
+      .prepare(
+        `SELECT prefecture_code, area_code, control_status, telegram_type,
+         report_datetime, control_datetime, received_at, content_hash
+         FROM warning_current_stream ORDER BY prefecture_code, area_code, control_status, telegram_type`,
+      )
+      .all(),
+    snapshots: verify.connection
+      .prepare(
+        `SELECT area_code, area_name, control_status, info_type, event_id, report_datetime,
+         control_datetime, source, issued_at, valid_at, valid_from, valid_to, fetched_at,
+         last_success_at, availability, source_version
+         FROM warning_current_snapshot ORDER BY area_code, control_status`,
+      )
+      .all(),
+    items: verify.connection
+      .prepare(
+        `SELECT s.area_code, s.control_status, i.sequence, i.kind_code, i.kind_name,
+         i.kind_status, i.last_kind_code, i.last_kind_name, i.significancy_code,
+         i.significancy_name, i.warning_level, i.attention_text, i.kind_issued_at,
+         i.source_telegram FROM warning_current_item i
+         JOIN warning_current_snapshot s ON s.id = i.snapshot_id
+         ORDER BY s.area_code, s.control_status, i.sequence`,
+      )
+      .all(),
+  });
+  verify.close();
+  const cpuUsage = process.cpuUsage();
   const report = {
     executedAt: new Date().toISOString(),
     platform: process.platform,
     arch: process.arch,
     node: process.version,
-    cpu: process.env.PROCESSOR_IDENTIFIER ?? 'see host system profile',
+    cpu: cpus()[0]?.model ?? 'unknown',
+    logicalCpuCount: cpus().length,
+    totalMemoryBytes: totalmem(),
+    freeMemoryBytesAtEnd: freemem(),
+    processMaxRssKb: process.resourceUsage().maxRSS,
+    processCpuUserMs: cpuUsage.user / 1000,
+    processCpuSystemMs: cpuUsage.system / 1000,
     rowCount,
-    rawBodyBytes: Buffer.byteLength(rawBody),
+    rawBodyBytes: Buffer.byteLength(rawBodyTemplate),
     databaseBytes: statSync(databasePath).size,
+    receptionDistribution,
+    baselineWallMs,
+    baselineParsedReceptionCount,
     totalRecoveryWallMs: performance.now() - startedAt,
     recoveryResults,
+    optimizedCandidateParsedCount: recoveryResults.reduce(
+      (total, result) => total + result.parsedReceptionCount,
+      0,
+    ),
+    optimizedYieldCount,
+    recoveryStateMatchesBaseline: optimizedDump === baselineDump,
     sampleCount: samples.length,
     healthMaxMs: Math.max(...samples.map((s) => s.healthMs)),
     monitoringMaxMs: Math.max(...samples.map((s) => s.monitoringMs)),

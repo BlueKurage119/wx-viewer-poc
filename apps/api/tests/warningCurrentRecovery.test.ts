@@ -42,6 +42,8 @@ function buildXml(input: {
   kindsXml: string;
   controlStatus?: 'normal' | 'training' | 'test';
   infoType?: string;
+  areaCode?: string;
+  areaName?: string;
 }): string {
   const status =
     input.controlStatus === 'training' ? '訓練' : input.controlStatus === 'test' ? '試験' : '通常';
@@ -49,7 +51,7 @@ function buildXml(input: {
 <Report xmlns="http://xml.kishou.go.jp/jmaxml1/">
   <Control><Title>気象警報・注意報</Title><DateTime>${input.reportDateTime}</DateTime><Status>${status}</Status><EditorialOffice>気象庁本庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control>
   <Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都気象警報・注意報</Title><ReportDateTime>${input.reportDateTime}</ReportDateTime><TargetDateTime>${input.reportDateTime}</TargetDateTime><EventID>EVENT1</EventID><InfoType>${input.infoType ?? '発表'}</InfoType><Serial>1</Serial><InfoKind>気象警報・注意報</InfoKind><InfoKindVersion>1.0_1</InfoKindVersion><Headline><Text>警報・注意報</Text></Headline></Head>
-  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/"><Warning type="気象警報・注意報（市町村等）"><Item><Area><Name>江東区</Name><Code>1310800</Code></Area>${input.kindsXml}</Item></Warning></Body>
+  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/"><Warning type="気象警報・注意報（市町村等）"><Item><Area><Name>${input.areaName ?? '江東区'}</Name><Code>${input.areaCode ?? '1310800'}</Code></Area>${input.kindsXml}</Item></Warning></Body>
 </Report>`;
 }
 
@@ -62,6 +64,9 @@ function save(input: {
   infoType?: string;
   apply?: boolean;
   urlSuffix?: string;
+  areaCode?: string;
+  areaName?: string;
+  expectParse?: boolean;
 }) {
   const rawBody = buildXml(input);
   const contentHash = crypto.createHash('sha256').update(rawBody).digest('hex');
@@ -86,15 +91,15 @@ function save(input: {
     contentHash,
     areas: [
       {
-        areaCode: '1310800',
-        areaName: '江東区',
+        areaCode: input.areaCode ?? '1310800',
+        areaName: input.areaName ?? '江東区',
         codeType: '気象警報・注意報（市町村等）',
         sequence: 1,
       },
     ],
   });
   const parsed = parseWarningTelegram(rawBody, reception, venue.targetArea);
-  assert.equal(parsed.ok, true);
+  if (input.expectParse !== false) assert.equal(parsed.ok, true);
   if (parsed.ok && input.apply !== false) {
     applyWarningCurrentReception(input.connection, reception, parsed.value, venue.targetArea);
   }
@@ -122,22 +127,55 @@ function logicalSnapshot(
   };
 }
 
-test('AC1: 整合した保存済み状態は履歴探索せず再利用する', async () => {
+function recoveryDump(connection: ReturnType<typeof initializeDatabase>['connection']) {
+  return {
+    streams: connection.prepare('SELECT * FROM warning_current_stream ORDER BY id').all(),
+    snapshots: connection.prepare('SELECT * FROM warning_current_snapshot ORDER BY id').all(),
+    items: connection.prepare('SELECT * FROM warning_current_item ORDER BY id').all(),
+  };
+}
+
+test('AC1: 3 statusの整合した保存済み状態は候補探索せず完全再利用し、DB dumpも不変', async () => {
   const { connection, cleanup } = createTempDb();
   try {
-    const reception = save({
-      connection,
-      telegramType: 'VPWS50',
-      reportDateTime: '2026-09-09T01:00:00.000Z',
-      kindsXml: rainAdvisory,
-    });
+    const receptions = (['normal', 'training', 'test'] as const).map((controlStatus) =>
+      save({
+        connection,
+        telegramType: 'VPWS50',
+        reportDateTime: '2026-09-09T01:00:00.000Z',
+        kindsXml: rainAdvisory,
+        controlStatus,
+      }),
+    );
+    const before = recoveryDump(connection);
+    const phases: string[] = [];
+    let validationYieldCount = 0;
     const result = await recoverWarningCurrent(connection, venue, {
-      yieldEveryParsedReceptions: 100,
+      yieldEveryParsedReceptions: 1,
+      yieldControl: async () => {
+        validationYieldCount += 1;
+      },
+      onProgress: ({ phase }) => phases.push(phase),
     });
-    const normal = result.statuses.find((entry) => entry.controlStatus === 'normal')!;
-    assert.equal(normal.outcome, 'reused');
-    assert.deepEqual(normal.selectedReceptionIds, [reception.id]);
-    assert.equal(normal.parsedReceptionCount, 1);
+    assert.deepEqual(
+      result.statuses.map(({ controlStatus, outcome, selectedReceptionIds }) => ({
+        controlStatus,
+        outcome,
+        selectedReceptionIds,
+      })),
+      receptions.map((reception, index) => ({
+        controlStatus: (['normal', 'training', 'test'] as const)[index],
+        outcome: 'reused',
+        selectedReceptionIds: [reception.id],
+      })),
+    );
+    assert.equal(result.parsedReceptionCount, 3);
+    assert.ok(
+      validationYieldCount >= 6,
+      `保存済み解析3回とstatus境界3回以上のyieldを期待: ${validationYieldCount}`,
+    );
+    assert.equal(phases.includes('searching'), false, '候補探索は0回');
+    assert.deepEqual(recoveryDump(connection), before);
   } finally {
     cleanup();
   }
@@ -252,6 +290,30 @@ test('AC6: VPWS50がないstatusは個別ストリームを保持したuninitial
   }
 });
 
+test('AC6: 保存状態も受信履歴も全欠損なら3 statusすべてuninitializedになる', async () => {
+  const { connection, cleanup } = createTempDb();
+  try {
+    const result = await recoverWarningCurrent(connection, venue, {
+      yieldEveryParsedReceptions: 25,
+    });
+    assert.deepEqual(
+      result.statuses.map(({ controlStatus, outcome, selectedReceptionIds }) => ({
+        controlStatus,
+        outcome,
+        selectedReceptionIds,
+      })),
+      (['normal', 'training', 'test'] as const).map((controlStatus) => ({
+        controlStatus,
+        outcome: 'uninitialized',
+        selectedReceptionIds: [],
+      })),
+    );
+    assert.deepEqual(recoveryDump(connection), { streams: [], snapshots: [], items: [] });
+  } finally {
+    cleanup();
+  }
+});
+
 test('AC7: 探索中の同版競合では対象statusを書き換えない', async () => {
   const { connection, cleanup } = createTempDb();
   try {
@@ -299,24 +361,91 @@ test('AC7: 探索中の同版競合では対象statusを書き換えない', asy
   }
 });
 
-test('AC7: XML解析件数の閾値とcontrolStatus境界でイベントループへ制御を返す', async () => {
+test('AC7: 251件の候補を25件ずつ解析して10回以上イベントループへ制御を返す', async () => {
   const { connection, cleanup } = createTempDb();
   try {
+    for (let index = 0; index < 250; index += 1) {
+      save({
+        connection,
+        telegramType: 'VPWS50',
+        reportDateTime: new Date(Date.UTC(2026, 8, 10, 0, 0, 0) - index * 1_000).toISOString(),
+        kindsXml: rainAdvisory,
+        apply: false,
+        areaCode: '9999999',
+        areaName: '対象外',
+        expectParse: false,
+        urlSuffix: `outside-${index}`,
+      });
+    }
     save({
       connection,
       telegramType: 'VPWS50',
-      reportDateTime: '2026-09-09T01:00:00.000Z',
+      reportDateTime: '2026-09-09T00:00:00.000Z',
       kindsXml: rainAdvisory,
+      apply: false,
+      urlSuffix: 'target',
     });
     let yieldCount = 0;
-    await recoverWarningCurrent(connection, venue, {
-      yieldEveryParsedReceptions: 1,
+    const result = await recoverWarningCurrent(connection, venue, {
+      yieldEveryParsedReceptions: 25,
+      candidatePageSize: 25,
       yieldControl: async () => {
         yieldCount += 1;
       },
     });
-    assert.ok(yieldCount >= 4, `解析閾値1回と3 status境界以上のyieldを期待: ${yieldCount}`);
+    assert.equal(result.statuses[0]?.parsedReceptionCount, 251);
+    assert.ok(yieldCount >= 10, `25件ごとに10回以上のyieldを期待: ${yieldCount}`);
   } finally {
     cleanup();
+  }
+});
+
+test('AC7: commit中の例外はstatus全体をrollbackし、DB再起動後に再復旧できる', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-recovery-rollback-'));
+  const databasePath = join(directory, 'test.sqlite3');
+  let context = initializeDatabase({ databasePath, migrationsDirectory });
+  try {
+    save({
+      connection: context.connection,
+      telegramType: 'VPWS50',
+      reportDateTime: '2026-09-09T01:00:00.000Z',
+      kindsXml: rainAdvisory,
+    });
+    context.connection
+      .prepare(
+        "UPDATE warning_current_stream SET content_hash = 'broken' WHERE control_status = 'normal'",
+      )
+      .run();
+    const before = recoveryDump(context.connection);
+    context.connection.exec(`
+      CREATE TRIGGER fail_warning_recovery_insert
+      BEFORE INSERT ON warning_current_stream
+      BEGIN
+        SELECT RAISE(ABORT, 'injected recovery failure');
+      END
+    `);
+
+    await assert.rejects(
+      recoverWarningCurrent(context.connection, venue, { yieldEveryParsedReceptions: 25 }),
+      /injected recovery failure/,
+    );
+    assert.deepEqual(recoveryDump(context.connection), before);
+
+    context.close();
+    context = initializeDatabase({ databasePath, migrationsDirectory });
+    assert.deepEqual(recoveryDump(context.connection), before, '再起動後も中間状態を残さない');
+    context.connection.exec('DROP TRIGGER fail_warning_recovery_insert');
+    const result = await recoverWarningCurrent(context.connection, venue, {
+      yieldEveryParsedReceptions: 25,
+    });
+    assert.equal(result.statuses[0]?.outcome, 'rebuilt');
+    assert.equal(
+      listWarningCurrentStreams(context.connection, '130000', '1310800', 'normal')[0]
+        ?.contentHash === 'broken',
+      false,
+    );
+  } finally {
+    context.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });

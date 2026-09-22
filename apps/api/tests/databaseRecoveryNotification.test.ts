@@ -96,10 +96,35 @@ test('復旧候補SQLは部分複合索引を使用し、一時B-treeを作ら�
     migrationsDirectory,
   });
   try {
+    context.connection.exec(`
+      WITH RECURSIVE fixture(n) AS (
+        SELECT 1 UNION ALL SELECT n + 1 FROM fixture WHERE n < 1000
+      )
+      INSERT INTO telegram_reception (
+        document_url, telegram_type, control_status, control_datetime, report_datetime,
+        received_at, raw_body
+      )
+      SELECT 'https://example.invalid/' || n, 'VPWS50', 'normal',
+        printf('2026-09-22T00:%02d:00.000Z', n % 60),
+        printf('2026-09-22T00:%02d:00.000Z', n % 60),
+        '2026-09-22T00:00:00.000Z', '<Report />'
+      FROM fixture;
+      WITH RECURSIVE excluded(n) AS (
+        SELECT 1 UNION ALL SELECT n + 1 FROM excluded WHERE n < 10000
+      )
+      INSERT INTO telegram_reception (
+        document_url, telegram_type, control_status, control_datetime, report_datetime, received_at
+      )
+      SELECT 'https://example.invalid/excluded/' || n, 'VPWS50', 'normal',
+        '2026-09-22T00:00:00.000Z', '2026-09-22T00:00:00.000Z',
+        '2026-09-22T00:00:00.000Z'
+      FROM excluded;
+      ANALYZE;
+    `);
     const plan = context.connection
       .prepare(
         `EXPLAIN QUERY PLAN
-      SELECT id FROM telegram_reception INDEXED BY idx_telegram_reception_warning_recovery
+      SELECT id FROM telegram_reception
       WHERE telegram_type = ? AND control_status = ?
         AND raw_body IS NOT NULL AND report_datetime IS NOT NULL AND control_datetime IS NOT NULL
       ORDER BY report_datetime DESC, control_datetime DESC, id DESC LIMIT ?`,
@@ -108,6 +133,7 @@ test('復旧候補SQLは部分複合索引を使用し、一時B-treeを作ら�
     assert.equal(
       plan.some((row) => row.detail.includes('idx_telegram_reception_warning_recovery')),
       true,
+      JSON.stringify(plan),
     );
     assert.equal(
       plan.some((row) => row.detail.includes('USE TEMP B-TREE')),

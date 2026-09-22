@@ -13,7 +13,7 @@ import {
   recordTelegramReception,
   type TelegramReception,
 } from '../src/repositories/index.js';
-import { rebuildWarningCurrentFromReceptions } from '../src/polling/jmaWarningCurrentProcessor.js';
+import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 import {
   InitialWarningNotificationTracker,
@@ -191,7 +191,7 @@ function createFetchSourceResult(
   };
 }
 
-test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検知文脈の直交性 (AC1〜AC5)', () => {
+test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検知文脈の直交性 (AC1〜AC5)', async () => {
   const { connection, cleanup } = createTempDb();
   try {
     // 1. D4 気象初期復旧経路の実行 (weather + initial)
@@ -206,7 +206,7 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
       { receivedAt: '2026-09-12T00:50:05.000Z' },
     );
 
-    rebuildWarningCurrentFromReceptions(connection, EAST_VENUE.targetArea);
+    await recoverWarningCurrent(connection, EAST_VENUE, { yieldEveryParsedReceptions: 25 });
 
     const weatherTracker = new InitialWarningNotificationTracker();
     const weatherEmitDeps: WarningNotificationEmitDeps = {
