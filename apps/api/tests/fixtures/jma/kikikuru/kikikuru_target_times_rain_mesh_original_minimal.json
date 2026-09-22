@@ -1,0 +1,18 @@
+[
+  {
+    "basetime": "20260922023000",
+    "validtime": "20260922023000",
+    "member": "immed0",
+    "elements": [
+      "land",
+      "inund",
+      "flood_mesh",
+      "rain_mesh",
+      "flood",
+      "designated_river",
+      "inland_flood",
+      "designated_river_nation",
+      "flood_riskline"
+    ]
+  }
+]

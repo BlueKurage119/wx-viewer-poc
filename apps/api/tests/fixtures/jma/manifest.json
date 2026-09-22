@@ -322,11 +322,23 @@
       "sourceUrl": "https://www.jma.go.jp/bosai/jmatile/data/risk/targetTimes.json",
       "sourceFileName": "targetTimes.json",
       "sourceSha256": null,
-      "fixtureSha256": "a28528d9722c277d2654f03b839d95395bdba9fd56aaeb2cbcd517d8d91ca2ac",
-      "transform": "3レイヤー混在、複数member(immed0/immed1/none)、重複行、対象外elementを含む合成データ",
+      "fixtureSha256": "fc6f0b2bab8dc616fc1b2f5992e37a3eba737ebf69ec599331af672c0351fad5",
+      "transform": "上流 element rain_mesh / inund / land の3レイヤー混在、複数member(immed0/immed1/none)、重複行、対象外elementを含む合成データ",
       "editor": "Antigravity (Gemini 3.8 Flash)",
       "retrievedAt": "2026-09-12T02:50:00+09:00",
       "purpose": "キキクル時刻一覧の3レイヤーフレーム抽出・重複除去・member維持・並び順のパース検証用合成データ"
+    },
+    {
+      "path": "kikikuru/kikikuru_target_times_rain_mesh_original_minimal.json",
+      "kind": "derived",
+      "sourceUrl": "https://www.jma.go.jp/bosai/jmatile/data/risk/targetTimes.json",
+      "sourceFileName": "targetTimes.json",
+      "sourceSha256": "f5b44a3521872cf8521ca3fcbb62ac58024bf016f4b1b17a454766903e7e4e3a",
+      "fixtureSha256": "2c30b1752316b244494131ef8fd5dac9e26c168b6bdb3367a96830341d3a2914",
+      "transform": "取得原文から rain_mesh / inund / land を含む代表1行だけを値変更なしで抽出",
+      "editor": "Codex (GPT 5.6 Sol)",
+      "retrievedAt": "2026-09-22T02:46:18Z",
+      "purpose": "上流 element rain_mesh を内部 layer heavyrain へ正規化する回帰検証"
     },
     {
       "path": "kikikuru/kikikuru_target_times_empty.json",

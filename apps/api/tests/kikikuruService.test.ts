@@ -25,6 +25,10 @@ const emptyJson = fs.readFileSync(
   path.join(FIXTURES_DIR, 'kikikuru_target_times_empty.json'),
   'utf-8',
 );
+const rainMeshOriginalMinimalJson = fs.readFileSync(
+  path.join(FIXTURES_DIR, 'kikikuru_target_times_rain_mesh_original_minimal.json'),
+  'utf-8',
+);
 
 const defaultPeriod: PollingPeriod = {
   start: '00:00',
@@ -201,7 +205,47 @@ test('1. 初回失敗は unavailable、成功後の一覧失敗は旧フレー�
   }
 });
 
-test('2. 一覧に存在しないフレーム、別レイヤーへ差し替えたキー、未許可ズーム・不正 XYZ を要求しても外部 fetch が0回である', async () => {
+test('2. 正常空の heavyrain snapshot は次回の rain_mesh 一覧更新で available・非空へ自動復旧する', async () => {
+  const { tmpDir, connection, cleanup } = setupTestEnv();
+  try {
+    let currentTime = '2026-09-22T02:40:00.000Z' as UtcIso8601String;
+    let targetTimesJson = emptyJson;
+    const service = new KikikuruService(connection, {
+      cacheRoot: tmpDir,
+      allowedZooms: [10],
+      ...defaultAccessOptions,
+      fetchFn: async () => new Response(targetTimesJson, { status: 200 }),
+      clock: () => currentTime,
+    });
+
+    const emptyCatalog = await service.refreshTimes();
+    assert.strictEqual(emptyCatalog.layers.heavyrain.availability, 'available');
+    assert.strictEqual(emptyCatalog.layers.heavyrain.frames.length, 0);
+
+    currentTime = '2026-09-22T02:41:00.000Z' as UtcIso8601String;
+    targetTimesJson = rainMeshOriginalMinimalJson;
+    const recoveredCatalog = await service.refreshTimes();
+
+    for (const layer of ['heavyrain', 'inund', 'land'] as const) {
+      assert.strictEqual(recoveredCatalog.layers[layer].availability, 'available');
+      assert.strictEqual(recoveredCatalog.layers[layer].frames.length, 1);
+    }
+    assert.deepStrictEqual(recoveredCatalog.layers.heavyrain.frames[0], {
+      layer: 'heavyrain',
+      baseTime: '2026-09-22T02:30:00.000Z',
+      validTime: '2026-09-22T02:30:00.000Z',
+      imageId: 'rain_mesh',
+      member: 'immed0',
+    });
+    const recoveredSnapshot = findRiskSnapshot(connection, 'heavyrain')!;
+    assert.strictEqual(recoveredSnapshot.metadata.lastSuccessAt, '2026-09-22T02:41:00.000Z');
+    assert.strictEqual(recoveredSnapshot.frames.length, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('3. 一覧に存在しないフレーム、別レイヤーへ差し替えたキー、未許可ズーム・不正 XYZ を要求しても外部 fetch が0回である', async () => {
   const { tmpDir, connection, cleanup } = setupTestEnv();
   try {
     const currentTime = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
@@ -284,7 +328,7 @@ test('2. 一覧に存在しないフレーム、別レイヤーへ差し替え�
   }
 });
 
-test('3. 3レイヤーの有効フレームに対する PNG をそれぞれ取得・検証・保存でき、同一座標の2回目はキャッシュを返して外部 fetch を増やさない。同時要求の重複なし', async () => {
+test('4. 3レイヤーの有効フレームに対する PNG をそれぞれ取得・検証・保存でき、同一座標の2回目はキャッシュを返して外部 fetch を増やさない。同時要求の重複なし', async () => {
   const { tmpDir, connection, cleanup } = setupTestEnv();
   try {
     const currentTime = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
@@ -377,7 +421,7 @@ test('3. 3レイヤーの有効フレームに対する PNG をそれぞれ取�
   }
 });
 
-test('4. 一覧更新を跨いでも既存タイルが保持され、一覧から消えたフレームのファイルキャッシュだけが削除される', async () => {
+test('5. 一覧更新を跨いでも既存タイルが保持され、一覧から消えたフレームのファイルキャッシュだけが削除される', async () => {
   const { tmpDir, connection, cleanup } = setupTestEnv();
   try {
     const currentTime = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
@@ -439,7 +483,7 @@ test('4. 一覧更新を跨いでも既存タイルが保持され、一覧か�
   }
 });
 
-test('5. stale の有効フレームは画像許可中にキャッシュミス画像を取得試行（downloaded）、画像停止中は scheduled_stopped。キャッシュありは stale かつ cached で返る', async () => {
+test('6. stale の有効フレームは画像許可中にキャッシュミス画像を取得試行（downloaded）、画像停止中は scheduled_stopped。キャッシュありは stale かつ cached で返る', async () => {
   const { tmpDir, connection, cleanup } = setupTestEnv();
   try {
     let currentTime = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
@@ -530,7 +574,7 @@ test('5. stale の有効フレームは画像許可中にキャッシュミス�
   }
 });
 
-test('6. PNG 以外の本文や HTTP 失敗は保存されない。2 GET 中 1 失敗時は通信履歴 outcome=failure、itemCount=2、failedItemCount=1。完全キャッシュ・空要求は履歴0行', async () => {
+test('7. PNG 以外の本文や HTTP 失敗は保存されない。2 GET 中 1 失敗時は通信履歴 outcome=failure、itemCount=2、failedItemCount=1。完全キャッシュ・空要求は履歴0行', async () => {
   const { tmpDir, connection, cleanup } = setupTestEnv();
   try {
     const currentTime = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
@@ -605,7 +649,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test('7. 制御可能な Promise で一覧更新中のタイル取得を再現し、同一直列化機構により DB が参照するファイルが消えないことを検証', async () => {
+test('8. 制御可能な Promise で一覧更新中のタイル取得を再現し、同一直列化機構により DB が参照するファイルが消えないことを検証', async () => {
   const { tmpDir, connection, cleanup } = setupTestEnv();
   try {
     const currentTime = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
