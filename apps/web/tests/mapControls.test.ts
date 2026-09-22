@@ -227,9 +227,9 @@ test('F5: 出典リンクが国土地理院の地理院タイル一覧へリン�
   assert.ok(html.includes('rel="noreferrer"'));
 });
 
-test('F3: 出典リンクの全状態はPrimary tone 40を使い、既存の下線とフォーカス枠を維持する', () => {
+test('F3: 出典リンクの全状態は既存のinverse primaryを使い、既存の下線とフォーカス枠を維持する', () => {
   const css = readFileSync(new URL('../src/map/map.css', import.meta.url), 'utf8');
-  const tone40 = 'var(--md-sys-color-primary-tone-40)';
+  const inversePrimary = 'var(--md-sys-color-inverse-primary)';
 
   for (const selector of [
     '.attribution-link',
@@ -240,7 +240,9 @@ test('F3: 出典リンクの全状態はPrimary tone 40を使い、既存の下�
     const escapedSelector = selector.replace(/[.:-]/g, '\\$&');
     assert.match(
       css,
-      new RegExp(`${escapedSelector}\\s*\\{[\\s\\S]*?color: ${tone40.replace(/[()]/g, '\\$&')};`),
+      new RegExp(
+        `${escapedSelector}\\s*\\{[^}]*color: ${inversePrimary.replace(/[()]/g, '\\$&')};`,
+      ),
     );
   }
 
