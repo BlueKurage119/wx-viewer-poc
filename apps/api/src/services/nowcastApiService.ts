@@ -11,10 +11,7 @@ import {
   type WeatherMetadata,
 } from '@wx-viewer-poc/shared';
 import type { NowcastService } from '../polling/nowcastService.js';
-import {
-  createStaticTileDeliveryProfileService,
-  type TileDeliveryProfileService,
-} from './tileDeliveryProfileService.js';
+import type { TileDeliveryProfileService } from './tileDeliveryProfileService.js';
 import {
   ImageServicesInitializingError,
   projectUpstreamAccess,
@@ -24,7 +21,7 @@ import {
 export interface NowcastApiServiceDependencies {
   readonly getService: () => NowcastService | null;
   readonly enablePolling: boolean;
-  readonly tileDeliveryProfileService?: TileDeliveryProfileService;
+  readonly tileDeliveryProfileService: TileDeliveryProfileService;
   readonly allowedZooms?: readonly number[];
   readonly clock?: () => UtcIso8601String;
 }
@@ -51,8 +48,7 @@ export function createNowcastApiService(
 ): NowcastApiService {
   const clock = dependencies.clock ?? (() => new Date().toISOString() as UtcIso8601String);
   const allowedZooms = dependencies.allowedZooms ?? TILE_API_ALLOWED_ZOOMS;
-  const tileDeliveryProfileService =
-    dependencies.tileDeliveryProfileService ?? createStaticTileDeliveryProfileService('proxy');
+  const tileDeliveryProfileService = dependencies.tileDeliveryProfileService;
 
   return {
     getTimes(

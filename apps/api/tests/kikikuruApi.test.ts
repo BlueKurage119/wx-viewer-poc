@@ -9,13 +9,27 @@ import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import { openDatabase, runMigrations } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
 import { KikikuruService } from '../src/polling/kikikuruService.js';
-import { createKikikuruApiService } from '../src/services/kikikuruApiService.js';
+import {
+  createKikikuruApiService as createKikikuruApiServiceImpl,
+  type KikikuruApiServiceDependencies,
+} from '../src/services/kikikuruApiService.js';
+import { createStaticTileDeliveryProfileService } from '../src/services/tileDeliveryProfileService.js';
 import { findRiskSnapshot, saveRiskSnapshot } from '../src/repositories/riskRepository.js';
 import type { KikikuruLayer } from '../src/polling/kikikuruTypes.js';
 
 const VALID_1X1_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 const VALID_1X1_PNG = Buffer.from(VALID_1X1_PNG_BASE64, 'base64');
+const proxyProfileService = createStaticTileDeliveryProfileService('proxy');
+
+function createKikikuruApiService(
+  dependencies: Omit<KikikuruApiServiceDependencies, 'tileDeliveryProfileService'>,
+) {
+  return createKikikuruApiServiceImpl({
+    ...dependencies,
+    tileDeliveryProfileService: proxyProfileService,
+  });
+}
 
 const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures/jma/kikikuru');
 const syntheticJson = fs.readFileSync(

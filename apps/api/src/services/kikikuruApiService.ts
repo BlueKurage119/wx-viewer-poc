@@ -12,10 +12,7 @@ import {
   type WeatherMetadata,
 } from '@wx-viewer-poc/shared';
 import type { KikikuruService } from '../polling/kikikuruService.js';
-import {
-  createStaticTileDeliveryProfileService,
-  type TileDeliveryProfileService,
-} from './tileDeliveryProfileService.js';
+import type { TileDeliveryProfileService } from './tileDeliveryProfileService.js';
 import {
   ImageServicesInitializingError,
   projectUpstreamAccess,
@@ -25,7 +22,7 @@ import {
 export interface KikikuruApiServiceDependencies {
   readonly getService: () => KikikuruService | null;
   readonly enablePolling: boolean;
-  readonly tileDeliveryProfileService?: TileDeliveryProfileService;
+  readonly tileDeliveryProfileService: TileDeliveryProfileService;
   readonly allowedZooms?: readonly number[];
   readonly clock?: () => UtcIso8601String;
 }
@@ -57,8 +54,7 @@ export function createKikikuruApiService(
 ): KikikuruApiService {
   const clock = dependencies.clock ?? (() => new Date().toISOString() as UtcIso8601String);
   const allowedZooms = dependencies.allowedZooms ?? TILE_API_ALLOWED_ZOOMS;
-  const tileDeliveryProfileService =
-    dependencies.tileDeliveryProfileService ?? createStaticTileDeliveryProfileService('proxy');
+  const tileDeliveryProfileService = dependencies.tileDeliveryProfileService;
 
   return {
     getTimes(

@@ -11,12 +11,26 @@ import { openDatabase, runMigrations } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
 import { startServer } from '../src/server.js';
 import { NowcastService } from '../src/polling/nowcastService.js';
-import { createNowcastApiService } from '../src/services/nowcastApiService.js';
+import {
+  createNowcastApiService as createNowcastApiServiceImpl,
+  type NowcastApiServiceDependencies,
+} from '../src/services/nowcastApiService.js';
+import { createStaticTileDeliveryProfileService } from '../src/services/tileDeliveryProfileService.js';
 import { findRadarSnapshot } from '../src/repositories/radarRepository.js';
 
 const VALID_1X1_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 const VALID_1X1_PNG = Buffer.from(VALID_1X1_PNG_BASE64, 'base64');
+const proxyProfileService = createStaticTileDeliveryProfileService('proxy');
+
+function createNowcastApiService(
+  dependencies: Omit<NowcastApiServiceDependencies, 'tileDeliveryProfileService'>,
+) {
+  return createNowcastApiServiceImpl({
+    ...dependencies,
+    tileDeliveryProfileService: proxyProfileService,
+  });
+}
 
 const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures/jma/nowcast');
 const n1SyntheticJson = fs.readFileSync(
