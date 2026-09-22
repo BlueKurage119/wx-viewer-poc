@@ -75,6 +75,3 @@ export const views: readonly {
 export function resolveTerminal(path: string): Terminal | undefined {
   return terminals.find((terminal) => path === `/${terminal.id}` || path === `/${terminal.id}/`);
 }
-export function resolveView(hash: string, mode: TerminalMode): ViewId {
-  return views.find((view) => `#${view.id}` === hash && view.modes.includes(mode))?.id ?? 'weather';
-}

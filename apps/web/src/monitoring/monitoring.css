@@ -252,18 +252,29 @@
   min-height: 48px;
   height: auto;
   padding: 4px 16px;
+  overflow: hidden;
 }
 
 .monitoring-toolbar {
-  min-width: 0;
   width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+}
+
+.monitoring-toolbar-scroll {
+  min-width: 0;
+  overflow-x: auto;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 24px;
 }
 
 .monitoring-toolbar-group {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -272,6 +283,7 @@
 
 .monitoring-toolbar-group md-gb-button {
   inline-size: 120px;
+  flex: 0 0 auto;
 }
 
 .monitoring-toolbar-button-container {
@@ -429,10 +441,6 @@ md-gb-button[disabled] .monitoring-toolbar-button-content {
   margin-block-start: 24px;
 }
 
-.monitoring-toolbar-submit {
-  margin-inline-start: auto;
-}
-
 @media (max-width: 1279px) {
   .monitoring-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -457,15 +465,6 @@ md-gb-button[disabled] .monitoring-toolbar-button-content {
   .view-toolbar.view-toolbar-monitor {
     height: auto;
     min-height: 48px;
-  }
-
-  .monitoring-toolbar {
-    flex-wrap: wrap;
-    gap: 8px 24px;
-  }
-
-  .monitoring-toolbar-submit {
-    margin-inline-start: 0;
   }
 }
 

@@ -273,3 +273,126 @@ test('モーダルフォーカス: 閉じるだけでも循環し、本文の先
   assert.equal(nextDialogFocusTarget([first, middle, last], middle, false), null);
   assert.equal(nextDialogFocusTarget([first, middle, last], {} as HTMLElement, false), first);
 });
+
+test('ルートは空タイトルを予約せず、下位階層ではタイトルと戻るボタンを表示する', () => {
+  for (const history of [['monitor-root'], ['monitor-root', 'child']]) {
+    const markup = renderToStaticMarkup(
+      el(MonitoringToolbar, {
+        model: {
+          localState: { ...createToolbarLocalState('monitor-root'), history },
+          operationState: { phase: 'idle' },
+          currentToolbar: {
+            id: history.at(-1)!,
+            title: history.length === 1 ? '' : '子メニュー',
+            groups: [],
+          },
+          busy: false,
+          selectOperation: () => undefined,
+          clearSelection: () => undefined,
+          submit: () => undefined,
+          openDialog: () => undefined,
+          closeDialog: () => undefined,
+          navigate: () => undefined,
+          back: () => undefined,
+          backToRoot: () => undefined,
+        },
+      }),
+    );
+    assert.deepEqual(
+      [
+        ...markup.matchAll(/<span class="monitoring-toolbar-title" title="(.*?)">(.*?)<\/span>/g),
+      ].map((match) => [match[1], match[2]]),
+      history.length === 1 ? [] : [['子メニュー', '子メニュー']],
+    );
+    const buttons = [...markup.matchAll(/<md-gb-icon-button\b([^>]*)>/g)].map((match) => match[1]!);
+    assert.equal(buttons.length, 2);
+    assert.deepEqual(
+      buttons.map((attributes) => /disabled=""/.test(attributes)),
+      history.length === 1 ? [true, true] : [false, false],
+    );
+  }
+});
+
+test('固定操作は中央スクロール領域の外に置き、階層ごとの可変項目だけを中央に置く', () => {
+  const back = () => undefined;
+  const backToRoot = () => undefined;
+  const submit = () => undefined;
+  const clearSelection = () => undefined;
+  for (const history of [['monitor-root'], ['monitor-root', 'child']]) {
+    const groups =
+      history.length === 1
+        ? monitoringToolbarDefinitions[0]!.groups
+        : [[{ kind: 'operation' as const, label: '取得停止', operation: 'stop' as const }]];
+    const element = MonitoringToolbar({
+      model: {
+        localState: {
+          ...createToolbarLocalState('monitor-root'),
+          history,
+          selectedOperation: 'stop',
+        },
+        operationState: { phase: 'idle' },
+        currentToolbar: {
+          id: history.at(-1)!,
+          title: history.length === 1 ? '' : '子メニュー',
+          groups,
+        },
+        busy: false,
+        selectOperation: () => undefined,
+        clearSelection,
+        submit,
+        openDialog: () => undefined,
+        closeDialog: () => undefined,
+        navigate: () => undefined,
+        back,
+        backToRoot,
+      },
+    });
+    // JSXの構造と操作接続を検証する。寸法とスクロールはブラウザで別途確認する。
+    const regions = React.Children.toArray(element.props.children) as React.ReactElement<{
+      className: string;
+      children: React.ReactNode;
+    }>[];
+    assert.deepEqual(
+      regions.map((region) => region.props.className),
+      [
+        'monitoring-toolbar-group monitoring-toolbar-navigation',
+        'monitoring-toolbar-scroll',
+        'monitoring-toolbar-group monitoring-toolbar-submit',
+      ],
+    );
+    const navigation = React.Children.toArray(regions[0]!.props.children) as React.ReactElement<{
+      onClick?: () => void;
+      children?: React.ReactNode;
+    }>[];
+    assert.equal(navigation[0]!.props.onClick, backToRoot);
+    assert.equal(navigation[1]!.props.onClick, back);
+    assert.equal(navigation.length, history.length === 1 ? 2 : 3);
+    if (history.length > 1) assert.equal(navigation[2]!.props.children, '子メニュー');
+    const center = React.Children.toArray(regions[1]!.props.children) as React.ReactElement<{
+      children: React.ReactElement<{ children: string }>[];
+    }>[];
+    assert.deepEqual(
+      center.map((group) => group.props.children.map((button) => button.props.children)),
+      history.length === 1
+        ? [
+            ['取得開始', '取得停止'],
+            ['強制更新'],
+            ['受信履歴', '電文履歴', '出力履歴'],
+            ['状態診断'],
+          ]
+        : [['取得停止']],
+    );
+    const actions = React.Children.toArray(regions[2]!.props.children) as React.ReactElement<{
+      onClick: () => void;
+      disabled: boolean;
+    }>[];
+    assert.deepEqual(
+      actions.map((action) => action.props.onClick),
+      [clearSelection, submit],
+    );
+    assert.deepEqual(
+      actions.map((action) => action.props.disabled),
+      [false, false],
+    );
+  }
+});
