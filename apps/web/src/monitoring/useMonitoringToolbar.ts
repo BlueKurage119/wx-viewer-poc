@@ -1,3 +1,4 @@
+import { createRequestId } from './createRequestId';
 import { useEffect, useRef, useState } from 'react';
 import { createFetchControlClient } from '../api/fetchControl';
 import {
@@ -60,7 +61,7 @@ export function useMonitoringToolbar({
   if (controllerRef.current === null) {
     controllerRef.current = createMonitoringOperationController({
       client: createFetchControlClient({ fetch: window.fetch.bind(window) }),
-      requestIdFactory: () => crypto.randomUUID(),
+      requestIdFactory: createRequestId,
       setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
       clearTimeout: (timerId) => window.clearTimeout(timerId),
     });
