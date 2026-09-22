@@ -3,13 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import {
-  resolveTerminal,
-  resolveView,
-  terminals,
-  views,
-  type ViewId,
-} from '../src/shell/config.ts';
+import { resolveTerminal, terminals, views, type ViewId } from '../src/shell/config.ts';
 import { operationGuideMessage, visibleNotices } from '../src/shell/notifications.ts';
 import { previewNotices } from '../src/shell/fixtures.ts';
 import { isUnknownTerminalDocument } from '../src/shell/terminalRouting.ts';
@@ -64,17 +58,6 @@ test('登録端末のみを解決し、H/Kで同じ会場を共有する', () =>
     displayName: '羽田',
     elements: '11110000',
   });
-});
-test('H端末の監視・訓練通知直指定や未知ビューは防災気象情報へ戻す', () => {
-  assert.equal(resolveView('#monitor', 'H'), 'weather');
-  assert.equal(resolveView('#monitor', 'K'), 'monitor');
-  assert.equal(resolveView('#training', 'H'), 'weather');
-  assert.equal(resolveView('#training', 'K'), 'training');
-  for (const mode of ['H', 'K'] as const) {
-    assert.equal(resolveView('#warnings', mode), 'warnings');
-    assert.equal(resolveView('#unknown', mode), 'weather');
-    assert.equal(resolveView('', mode), 'weather');
-  }
 });
 test('H表示の絞り込みは通知の生成・保持やK表示を破壊しない', () => {
   const notices = Object.freeze(previewNotices('mixed').map(Object.freeze));
@@ -162,6 +145,7 @@ test('H1: ブザー中は専用ボタンや説明文を増やさずヘッダー�
         terminal,
         title: '防災気象情報',
         view: 'weather',
+        onViewChange: () => undefined,
         navigation: views.filter((item) => item.modes.includes(terminal.mode)),
         now: new Date('2026-09-21T00:00:00.000Z'),
         connection: { failed: false, lastSuccessAt: null },
@@ -241,6 +225,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
           terminal,
           title: '取得監視',
           view: 'monitor',
+          onViewChange: () => undefined,
           navigation: views.filter((item) => item.modes.includes(terminal.mode)),
           now: new Date('2026-09-20T05:30:00.000Z'),
           connection,
@@ -277,6 +262,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
           terminal,
           title: '取得監視',
           view: 'monitor',
+          onViewChange: () => undefined,
           navigation: views.filter((item) => item.modes.includes(terminal.mode)),
           now: new Date('2026-09-20T05:30:00.000Z'),
           connection,
@@ -314,6 +300,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
           terminal,
           title: '取得監視',
           view: 'monitor',
+          onViewChange: () => undefined,
           navigation: views.filter((item) => item.modes.includes(terminal.mode)),
           now: new Date('2026-09-20T05:30:00.000Z'),
           connection,
@@ -348,6 +335,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
           terminal,
           title: '防災気象情報',
           view: 'weather',
+          onViewChange: () => undefined,
           navigation: views.filter((item) => item.modes.includes(terminal.mode)),
           now: new Date('2026-09-20T05:30:00.000Z'),
           connection,
@@ -382,4 +370,43 @@ test('Issue #200 AC7: 全件確認後はコールバックがあっても初期�
   assert.equal((html.match(/<button type="button" disabled=""><\/button>/g) ?? []).length, 4);
   assert.equal((html.match(/tabindex="0"/g) ?? []).length, 1);
   assert.equal((html.match(/notice-question-choices/g) ?? []).length, 0);
+});
+
+test('画面切替はH/Kで許可されたボタンだけを表示し、現在画面を示す', () => {
+  for (const terminal of [terminals[0]!, terminals[1]!]) {
+    const navigation = views.filter((item) => item.modes.includes(terminal.mode));
+    for (const current of navigation) {
+      const html = renderToStaticMarkup(
+        el(AppShell, {
+          terminal,
+          title: current.title,
+          view: current.id,
+          navigation,
+          onViewChange: () => undefined,
+          now: new Date('2026-09-22T00:00:00Z'),
+          connection: { failed: false, lastSuccessAt: null },
+          notifications: null,
+          children: null,
+        }),
+      );
+      const nav = html.match(/<nav[^>]*>(.*?)<\/nav>/)![1]!;
+      assert.equal((nav.match(/<a\b/g) ?? []).length, 0);
+      assert.equal(
+        (nav.match(/<button type="button"/g) ?? []).length,
+        terminal.mode === 'H' ? 2 : 4,
+      );
+      assert.deepEqual(
+        [
+          ...nav.matchAll(/<button[^>]*aria-current="page"[^>]*>.*?<span>(.*?)<\/span><\/button>/g),
+        ].map((match) => match[1]),
+        [current.label],
+      );
+      assert.deepEqual(
+        [...nav.matchAll(/<\/svg><\/span><span>(.*?)<\/span>/g)].map((match) => match[1]),
+        terminal.mode === 'H'
+          ? ['気象情報', '警報一覧']
+          : ['気象情報', '警報一覧', '取得監視', '訓練通知'],
+      );
+    }
+  }
 });

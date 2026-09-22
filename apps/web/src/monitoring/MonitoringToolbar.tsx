@@ -82,9 +82,11 @@ export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbar
         >
           <Icon>keyboard_arrow_left</Icon>
         </GbIconButton>
-        <span className="monitoring-toolbar-title" title={currentToolbar.title}>
-          {currentToolbar.title}
-        </span>
+        {!atRoot && (
+          <span className="monitoring-toolbar-title" title={currentToolbar.title}>
+            {currentToolbar.title}
+          </span>
+        )}
       </div>
       {currentToolbar.groups.map((group) => (
         <div className="monitoring-toolbar-group" key={group.map((item) => item.label).join('-')}>

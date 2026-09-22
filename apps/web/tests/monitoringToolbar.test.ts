@@ -273,3 +273,42 @@ test('モーダルフォーカス: 閉じるだけでも循環し、本文の先
   assert.equal(nextDialogFocusTarget([first, middle, last], middle, false), null);
   assert.equal(nextDialogFocusTarget([first, middle, last], {} as HTMLElement, false), first);
 });
+
+test('ルートは空タイトルを予約せず、下位階層ではタイトルと戻るボタンを表示する', () => {
+  for (const history of [['monitor-root'], ['monitor-root', 'child']]) {
+    const markup = renderToStaticMarkup(
+      el(MonitoringToolbar, {
+        model: {
+          localState: { ...createToolbarLocalState('monitor-root'), history },
+          operationState: { phase: 'idle' },
+          currentToolbar: {
+            id: history.at(-1)!,
+            title: history.length === 1 ? '' : '子メニュー',
+            groups: [],
+          },
+          busy: false,
+          selectOperation: () => undefined,
+          clearSelection: () => undefined,
+          submit: () => undefined,
+          openDialog: () => undefined,
+          closeDialog: () => undefined,
+          navigate: () => undefined,
+          back: () => undefined,
+          backToRoot: () => undefined,
+        },
+      }),
+    );
+    assert.deepEqual(
+      [
+        ...markup.matchAll(/<span class="monitoring-toolbar-title" title="(.*?)">(.*?)<\/span>/g),
+      ].map((match) => [match[1], match[2]]),
+      history.length === 1 ? [] : [['子メニュー', '子メニュー']],
+    );
+    const buttons = [...markup.matchAll(/<md-gb-icon-button\b([^>]*)>/g)].map((match) => match[1]!);
+    assert.equal(buttons.length, 2);
+    assert.deepEqual(
+      buttons.map((attributes) => /disabled=""/.test(attributes)),
+      history.length === 1 ? [true, true] : [false, false],
+    );
+  }
+});

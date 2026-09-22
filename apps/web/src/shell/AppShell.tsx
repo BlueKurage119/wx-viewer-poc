@@ -9,6 +9,7 @@ interface ShellProps {
   terminal: Terminal;
   title: string;
   view: ViewId;
+  onViewChange: (view: ViewId) => void;
   navigation: readonly {
     id: ViewId;
     label: string;
@@ -45,6 +46,7 @@ export function AppShell({
   title,
   view,
   navigation,
+  onViewChange,
   now,
   connection,
   onStopBuzzer,
@@ -53,13 +55,21 @@ export function AppShell({
   toolbar,
   notifications,
 }: ShellProps) {
+  const mainRef = useRef<HTMLElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     if (headerRef.current) applyMd3Theme(DEFAULT_THEME_SEED, false, headerRef.current);
   }, []);
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#view-content">
+      <a
+        className="skip-link"
+        href="#view-content"
+        onClick={(event) => {
+          event.preventDefault();
+          mainRef.current?.focus();
+        }}
+      >
         本文へ移動
       </a>
       <header
@@ -110,20 +120,22 @@ export function AppShell({
       </header>
       <nav className="nav-rail" aria-label="画面切替">
         {navigation.map((item) => (
-          <a
+          <button
             key={item.id}
-            href={`#${item.id}`}
+            type="button"
+            onClick={() => onViewChange(item.id)}
             aria-current={view === item.id ? 'page' : undefined}
           >
             <span className="nav-icon">
               <Icon kind={item.icon} />
             </span>
             <span>{item.label}</span>
-          </a>
+          </button>
         ))}
       </nav>
       <main
         id="view-content"
+        ref={mainRef}
         tabIndex={-1}
         className={`view-content ${view === 'weather' ? 'view-content-map' : ''} ${view === 'monitor' ? 'view-content-monitor' : ''}`}
       >

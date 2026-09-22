@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FilledButton } from './components/md/Button';
 import { AppShell } from './shell/AppShell';
-import { resolveTerminal, resolveView, views, type Terminal, type ViewId } from './shell/config';
+import { resolveTerminal, views, type Terminal, type ViewId } from './shell/config';
 import { NotificationArea } from './shell/NotificationArea';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
 import {
@@ -62,7 +62,7 @@ export function App() {
   return <TerminalApp key={terminal.id} terminal={terminal} />;
 }
 function TerminalApp({ terminal }: { terminal: Terminal }) {
-  const [view, setView] = useState(() => resolveView(window.location.hash, terminal.mode));
+  const [view, setView] = useState<ViewId>('weather');
   const [now, setNow] = useState(() => new Date());
   const preview =
     import.meta.env.DEV && new URLSearchParams(window.location.search).get('shellPreview') === '1';
@@ -70,22 +70,6 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   const [previewState, setPreviewState] = useState(() => createNotificationUiState());
   const [monitoringState, setMonitoringState] = useState<MonitoringLoadState | null>(null);
   const [selectedLayerId, setSelectedLayerId] = useState<MapLayerId>('nowcast');
-  useEffect(() => {
-    const syncView = () => {
-      // 本文へのスキップリンクはビュー状態として扱わない。
-      if (window.location.hash === '#view-content') return;
-      const next = resolveView(window.location.hash, terminal.mode);
-      setView(next);
-      const canonical = `/${terminal.id}${window.location.search}#${next}`;
-      if (
-        `${window.location.pathname}${window.location.search}${window.location.hash}` !== canonical
-      )
-        window.history.replaceState(null, '', canonical);
-    };
-    syncView();
-    window.addEventListener('hashchange', syncView);
-    return () => window.removeEventListener('hashchange', syncView);
-  }, [terminal]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
@@ -158,6 +142,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       terminal={terminal}
       title={current.title}
       view={view}
+      onViewChange={setView}
       navigation={views.filter((item) => item.modes.includes(terminal.mode))}
       now={now}
       connection={connection}
