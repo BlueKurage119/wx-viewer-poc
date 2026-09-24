@@ -7,6 +7,7 @@ import { LAYER_PRESENTATIONS, emptyTimeline } from './fixtures';
 import { MapViewport, type MapViewportHandle } from './MapViewport';
 import { MapInformationColumnSlot } from './MapInformationColumnSlot';
 import { InfoPanelColumn } from './panels/InfoPanelColumn';
+import { DetailDialogScrollContainerProvider } from './detail/DetailDialogScrollContainerContext';
 import { MapLegend } from './MapLegend';
 import { MapAttribution } from './MapAttribution';
 import { MapZoomControls } from './MapZoomControls';
@@ -312,7 +313,10 @@ export function WeatherMapView({
 
       {/* 6. 右側情報列スロット (F1 / G1) */}
       <MapInformationColumnSlot ref={setRightColumnRef}>
-        <InfoPanelColumn venueId={venue.id} />
+        {/* 詳細（仮）入口 (G10 §6) が scrollContainer として列要素を参照するための Provider */}
+        <DetailDialogScrollContainerProvider value={rightColumnEl}>
+          <InfoPanelColumn venueId={venue.id} />
+        </DetailDialogScrollContainerProvider>
       </MapInformationColumnSlot>
 
       {/* 7. Leaflet 地図本体 (F1) - 背景レイヤー */}
