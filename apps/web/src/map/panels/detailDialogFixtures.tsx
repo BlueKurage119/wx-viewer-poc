@@ -170,7 +170,9 @@ export function AreaForecastDetailFixtureEntry() {
         onClose={() => setOpen(false)}
         scrollContainer={scrollContainer}
       >
-        <ScrollHintParagraph />
+        <p className="detail-dialog-fixture-scroll-hint">
+          これは仮の入口のダミー本文です。G6でこの入口は本物のパネル中身に置き換えられます。
+        </p>
         <DetailTimeSeriesTable
           caption="地域時系列予報（サンプル）"
           rowHeaderLabel="要素"

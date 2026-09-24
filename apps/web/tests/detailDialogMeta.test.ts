@@ -85,9 +85,27 @@ test('DetailDialogInner: open=true で見出し・対象・時刻・閉じる・
   assert.match(html, /警報等時系列/);
   assert.match(html, /江東区/);
   assert.match(html, /05:00発表/);
-  assert.match(html, /閉じる/);
+  assert.match(html, /aria-label="閉じる"/);
   assert.match(html, /aria-labelledby="[^"]+"/);
   assert.match(html, /<dialog/);
+});
+
+// AC-8b: 閉じるボタンは×アイコンのみ（可視テキストなし）。アクセシブルネームは aria-label
+test('DetailDialogInner: 閉じるボタンはアイコンのみで aria-label="閉じる"、アイコンは aria-hidden', () => {
+  const meta: DetailDialogMeta = {
+    title: 'x',
+    target: null,
+    time: { kind: 'issued', value: null },
+    isTraining: null,
+  };
+  const html = renderToStaticMarkup(el(DetailDialogInner, { open: true, meta, onClose: () => {} }));
+
+  const iconButtonMatch = html.match(/<md-gb-icon-button[^>]*>(.*?)<\/md-gb-icon-button>/s);
+  assert.ok(iconButtonMatch, 'md-gb-icon-button が出力される');
+  const [iconButtonTag, iconButtonInner] = iconButtonMatch as unknown as [string, string];
+  assert.match(iconButtonTag, /aria-label="閉じる"/);
+  assert.match(iconButtonTag, /title="閉じる"/);
+  assert.match(iconButtonInner, /<span[^>]*aria-hidden="true"[^>]*>close<\/span>/);
 });
 
 test('DetailDialogInner: isTraining=true で「訓練」ラベルが出力される', () => {

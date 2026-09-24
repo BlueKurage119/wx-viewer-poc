@@ -7,8 +7,9 @@
  */
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { GbButton } from '../../components/md';
+import { GbIconButton } from '../../components/md';
 import { nextDialogFocusTarget } from '../../monitoring/monitoringDialogFocus';
+import { DetailDialogIcon } from './DetailDialogIcon';
 import { formatDetailDialogMeta, type DetailDialogMeta } from './detailDialogMeta';
 import { useDetailDialogReturn } from './useDetailDialogReturn';
 
@@ -24,7 +25,7 @@ export interface DetailDialogProps {
 function dialogFocusableElements(dialog: HTMLDialogElement): HTMLElement[] {
   return [
     ...dialog.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), md-gb-button:not([disabled])',
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), md-gb-button:not([disabled]), md-gb-icon-button:not([disabled])',
     ),
   ];
 }
@@ -111,9 +112,17 @@ export function DetailDialogInner({
               {formatted.trainingLabel !== null && (
                 <span className="detail-dialog-training-label">{formatted.trainingLabel}</span>
               )}
-              <GbButton color="text" size="sm" ref={closeButtonRef} onClick={requestClose}>
-                閉じる
-              </GbButton>
+              <GbIconButton
+                color="standard"
+                size="md"
+                type="button"
+                ref={closeButtonRef}
+                aria-label="閉じる"
+                title="閉じる"
+                onClick={requestClose}
+              >
+                <DetailDialogIcon>close</DetailDialogIcon>
+              </GbIconButton>
             </div>
             {showMetaLine && (
               <p className="detail-dialog-meta md-typescale-body-medium">
