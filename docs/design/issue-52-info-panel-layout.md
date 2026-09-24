@@ -225,7 +225,7 @@ export type InfoPanelColumnInput = Readonly<Record<InfoPanelId, readonly InfoPan
 - [ ] AC-10: 1280×720 のviewportで列幅320px、カード幅288pxを実測し、見出しの対象名・時刻（日付併記の `9/23 14:05発表` 形式を含む）が切れずに（折り返しは可）表示される。
 - [ ] AC-11: (a) 1180×820 のviewportで列幅295px、カード幅263pxを実測し、見出しが切れない（折り返しは可）。(b) iPad Pro 11インチ横の実機（またはユーザーの実機確認）で `window.innerWidth`（1194を想定）と列幅を記録し、見出しが切れず、指のスワイプで列が縦スクロールし、カード外で地図をパンできる。(b)は実機で確認できない場合にエミュレーションで合格とせず「実挙動未確認」として統括へ返す。
 - [ ] AC-12: 色のHEX直書きがない（`panels.css` と新規tsxを `#[0-9a-fA-F]{3,8}\b` で検索し0件）。
-- [ ] AC-13: `git diff --stat main` で変更が `apps/web/src/map/` 配下・`apps/web/tests/` 配下に限られ、`map.css` の `--wx-map-right-column-width` 定義に差分がない。
+- [ ] AC-13: `git diff --stat main` で変更が `apps/web/src/map/` 配下・`apps/web/tests/` 配下に限られ（例外: `apps/web/src/index.css` への `panels.css` の import 1行は既存 `map.css` と同じ読み込み方式として許容する。検収で判明した設計漏れをユーザー承認のうえ改訂）、`map.css` の `--wx-map-right-column-width` 定義に差分がない。
 
 ## 8. 後続Issueへの引き継ぎ
 
