@@ -49,4 +49,17 @@ test('DetailTimeSeriesTable: 日付セル・行見出し・横スクロール領
   const firstHeaderRow = theadHtml.slice(0, firstRowEnd);
   // 3列とも th 要素が出力される（colspan結合しない）
   assert.equal((firstHeaderRow.match(/<th[ >]/g) ?? []).length, 4); // 角セル + 3列（"<thead"の誤マッチを除外）
+
+  // AC-4: c1（前列と同日）の上段日付セルは文字を持たない（空文字）ことを直接検証する。
+  // data-column-key="c1" を持つ th を抜き出し、開始タグ直後から</th>までのテキストが空であることを確認する。
+  const c1Match = firstHeaderRow.match(/<th[^>]*data-column-key="c1"[^>]*>([\s\S]*?)<\/th>/);
+  assert.ok(c1Match, 'c1列の上段 th が見つからない');
+  assert.equal(c1Match?.[1], '', 'c1列（日付が変わらない列）の上段日付セルは空文字であるべき');
+
+  // 対照: 日付境界の列(c0, c2)は空でないことも確認し、上記の空文字検証が「そもそも何も出ない実装」に
+  // 誤って通過しないようにする。
+  const c0Match = firstHeaderRow.match(/<th[^>]*data-column-key="c0"[^>]*>([\s\S]*?)<\/th>/);
+  const c2Match = firstHeaderRow.match(/<th[^>]*data-column-key="c2"[^>]*>([\s\S]*?)<\/th>/);
+  assert.ok(c0Match?.[1], 'c0列（初回列）の上段日付セルは文字を持つべき');
+  assert.ok(c2Match?.[1], 'c2列（日付境界）の上段日付セルは文字を持つべき');
 });
