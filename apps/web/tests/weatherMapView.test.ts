@@ -24,7 +24,7 @@ test('WeatherMapView: east (東京ビッグサイト) で地図構造と全コ�
 
   // 右側情報列スロットとプレースホルダーカード
   assert.ok(html.includes('map-information-column-slot'));
-  assert.ok(html.includes('map-info-placeholder-card'));
+  assert.ok(html.includes('info-panel-card'));
 
   // 凡例 (初期表示)
   assert.ok(html.includes('map-legend'));
@@ -55,7 +55,7 @@ test('WeatherMapView: trc (東京流通センター) で地図構造と全コン
 
   assert.ok(html.includes('map-viewport'));
   assert.ok(html.includes('map-information-column-slot'));
-  assert.ok(html.includes('map-info-placeholder-card'));
+  assert.ok(html.includes('info-panel-card'));
   assert.ok(html.includes('map-legend'));
   assert.ok(html.includes('map-attribution'));
   assert.ok(html.includes('map-zoom-controls'));

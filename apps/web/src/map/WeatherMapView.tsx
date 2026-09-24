@@ -6,6 +6,7 @@ import type { MapLayerId, TimelineIntent, TimelineViewModel } from './types';
 import { LAYER_PRESENTATIONS, emptyTimeline } from './fixtures';
 import { MapViewport, type MapViewportHandle } from './MapViewport';
 import { MapInformationColumnSlot } from './MapInformationColumnSlot';
+import { InfoPanelColumn } from './panels/InfoPanelColumn';
 import { MapLegend } from './MapLegend';
 import { MapAttribution } from './MapAttribution';
 import { MapZoomControls } from './MapZoomControls';
@@ -310,7 +311,9 @@ export function WeatherMapView({
       <MapAttribution />
 
       {/* 6. 右側情報列スロット (F1 / G1) */}
-      <MapInformationColumnSlot ref={setRightColumnRef} />
+      <MapInformationColumnSlot ref={setRightColumnRef}>
+        <InfoPanelColumn venueId={venue.id} />
+      </MapInformationColumnSlot>
 
       {/* 7. Leaflet 地図本体 (F1) - 背景レイヤー */}
       <MapViewport
