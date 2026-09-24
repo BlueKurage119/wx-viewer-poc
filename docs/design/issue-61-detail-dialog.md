@@ -41,7 +41,7 @@
 
 | ファイル | 役割 |
 |---|---|
-| `DetailDialog.tsx` | 共通ダイアログ本体。`createPortal` で `document.body` 直下に描画する |
+| `DetailDialog.tsx` | 共通ダイアログ本体。中身を `DetailDialogInner`（ポータルを含まない）に分け、公開する `DetailDialog` は `createPortal` で `document.body` 直下へ描画する薄いラッパーとする（`renderToStaticMarkup` はポータルを描画できないため。製造時の実装を検収でAC-3の趣旨を満たすと判断済み） |
 | `detailDialogMeta.ts` | メタ情報の型と、見出し2行目の文字列を組み立てる純粋関数 |
 | `DetailTimeSeriesTable.tsx` | 時系列表の共通部品 |
 | `timeSeriesHeader.ts` | 列見出し（日付段・時刻段）を組み立てる純粋関数 |
@@ -199,11 +199,20 @@ export function buildDateHeaderLabels(columns: readonly TimeSeriesColumn[]): rea
 
 | 入口 | meta | 表 |
 |---|---|---|
-| 警報等時系列 | title「警報等時系列（サンプル）」、target「江東区」、time 発表、isTraining false | 行5（大雨・洪水・暴風・波浪・高潮）、3時間区切り16列（2日分、日付境界を1回以上含む）。`initialColumnKey` は3列目 |
+| 警報等時系列 | title「警報等時系列（サンプル）」、target「江東区」、time 発表、isTraining false | 行5（大雨・洪水・暴風・波浪・高潮）、3時間区切り32列（4日分、日付境界を3回含む）。`initialColumnKey` は3列目 |
 | 地域時系列予報 | title「地域時系列予報（サンプル）」、target null、time `{kind:'issued', value:null}`、isTraining true | 行3（天気・風・気温）。天気・風は `span: 2` の区間セル、気温は時点。列24（3日分）|
 
   2つ目は null・訓練の表示確認を兼ねる。
-- ダミー本文の先頭に、サンプル表のほかに縦スクロールを確認するための段落（本文領域の高さを超える量）を置く。
+- 警報等時系列サンプルの列数の根拠（AC-7の初期位置合わせ）: 初期表示で3列目を行見出しの直右に置くには `scrollLeft = 2列分 = 128px` 以上が必要で、横スクロールの最大量 `scrollWidth − clientWidth` がこれ以上でなければならない。検収時の実測では16列・1280×720（ダイアログ幅1152）ではみ出し55pxであり、表の可視幅は約 112 + 16×64 − 55 ≈ 1081px（ダイアログ幅 − 約71px）。同じ差し引きで可視幅を見積もると、必要列数 N は `112 + 64N − 可視幅 ≥ 128` を満たす最小値である。
+
+  | viewport | ダイアログ幅 | 表可視幅（見積） | 必要N | 32列でのはみ出し |
+  |---|---|---|---|---|
+  | 1920×1080 / 1920×960 | 1600 | 約1529 | 25 | 約631px |
+  | 1280×720 | 1152 | 約1081 | 18 | 約1079px |
+  | 1180×820 | 1062 | 約991 | 16 | 約1169px |
+
+  最も幅の広いFHDで必要な25列に余裕を持たせ、日付区切りのよい32列（3時間×8列×4日）とする。AC-7は1280×720で測るが、AC-8の全viewportで初期位置合わせが成立する列数である。列数を減らす変更は不可【設計案・製造時変更不可、変更は統括へ】。
+- ダミー本文には、サンプル表のほかに縦スクロールを確認するための段落を置く。量は、AC-8の全viewport（本文領域が最も高い1920×1080を含む）で本文領域の `scrollHeight − clientHeight ≥ 200px` となること。目安として2行以上の段落を30個以上とする（ダイアログ高さ最大972pxに対し、表を除いても本文が1000pxを超える量）。製造時に1920×1080で上記の差を実測し、コミットメッセージまたは最終報告に値を記す。
 
 ## 7. 気象データ制約・管理項目の結論
 
@@ -220,8 +229,8 @@ export function buildDateHeaderLabels(columns: readonly TimeSeriesColumn[]): rea
 
 - [ ] AC-1: `npm run lint` / `npm run typecheck` / `npm run format:check` / `npm run test -w apps/web` がすべて成功する。
 - [ ] AC-2: `buildDateHeaderLabels` の単体テストで、(a) 先頭列は常に日付、(b) 同日の後続列は null、(c) JST 23時台→翌0時台の境界で日付が出る（UTCでは同日でもJSTで日付が変わるケース、例 `2026-09-23T14:00:00Z`→`2026-09-23T15:00:00Z` を含む）、(d) 表記が `9/24(木)` 形式。`validateRowSpans` が span 合計の過不足を検出する。
-- [ ] AC-3: `formatDetailDialogMeta` の単体テストで、target null・time.value null・isTraining true/false/null の各組合せが §3.3 どおり（null要素は省く、訓練はtrueのみ「訓練」、発表/観測の語が kind どおり）。`renderToStaticMarkup` で `DetailDialog`（open=true）を描画し、見出し・対象・時刻・「閉じる」・`aria-labelledby` が出力される。
-- [ ] AC-4: `DetailTimeSeriesTable` を `renderToStaticMarkup` し、上段の日付セルが日付境界の列にだけ文字を持ち、行見出しが `th scope="row"`、横スクロール div が `role="region"` と `tabindex="0"` を持つ。
+- [ ] AC-3: `formatDetailDialogMeta` の単体テストで、target null・time.value null・isTraining true/false/null の各組合せが §3.3 どおり（null要素は省く、訓練はtrueのみ「訓練」、発表/観測の語が kind どおり）。`renderToStaticMarkup` でポータル抜きの内側部品 `DetailDialogInner`（open=true 相当）を描画し、見出し・対象・時刻・「閉じる」・`aria-labelledby` が出力される。
+- [ ] AC-4: `DetailTimeSeriesTable` を `renderToStaticMarkup` し、上段の日付セルが日付境界の列にだけ文字を持ち、日付が前列と変わらない列の上段日付セルが空（テキストが空文字）であることも検証する。行見出しが `th scope="row"`、横スクロール div が `role="region"` と `tabindex="0"` を持つ。
 - [ ] AC-5: `?panelFixture=all-content` で「警報等時系列」の「詳細（仮）」を押すとダイアログが開く。開いた状態で、ダイアログ外（地図が見えている位置）でドラッグ・ホイール・ダブルクリックしても地図の中心・ズームが変わらない（開く前後で `map.getCenter()`・`getZoom()` 相当の値、または画面上の目印位置を記録して比較）。右側列もスクロールしない。フォーカスは閉じるボタンにある。
 - [ ] AC-6: 右側列を下までスクロールし（`scrollTop` を記録、0より大きいこと）、「地域時系列予報」の「詳細（仮）」で開く。(a) Esc、(b) 閉じるボタン、それぞれで閉じた後、`document.activeElement` がその「詳細（仮）」ボタン（またはそのホスト要素）であり、列の `scrollTop` が開く前と一致し（差0〜1px）、地図の中心・ズームが開く前と同じ。Tab／Shift+Tab を繰り返してもフォーカスがダイアログ外へ出ない。
 - [ ] AC-7: 1280×720 で「警報等時系列」サンプルを開き、表の横スクロール div の `scrollWidth > clientWidth`。横スクロールすると行見出し列の `getBoundingClientRect().left` が変わらず、データセルは行見出しの下に隠れる（透けない）。ダイアログ本文・見出しは横に動かない。初期表示で3列目が行見出しの直右にある。表の文字の computed `font-size` が14px以上。
