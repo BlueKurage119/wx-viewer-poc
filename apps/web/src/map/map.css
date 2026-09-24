@@ -60,11 +60,15 @@
   position: absolute;
   top: 0;
   right: 0;
-  bottom: 0;
+  max-height: 100%;
   width: var(--wx-map-right-column-width);
   z-index: var(--wx-map-z-column);
   overflow-y: auto;
-  pointer-events: none;
+  overscroll-behavior: contain;
+  /* カード量に応じて縮む列そのものがポインターを受ける（G1 UI監修改訂 §4.2）。
+     カード間の隙間も列の一部として地図操作を無効化し、列の外（カード群より下の
+     透明な領域）だけ地図操作を可能にする。背景は透明のまま。 */
+  pointer-events: auto;
   padding: 16px;
   display: flex;
   flex-direction: column;
