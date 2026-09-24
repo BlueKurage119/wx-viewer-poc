@@ -1,0 +1,50 @@
+/* 右側情報パネル共通枠 (G1) */
+
+.info-panel-card {
+  pointer-events: auto;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  padding: 12px 16px;
+  min-height: 96px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.info-panel-card-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.info-panel-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface);
+}
+
+.info-panel-card-meta {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.info-panel-card-body {
+  flex: 1;
+}
+
+.info-panel-card-skeleton {
+  height: 48px;
+  border-radius: 8px;
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.info-panel-card-failed {
+  margin: 0;
+  font-size: 13px;
+  color: var(--md-sys-color-on-surface-variant);
+}

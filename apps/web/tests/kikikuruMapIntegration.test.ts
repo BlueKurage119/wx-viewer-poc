@@ -242,8 +242,14 @@ test('キキクル表示中の画面テキストに禁止語（実況／予報�
       }),
     );
 
+    // 右側情報列 (G1) はレイヤー選択に依存しない固定のパネル名（「地域時系列予報」等）を表示するため、
+    // このキキクル固有の禁止語判定からは除外する（設計上、対象名・見出しは選択レイヤーに依存しない）。
+    const htmlWithoutInfoColumn = html.replace(
+      /<aside[^>]*class="map-information-column-slot"[^>]*>[\s\S]*?<\/aside>/,
+      '',
+    );
     // HTML タグを除去した簡易テキスト判定
-    const textContent = html.replace(/<[^>]*>/g, ' ');
+    const textContent = htmlWithoutInfoColumn.replace(/<[^>]*>/g, ' ');
 
     const forbiddenWords = ['実況', '予報', '予測中', '有効期限', 'まで有効', '失効'];
     for (const word of forbiddenWords) {
