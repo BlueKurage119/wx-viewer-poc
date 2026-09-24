@@ -92,7 +92,7 @@ export function formatDetailDialogMeta(meta: DetailDialogMeta, now: Date): {
 
 ### 3.3 見出し領域
 
-- 1行目: `title`（`md-typescale-headline-small`）。右端に閉じるボタン（`GbButton` の text、文言「閉じる」）。
+- 1行目: `title`（`md-typescale-headline-small`）。右端に閉じるボタン。**×アイコンのみ**とし（オーナーUI監修で確定）、`GbIconButton`（`color="standard"`、`size="md"`、`type="button"`）の中にアイコン `close` を置く。アイコン表示は `MonitoringToolbar.tsx` の `Icon`（Material Symbols を `aria-hidden="true"` の span で出す）と同じ方式とし、`detail/` 内に同等の小部品を置く（`monitoring/` は変更・importしない。共通化は監視ダイアログ大改修時に行う）。アクセシブルネームは `aria-label="閉じる"`（`title` も「閉じる」）。押せる範囲は48×48px以上: `size="md"` のコンテナ高は56px（`@material/web` の `icon-button.css` で `.icon-btn-md{--container-height:56px}` を確認済み。`sm` は40pxのため不可）。アイコン色はコンポーネント既定（`on-surface-variant` 系トークン）に任せ、HEX・独自色指定をしない。focus-visible の表示もコンポーネント既定に任せる。
 - 2行目: `target · time`（G1カードと同じ区切り）。`target` が null ならその要素を省き、`time.value` が null なら時刻要素を省く【確定】（§9 Q1）。どちらも null なら2行目自体を出さない。
 - 訓練: `isTraining === true` のとき見出し横に「訓練」ラベルを表示する【確定】（§9 Q2）。`false` は何も出さない。`null` は何も出さない【確定】（§9 Q2）。色は `tertiary-container`／`on-tertiary-container` トークン【設計案】。
 - `<dialog>` に `aria-labelledby`（見出しのid）。idは `useId` で生成し、複数インスタンスでも衝突させない。
@@ -102,25 +102,40 @@ export function formatDetailDialogMeta(meta: DetailDialogMeta, now: Date): {
 ### 4.1 寸法（D1）
 
 ```css
-inline-size: min(90vw, 1600px);
-block-size: 90dvh;
-max-inline-size: none; max-block-size: none; /* UA既定の max-*: calc(100% - 2em - 6px) を解除 */
+/* .detail-dialog */
+inline-size: min(90vw, 960px);
+block-size: auto;            /* 中身に合わせる */
+max-inline-size: none;       /* UA既定の max-*: calc(100% - 2em - 6px) を解除 */
+max-block-size: 90dvh;       /* 高さ上限 */
+overflow: hidden;            /* UA既定 dialog:modal{overflow:auto} を打ち消す。ダイアログ本体はスクロールしない */
 padding: 0;
+
+/* .detail-dialog-body */
+flex: 0 1 auto;              /* 旧 flex:1（basis 0%）は高さauto時に不定になるため使わない */
+min-block-size: 0;
+overflow: auto;
+overscroll-behavior: contain;
+position: relative;          /* 本文内の絶対配置要素の包含ブロックを本文にする（下記「二重スクロールの原因」） */
 ```
 
-| 画面（G1 §4.1 と同じ前提、100%表示） | viewport | ダイアログ幅 | 高さ |
+| 画面（G1 §4.1 と同じ前提、100%表示） | viewport | ダイアログ幅 | 高さ上限（90dvh） |
 |---|---|---|---|
-| FHD全画面 | 1920×1080 | 1600（上限） | 972 |
-| FHDブラウザ最大化 | 1920×960 | 1600（上限） | 864 |
-| HD | 1280×720 | 1152 | 648 |
-| iPad 11インチ横（設計基準） | 1180×820 | 1062 | 738 |
+| FHD全画面 | 1920×1080 | 960（上限） | 972 |
+| FHDブラウザ最大化 | 1920×960 | 960（上限） | 864 |
+| HD | 1280×720 | 960（上限） | 648 |
+| iPad 11インチ横（設計基準） | 1180×820 | 960（上限） | 738 |
 
-すべて算出値で、AC-8で実測する。
+すべて算出値で、AC-8で実測する。高さは中身の高さと上限の小さい方になる。本文が長い場合は上限に達し、本文領域だけが縦スクロールする。本文が短い場合は上限未満で止まる。
 
-- 上限1600pxの根拠: FHDで左右に160pxずつ背景（地図）を残し、モーダルであることが分かる程度の余白を確保する。これ以上の幅は時系列表の列数が増えるだけで可読性に寄与しない【設計案・製造時変更不可、変更は統括へ】。
-- 内部構成: 見出し領域（固定）＋本文領域（`flex: 1; min-block-size: 0; overflow: auto; overscroll-behavior: contain`）。本文の縦スクロールは本文領域だけで行う。見出しと閉じるボタンはスクロールしても常に見える。
+- 上限960pxの根拠（オーナーUI監修で確定）: 1列約65px（実測）で、警報等時系列の現行8列（3時間区間）＋24時間区間2列のブロック、地域時系列予報（天気・風10列、気温11列）が横スクロールなしで収まる。サンプル最大14列の電文では約130px横スクロールすることはオーナー承知済み。対象4viewportはすべて90vwが960pxを超えるため、幅は常に960pxになる。
+- 内部構成: 見出し領域（`flex: none`）＋本文領域（上記）。縦スクロールは本文領域だけで行い、ダイアログ本体（`<dialog>`）はスクロールしない。見出しと閉じるボタンはスクロールしても常に見える。
+- 二重スクロールの原因（オーナー監修で指摘された、`<dialog>` と `.detail-dialog-body` の両方にスクロールバーが出る現象）: コード調査による特定であり、製造時に修正前の状態で再現・確認すること。
+  1. `<dialog>` はUA既定で `dialog:modal { overflow: auto }` を持ち、`detail.css` の `.detail-dialog` はこれを打ち消していない。ダイアログ本体がスクロールコンテナになっている。
+  2. `.detail-ts-caption`（視覚的に隠すキャプション）は `position: absolute` だが、`.detail-dialog-body` も `.detail-ts-scroll` も配置されていない（`position: static`）ため、包含ブロックは位置付けられた最寄りの祖先であるダイアログ（`showModal` 中は top layer で `position: fixed`）になる。本文領域の `overflow` はこの要素をクリップせず、本文内の静的位置（表が本文の下方にあれば本文領域の高さより下）がダイアログのスクロール可能領域を押し広げる。これで1と合わせてダイアログ本体にもスクロールバーが出る。
+  - 対策は二重に行う: (a) `.detail-dialog` に `overflow: hidden`、(b) `.detail-dialog-body` に `position: relative`（キャプションの包含ブロックを本文領域にする）。どちらか一方だけにしない。(a)だけだとダイアログ本体のはみ出しが見えずに残り、プログラムスクロール（`scrollIntoView`・フォーカス移動）でダイアログ本体がずれる恐れがある。
+  - 製造時に上記1・2以外の原因（見出し行のはみ出し等）が見つかった場合も、AC-8(c) を満たすまで直す。原因が1・2と異なった場合は最終報告に記す。
 - 背景色 `surface-container-high`、角丸 `--md-sys-shape-corner-md`、`::backdrop` は既存監視ダイアログと同じ `scrim`＋`opacity: 0.32`。
-- iPadセーフエリア: 90dvh・90vw の中央配置で、1180×820の上下左右に41px以上の余白が残るため、個別のセーフエリア処理は加えない。
+- iPadセーフエリア: 高さ最大90dvh・幅960pxの中央配置で、1180×820の上下に41px以上・左右に110pxの余白が残るため、個別のセーフエリア処理は加えない。
 
 ### 4.2 開閉と復帰（D1・D2）
 
@@ -203,16 +218,15 @@ export function buildDateHeaderLabels(columns: readonly TimeSeriesColumn[]): rea
 | 地域時系列予報 | title「地域時系列予報（サンプル）」、target null、time `{kind:'issued', value:null}`、isTraining true | 行3（天気・風・気温）。天気・風は `span: 2` の区間セル、気温は時点。列24（3日分）|
 
   2つ目は null・訓練の表示確認を兼ねる。
-- 警報等時系列サンプルの列数の根拠（AC-7の初期位置合わせ）: 初期表示で3列目を行見出しの直右に置くには `scrollLeft = 2列分 = 128px` 以上が必要で、横スクロールの最大量 `scrollWidth − clientWidth` がこれ以上でなければならない。検収時の実測では16列・1280×720（ダイアログ幅1152）ではみ出し55pxであり、表の可視幅は約 112 + 16×64 − 55 ≈ 1081px（ダイアログ幅 − 約71px）。同じ差し引きで可視幅を見積もると、必要列数 N は `112 + 64N − 可視幅 ≥ 128` を満たす最小値である。
+- 警報等時系列サンプルの列数の根拠（AC-7の初期位置合わせ）: 初期表示で3列目を行見出しの直右に置くには `scrollLeft = 2列分 = 128px` 以上が必要で、横スクロールの最大量 `scrollWidth − clientWidth` がこれ以上でなければならない。検収時の実測では16列・1280×720（ダイアログ幅1152）ではみ出し55pxであり、表の可視幅は約 112 + 16×64 − 55 ≈ 1081px（ダイアログ幅 − 約71px。この実測は幅上限1600px時のもの）。同じ差し引きで可視幅を見積もると、必要列数 N は `112 + 64N − 可視幅 ≥ 128` を満たす最小値である。
 
   | viewport | ダイアログ幅 | 表可視幅（見積） | 必要N | 32列でのはみ出し |
   |---|---|---|---|---|
-  | 1920×1080 / 1920×960 | 1600 | 約1529 | 25 | 約631px |
-  | 1280×720 | 1152 | 約1081 | 18 | 約1079px |
-  | 1180×820 | 1062 | 約991 | 16 | 約1169px |
+  | 1920×1080 / 1920×960 / 1280×720 / 1180×820 | 960（全viewportで上限） | 約889 | 15 | 約1271px |
 
-  最も幅の広いFHDで必要な25列に余裕を持たせ、日付区切りのよい32列（3時間×8列×4日）とする。AC-7は1280×720で測るが、AC-8の全viewportで初期位置合わせが成立する列数である。列数を減らす変更は不可【設計案・製造時変更不可、変更は統括へ】。
-- ダミー本文には、サンプル表のほかに縦スクロールを確認するための段落を置く。量は、AC-8の全viewport（本文領域が最も高い1920×1080を含む）で本文領域の `scrollHeight − clientHeight ≥ 200px` となること。目安として2行以上の段落を30個以上とする（ダイアログ高さ最大972pxに対し、表を除いても本文が1000pxを超える量）。製造時に1920×1080で上記の差を実測し、コミットメッセージまたは最終報告に値を記す。
+  幅上限を960pxに改訂した後も、必要15列に対し32列（3時間×8列×4日）で、はみ出し約1271px ≥ 128px のため AC-7 の初期位置合わせは全viewportで成立する（計算確認済み）。列数は据え置く。列数を減らす変更は不可【設計案・製造時変更不可、変更は統括へ】。
+- 高さ検証用に、2つのサンプルの本文量を分ける。「警報等時系列」は長い本文（下記の段落）とし、全viewportでダイアログが90dvhに達する。「地域時系列予報」は短い本文（表と一文程度のみ。スクロール確認用段落を置かない）とし、最も低い1280×720（上限648px）でもダイアログ高さが上限未満になる量に抑える（見出し約100px＋表5段約250px＋余白で約450pxの見込み）。
+- 「警報等時系列」のダミー本文には、サンプル表のほかに縦スクロールを確認するための段落を置く。量は、AC-8の全viewport（本文領域が最も高い1920×1080を含む）で本文領域の `scrollHeight − clientHeight ≥ 200px` となること。目安として2行以上の段落を30個以上とする（ダイアログ高さ最大972pxに対し、表を除いても本文が1000pxを超える量）。製造時に1920×1080で上記の差を実測し、コミットメッセージまたは最終報告に値を記す。
 
 ## 7. 気象データ制約・管理項目の結論
 
@@ -229,23 +243,24 @@ export function buildDateHeaderLabels(columns: readonly TimeSeriesColumn[]): rea
 
 - [ ] AC-1: `npm run lint` / `npm run typecheck` / `npm run format:check` / `npm run test -w apps/web` がすべて成功する。
 - [ ] AC-2: `buildDateHeaderLabels` の単体テストで、(a) 先頭列は常に日付、(b) 同日の後続列は null、(c) JST 23時台→翌0時台の境界で日付が出る（UTCでは同日でもJSTで日付が変わるケース、例 `2026-09-23T14:00:00Z`→`2026-09-23T15:00:00Z` を含む）、(d) 表記が `9/24(木)` 形式。`validateRowSpans` が span 合計の過不足を検出する。
-- [ ] AC-3: `formatDetailDialogMeta` の単体テストで、target null・time.value null・isTraining true/false/null の各組合せが §3.3 どおり（null要素は省く、訓練はtrueのみ「訓練」、発表/観測の語が kind どおり）。`renderToStaticMarkup` でポータル抜きの内側部品 `DetailDialogInner`（open=true 相当）を描画し、見出し・対象・時刻・「閉じる」・`aria-labelledby` が出力される。
+- [ ] AC-3: `formatDetailDialogMeta` の単体テストで、target null・time.value null・isTraining true/false/null の各組合せが §3.3 どおり（null要素は省く、訓練はtrueのみ「訓練」、発表/観測の語が kind どおり）。`renderToStaticMarkup` でポータル抜きの内側部品 `DetailDialogInner`（open=true 相当）を描画し、見出し・対象・時刻・閉じるボタンの `aria-label="閉じる"`・`aria-labelledby` が出力される。
 - [ ] AC-4: `DetailTimeSeriesTable` を `renderToStaticMarkup` し、上段の日付セルが日付境界の列にだけ文字を持ち、日付が前列と変わらない列の上段日付セルが空（テキストが空文字）であることも検証する。行見出しが `th scope="row"`、横スクロール div が `role="region"` と `tabindex="0"` を持つ。
 - [ ] AC-5: `?panelFixture=all-content` で「警報等時系列」の「詳細（仮）」を押すとダイアログが開く。開いた状態で、ダイアログ外（地図が見えている位置）でドラッグ・ホイール・ダブルクリックしても地図の中心・ズームが変わらない（開く前後で `map.getCenter()`・`getZoom()` 相当の値、または画面上の目印位置を記録して比較）。右側列もスクロールしない。フォーカスは閉じるボタンにある。
 - [ ] AC-6: 右側列を下までスクロールし（`scrollTop` を記録、0より大きいこと）、「地域時系列予報」の「詳細（仮）」で開く。(a) Esc、(b) 閉じるボタン、それぞれで閉じた後、`document.activeElement` がその「詳細（仮）」ボタン（またはそのホスト要素）であり、列の `scrollTop` が開く前と一致し（差0〜1px）、地図の中心・ズームが開く前と同じ。Tab／Shift+Tab を繰り返してもフォーカスがダイアログ外へ出ない。
 - [ ] AC-7: 1280×720 で「警報等時系列」サンプルを開き、表の横スクロール div の `scrollWidth > clientWidth`。横スクロールすると行見出し列の `getBoundingClientRect().left` が変わらず、データセルは行見出しの下に隠れる（透けない）。ダイアログ本文・見出しは横に動かない。初期表示で3列目が行見出しの直右にある。表の文字の computed `font-size` が14px以上。
-- [ ] AC-8: 1920×1080、1920×960、1280×720、1180×820 の各viewportでダイアログの幅・高さを実測し、§4.1 表と±1pxで一致する。いずれも閉じるボタンが見え、ページに横スクロールが発生しない。本文領域を縦スクロールしても見出しと閉じるボタンが見えたまま。
+- [ ] AC-8: 1920×1080、1920×960、1280×720、1180×820 の各viewportで、ダイアログ（`<dialog>`）の `getBoundingClientRect()` を実測する。(a) 「警報等時系列」サンプル（長い本文）: 幅・高さが §4.1 表の幅・高さ上限と±1pxで一致し、本文領域 `.detail-dialog-body` の `scrollHeight > clientHeight`。(b) 「地域時系列予報」サンプル（短い本文）: 幅が960±1px、高さが同viewportの高さ上限より小さく、本文領域の `scrollHeight === clientHeight`（縦スクロールなし）。(c) 二重スクロールの再発防止: (a)(b)いずれも、ダイアログ要素の `scrollHeight === clientHeight` かつ `scrollWidth === clientWidth`、computed `overflow` が `hidden`。(a)で本文領域を最下部までスクロールした後もダイアログの `scrollTop === 0`。(d) いずれも閉じるボタンが見え、ページに横スクロールが発生しない。本文領域を縦スクロールしても見出しと閉じるボタンが見えたまま。
+- [ ] AC-8b: 閉じるボタンに可視テキストがなく（`textContent` がアイコン名 `close` のみで、そのspanは `aria-hidden="true"`）、アクセシブルネームが「閉じる」（`aria-label`）。ボタンのホスト要素の `getBoundingClientRect()` の幅・高さがともに48px以上。スクリーンショットで×アイコンが表示されている（アイコン名の文字列がそのまま表示されていない）。
 - [ ] AC-9: iPad Pro 11インチ横の実機で、開く・表の横スワイプ（表だけが動きダイアログ・ページが動かない）・本文の縦スワイプ・閉じる後の列スクロール位置保持を確認する。実機で確認できない場合はエミュレーションで合格とせず「実挙動未確認」として統括へ返す。
 - [ ] AC-10: 「地域時系列予報」サンプルで、見出し2行目に対象・時刻が出ず（null）、「訓練」ラベルが表示される。「警報等時系列」サンプルでは「江東区 · HH:mm発表」形式で「訓練」は出ない。
 - [ ] AC-11: 新規・変更した css/tsx に色のHEX直書きがない（`#[0-9a-fA-F]{3,8}\b` 検索で0件）。
-- [ ] AC-12: `git diff --stat main` の変更が `apps/web/src/map/`（`detail/` 新設、`panels/panelFixtures.ts` 等のフィクスチャ、入口のためのスロット ref 取り回し）、`apps/web/tests/`、`apps/web/src/index.css` の `detail.css` import 1行に限られる。`apps/web/src/monitoring/` に差分がない。`map.css` の `--wx-map-right-column-width` に差分がない。
+- [ ] AC-12: `git diff --stat main` の変更が `apps/web/src/map/`（`detail/` 新設、`panels/panelFixtures.ts` 等のフィクスチャ、入口のためのスロット ref 取り回し）、`apps/web/tests/`、`apps/web/src/index.css` の `detail.css` import 1行に限られる。`apps/web/src/monitoring/` に差分がない（閉じるボタンのアイコン部品も `monitoring/` から import しない）。`apps/web/src/components/md/` に差分がない（既存 `GbIconButton` をそのまま使う）。`map.css` の `--wx-map-right-column-width` に差分がない。
 
 ## 9. 未確定事項・要ヒアリング
 
 - Q1: メタ情報が null のとき（対象不明・時刻不明）、該当要素を黙って省く案でよいか、「時刻不明」等の文言を出すか。 → 【確定】黙って省く。
 - Q2: 訓練電文のとき見出し横に「訓練」ラベルを出す案でよいか。isTraining が不明（null）のときは何も出さない案でよいか。 → 【確定】訓練時のみラベル、null は何も出さない。
 - Q3: 背景（暗くなった地図部分）のクリック・タップで閉じるか。現案は既存監視ダイアログに合わせて閉じない。 → 【確定】閉じない。
-- 実挙動未確認: iPad Safari での `showModal` 中の背景タッチ操作停止、`overscroll-behavior` の効き、`focus({preventScroll:true})` 後の `scrollTop` 復帰（AC-6・AC-9で確認）。§4.1 の寸法は算出値。
+- 実挙動未確認: iPad Safari での `showModal` 中の背景タッチ操作停止、`overscroll-behavior` の効き、`focus({preventScroll:true})` 後の `scrollTop` 復帰（AC-6・AC-9で確認）。§4.1 の寸法は算出値。二重スクロールの原因（§4.1）はコード調査による特定で、実測による再現確認は製造時に行う。
 
 ## 10. 後続Issueへの引き継ぎ
 
