@@ -36,6 +36,11 @@ const NOWCAST_LAYER_OPACITY = 1;
 const KIKIKURU_LAYER_OPACITY = 0.75;
 const SWAP_TIMEOUT_MS = 12_000;
 
+/** 高さ基準要素 (Issue #212 §4.8) の TimelineControlCard へ渡す no-op ハンドラ。不可視のため操作されない。 */
+function noopTimelineIntent() {
+  /* 高さ基準要素は inert のため操作を受け取らない */
+}
+
 /** 実際にオーバーレイへ渡す不透明度を回帰テストから検証する公開境界。 */
 // eslint-disable-next-line react-refresh/only-export-components
 export const weatherMapViewConfiguration = {
@@ -286,18 +291,25 @@ export function WeatherMapView({
       >
         {isKikikuru ? (
           <KikikuruStatusCard
-            ref={setBottomCardRef}
             viewModel={effectiveTimelineViewModel}
             statusSlot={effectiveStatusSlot}
           />
         ) : (
           <TimelineControlCard
-            ref={setBottomCardRef}
             viewModel={effectiveTimelineViewModel}
             onIntent={handleIntent}
             statusSlot={effectiveStatusSlot}
           />
         )}
+        {/* 中心補正の下端基準 B (Issue #212 §4.8)。レイヤーに関わらずナウキャストカードの高さを測る */}
+        <div
+          ref={setBottomCardRef}
+          className="timeline-card-height-reference"
+          aria-hidden="true"
+          inert
+        >
+          <TimelineControlCard viewModel={emptyTimeline} onIntent={noopTimelineIntent} />
+        </div>
       </div>
 
       {/* 4. 左下ズーム群および会場復帰 (F6) */}

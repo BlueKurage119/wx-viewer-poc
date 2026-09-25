@@ -113,3 +113,67 @@ test('WeatherMapView: キーボードフォーカス順（凡例 → レイヤ�
   assert.ok(returnButtonIndex > zoomControlsIndex, 'ズーム操作の後に会場復帰');
   assert.ok(viewportIndex > returnButtonIndex, '操作面の後に地図本体');
 });
+
+test('WeatherMapView: 高さ基準要素 (Issue #212 §4.8) がナウキャスト表示中に1つ描画され、アクセス不能属性を持つ (U1)', () => {
+  const eastTerminal = terminals.find((t) => t.venue.id === 'east')!;
+  const html = renderToStaticMarkup(el(WeatherMapView, { venue: eastTerminal.venue }));
+
+  const referenceMatches = html.match(/class="timeline-card-height-reference"/g) ?? [];
+  assert.equal(referenceMatches.length, 1, '高さ基準要素はちょうど1回だけ現れる');
+
+  const referenceOpenTagMatch = html.match(/<div[^>]*class="timeline-card-height-reference"[^>]*>/);
+  assert.ok(referenceOpenTagMatch, '高さ基準要素の開始タグが見つかること');
+  const referenceOpenTag = referenceOpenTagMatch![0];
+  assert.ok(referenceOpenTag.includes('aria-hidden="true"'), 'aria-hidden="true" を持つこと');
+  assert.ok(/\binert(=""|(?=[\s>]))/.test(referenceOpenTag), 'inert 属性を持つこと');
+
+  const referenceIndex = html.indexOf('class="timeline-card-height-reference"');
+  const referenceBlockMatch = html.match(
+    /<div[^>]*class="timeline-card-height-reference"[^>]*>[\s\S]*?<\/section><\/div>/,
+  );
+  assert.ok(referenceBlockMatch, '高さ基準要素の閉じタグまでを取り出せること');
+  const referenceBlock = referenceBlockMatch![0];
+  assert.ok(
+    referenceBlock.includes('class="timeline-control-card nowcast-timeline-card"'),
+    '基準要素の内側は常にナウキャストカード',
+  );
+  assert.ok(
+    referenceBlock.includes('timeline-slider-empty'),
+    '基準要素は常に空の TimelineControlCard を描画する',
+  );
+
+  const displayedCardIndex = html.indexOf('class="timeline-control-card nowcast-timeline-card"');
+  assert.ok(
+    displayedCardIndex >= 0 && displayedCardIndex < referenceIndex,
+    '表示中カードが基準要素より先に出現する',
+  );
+});
+
+test('WeatherMapView: 高さ基準要素 (Issue #212 §4.8) はキキクル表示中も常にナウキャストカードで測る (U2)', () => {
+  const eastTerminal = terminals.find((t) => t.venue.id === 'east')!;
+  const html = renderToStaticMarkup(
+    el(WeatherMapView, {
+      venue: eastTerminal.venue,
+      selectedLayerId: 'kikikuru-heavyrain',
+    }),
+  );
+
+  const referenceMatches = html.match(/class="timeline-card-height-reference"/g) ?? [];
+  assert.equal(referenceMatches.length, 1, 'キキクル表示中も高さ基準要素はちょうど1回');
+
+  const referenceIndex = html.indexOf('class="timeline-card-height-reference"');
+  const referenceBlockMatch = html.match(
+    /<div[^>]*class="timeline-card-height-reference"[^>]*>[\s\S]*?<\/section><\/div>/,
+  );
+  assert.ok(referenceBlockMatch);
+  assert.ok(
+    referenceBlockMatch![0].includes('nowcast-timeline-card'),
+    'キキクル表示中も基準要素の内側はナウキャストカード',
+  );
+
+  const kikikuruCardIndex = html.indexOf('kikikuru-status-card');
+  assert.ok(
+    kikikuruCardIndex >= 0 && kikikuruCardIndex < referenceIndex,
+    'キキクル簡易カードが基準要素より先に出現する',
+  );
+});
