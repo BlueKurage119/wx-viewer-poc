@@ -73,12 +73,12 @@ G1（#52）の共通枠に、気象防災速報（VPBS50 の3種＝線状降水�
 | `apps/web/src/map/panels/bosai/bosaiBulletinCards.ts` | 新規 | 純粋関数群（表示期限・表示可否・区域名・経過時間・カード入力の組み立て）。React に依存しない |
 | `apps/web/src/map/panels/bosai/useBosaiBulletins.ts` | 新規 | `useTileCatalogPolling` によるポーリングと、1分ごとの現在時刻更新。`InfoPanelCardInput[]` を返す |
 | `apps/web/src/map/panels/bosai/BosaiBulletinContent.tsx` | 新規 | カードの中身（区域・経過時間・目撃情報あり・全文） |
-| `apps/web/src/map/panels/bosai/bosaiBulletin.css` | 新規 | 中身のスタイル。`BosaiBulletinContent.tsx` から `import './bosaiBulletin.css'` で読み込む（CSS の bare import は `sideEffects: ["*.css"]` の対象で除去されない。`index.css` を触らないため） |
+| `apps/web/src/map/panels/bosai/bosaiBulletin.css` | 新規 | 中身のスタイル。`BosaiBulletinContent.tsx` から `import './bosaiBulletin.css'` は `apps/web/src/index.css` の `@import './map/panels/bosai/bosaiBulletin.css';` で読み込む（2026-09-25 ユーザー承認による改訂: Node 実行のテストが `.css` の import を解決できないため、既存の流儀に揃えて `index.css` に `@import` を1行追加する方式へ変更した） |
 | `apps/web/src/map/WeatherMapView.tsx` | 変更 | `useBosaiBulletins` を呼び、`InfoPanelColumn` へ `input={{ ...DEFAULT_INFO_PANEL_INPUT, bosaiBulletin: cards }}` を渡す（1箇所） |
 | `apps/web/src/map/panels/panelFixtures.ts` | 変更 | フィクスチャ `bosai-bulletins` を追加（§6）。既存フィクスチャは変更しない |
 | `apps/web/tests/bosaiBulletinPanel.test.ts` | 新規 | 単体テスト |
 
-`InfoPanelColumn.tsx`・`InfoPanelFrame.tsx`・`panelDefinitions.ts`・`panelDisplayState.ts`・`panelSort.ts`・`panelTime.ts`・`panels.css`・`index.css` は**変更しない**（#54 警報パネルと並行設計のため共有ファイルへの変更を最小にする）。
+`InfoPanelColumn.tsx`・`InfoPanelFrame.tsx`・`panelDefinitions.ts`・`panelDisplayState.ts`・`panelSort.ts`・`panelTime.ts`・`panels.css` は**変更しない**。`index.css` は上記 `@import` 1行の追加のみ許可する（#54 警報パネルと並行設計のため共有ファイルへの変更を最小にする）。
 
 ### 3.2 型・シグネチャ
 
@@ -266,9 +266,9 @@ export function useBosaiBulletins(params: {
 製造（agy-delegate）はこの一覧の外を変更しない。検収は `git diff --stat main...HEAD` で確認する。
 
 - 新規: `apps/web/src/api/bosaiBulletins.ts`、`apps/web/src/map/panels/bosai/bosaiBulletinCards.ts`、`apps/web/src/map/panels/bosai/useBosaiBulletins.ts`、`apps/web/src/map/panels/bosai/BosaiBulletinContent.tsx`、`apps/web/src/map/panels/bosai/bosaiBulletin.css`、`apps/web/tests/bosaiBulletinPanel.test.ts`
-- 変更: `apps/web/src/map/WeatherMapView.tsx`（`useBosaiBulletins` の呼び出しと `InfoPanelColumn` への `input` の受け渡しのみ）、`apps/web/src/map/panels/panelFixtures.ts`（`bosai-bulletins` の追加のみ）
+- 変更: `apps/web/src/index.css`（`bosaiBulletin.css` の `@import` 1行追加のみ）、`apps/web/src/map/WeatherMapView.tsx`（`useBosaiBulletins` の呼び出しと `InfoPanelColumn` への `input` の受け渡しのみ）、`apps/web/src/map/panels/panelFixtures.ts`（`bosai-bulletins` の追加のみ）
 
-変更禁止（例示）: `apps/api/**`、`packages/**`、`apps/web/src/map/panels/` の上記以外、`apps/web/src/index.css`、`apps/web/src/map/map.css`、`apps/web/package.json`、ルートの設定ファイル、`polling.yaml` 等の設定、既存テスト。テストのために本番コード・共通設定を書き換えることも禁止する。
+変更禁止（例示）: `apps/api/**`、`packages/**`、`apps/web/src/map/panels/` の上記以外、`apps/web/src/index.css` の上記1行以外、`apps/web/src/map/map.css`、`apps/web/package.json`、ルートの設定ファイル、`polling.yaml` 等の設定、既存テスト。テストのために本番コード・共通設定を書き換えることも禁止する。
 
 ## 8. 管理項目の結論
 
@@ -306,7 +306,7 @@ export function useBosaiBulletins(params: {
 - [ ] AC-10 画面（実 API 結線）: `?panelFixture` なしで気象画面を開き、ブラウザのネットワーク記録で `GET /api/weather/bulletins?terminalId=<端末ID>&controlStatus=normal` が発行され 200 が返ること、約60秒後に再発行されることを確認する。応答の `bulletins` に表示対象が無い場合は速報カードが0枚で、「発表なし」等の文言がなく、最上部が警報・注意報以降のパネルになる（DB に実速報がある場合はその件数・タイトルと表示の一致を記録する）。
 - [ ] AC-11 非対応の明記: 本設計書 §8 の AD-H046 に「発表官署の補助表示は非対応」が記録されており、PR 本文の受け入れ条件対応表で Issue の「発表官署が補助表示として区別される」を**非対応（後続へ申し送り）**と記載する（未対応を実装済みと扱わない）。
 - [ ] AC-12 色: 新規の `.tsx`・`.css`・`.ts` を `#[0-9a-fA-F]{3,8}\b` と `rgb\(` で検索し0件。
-- [ ] AC-13 変更範囲: `git diff --stat main...HEAD` の変更が §7 の許可一覧に限られる。`InfoPanelColumn.tsx`・`panels.css`・`index.css`・`apps/api/`・`packages/` に差分がない。
+- [ ] AC-13 変更範囲: `git diff --stat main...HEAD` の変更が §7 の許可一覧に限られる。`InfoPanelColumn.tsx`・`panels.css`・`apps/api/`・`packages/` に差分がない。`index.css` の差分は `bosaiBulletin.css` の `@import` 1行の追加だけである。
 
 ## 10. 統括への確認事項
 
