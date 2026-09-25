@@ -357,6 +357,18 @@
   z-index: var(--wx-map-z-timeline);
 }
 
+/* 中心補正の下端基準 B を測るための不可視のナウキャストカード (Issue #212 §4.8) */
+.timeline-card-height-reference {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .timeline-control-card {
   pointer-events: auto;
   width: 100%;
@@ -459,6 +471,11 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* 配信前(空)の高さを配信後と揃える (Issue #212 §4.7)。
+     .timeline-slider-track-wrapper / .timeline-slider の height: 24px と同値。
+     値を変えるときはこの 3 箇所を揃えること。 */
+  min-height: 24px;
+  justify-content: center;
 }
 
 .timeline-slider-track-wrapper {

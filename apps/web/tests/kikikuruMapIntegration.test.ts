@@ -190,12 +190,19 @@ test('MapViewport: カード差替え後は旧DOMを監視せず現在のカー�
 test('キキクル表示中は簡易カードだけを表示し、時間操作と廃止した注記を描画しないこと (§8.2, §8.3, §11.4)', () => {
   const eastTerminal = terminals.find((t) => t.venue.id === 'east')!;
 
-  const html = renderToStaticMarkup(
+  const rawHtml = renderToStaticMarkup(
     el(WeatherMapView, {
       venue: eastTerminal.venue,
       selectedLayerId: 'kikikuru-heavyrain',
       timelineViewModel: sampleKikikuruTimeline,
     }),
+  );
+
+  // 中心補正の下端基準要素 (Issue #212 §4.8) は不可視・aria-hidden・inert のナウキャストカードを
+  // 常設するため、「画面に見える時間操作が無い」判定の対象から除去する(アサーションは弱めない)。
+  const html = rawHtml.replace(
+    /<div[^>]*class="timeline-card-height-reference"[^>]*>[\s\S]*?<\/section><\/div>/,
+    '',
   );
 
   assert.ok(html.includes('kikikuru-status-card'));
