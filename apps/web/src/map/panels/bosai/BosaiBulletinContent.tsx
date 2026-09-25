@@ -1,13 +1,6 @@
 import type { BulletinDto } from '@wx-viewer-poc/shared';
 import { formatBulletinElapsed, resolveBulletinAreaNames } from './bosaiBulletinCards';
 
-if (
-  typeof window !== 'undefined' &&
-  !('process' in globalThis && Boolean(process.versions?.node))
-) {
-  void import('./bosaiBulletin.css');
-}
-
 export interface BosaiBulletinContentProps {
   readonly bulletin: BulletinDto;
   readonly nowMs: number;
