@@ -40,6 +40,9 @@
 }
 
 .warning-badge-item__change {
+  padding: 0 4px;
+  border-radius: 3px;
   font-weight: 700;
   color: inherit;
+  background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent);
 }
