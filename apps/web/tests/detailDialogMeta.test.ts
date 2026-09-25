@@ -90,6 +90,29 @@ test('DetailDialogInner: open=true で見出し・対象・時刻・閉じる・
   assert.match(html, /<dialog/);
 });
 
+// AC-5・D6: 初期フォーカスは閉じるボタンではなく見出し（h2、tabindex="-1"）へ移す
+// (focus()呼び出し自体はeffect起点でrenderToStaticMarkupでは検証できないため、
+// 見出しがフォーカス対象になり得る tabindex="-1" を持つことを静的マークアップで確認する)
+test('DetailDialogInner: 見出し(h2)に tabindex="-1" が付き、aria-labelledby と id が一致する', () => {
+  const meta: DetailDialogMeta = {
+    title: '警報等時系列',
+    target: null,
+    time: { kind: 'issued', value: null },
+    isTraining: null,
+  };
+  const html = renderToStaticMarkup(el(DetailDialogInner, { open: true, meta, onClose: () => {} }));
+
+  const labelledbyMatch = html.match(/aria-labelledby="([^"]+)"/);
+  assert.ok(labelledbyMatch, 'aria-labelledby が出力される');
+  const titleId = (labelledbyMatch as RegExpMatchArray)[1];
+
+  const h2Match = html.match(/<h2[^>]*>/);
+  assert.ok(h2Match, 'h2 が出力される');
+  const h2Tag = (h2Match as RegExpMatchArray)[0];
+  assert.match(h2Tag, new RegExp(`id="${titleId}"`));
+  assert.match(h2Tag, /tabindex="-1"/);
+});
+
 // AC-8b: 閉じるボタンは×アイコンのみ（可視テキストなし）。アクセシブルネームは aria-label
 test('DetailDialogInner: 閉じるボタンはアイコンのみで aria-label="閉じる"、アイコンは aria-hidden', () => {
   const meta: DetailDialogMeta = {

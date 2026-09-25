@@ -46,6 +46,7 @@ export function DetailDialogInner({
 }: DetailDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeButtonRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const closingRef = useRef(false);
   const titleId = useId();
   const { save, restore } = useDetailDialogReturn(scrollContainer);
@@ -66,7 +67,9 @@ export function DetailDialogInner({
     if (open) {
       save();
       if (!dialog.open) dialog.showModal();
-      queueMicrotask(() => closeButtonRef.current?.focus({ preventScroll: true }));
+      // 初期フォーカスは閉じるボタンではなく見出しへ移す（D6・オーナーiPad実機確認）。
+      // 閉じるボタンへ初期フォーカスするとタッチ操作でもフォーカスリングが出るため。
+      queueMicrotask(() => titleRef.current?.focus({ preventScroll: true }));
       return;
     }
     if (dialog.open) dialog.close();
@@ -106,7 +109,7 @@ export function DetailDialogInner({
         <>
           <header className="detail-dialog-heading">
             <div className="detail-dialog-heading-row">
-              <h2 id={titleId} className="md-typescale-headline-small">
+              <h2 id={titleId} ref={titleRef} tabIndex={-1} className="md-typescale-headline-small">
                 {meta.title}
               </h2>
               {formatted.trainingLabel !== null && (
