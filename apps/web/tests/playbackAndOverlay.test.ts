@@ -185,6 +185,21 @@ test('WeatherTileOverlay: id が同一で urlTemplate が異なる場合に swap
   );
 });
 
+/** predicate が真になるまで intervalMs 間隔で待つ。timeoutMs 到達時は false を返す(例外は投げない)。 */
+async function waitUntil(
+  predicate: () => boolean,
+  { timeoutMs = 3000, intervalMs = 5 }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<boolean> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return true;
+}
+
 test('WeatherTileOverlay: タイムアウト時に complete: false で swap 完了を通知すること (§9.3, §11.4)', async () => {
   const documentForClient = globalThis.document as unknown as {
     addEventListener: () => void;
@@ -254,6 +269,8 @@ test('WeatherTileOverlay: タイムアウト時に complete: false で swap 完�
         onSwapSettled: (result) => notifications.push(result),
       }),
     );
+    await waitUntil(() => notifications.length >= 1);
+    // 重複通知の検出窓: 1件目到着後100ms待ち、従来の描画後100ms以上の窓を保証する
     await new Promise((resolve) => setTimeout(resolve, 100));
   } finally {
     root.unmount();
