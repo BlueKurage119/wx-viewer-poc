@@ -2,7 +2,7 @@
 
 作成日: 2026-09-25
 作成: 設計担当（Claude Opus 5.5）
-状態: 【設計案】ユーザー承認待ち。2026-09-25 の追加回答（§2.1 Q6〜Q8）を反映済みで、統括への未決の確認事項は無い（§10）。
+状態: 【設計】2026-09-25 ユーザー承認済み。同日、PR #218 の UI 監修（オーナー）・Codex レビューにより改訂（§4.3〜§4.5、§7、§9）。
 
 ## 1. 目的と範囲
 
@@ -13,7 +13,7 @@ G1（#52）の共通枠に、気象防災速報（VPBS50 の3種＝線状降水�
 - `GET /api/weather/bulletins` の定期取得と、応答から速報カード入力（`InfoPanelCardInput[]`）への変換
 - 種別別の表示期限（VPBS50 は発表後3時間、VPHW50/51 は電文の `ValidDateTime`）と、時間経過による自動の非表示
 - 取消電文の対象カードを黙って非表示にする
-- カードの中身: 対象区域、経過時間、「目撃情報あり」（`hasSighting === true` のときだけ）、速報文全文
+- カードの中身: 速報文全文のみ（UI 監修により対象区域・経過時間・「目撃情報あり」は表示しない。§4.3・§4.4）
 - 開発用フィクスチャ `?panelFixture=bosai-bulletins`
 
 範囲外（やらないこと）:
@@ -46,13 +46,16 @@ G1（#52）の共通枠に、気象防災速報（VPBS50 の3種＝線状降水�
 | # | 確定事項 | 反映 |
 |---|---|---|
 | Q1 | VPHW50 と VPHW51 が同じ区域・同じ時刻で重複しても統合せず、両方をカードとして表示する | §4.1。重複排除処理を書かない。AC-3 |
-| Q2 | `hasSighting === true` のときだけ「目撃情報あり」を補助表示する。区域は電文の対象区域をそのまま表示し、目撃区域は特定しない（本文に書かれているため）。DB は変更しない | §4.3・§4.4。AC-5 |
+| Q2 | `hasSighting === true` のときだけ「目撃情報あり」を補助表示する。区域は電文の対象区域をそのまま表示し、目撃区域は特定しない（本文に書かれているため）。DB は変更しない。**後に UI 監修（2026-09-25）で区域・目撃の表示自体を廃止**（§4.3・§4.4） | §4.3・§4.4。AC-5 |
 | Q3 | 発表官署は今回表示しない。保存・API 追加もしない。受け入れ条件「発表官署が補助表示として区別される」は非対応として明記し後続へ申し送る（AD-H046 の結論） | §8・§9。AC-11 |
 | Q4 | 詳細ボタンは設けない | §4.4。AC-5 |
 | Q5 | 取消電文は取消対象のカードを何も告知せずに消す。取消を示す表示・取消カードは出さない | §4.2。AC-2 |
-| Q6 | （追加回答）竜巻カードの対象区域は発表単位の区域（`竜巻注意情報（発表細分）`、例「東京地方」）のみを表示する | §4.3。AC-6・AC-9 |
+| Q6 | （追加回答）竜巻カードの対象区域は発表単位の区域（`竜巻注意情報（発表細分）`、例「東京地方」）のみを表示する。**後に UI 監修（2026-09-25）で区域表示自体を廃止**（§4.3） | §4.3。AC-6（廃止） |
 | Q7 | （追加回答）期限の判定は電文種別（API の `telegramType`: VPBS50 / VPHW50 / VPHW51）で行う。竜巻は竜巻注意情報という別の電文種別で配信されるため「種別を判別できない」前提は置かない。`source` URL・`information_tag`・`eventId` 等から画面側で種別を推定しない | §4.2・§3.2・§2.2。AC-2・AC-8 |
 | Q8 | （追加回答）訂正は内容だけ差し替え、「訂正」の表示は付けない | §4.2。AC-2 |
+| U1 | （UI 監修・2026-09-25）対象区域・経過時間・「目撃情報あり」は見出しの発表時刻・電文タイトル（例「（竜巻目撃）」）・全文と重複するため表示しない。中身は速報文全文のみ | §4.3・§4.4。AC-5・AC-9 |
+| U2 | （UI 監修・2026-09-25）カードの高さが内容に応じて伸びず切れていた。原因は G1 共通の縦 flex 列（`max-height`・`overflow-y: auto`）で `.info-panel-card` が `flex-shrink: 1` のまま縮められていたこと。`panels.css` の `.info-panel-card` に `flex-shrink: 0` を1行追加する | §3.1・§7。AC-14 |
+| U3 | （Codex P1・2026-09-25）`toCardAvailability`（`unavailable→stale` の縮退）を廃止。E6 §4.3 のとおり速報 API は `unavailable` を返さない契約のため、`availability: 'unavailable'` の応答は契約違反として取得失敗にする | §3.2・§4.5。AC-8 |
 
 ### 2.2 実物確認の結果
 
@@ -70,15 +73,16 @@ G1（#52）の共通枠に、気象防災速報（VPBS50 の3種＝線状降水�
 | ファイル | 種別 | 役割 |
 |---|---|---|
 | `apps/web/src/api/bosaiBulletins.ts` | 新規 | `fetchTileCatalog` を `path: '/api/weather/bulletins'` で呼び、応答を `parseBulletinsResponse` で検証する |
-| `apps/web/src/map/panels/bosai/bosaiBulletinCards.ts` | 新規 | 純粋関数群（表示期限・表示可否・区域名・経過時間・カード入力の組み立て）。React に依存しない |
+| `apps/web/src/map/panels/bosai/bosaiBulletinCards.ts` | 新規 | 純粋関数群（表示期限・表示可否・カード入力の組み立て）。React に依存しない |
 | `apps/web/src/map/panels/bosai/useBosaiBulletins.ts` | 新規 | `useTileCatalogPolling` によるポーリングと、1分ごとの現在時刻更新。`InfoPanelCardInput[]` を返す |
-| `apps/web/src/map/panels/bosai/BosaiBulletinContent.tsx` | 新規 | カードの中身（区域・経過時間・目撃情報あり・全文） |
+| `apps/web/src/map/panels/bosai/BosaiBulletinContent.tsx` | 新規 | カードの中身（速報文全文のみ） |
 | `apps/web/src/map/panels/bosai/bosaiBulletin.css` | 新規 | 中身のスタイル。`BosaiBulletinContent.tsx` から `import './bosaiBulletin.css'` は `apps/web/src/index.css` の `@import './map/panels/bosai/bosaiBulletin.css';` で読み込む（2026-09-25 ユーザー承認による改訂: Node 実行のテストが `.css` の import を解決できないため、既存の流儀に揃えて `index.css` に `@import` を1行追加する方式へ変更した） |
 | `apps/web/src/map/WeatherMapView.tsx` | 変更 | `useBosaiBulletins` を呼び、`InfoPanelColumn` へ `input={{ ...DEFAULT_INFO_PANEL_INPUT, bosaiBulletin: cards }}` を渡す（1箇所） |
 | `apps/web/src/map/panels/panelFixtures.ts` | 変更 | フィクスチャ `bosai-bulletins` を追加（§6）。既存フィクスチャは変更しない |
+| `apps/web/src/map/panels/panels.css` | 変更（共通ファイルの例外） | `.info-panel-card` に `flex-shrink: 0` を1行追加（U2） |
 | `apps/web/tests/bosaiBulletinPanel.test.ts` | 新規 | 単体テスト |
 
-`InfoPanelColumn.tsx`・`InfoPanelFrame.tsx`・`panelDefinitions.ts`・`panelDisplayState.ts`・`panelSort.ts`・`panelTime.ts`・`panels.css` は**変更しない**。`index.css` は上記 `@import` 1行の追加のみ許可する（#54 警報パネルと並行設計のため共有ファイルへの変更を最小にする）。
+`InfoPanelColumn.tsx`・`InfoPanelFrame.tsx`・`panelDefinitions.ts`・`panelDisplayState.ts`・`panelSort.ts`・`panelTime.ts` は**変更しない**。`panels.css` は上記 `flex-shrink: 0` の1行追加のみ許可する（U2。#54 と競合し得る）。`index.css` は上記 `@import` 1行の追加のみ許可する（#54 警報パネルと並行設計のため共有ファイルへの変更を最小にする）。
 
 ### 3.2 型・シグネチャ
 
@@ -101,7 +105,7 @@ export function fetchBosaiBulletins(params: {
 }): Promise<TileCatalogResult<BulletinsResponse>>;
 ```
 
-`parseBulletinsResponse` が検証する項目: ルートがオブジェクト、`controlStatus === requested`、`isTraining === (requested === 'training')`、`availability` が `'available' | 'stale' | 'unavailable'` のいずれか、`bulletins` が配列、各要素の `eventId`・`title`・`reportDateTime` が非空文字列、`isCancelled` が boolean、`telegramType` が文字列または null（値の範囲は検証しない。3値以外の行は応答を拒否せず、§4.2 で**その行だけ**表示対象から除く。画面側で種別を推定・補完しない）、`hasSighting` が boolean または null、`headlineText` が文字列または null、`areas` が配列（各要素の `areaName` が文字列、`informationType` が文字列または null、`sequence` が数値）、`metadata` がオブジェクトで `validAt` が文字列または null。これ以外の項目は検証しない（使わないため）。
+`parseBulletinsResponse` が検証する項目: ルートがオブジェクト、`controlStatus === requested`、`isTraining === (requested === 'training')`、`availability` が `'available' | 'stale'` のいずれか（`'unavailable'` は E6 §4.3 の契約違反として応答全体を null＝取得失敗にする。U3）、`bulletins` が配列、各要素の `eventId`・`title`・`reportDateTime` が非空文字列、`isCancelled` が boolean、`telegramType` が文字列または null（値の範囲は検証しない。3値以外の行は応答を拒否せず、§4.2 で**その行だけ**表示対象から除く。画面側で種別を推定・補完しない）、`hasSighting` が boolean または null、`headlineText` が文字列または null、`areas` が配列（各要素の `areaName` が文字列、`informationType` が文字列または null、`sequence` が数値）、`metadata` がオブジェクトで `validAt` が文字列または null。これ以外の項目は検証しない（使わないため）。
 
 ```ts
 // apps/web/src/map/panels/bosai/bosaiBulletinCards.ts
@@ -115,12 +119,6 @@ export function resolveBulletinDisplayEnd(bulletin: BulletinDto): number | null;
 
 /** 表示対象か。取消・期限切れ・期限判定不能は false。 */
 export function isBulletinDisplayed(bulletin: BulletinDto, nowMs: number): boolean;
-
-/** カードに出す区域名（表示順、重複なし）。§4.3 */
-export function resolveBulletinAreaNames(bulletin: BulletinDto): readonly string[];
-
-/** 経過時間の文言。§4.4 */
-export function formatBulletinElapsed(reportDateTime: string, nowMs: number): string;
 
 /** 応答1件からカード入力列を作る。表示対象外を除き、並びは応答順を保つ（並べ替えは InfoPanelColumn が行う）。 */
 export function buildBosaiBulletinCards(params: {
@@ -177,46 +175,21 @@ export function useBosaiBulletins(params: {
 
 時間経過による再評価:
 
-- `useBosaiBulletins` は `nowMs` を state に持ち、60秒ごとに更新する（経過時間の分単位表示と表示期限の反映のため）。ポーリング間隔も既存の `TILE_CATALOG_POLL_INTERVAL_MS`（60秒）を使う。したがって期限到達から非表示までの遅れは最大60秒である【設計案・製造裁量で短縮可。延長不可】。
+- `useBosaiBulletins` は `nowMs` を state に持ち、60秒ごとに更新する（表示期限の反映のため）。ポーリング間隔も既存の `TILE_CATALOG_POLL_INTERVAL_MS`（60秒）を使う。したがって期限到達から非表示までの遅れは最大60秒である【設計案・製造裁量で短縮可。延長不可】。
 - ポーリングは `useTileCatalogPolling` をそのまま使う（不可視タブで停止・バックオフ・中断を継承）。`resetKey` は `${terminalId}:${controlStatus}`。
 
 ### 4.3 対象区域の表示
 
-`resolveBulletinAreaNames`（Q6 で確定）:
-
-- VPBS50（`informationType` が全件 null）: `areas` を `sequence` 昇順に並べ、`areaName` の重複を除いた全件。
-- VPHW50/51: `informationType === '竜巻注意情報（発表細分）'` の区域だけを `sequence` 昇順・`areaName` 重複除去で出す（東京都の電文では「東京地方」）。まとめた地域・市町村等・目撃情報ありの区域は出さない。発表細分が0件の場合は空配列を返し、区域行を描画しない（C8 は発表・訂正電文で発表細分がちょうど1件であることを受理条件にしており、0件は表示されない取消行でのみ起こる。他の区域で補わない）。
-- 区域名は電文の `areaName` をそのまま表示し、会場の市区町村名へ書き換えない（§5.1【確定】）。`isDirect`・`matchedAreaCodes` は表示に使わない。
-- 目撃区域の特定をしない（Q2）。「付近」等の精度は `Area/Status` が保存されていないため区域行では表さず、全文（`headlineText`）に書かれた記述で読む。
-- 区切りは読点「、」。長い場合は折り返す（省略・「ほか◯件」への短縮をしない）。
+**表示しない**（U1。区域は電文タイトル・全文に含まれるため）。`resolveBulletinAreaNames` は廃止した。Q2・Q6 の区域・目撃の規則は表示廃止により適用箇所がない。区域名を会場の市区町村名へ書き換えないこと（§5.1）は全文をそのまま出すことで満たされる。
 
 ### 4.4 カードの中身
 
-上から次の順に並べる。ラベル（「対象区域:」「本文:」等）は付けない（06 必須制約2）。
+速報文全文（`headlineText`）**のみ**を描画する。改行・全角空白を保持するため `white-space: pre-wrap`。要約・分割・省略・行数制限をしない。ラベルは付けない（06 必須制約2）。
 
-1. 対象区域（§4.3）
-2. 経過時間＋（`hasSighting === true` のときだけ）「目撃情報あり」
-3. 速報文全文（`headlineText`。改行・全角空白を保持するため `white-space: pre-wrap`。要約・分割・省略・行数制限をしない）
-
-見出し1行目は `title`、2行目は G1 の共通枠が出す発表時刻（`14:05発表`／前日以前は `9/23 14:05発表`）。固定対象名は出さない（G1）。
-
-経過時間 `formatBulletinElapsed` 【設計案】:
-
-| 経過（`now - reportDateTime`、分は切り捨て） | 表示 |
-|---|---|
-| 0分未満（時計ずれ） | `0分経過` |
-| 60分未満 | `N分経過`（例 `35分経過`） |
-| 60分以上・端数あり | `H時間M分経過`（例 `1時間5分経過`） |
-| 60分以上・端数なし | `H時間経過` |
-
-「目撃情報あり」:
-
-- `hasSighting === true` のときだけ表示。`false` と `null` はどちらも何も出さず、両者を画面で区別しない（C8 §8）。本文・見出しの文字列から目撃を推測しない。
-- 見た目は小さなラベル（`font-size: 12px`、`border: 1px solid var(--md-sys-color-outline)`、`color: var(--md-sys-color-on-surface)`、角丸）。エラー色・警戒レベル色は使わない（補助表示のため）。
-
-`headlineText === null`（取消以外では C7/C8 の検証上起こらない）の場合は全文の要素を描画しない。空文字列の代用文言を出さない。
-
-詳細ボタンは置かない（Q4）。
+- 対象区域・経過時間・「目撃情報あり」は表示しない（U1）。`formatBulletinElapsed` は廃止した。経過時間は見出し2行目の発表時刻で読む。目撃は電文タイトル（例「（竜巻目撃）」）と全文で読む。
+- 見出し1行目は `title`、2行目は G1 の共通枠が出す発表時刻（`14:05発表`／前日以前は `9/23 14:05発表`）。固定対象名は出さない（G1）。
+- `headlineText === null`（取消以外では C7/C8 の検証上起こらない）の場合は全文の要素を描画しない。空文字列の代用文言を出さない。
+- 詳細ボタンは置かない（Q4）。
 
 ### 4.5 取得状態（G1 の occasional 規則に従う）
 
@@ -226,10 +199,10 @@ export function useBosaiBulletins(params: {
 |---|---|
 | `loading` | `[]`（非表示） |
 | `failed`（保持値なし） | `[]`（非表示。取得異常の告知は通知領域の責務、G1 §5） |
-| `ready` | `buildBosaiBulletinCards({ bulletins, availability: toCardAvailability(response.availability), nowMs })` |
+| `ready` | `buildBosaiBulletinCards({ bulletins, availability: response.availability, nowMs })`（`parseBulletinsResponse` 通過後は `available` か `stale` のみ） |
 | `stale`（取得失敗・保持値あり） | 保持している前回応答から `availability: 'stale'` で組み立てる。期限・取消の判定は前回応答に対して `nowMs` で行い続ける |
 
-`toCardAvailability`: 応答の `'available'` → `'available'`、`'stale'` → `'stale'`、`'unavailable'`（E6 §4.3 により返らない想定）→ `'stale'`。3状態を boolean に縮退させず、カード入力の型（`available | stale`）に写すだけとする。G1 の方針により stale の装飾は付けない。
+`toCardAvailability` は廃止した（U3）。応答が `availability: 'unavailable'` の場合は `parseBulletinsResponse` が null を返して取得失敗となり、G1 の規則どおり保持値なしなら非表示（`failed`）、保持値ありなら前回応答を `stale` で表示する。`unavailable` を `stale` へ読み替える縮退はしない。G1 の方針により stale の装飾は付けない。
 
 表示対象が0件（発表なし・全件期限切れ・全件取消）は `[]` を返し、「発表なし」等の表示を置かない（G1 H6）。
 
@@ -242,7 +215,7 @@ export function useBosaiBulletins(params: {
 ## 5. スタイル
 
 - 色は `--md-sys-color-*` のみ。HEX・RGB を書かない。
-- 区域: `font-size: 13px; color: var(--md-sys-color-on-surface)`。経過時間: `font-size: 12px; color: var(--md-sys-color-on-surface-variant)`。全文: `font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere`。
+- 全文: `font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere`。
 - 要素間は `gap: 6px` 程度（製造裁量）。カード自体の枠・余白は G1 の `.info-panel-card` に任せ、上書きしない。
 - クラス名は `bosai-bulletin-` 接頭辞とし、G1 のクラスを再定義しない。
 
@@ -252,9 +225,9 @@ export function useBosaiBulletins(params: {
 
 | # | telegramType | title | 設定 | 期待 |
 |---|---|---|---|---|
-| F1 | VPBS50 | 東京都気象防災速報（記録的短時間大雨） | 発表=現在−40分、区域 `東京地方`/`２３区東部`/`江東区`（重複1件含む）、全文2文 | 表示。`40分経過` |
-| F2 | VPHW51 | 東京都気象防災速報（竜巻目撃） | 発表=現在−10分、validAt=現在+50分、hasSighting=true、発表細分 `東京地方`＋市町村等3件 | 表示。区域は `東京地方` のみ。「目撃情報あり」あり |
-| F3 | VPHW50 | 東京都気象防災速報（竜巻注意） | F2 と同じ発表時刻・区域・validAt、hasSighting=null | 表示（F2 と統合しない）。「目撃情報あり」なし |
+| F1 | VPBS50 | 東京都気象防災速報（記録的短時間大雨） | 発表=現在−40分、区域 `東京地方`/`２３区東部`/`江東区`（重複1件含む）、全文2文 | 表示 |
+| F2 | VPHW51 | 東京都気象防災速報（竜巻目撃） | 発表=現在−10分、validAt=現在+50分、hasSighting=true、発表細分 `東京地方`＋市町村等3件 | 表示 |
+| F3 | VPHW50 | 東京都気象防災速報（竜巻注意） | F2 と同じ発表時刻・区域・validAt、hasSighting=null | 表示（F2 と統合しない） |
 | F4 | VPBS50 | 東京都気象防災速報（線状降水帯発生） | 発表=現在−3時間1分 | 非表示（期限切れ） |
 | F5 | VPHW50 | 東京都気象防災速報（竜巻注意） | 発表=現在−20分、validAt=現在−1分 | 非表示（電文期限切れ） |
 | F6 | VPBS50 | 東京都気象防災速報（線状降水帯直前予測） | 発表=現在−5分、isCancelled=true、infoType=取消、headlineText=null | 非表示（取消。告知なし） |
@@ -266,9 +239,9 @@ export function useBosaiBulletins(params: {
 製造（agy-delegate）はこの一覧の外を変更しない。検収は `git diff --stat main...HEAD` で確認する。
 
 - 新規: `apps/web/src/api/bosaiBulletins.ts`、`apps/web/src/map/panels/bosai/bosaiBulletinCards.ts`、`apps/web/src/map/panels/bosai/useBosaiBulletins.ts`、`apps/web/src/map/panels/bosai/BosaiBulletinContent.tsx`、`apps/web/src/map/panels/bosai/bosaiBulletin.css`、`apps/web/tests/bosaiBulletinPanel.test.ts`
-- 変更: `apps/web/src/index.css`（`bosaiBulletin.css` の `@import` 1行追加のみ）、`apps/web/src/map/WeatherMapView.tsx`（`useBosaiBulletins` の呼び出しと `InfoPanelColumn` への `input` の受け渡しのみ）、`apps/web/src/map/panels/panelFixtures.ts`（`bosai-bulletins` の追加のみ）
+- 変更: `apps/web/src/index.css`（`bosaiBulletin.css` の `@import` 1行追加のみ）、`apps/web/src/map/WeatherMapView.tsx`（`useBosaiBulletins` の呼び出しと `InfoPanelColumn` への `input` の受け渡しのみ）、`apps/web/src/map/panels/panelFixtures.ts`（`bosai-bulletins` の追加のみ）、`apps/web/src/map/panels/panels.css`（`.info-panel-card` への `flex-shrink: 0` 1行追加のみ。U2）
 
-変更禁止（例示）: `apps/api/**`、`packages/**`、`apps/web/src/map/panels/` の上記以外、`apps/web/src/index.css` の上記1行以外、`apps/web/src/map/map.css`、`apps/web/package.json`、ルートの設定ファイル、`polling.yaml` 等の設定、既存テスト。テストのために本番コード・共通設定を書き換えることも禁止する。
+変更禁止（例示）: `apps/api/**`、`packages/**`、`apps/web/src/map/panels/` の上記以外（`panels.css` の上記1行以外を含む）、`apps/web/src/index.css` の上記1行以外、`apps/web/src/map/map.css`、`apps/web/package.json`、ルートの設定ファイル、`polling.yaml` 等の設定、既存テスト。テストのために本番コード・共通設定を書き換えることも禁止する。
 
 ## 8. 管理項目の結論
 
@@ -276,7 +249,7 @@ export function useBosaiBulletins(params: {
 |---|---|
 | AD-H007（速報の通常通知生成器） | **本Issueの範囲外。** G2 はパネル表示のみを扱い、速報の通常通知生成・起動時再提示を実装しない。対応先は D10 #145・E9 #41・L3 #85 のまま。採否待ちの保守事項であり、本Issueで修正必須へ昇格させない。 |
 | AD-H046（XML 明細の未抽出項目） | 速報について: **発表官署（`EditorialOffice`/`PublishingOffice`）は表示しない。保存・API 追加もしない**（Q3、2026-09-25）。Issue の受け入れ条件「発表官署が補助表示として区別される」は**非対応**とし、実装済みとして扱わない（§9）。`Area/Status`・`Serial` も未抽出のまま。表示が必要になった場合は C7/C8 の列追加 migration と E6 の DTO 拡張を含む別Issueとする。 |
-| AD-H047（速報の期限・重複・区域表現） | 期限: VPBS50 は `reportDateTime`＋3時間、VPHW50/51 は `metadata.validAt` で区別（§4.2）。重複: VPHW50/51 は統合せず両方表示（Q1）。取消: 対象カードを告知なしで消す（Q5）。区域・目撃: 電文の区域名をそのまま表示し、`hasSighting === true` のときだけ「目撃情報あり」を出す。目撃区域は特定しない（Q2）。「付近」は全文でのみ表される。竜巻の区域は発表単位のみ（Q6）。期限の判定は `telegramType` で行う（Q7）。訂正は表示を付けない（Q8）。後続へ残るもの: 発表細分を欠く VPHW 取消電文の扱い（§11）。 |
+| AD-H047（速報の期限・重複・区域表現） | 期限: VPBS50 は `reportDateTime`＋3時間、VPHW50/51 は `metadata.validAt` で区別（§4.2）。重複: VPHW50/51 は統合せず両方表示（Q1）。取消: 対象カードを告知なしで消す（Q5）。区域・目撃: 当初は電文の区域名と「目撃情報あり」を補助表示する方針だった（Q2・Q6）が、UI 監修で区域・経過時間・目撃の表示自体を廃止し、全文のみ表示する（U1）。目撃区域は特定しない。期限の判定は `telegramType` で行う（Q7）。訂正は表示を付けない（Q8）。後続へ残るもの: 発表細分を欠く VPHW 取消電文の扱い（§11）。 |
 
 ## 9. 受け入れ条件
 
@@ -293,20 +266,21 @@ export function useBosaiBulletins(params: {
 - [ ] AC-3 重複非統合（単体）: 同一 `reportDateTime`・同一区域の VPHW50（`eventId='VPHW50:130010'`）と VPHW51（`'VPHW51:130010'`）を `buildBosaiBulletinCards` に渡すと2件のカードが返り、`key` がそれぞれの `eventId` である。
 - [ ] AC-4 並び順（単体）: 発表時刻が異なる3件（VPBS50 13:40、VPHW51 14:05、VPBS50 14:30 JST）を古い順・新しい順・混在順の3通りの入力で `InfoPanelColumn`（`input.bosaiBulletin` に `buildBosaiBulletinCards` の結果）へ渡し、`renderToStaticMarkup` の出力で見出しの出現順が常に 14:30→14:05→13:40 になる。
 - [ ] AC-5 中身（単体・`renderToStaticMarkup`）:
-  - `hasSighting=true` で「目撃情報あり」が1回出る。`false` と `null` で出ない。
   - `headlineText` に2行（`\n` 区切り）の文字列を入れると、その全文が省略なくマークアップに含まれる。
+  - 区域名（`areas` の `areaName`、例「２３区東部」）、経過時間（「経過」の文字列）、「目撃情報あり」が、`hasSighting=true` の行を含めて中身に描画されない（U1）。
   - 詳細ボタン（`button` 要素・「詳細」の文字列）が中身に存在しない。
   - `eventId` の文字列がマークアップに含まれない。
   - 「発表官署」「気象庁」等の官署表示がない（`title` 以外に官署名を出さない）。
   - 「取消」の文字列がどのカードにも出ない（取消行はカード自体が作られない）。
-- [ ] AC-6 区域（単体）: VPBS50 で `areas` に同名重複（`北西部` ×2）があると1回だけ、`sequence` 順で返る。VPHW で発表細分 `東京地方` と市町村等 `江東区`・`大田区` がある場合、`['東京地方']` だけを返す。VPHW で発表細分が0件なら空配列を返し、中身に区域行が描画されない（`renderToStaticMarkup` で確認）。
-- [ ] AC-7 経過時間（単体）: `formatBulletinElapsed` が 0分→`0分経過`、35分59秒→`35分経過`、60分→`1時間経過`、65分→`1時間5分経過`、発表が now より1分未来→`0分経過` を返す。
-- [ ] AC-8 取得状態（単体）: `parseBulletinsResponse` が、正しい応答を受理し、`controlStatus` が要求値と異なる応答・`isTraining` が矛盾する応答・`bulletins` が配列でない応答・`hasSighting` が文字列の要素を含む応答・を null にする。`telegramType` が `null` の行と `'VPBS51'` の行を、期限内の正常な VPBS50・VPHW51 の行と混ぜた応答は `parseBulletinsResponse` が受理し（null にならない）、`buildBosaiBulletinCards` の結果は正常な2行のカードだけ（`key` が正常行の `eventId`）になり、`renderToStaticMarkup` した `InfoPanelColumn` の出力に除外行のタイトルが含まれず、正常行のタイトルが含まれ、「取得できませんでした」等の異常文言が含まれない。`toCardAvailability` が `available→available`、`stale→stale`、`unavailable→stale` を返す（3状態を別々のケースでテストする）。
-- [ ] AC-9 画面（フィクスチャ）: `npm run dev` の起動中に east 端末の気象画面を `?panelFixture=bosai-bulletins` で開く。右側列の最上部に速報カードが F2/F3（同時刻、順序は問わない）→F1 の順に3枚だけあり、F4・F5・F6 のタイトルは DOM に存在しない。F2 にだけ「目撃情報あり」がある。F2・F3 の区域行は「東京地方」だけ、F1 は「東京地方、２３区東部、江東区」。F1 の経過時間が `40分経過`（開いた時点から1分以内）。各カードに詳細ボタンがない。カードの見出し2行目は `HH:mm発表` で、固定対象名が出ない。その下に警報・注意報以降のパネルが §5.2 順で続く。
+- AC-6 （欠番。区域表示の廃止により削除。U1）
+- AC-7 （欠番。経過時間表示の廃止により削除。U1）
+- [ ] AC-8 取得状態（単体）: `parseBulletinsResponse` が、正しい応答を受理し、`controlStatus` が要求値と異なる応答・`isTraining` が矛盾する応答・`bulletins` が配列でない応答・`hasSighting` が文字列の要素を含む応答・`availability: 'unavailable'` の応答（U3）を null にする。`telegramType` が `null` の行と `'VPBS51'` の行を、期限内の正常な VPBS50・VPHW51 の行と混ぜた応答は `parseBulletinsResponse` が受理し（null にならない）、`buildBosaiBulletinCards` の結果は正常な2行のカードだけ（`key` が正常行の `eventId`）になり、`renderToStaticMarkup` した `InfoPanelColumn` の出力に除外行のタイトルが含まれず、正常行のタイトルが含まれ、「取得できませんでした」等の異常文言が含まれない。`availability` が `available` の応答と `stale` の応答はそれぞれ受理され、カードの `status.availability` にその値がそのまま入る。`unavailable` の応答を受けたとき、保持値なしならカード0件、保持値ありなら前回応答のカードが `stale` で返る（ポーリング状態 `failed`/`stale` の組み立てを単体で確認する）。`toCardAvailability` が存在しない。
+- [ ] AC-9 画面（フィクスチャ）: `npm run dev` の起動中に east 端末の気象画面を `?panelFixture=bosai-bulletins` で開く。右側列の最上部に速報カードが F2/F3（同時刻、順序は問わない）→F1 の順に3枚だけあり、F4・F5・F6 のタイトルは DOM に存在しない。各カードの中身は全文だけで、区域行・経過時間・「目撃情報あり」がない。各カードに詳細ボタンがない。カードの見出し2行目は `HH:mm発表` で、固定対象名が出ない。その下に警報・注意報以降のパネルが §5.2 順で続く。
 - [ ] AC-10 画面（実 API 結線）: `?panelFixture` なしで気象画面を開き、ブラウザのネットワーク記録で `GET /api/weather/bulletins?terminalId=<端末ID>&controlStatus=normal` が発行され 200 が返ること、約60秒後に再発行されることを確認する。応答の `bulletins` に表示対象が無い場合は速報カードが0枚で、「発表なし」等の文言がなく、最上部が警報・注意報以降のパネルになる（DB に実速報がある場合はその件数・タイトルと表示の一致を記録する）。
 - [ ] AC-11 非対応の明記: 本設計書 §8 の AD-H046 に「発表官署の補助表示は非対応」が記録されており、PR 本文の受け入れ条件対応表で Issue の「発表官署が補助表示として区別される」を**非対応（後続へ申し送り）**と記載する（未対応を実装済みと扱わない）。
 - [ ] AC-12 色: 新規の `.tsx`・`.css`・`.ts` を `#[0-9a-fA-F]{3,8}\b` と `rgb\(` で検索し0件。
-- [ ] AC-13 変更範囲: `git diff --stat main...HEAD` の変更が §7 の許可一覧に限られる。`InfoPanelColumn.tsx`・`panels.css`・`apps/api/`・`packages/` に差分がない。`index.css` の差分は `bosaiBulletin.css` の `@import` 1行の追加だけである。
+- [ ] AC-13 変更範囲: `git diff --stat main...HEAD` の変更が §7 の許可一覧に限られる。`InfoPanelColumn.tsx`・`apps/api/`・`packages/` に差分がない。`panels.css` の差分は `.info-panel-card` への `flex-shrink: 0` 1行の追加だけである。`index.css` の差分は `bosaiBulletin.css` の `@import` 1行の追加だけである。
+- [ ] AC-14 カード高さ（ブラウザ）: `?panelFixture=bosai-bulletins`（east）と、1280×720 の viewport で同フィクスチャを開き、列が縦スクロールする状態で、内容の高さが `min-height`（96px）を超える速報カード（F1〜F3）と全パネルのカードそれぞれで `el.clientHeight >= el.scrollHeight` が成り立ち、全文の最終行まで切れずに見える。計測値を記録する（[G-08](../rules/advisory/G-08-ui-measurement-pitfalls.md) に従い表示中のタブで計測）。
 
 ## 10. 統括への確認事項
 
@@ -314,7 +288,7 @@ export function useBosaiBulletins(params: {
 
 | 初版の論点 | 回答 | 反映 |
 |---|---|---|
-| Q-A 竜巻カードの区域の出し方 | 発表単位の区域のみ（案1） | §2.1 Q6、§4.3、AC-6 |
+| Q-A 竜巻カードの区域の出し方 | 発表単位の区域のみ（案1） | §2.1 Q6、§4.3（後に U1 で区域表示を廃止。AC-6 は欠番） |
 | Q-B 種別を判定できない行 | 判定は電文種別 `telegramType` で行う。判別不能の前提は置かない。コード確認の結果、現行経路では3値以外は返らない（§2.2） | §2.1 Q7、§3.2、§4.2、AC-2・AC-8 |
 | Q-C 訂正の表示 | 付けない（提案どおり） | §2.1 Q8、§4.2 |
 
@@ -326,9 +300,10 @@ export function useBosaiBulletins(params: {
 - **速報の通常通知**（AD-H007）: #145・#41・#85 で扱う。G2 の表示期限（3時間・電文期限）を通知の期限に流用する場合は、その Issue で改めて判断する。
 - **発表細分を欠く VPHW 取消電文**（C8 §3.3）: 取消が `VPHW5x:cancel:<controlDateTime>` の別行として保存されると、元の行は `isCancelled=false` のまま残り、電文期限まで表示され続ける。取消行自体は `isCancelled=true` のため表示されない。対象を特定できない取消から元の行を推測して消すことはしない（C8 の方針）。実電文での発生有無は**実挙動未確認**。
 - **訂正・取消・訓練・試験の実電文**は C7/C8 とも1件も確認できていない。本Issueの取消・訂正の振る舞いは合成データでのみ検証する（**実挙動未確認**）。
-- **VPHW50 のみ配信の目撃事象**では「目撃情報あり」が出ない（C8 確定事項#5で許容済み）。本文の `【目撃情報あり】` から推測する改善を入れないこと。
+- **目撃の表示**: 「目撃情報あり」の補助表示は U1 で廃止した。目撃は電文タイトル・全文でのみ読む。`hasSighting` から表示を復活させる改善を入れないこと。
 - **期限の反映遅れ**: 1分ごとの再評価のため、期限到達から非表示まで最大約60秒遅れる。不可視タブではポーリングが止まるが、`nowMs` の更新と期限判定はタブ復帰後の最初の更新で反映される（ブラウザのタイマー間引きで遅れる可能性は**実挙動未確認**）。
-- **列の押し下げ**: 速報が多数・全文が長い場合に下のパネルが押し下がる（G1 H7 で許容済み）。竜巻は発表単位の区域のみ（Q6）のため区域行は短い。
+- **`panels.css` の変更の影響（U2）**: `flex-shrink: 0` は G1 共通のカード全体に効くため、速報以外の全パネルも縮まなくなり、列の合計高さが増えて縦スクロールが発生しやすくなる。#54 等の後続パネルも同じ規則の上に作ること。#54 が同じ行付近を変更する場合はマージ時に統合が必要。
+- **列の押し下げ**: 速報が多数・全文が長い場合に下のパネルが押し下がる（G1 H7 で許容済み）。中身は全文のみ（U1）。
 - **`telegramType` の型上の `null`**: 現行の保存経路では返らない（§2.2、静的確認のみ・**実挙動未確認**）。将来、取得側の URL 書式変更や別経路の保存で `null` 等が返ると、その行だけが黙って表示されない（他の行は表示され、画面に異常表示は出ない。2026-09-25 ユーザー判断で許容。監視画面の受信履歴では見える）。その場合は API 側で種別を確実に持たせる別Issueとし、画面で推定しない。
 - **`fetchTileCatalog` の流用**: 失敗の `code` 型が `TileApiError['code']` だが、気象 API のエラーコード（`invalid_request` 等）が入り得る。本Issueでは `code` を画面判断に使わないため実害はない。気象 API 共通のクライアントが必要になったら G3 以降でまとめて整理する。
 - **#54（警報パネル）との競合**: `WeatherMapView.tsx` の `InfoPanelColumn` への `input` 受け渡し行を両Issueが変更する。後からマージする側が `{ ...DEFAULT_INFO_PANEL_INPUT, bosaiBulletin, warning }` の形に統合すること。
