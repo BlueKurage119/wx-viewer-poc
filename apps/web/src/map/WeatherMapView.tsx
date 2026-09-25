@@ -7,6 +7,8 @@ import { LAYER_PRESENTATIONS, emptyTimeline } from './fixtures';
 import { MapViewport, type MapViewportHandle } from './MapViewport';
 import { MapInformationColumnSlot } from './MapInformationColumnSlot';
 import { InfoPanelColumn } from './panels/InfoPanelColumn';
+import { useBosaiBulletins } from './panels/bosai/useBosaiBulletins';
+import { DEFAULT_INFO_PANEL_INPUT } from './panels/panelFixtures';
 import { DetailDialogScrollContainerProvider } from './detail/DetailDialogScrollContainerContext';
 import { MapLegend } from './MapLegend';
 import { MapAttribution } from './MapAttribution';
@@ -155,6 +157,20 @@ export function WeatherMapView({
     controlStatus,
     enabled: isKikikuru,
   });
+
+  // 気象防災速報の定期取得 (G2)
+  const bosaiBulletinCards = useBosaiBulletins({
+    terminalId,
+    controlStatus,
+  });
+
+  const infoPanelInput = useMemo(
+    () => ({
+      ...DEFAULT_INFO_PANEL_INPUT,
+      bosaiBulletin: bosaiBulletinCards,
+    }),
+    [bosaiBulletinCards],
+  );
 
   const effectiveTimelineViewModel = useMemo(() => {
     if (controlledTimelineViewModel) {
@@ -327,7 +343,7 @@ export function WeatherMapView({
       <MapInformationColumnSlot ref={setRightColumnRef}>
         {/* 詳細（仮）入口 (G10 §6) が scrollContainer として列要素を参照するための Provider */}
         <DetailDialogScrollContainerProvider value={rightColumnEl}>
-          <InfoPanelColumn venueId={venue.id} />
+          <InfoPanelColumn venueId={venue.id} input={infoPanelInput} />
         </DetailDialogScrollContainerProvider>
       </MapInformationColumnSlot>
 

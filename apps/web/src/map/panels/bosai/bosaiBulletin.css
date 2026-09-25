@@ -1,0 +1,7 @@
+.bosai-bulletin-headline {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--md-sys-color-on-surface);
+}
