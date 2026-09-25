@@ -43,64 +43,6 @@ export function isBulletinDisplayed(bulletin: BulletinDto, nowMs: number): boole
   return nowMs < endMs;
 }
 
-/** カードに出す区域名（表示順、重複なし）。§4.3 */
-export function resolveBulletinAreaNames(bulletin: BulletinDto): readonly string[] {
-  const sorted = [...bulletin.areas].sort((a, b) => a.sequence - b.sequence);
-
-  let targetAreas = sorted;
-  if (bulletin.telegramType === 'VPHW50' || bulletin.telegramType === 'VPHW51') {
-    targetAreas = sorted.filter((a) => a.informationType === '竜巻注意情報（発表細分）');
-  } else if (bulletin.telegramType === 'VPBS50') {
-    targetAreas = sorted;
-  } else {
-    return [];
-  }
-
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const a of targetAreas) {
-    if (!seen.has(a.areaName)) {
-      seen.add(a.areaName);
-      result.push(a.areaName);
-    }
-  }
-
-  return result;
-}
-
-/** 経過時間の文言。§4.4 */
-export function formatBulletinElapsed(reportDateTime: string, nowMs: number): string {
-  const reportMs = Date.parse(reportDateTime);
-  const diffMs = nowMs - reportMs;
-
-  if (diffMs < 0 || Number.isNaN(diffMs)) {
-    return '0分経過';
-  }
-
-  const totalMinutes = Math.floor(diffMs / 60_000);
-  if (totalMinutes < 60) {
-    return `${totalMinutes}分経過`;
-  }
-
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (minutes === 0) {
-    return `${hours}時間経過`;
-  }
-
-  return `${hours}時間${minutes}分経過`;
-}
-
-/** 応答の availability をカード用の availability に変換する。§4.5 */
-export function toCardAvailability(
-  availability: Availability,
-): Extract<Availability, 'available' | 'stale'> {
-  if (availability === 'available') {
-    return 'available';
-  }
-  return 'stale';
-}
-
 /** 応答1件からカード入力列を作る。表示対象外を除き、並びは応答順を保つ（並べ替えは InfoPanelColumn が行う）。 */
 export function buildBosaiBulletinCards(params: {
   readonly bulletins: readonly BulletinDto[];
@@ -123,10 +65,7 @@ export function buildBosaiBulletinCards(params: {
         time: bulletin.reportDateTime,
         timeKind: 'issued',
       },
-      content: createElement(BosaiBulletinContent, {
-        bulletin,
-        nowMs: params.nowMs,
-      }),
+      content: createElement(BosaiBulletinContent, { bulletin }),
     });
   }
 

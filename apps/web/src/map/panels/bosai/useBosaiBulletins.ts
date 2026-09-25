@@ -3,7 +3,7 @@ import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { InfoPanelCardInput } from '../panelDefinitions';
 import { useTileCatalogPolling } from '../../tiles/useTileCatalogPolling';
 import { fetchBosaiBulletins } from '../../../api/bosaiBulletins';
-import { buildBosaiBulletinCards, toCardAvailability } from './bosaiBulletinCards';
+import { buildBosaiBulletinCards } from './bosaiBulletinCards';
 
 export const BOSAI_BULLETIN_NOW_UPDATE_INTERVAL_MS = 60_000;
 
@@ -35,9 +35,14 @@ export function useBosaiBulletins(params: {
 
   return useMemo(() => {
     if (pollingState.status === 'ready') {
+      const { availability } = pollingState.catalog;
+      // parseBulletinsResponse が 'unavailable' を取得失敗として弾くため、ここには来ない
+      if (availability === 'unavailable') {
+        return [];
+      }
       return buildBosaiBulletinCards({
         bulletins: pollingState.catalog.bulletins,
-        availability: toCardAvailability(pollingState.catalog.availability),
+        availability,
         nowMs,
       });
     }

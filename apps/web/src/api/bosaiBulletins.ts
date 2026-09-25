@@ -8,7 +8,8 @@ import { fetchTileCatalog, type TileCatalogResult } from './tileCatalogClient';
  * - ルートがオブジェクト
  * - controlStatus === requested
  * - isTraining === (requested === 'training')
- * - availability が 'available' | 'stale' | 'unavailable' のいずれか
+ * - availability が 'available' | 'stale' のいずれか。速報APIは 'unavailable' を返さない契約（E6 §4.3）のため、
+ *   'unavailable' は契約違反として取得失敗扱いにし、前回値に縮退させない
  * - bulletins が配列
  * - 各要素の eventId・title・reportDateTime が非空文字列
  * - isCancelled が boolean
@@ -36,11 +37,7 @@ export function parseBulletinsResponse(
     return null;
   }
 
-  if (
-    record.availability !== 'available' &&
-    record.availability !== 'stale' &&
-    record.availability !== 'unavailable'
-  ) {
+  if (record.availability !== 'available' && record.availability !== 'stale') {
     return null;
   }
 

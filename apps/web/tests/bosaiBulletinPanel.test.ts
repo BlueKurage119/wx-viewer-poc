@@ -12,10 +12,7 @@ import type { BulletinDto, BulletinsResponse, WeatherControlStatus } from '@wx-v
 import { parseBulletinsResponse } from '../src/api/bosaiBulletins';
 import {
   buildBosaiBulletinCards,
-  formatBulletinElapsed,
   isBulletinDisplayed,
-  resolveBulletinAreaNames,
-  toCardAvailability,
 } from '../src/map/panels/bosai/bosaiBulletinCards';
 import { BosaiBulletinContent } from '../src/map/panels/bosai/BosaiBulletinContent';
 import { InfoPanelColumn } from '../src/map/panels/InfoPanelColumn';
@@ -290,39 +287,19 @@ test('AC-4: 発表時刻の新しい順にカードが並び替わる（3通り�
 test('AC-5: カード中身の検証（目撃情報・改行全文・詳細ボタンなし・eventIdなし・官署なし・取消なし）', () => {
   const nowMs = Date.parse('2026-09-25T05:00:00.000Z');
 
-  // hasSighting=true で「目撃情報あり」が1回出る。false と null で出ない
-  const bSightingTrue = createTestBulletin({
+  // 区域・経過時間・「目撃情報あり」は見出し文と重複するため描画しない（UI監修）
+  const bSighting = createTestBulletin({
     eventId: 'secret-id-sighting-true',
     telegramType: 'VPHW51',
     hasSighting: true,
     metadata: { ...createTestBulletin().metadata, validAt: '2026-09-25T05:30:00.000Z' },
   });
-  const htmlTrue = renderToStaticMarkup(
-    el(BosaiBulletinContent, { bulletin: bSightingTrue, nowMs }),
-  );
-  const sightingMatches = htmlTrue.match(/目撃情報あり/g);
-  assert.equal(sightingMatches?.length, 1);
-
-  const bSightingFalse = createTestBulletin({
-    eventId: 'secret-id-sighting-false',
-    telegramType: 'VPHW51',
-    hasSighting: false,
-    metadata: { ...createTestBulletin().metadata, validAt: '2026-09-25T05:30:00.000Z' },
-  });
-  const htmlFalse = renderToStaticMarkup(
-    el(BosaiBulletinContent, { bulletin: bSightingFalse, nowMs }),
-  );
-  assert.equal(htmlFalse.includes('目撃情報あり'), false);
-
-  const bSightingNull = createTestBulletin({
-    eventId: 'secret-id-sighting-null',
-    telegramType: 'VPBS50',
-    hasSighting: null,
-  });
-  const htmlNull = renderToStaticMarkup(
-    el(BosaiBulletinContent, { bulletin: bSightingNull, nowMs }),
-  );
-  assert.equal(htmlNull.includes('目撃情報あり'), false);
+  const htmlSighting = renderToStaticMarkup(el(BosaiBulletinContent, { bulletin: bSighting }));
+  assert.equal(htmlSighting.includes('目撃情報あり'), false);
+  assert.equal(htmlSighting.includes('経過'), false);
+  for (const area of bSighting.areas) {
+    assert.equal(htmlSighting.includes(area.areaName), false);
+  }
 
   // headlineText に2行（\n 区切り）の文字列を入れるとその全文が省略なく含まれる
   const multilineHeadline = '1行目の速報テキストです。\n2行目の速報テキストです。';
@@ -330,9 +307,7 @@ test('AC-5: カード中身の検証（目撃情報・改行全文・詳細ボ�
     eventId: 'secret-id-multiline',
     headlineText: multilineHeadline,
   });
-  const htmlMultiline = renderToStaticMarkup(
-    el(BosaiBulletinContent, { bulletin: bMultiline, nowMs }),
-  );
+  const htmlMultiline = renderToStaticMarkup(el(BosaiBulletinContent, { bulletin: bMultiline }));
   assert.ok(htmlMultiline.includes(multilineHeadline));
 
   // headlineText が null の場合は全文要素が描画されない
@@ -341,7 +316,7 @@ test('AC-5: カード中身の検証（目撃情報・改行全文・詳細ボ�
     headlineText: null,
   });
   const htmlNullHeadline = renderToStaticMarkup(
-    el(BosaiBulletinContent, { bulletin: bNullHeadline, nowMs }),
+    el(BosaiBulletinContent, { bulletin: bNullHeadline }),
   );
   assert.equal(htmlNullHeadline.includes('bosai-bulletin-headline'), false);
 
@@ -379,101 +354,9 @@ test('AC-5: カード中身の検証（目撃情報・改行全文・詳細ボ�
 });
 
 // ==========================================
-// AC-6: 区域（単体）
-// ==========================================
-test('AC-6: 区域の重複除去と電文種別ごとの抽出ルール', () => {
-  const nowMs = Date.parse('2026-09-25T05:00:00.000Z');
-
-  // VPBS50 で areas に同名重複（北西部 ×2）があると1回だけ sequence 順で返る
-  const vpbsDuplicate = createTestBulletin({
-    telegramType: 'VPBS50',
-    areas: [
-      { areaCode: '01', areaName: '北西部', codeType: 'Area', sequence: 2, informationType: null },
-      { areaCode: '01', areaName: '北西部', codeType: 'Area', sequence: 3, informationType: null },
-      { areaCode: '02', areaName: '２３区', codeType: 'Area', sequence: 1, informationType: null },
-    ],
-  });
-  const vpbsAreaNames = resolveBulletinAreaNames(vpbsDuplicate);
-  assert.deepEqual(vpbsAreaNames, ['２３区', '北西部']);
-
-  // VPHW で発表細分 東京地方 と市町村等 江東区・大田区 がある場合、['東京地方'] だけを返す
-  const vphwAreas = createTestBulletin({
-    telegramType: 'VPHW50',
-    areas: [
-      {
-        areaCode: '130010',
-        areaName: '東京地方',
-        codeType: 'Area',
-        sequence: 1,
-        informationType: '竜巻注意情報（発表細分）',
-      },
-      {
-        areaCode: '130108',
-        areaName: '江東区',
-        codeType: 'Area',
-        sequence: 2,
-        informationType: '竜巻注意情報（市町村等）',
-      },
-      {
-        areaCode: '130111',
-        areaName: '大田区',
-        codeType: 'Area',
-        sequence: 3,
-        informationType: '竜巻注意情報（市町村等）',
-      },
-    ],
-  });
-  const vphwAreaNames = resolveBulletinAreaNames(vphwAreas);
-  assert.deepEqual(vphwAreaNames, ['東京地方']);
-
-  // VPHW で発表細分が0件なら空配列を返し、中身に区域行が描画されない
-  const vphwNoSubdivision = createTestBulletin({
-    telegramType: 'VPHW50',
-    areas: [
-      {
-        areaCode: '130108',
-        areaName: '江東区',
-        codeType: 'Area',
-        sequence: 1,
-        informationType: '竜巻注意情報（市町村等）',
-      },
-    ],
-  });
-  const emptyAreaNames = resolveBulletinAreaNames(vphwNoSubdivision);
-  assert.deepEqual(emptyAreaNames, []);
-
-  const htmlNoArea = renderToStaticMarkup(
-    el(BosaiBulletinContent, { bulletin: vphwNoSubdivision, nowMs }),
-  );
-  assert.equal(htmlNoArea.includes('bosai-bulletin-areas'), false);
-});
-
-// ==========================================
-// AC-7: 経過時間（単体）
-// ==========================================
-test('AC-7: formatBulletinElapsed の文言フォーマット', () => {
-  const nowMs = Date.parse('2026-09-25T05:00:00.000Z');
-
-  // 0分 -> 0分経過
-  assert.equal(formatBulletinElapsed('2026-09-25T05:00:00.000Z', nowMs), '0分経過');
-
-  // 35分59秒 -> 35分経過
-  assert.equal(formatBulletinElapsed('2026-09-25T04:24:01.000Z', nowMs), '35分経過');
-
-  // 60分 -> 1時間経過
-  assert.equal(formatBulletinElapsed('2026-09-25T04:00:00.000Z', nowMs), '1時間経過');
-
-  // 65分 -> 1時間5分経過
-  assert.equal(formatBulletinElapsed('2026-09-25T03:55:00.000Z', nowMs), '1時間5分経過');
-
-  // 発表が now より1分未来 -> 0分経過
-  assert.equal(formatBulletinElapsed('2026-09-25T05:01:00.000Z', nowMs), '0分経過');
-});
-
-// ==========================================
 // AC-8: 取得状態（単体）
 // ==========================================
-test('AC-8: parseBulletinsResponse のバリデーションと未対応種別の除外、toCardAvailability', () => {
+test('AC-8: parseBulletinsResponse のバリデーション・unavailable の取得失敗扱い・未対応種別の除外', () => {
   const nowMs = Date.parse('2026-09-25T05:00:00.000Z');
 
   // 正しい応答を受理する
@@ -570,16 +453,18 @@ test('AC-8: parseBulletinsResponse のバリデーションと未対応種別の
   assert.equal(mixedColumnHtml.includes('短時間大雪VPBS51'), false);
   assert.equal(mixedColumnHtml.includes('取得できませんでした'), false);
 
-  // toCardAvailability が available->available, stale->stale, unavailable->stale を返す
-  assert.equal(toCardAvailability('available'), 'available');
-  assert.equal(toCardAvailability('stale'), 'stale');
-  assert.equal(toCardAvailability('unavailable'), 'stale');
+  // availability: 'stale' は受理し、'unavailable' は契約違反として取得失敗（null）にする
+  assert.notEqual(parseBulletinsResponse({ ...validRes, availability: 'stale' }, 'normal'), null);
+  assert.equal(
+    parseBulletinsResponse({ ...validRes, availability: 'unavailable' }, 'normal'),
+    null,
+  );
 });
 
 // ==========================================
 // AC-9: 画面（フィクスチャ）
 // ==========================================
-test('AC-9: フィクスチャ bosai-bulletins の検証（F2/F3->F1の3枚のみ、F4-F6非表示、区域・経過時間・見出し等）', () => {
+test('AC-9: フィクスチャ bosai-bulletins の検証（F2/F3->F1の3枚のみ、F4-F6非表示、見出し・補助表示なし等）', () => {
   assert.ok(PANEL_FIXTURE_NAMES.includes('bosai-bulletins'));
 
   const fixtureInput = buildBosaiBulletinsFixture();
@@ -634,15 +519,10 @@ test('AC-9: フィクスチャ bosai-bulletins の検証（F2/F3->F1の3枚の�
   assert.ok(idxF2 < idxF1, 'F2がF1より先');
   assert.ok(idxF3 < idxF1, 'F3がF1より先');
 
-  // F2 にだけ「目撃情報あり」がある
-  const sightingMatches = html.match(/目撃情報あり/g);
-  assert.equal(sightingMatches?.length, 1);
-
-  // F2・F3 の区域行は「東京地方」だけ、F1 は「東京地方、２３区東部、江東区」
-  assert.ok(html.includes('東京地方、２３区東部、江東区'));
-
-  // F1 の経過時間が「40分経過」
-  assert.ok(html.includes('40分経過'));
+  // 区域行・経過時間・「目撃情報あり」を出さない
+  assert.equal(html.includes('目撃情報あり'), false);
+  assert.equal(html.includes('東京地方、２３区東部、江東区'), false);
+  assert.equal(html.includes('分経過'), false);
 
   // 各カードに詳細ボタンがない
   assert.equal(html.includes('<button'), false);
