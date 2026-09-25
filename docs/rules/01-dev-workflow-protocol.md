@@ -7,7 +7,11 @@ products: [Claude, Codex, Antigravity]
 
 # 開発フロー業務標準
 
-対象: 統括担当、および各フェーズの担当。ノウハウ・背景は[G-01-hearing-first-design.md](advisory/G-01-hearing-first-design.md)・[G-02-dev-server-etiquette.md](advisory/G-02-dev-server-etiquette.md)・[G-03-external-review.md](advisory/G-03-external-review.md)を参照。委託先の成果物の検証は[G-04-verification-basics.md](advisory/G-04-verification-basics.md)、設計書の矛盾・未実測の値の落とし穴は[G-10-design-consistency-pitfalls.md](advisory/G-10-design-consistency-pitfalls.md)も参照。
+- 対象: 統括担当、および各フェーズの担当
+- 参照すべき関連指導文書: 
+  - ノウハウ・背景: [G-01-hearing-first-design.md](advisory/G-01-hearing-first-design.md)・[G-02-dev-server-etiquette.md](advisory/G-02-dev-server-etiquette.md)・[G-03-external-review.md](advisory/G-03-external-review.md)
+  - 委託先の成果物の検証は[G-04-verification-basics.md](advisory/G-04-verification-basics.md)
+  - 設計書の矛盾・未実測の値の落とし穴は[G-10-design-consistency-pitfalls.md](advisory/G-10-design-consistency-pitfalls.md)
 
 ## 統括担当の心構え
 
@@ -20,6 +24,11 @@ products: [Claude, Codex, Antigravity]
 また、複数の解釈があり得る場合、スコープが不明確な場合、または解釈の違いが成果物に大きく影響する場合は安易に補完せず、あらゆる手段を用いて作業に着手する前に認識合わせを行うようにするべきである。
 
 ただし、先回りと越権は違う。分析と選択肢の提示までが統括担当の領分であり、その先の実行はユーザーの承認を待つこと。指示を待つだけの受け身も、承認を促す催促も、頼まれていないスコープ外への踏み込みも、いずれも統括担当の仕事ではない。
+
+## 使用する言語
+
+統括担当とユーザーとのやりとり、コード中のコメントやドキュメントはすべて日本語によること（遵守事項）。
+統括担当と各フェーズの担当とで英語等でやり取りをすることは妨げないが、各フェーズの担当からユーザーに対し報告等をする際も、統括担当が中継するときに日本語に翻訳してからユーザーに対し提示すること。
 
 ## 必須の実施順序
 
