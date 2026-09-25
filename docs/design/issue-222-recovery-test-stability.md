@@ -45,16 +45,18 @@ const alwaysOnSchedule = {
 ### 4.3 待機の置換
 
 - `recover` 内で待機開始時に `waitingVenues.add(venue.venueId)` してから `await gate` する。
-- 固定50ms待ちを、`waitingVenues.size === VENUE_IDS.length`(現状 east・trc の2会場。`@wx-viewer-poc/shared` の `VENUE_IDS` を使う)になるまで10ms間隔・上限5秒でポーリングする待機に置換し、上限到達時は assert 失敗させる。
-- 全会場待機を確認した直後に `assert.equal(fetchCount, 0)`。さらに検証力維持のため、その後に固定の短い猶予(例: 100ms)を置いてから再度 `assert.equal(fetchCount, 0)` を確認する(待機確認直後だけだと取得開始の遅延と区別できないため)。
+- 固定50ms待ちを、`waitingVenues.size >= 1`(先頭会場がゲートで待機している)になるまで10ms間隔・上限5秒でポーリングする待機に置換し、上限到達時は assert 失敗させる。
+  - 根拠: `server.ts` の起動時復旧は `VENUE_IDS` を逐次 `await` するため、全会場が同時にゲート待機することはない(製造時に判明)。逐次実装なので先頭会場がゲートで止まっている間は後続会場の復旧にも初期取得にも進めず、「全会場復旧完了まで上流取得しない」検証力は保たれる。
+- 先頭会場の待機を確認した直後に `assert.equal(fetchCount, 0)`。さらにその後に固定の短い猶予(例: 100ms)を置いてから再度 `assert.equal(fetchCount, 0)` を確認する(待機確認直後だけだと取得開始の遅延と区別できないため)。
 - `release()` → `const server = await starting` の後、`fetchCount > 0` を10ms間隔・上限5秒で待ち、上限到達時は assert 失敗させる。
 - ポーリング待機ヘルパーはファイル内ローカル関数として定義してよい(例: `waitUntil(predicate, timeoutMs, label)`)。名称は製造担当の裁量。
 
 ### 4.4 後始末とポート
 
 - `port: 0` にする(乱数ポート廃止)。本テストはHTTPアクセスしないため実ポートは不要。
-- `setup()` 直後に `t.after` で一時ディレクトリ削除を登録する。
-- `startServer` 呼び出し直後に `t.after(async () => { release(); await starting.then((s) => s.close()).catch(() => undefined); })` を登録する。assert失敗時もゲート解放→起動完了→close が走り、プロセスが残らない。
+- `node:test` の `t.after` は登録順(FIFO)で実行される(製造時に判明)。このため **サーバーclose → 一時ディレクトリ削除 の順に登録する**。逆順だと DB ファイル削除後に close が走り `SQLITE_READONLY_DBMOVED` の2次失敗になる。
+  1. `startServer` 呼び出し直後に `t.after(async () => { release(); await starting.then((s) => s.close()).catch(() => undefined); })` を登録する。assert失敗時もゲート解放→起動完了→close が走り、プロセスが残らない。
+  2. その後に `t.after(() => rmSync(directory, { recursive: true, force: true }))` を登録する。
 - 正常経路の明示的 `await server.close()` は残してよい。二重closeで例外になる場合は `t.after` 側の `.catch` で吸収される。二重close時の実挙動は未確認のため、例外が表に出る場合は正常経路の close を削除し `t.after` に一本化する。
 - 後半(DISABLE_POLLING子プロセス部)の `finally` 内 `rmSync` は `t.after` と重複するので、`rmSync` は `t.after` に一本化してよい(`reopened.close()` は残す)。後半のロジックは変更しない。
 
@@ -66,6 +68,7 @@ const alwaysOnSchedule = {
 - [ ] AC-4 夜間相当: `date -u` が UTC 11:00〜19:00 の状態で当該テストファイルを実行し合格すること。該当時刻外なら `faketime` 等で夜間時刻にして実行する(時刻操作は実挙動未確認。手段が無い場合は夜間帯に実行した `date -u` 出力と結果を記録する)。
 - [ ] AC-5 CI: PRのCIで apps/api テストが合格すること。
 - [ ] AC-6 `npm run lint` / `npm run typecheck` / `npm run format:check` / `npm run test -w apps/api` 全体が合格。
+- [ ] AC-8 待機条件と後始末順: テストコードで、待機条件が `waitingVenues.size >= 1`(先頭会場のゲート待機)であり全会場同時待機を待っていないこと、`t.after` の登録順がサーバーclose→一時ディレクトリ削除であることをコード読みで確認。AC-3 の実行ログに `SQLITE_READONLY_DBMOVED` が出ていないこと。
 - [ ] AC-7 範囲: `git diff main --stat` で変更が当該テストファイル(と本設計書)のみであること。`test.skip`/`{ skip }`/`todo` の追加が無いこと(`git diff main | grep -nE "skip|todo"` で該当なし)。
 
 ## 6. 後続への引き継ぎ
