@@ -3,6 +3,8 @@ import L from 'leaflet';
 import type { Venue } from '../shell/config';
 import type { ViewPlacement } from './types';
 import { calculateLeafletAdjustedCenter } from './projection';
+import { createViewportLayoutSync } from './viewportLayoutSync';
+import type { ViewportLayoutMeasurement } from './viewportLayoutSync';
 
 export interface MapViewportHandle {
   zoomIn: () => void;
@@ -113,8 +115,6 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
   const placementRef = useRef<ViewPlacement>('initial');
-  const layoutSettledRef = useRef(false);
-  const scheduledRafRef = useRef<number | null>(null);
 
   const onMapReadyRef = useRef(onMapReady);
   useEffect(() => {
@@ -147,15 +147,21 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
 
   /**
    * 会場を可視矩形の中心に配置する (F1 §4.1)
+   *
+   * `rightWidth`・`bottomHeight` を省略した場合は現在の実寸を計測する
+   * (Issue #212 §4.4。`viewportLayoutSync` からは計測済みの値を渡す)。
    */
   const alignVenueCenter = useCallback(
-    (map: L.Map, zoom: number, animate = false) => {
-      const { rightWidth, bottomHeight } = getCurrentOffsets();
+    (map: L.Map, zoom: number, animate = false, rightWidth?: number, bottomHeight?: number) => {
+      const offsets =
+        rightWidth === undefined || bottomHeight === undefined
+          ? getCurrentOffsets()
+          : { rightWidth, bottomHeight };
       const mapCenter = calculateLeafletAdjustedCenter(
         map,
         venue.weatherTargets.mapReference,
-        rightWidth,
-        bottomHeight,
+        offsets.rightWidth,
+        offsets.bottomHeight,
         zoom,
       );
       map.setView(mapCenter, zoom, { animate });
@@ -258,65 +264,36 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
     ]);
   }, [venue]);
 
-  // ResizeObserver と中心補正・閲覧位置維持 (F1 §4.2)
+  // ResizeObserver と中心補正・閲覧位置維持 (Issue #212 §4.4、F1 §4.2)
   useEffect(() => {
     const container = containerRef.current;
     const map = mapRef.current;
     if (!container || !map) return;
 
-    const scheduleRecalculation = () => {
-      if (scheduledRafRef.current !== null) {
-        cancelAnimationFrame(scheduledRafRef.current);
-      }
-
-      scheduledRafRef.current = requestAnimationFrame(() => {
-        scheduledRafRef.current = null;
-        const currentMap = mapRef.current;
-        if (!currentMap) return;
-
-        // 地図コンテナ寸法の変化に追従
-        currentMap.invalidateSize({ pan: false });
-
-        const containerRect = container.getBoundingClientRect();
-        const { rightWidth, bottomHeight } = getCurrentOffsets();
-
-        // 3要素のサイズが正の値であるか確認
-        const hasPositiveDimensions =
-          containerRect.width > 0 && containerRect.height > 0 && rightWidth > 0 && bottomHeight > 0;
-
-        // 初期レイアウトの確定判定 (§4.2)
-        if (!layoutSettledRef.current) {
-          if (hasPositiveDimensions) {
-            const checkFontsAndAlign = async () => {
-              if (document.fonts) {
-                try {
-                  await document.fonts.ready;
-                } catch {
-                  // フォント準備エラーは無視して進行
-                }
-              }
-              requestAnimationFrame(() => {
-                if (mapRef.current && placementRef.current === 'initial') {
-                  alignVenueCenter(mapRef.current, INITIAL_ZOOM, false);
-                  layoutSettledRef.current = true;
-                }
-              });
-            };
-            void checkFontsAndAlign();
-          }
-        } else {
-          // 初期レイアウト確定後:
-          // returning の場合のみ会場中心補正、manual の場合は invalidateSize のみで位置維持
-          if (placementRef.current === 'returning') {
-            alignVenueCenter(currentMap, INITIAL_ZOOM, false);
-            setPlacement('initial');
-          }
-        }
-      });
+    const measure = (): ViewportLayoutMeasurement => {
+      const containerRect = container.getBoundingClientRect();
+      const { rightWidth, bottomHeight } = getCurrentOffsets();
+      return {
+        containerWidth: containerRect.width,
+        containerHeight: containerRect.height,
+        rightColumnWidth: rightWidth,
+        bottomCardHeight: bottomHeight,
+      };
     };
 
+    const layoutSync = createViewportLayoutSync({
+      measure,
+      getPlacement: () => placementRef.current,
+      invalidateSize: () => map.invalidateSize({ pan: false }),
+      alignVenue: (m) =>
+        alignVenueCenter(map, INITIAL_ZOOM, false, m.rightColumnWidth, m.bottomCardHeight),
+      onReturningAligned: () => setPlacement('initial'),
+    });
+
+    // ResizeObserver は 1 回の描画ステップで変化した要素をまとめて 1 回の
+    // callback で通知するため、callback ごとに sync() を 1 回だけ呼ぶ (§4.1)。
     const resizeObserver = new ResizeObserver(() => {
-      scheduleRecalculation();
+      layoutSync.sync();
     });
 
     for (const element of getObservedLayoutElements(
@@ -327,15 +304,20 @@ export const MapViewport = forwardRef<MapViewportHandle, MapViewportProps>(funct
       resizeObserver.observe(element);
     }
 
-    // 初回計測
-    scheduleRecalculation();
+    // 初回計測・補正は rAF・タイマーを介さず同期で行う (§4.1)。
+    // getBoundingClientRect() は描画を待たずに実寸を返すため、hidden でも完了する。
+    layoutSync.sync();
+
+    // Web フォント適用による寸法変化にも追従する(Promise 解決時の同期実行)。
+    document.fonts?.ready
+      .then(() => layoutSync.sync())
+      .catch(() => {
+        // フォント準備エラーは無視して進行
+      });
 
     return () => {
+      layoutSync.dispose();
       resizeObserver.disconnect();
-      if (scheduledRafRef.current !== null) {
-        cancelAnimationFrame(scheduledRafRef.current);
-        scheduledRafRef.current = null;
-      }
     };
   }, [alignVenueCenter, getCurrentOffsets, rightColumnElement, bottomCardElement, setPlacement]);
 

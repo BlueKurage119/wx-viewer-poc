@@ -102,7 +102,7 @@ mapCenter = unproject(
 2. 右側情報列 slot の border-box rect
 3. 時間操作カードの border-box rect
 
-各 observer callback は同期で `setView` を呼ばず、`requestAnimationFrame` に一つだけ再計算を予約する。カードや列の CSS 変更で同一フレームに複数通知が来ても、最新の `getBoundingClientRect()` から一回だけ計算する。地図コンテナ寸法が変化したときは先に `map.invalidateSize({ pan: false })` を行い、その後に初期／復帰要求がある場合だけ補正中心をセットする。アンマウント時は observer と予約済み frame を解除する。
+初回計測は effect 内と `document.fonts.ready` 解決時に同期で行い、描画フレームに依存しない。observer callback は 1 回の通知につき 1 回だけ同期で再計算する(同一フレームの複数通知は 1 回の callback にまとまる)。地図コンテナ寸法の変化には先に `map.invalidateSize({ pan: false })` を行い、その後 `initial`/`returning` の場合だけ補正中心をセットする。アンマウント時は observer を解除する。(Issue #212 で改訂。詳細は [issue-212-map-initial-center-shift.md](issue-212-map-initial-center-shift.md))
 
 リサイズだけではユーザーの閲覧位置を壊さない。状態は `viewPlacement: 'initial' | 'manual' | 'returning'` とする。
 
@@ -110,10 +110,12 @@ mapCenter = unproject(
 | --- | --- |
 | 初回の map ready とレイアウト計測完了 | 可視矩形へ会場を置き、初期ズーム 11 |
 | 「会場へ戻る」 | 現在の実寸 `R` / `B` で再計算し、初期ズーム 11 |
-| 右列／時間カードのサイズ変化、ウィンドウリサイズ | `initial` の初期レイアウトが未確定な間だけ再計算。完了後、または `manual` では `invalidateSize` のみ |
+| 右列／時間カードのサイズ変化、ウィンドウリサイズ | `initial`(未操作)の間は毎回、最新の実寸で可視矩形へ会場を再配置。`manual` では `invalidateSize` のみ(閲覧位置維持) |
 | ドラッグ、ホイール、＋／－ | `manual` にし、中心補正をしない |
 
-初期レイアウトが「未確定」かは、3 要素が一度以上正のサイズを報告し、`document.fonts.ready` 後の animation frame を通過した時点で確定とする。これにより Web フォントやカード折返しで高さいが変わる前の誤った会場位置を固定しない。右列が一時的に未マウントの場合は幅 0 とせず、slot を常設して測る。
+(Issue #212 で改訂。詳細は [issue-212-map-initial-center-shift.md](issue-212-map-initial-center-shift.md))
+
+右列が一時的に未マウントの場合は幅 0 とせず、slot を常設して測る。
 
 ### 4.3 地図操作とアクセシビリティ
 
@@ -216,7 +218,7 @@ type LayerPresentation = Readonly<{
 - [ ] `east` と `trc` の各端末 URL で、台帳の `mapReference` に対応する会場マーカーが表示される。
 - [ ] 初期表示および会場復帰直後、`map.latLngToContainerPoint(mapReference)` が、右列幅と時間カード高さを除いた可視矩形の中心から ±2 CSS px 以内にある。ヘッダー、ナビレール、通知領域を二重控除しない。
 - [ ] 地図をドラッグ・ホイール・＋／－で操作できる。操作後にウィンドウを拡縮しても、中心・ズームが会場へ強制的に戻らない。
-- [ ] 初期レイアウト計測中にカード高・右列幅が変わっても、フォント適用後に可視矩形の中心へ収束する。
+- [ ] 未操作の間にカード高・右列幅・地図コンテナ寸法が変わっても、そのたびに可視矩形の中心へ収束する。(Issue #212 で改訂。詳細は [issue-212-map-initial-center-shift.md](issue-212-map-initial-center-shift.md))
 - [ ] 右側 fixture カード列の実測幅を使い、初期表示で会場が可視矩形の中心にある。カード群の下に露出する地図は操作できる。
 - [ ] 背景が淡色地図で地名・行政界を読め、5〜18 の範囲でズームできる。会場対応の市町村境界を背景地図から読め、独自境界レイヤーが重ね描画されない。
 - [ ] 地図の実測、会場、台帳の null／3状態／時刻意味、本番・訓練の区別を F1 が変更・推測しない。AD-H018 の結論は「会場台帳の `mapReference` と実測遮蔽矩形で決定し、初期／復帰時だけ再配置する」と記録する。
