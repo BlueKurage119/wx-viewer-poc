@@ -1,0 +1,40 @@
+.bosai-bulletin-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bosai-bulletin-areas {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--md-sys-color-on-surface);
+}
+
+.bosai-bulletin-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bosai-bulletin-elapsed {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.bosai-bulletin-sighting {
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--md-sys-color-outline);
+  color: var(--md-sys-color-on-surface);
+  border-radius: 4px;
+}
+
+.bosai-bulletin-headline {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--md-sys-color-on-surface);
+}
