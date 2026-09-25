@@ -146,6 +146,7 @@ test('WARNING_BADGE_TABLE: API側WARNING_CODE_TABLEと共通するコードの�
     '24': 1,
     '25': 1,
     '26': 1,
+    '27': 1,
   };
   const stageToLevel: Record<string, number> = {
     advisory: 1,
@@ -157,6 +158,58 @@ test('WARNING_BADGE_TABLE: API側WARNING_CODE_TABLEと共通するコードの�
     const def = WARNING_BADGE_TABLE[code];
     assert.ok(def, `コード ${code} が表にありません`);
     assert.equal(stageToLevel[def.stage], level, `コード ${code} の段階が不一致`);
+  }
+});
+
+test('WARNING_BADGE_TABLE: 全36コードのラベルが設計書§3.3の表と完全一致する', () => {
+  // 設計書 §3.3 の表をそのまま転記した期待値
+  const expectedLabels: Record<string, string> = {
+    // special
+    '32': '暴風雪特別警報',
+    '33': 'レベル5大雨特別警報',
+    '35': '暴風特別警報',
+    '36': '大雪特別警報',
+    '37': '波浪特別警報',
+    '38': 'レベル5高潮特別警報',
+    '39': 'レベル5土砂災害特別警報',
+    // danger
+    '43': 'レベル4大雨危険警報',
+    '48': 'レベル4高潮危険警報',
+    '49': 'レベル4土砂災害危険警報',
+    // warning
+    '02': '暴風雪警報',
+    '03': 'レベル3大雨警報',
+    '04': '洪水警報',
+    '05': '暴風警報',
+    '06': '大雪警報',
+    '07': '波浪警報',
+    '08': 'レベル3高潮警報',
+    '09': 'レベル3土砂災害警報',
+    // advisory
+    '10': 'レベル2大雨注意報',
+    '19': 'レベル2高潮注意報',
+    '29': 'レベル2土砂災害注意報',
+    '12': '大雪注意報',
+    '13': '風雪注意報',
+    '14': '雷注意報',
+    '15': '強風注意報',
+    '16': '波浪注意報',
+    '17': '融雪注意報',
+    '18': '洪水注意報',
+    '20': '濃霧注意報',
+    '21': '乾燥注意報',
+    '22': 'なだれ注意報',
+    '23': '低温注意報',
+    '24': '霜注意報',
+    '25': '着氷注意報',
+    '26': '着雪注意報',
+    '27': 'その他の注意報',
+  };
+  assert.equal(Object.keys(expectedLabels).length, 36);
+  for (const [code, label] of Object.entries(expectedLabels)) {
+    const def = WARNING_BADGE_TABLE[code];
+    assert.ok(def, `コード ${code} が表にありません`);
+    assert.equal(def.label, label, `コード ${code} のラベルが不一致`);
   }
 });
 
@@ -184,6 +237,11 @@ test('resolveWarningChange: §4.3の表どおりに判定する', () => {
     assert.equal(resolveWarningChange(item({ kindStatus: status })), 'weakened');
   }
   assert.equal(resolveWarningChange(item({ kindStatus: '発表', lastKindCode: '99' })), null);
+  // Status=発表 かつ lastKindCode が同じ段階(warning)なら強調なし('>'を'>='にする変異を検知)
+  assert.equal(
+    resolveWarningChange(item({ kindCode: '03', kindStatus: '発表', lastKindCode: '08' })),
+    null,
+  );
 });
 
 // AC-5: タイマーなし(静的)
