@@ -33,6 +33,7 @@
 | D4 | 単体テストに加え、右側パネルに仮の入口とサンプル表を置き実画面で確認。仮の入口はG4〜G6で置き換える前提 | §6 |
 | D5 | 範囲外: 各パネル固有の中身（G4〜G6）、アメダスの取得済み範囲・未取得区間表示（G6） | §1 |
 | D6 | オーナーのiPad実機確認・UI監修で改訂（本設計書時点）: (a) 開いたときの初期フォーカスは閉じるボタンではなく見出し（`h2`、`tabindex="-1"`）へ移す。タッチで開いた際にフォーカスリングが出ないようにする。Tabで閉じるボタンへ移り、キーボード操作時はリングが出る。(b) 閉じるボタンの×アイコンの大きさを見出し（`md-typescale-headline-small`、24px）に揃える（ボタン自体は56pxのまま）。(c) 表の細部（日付ラベルの欠け等）は各パネル内容の実装時（G4〜G6）に改めて監修するため本Issueでは扱わない。AC-9はオーナーがiPad実機で確認し概ね問題なしと記録済み | §3.3、§4.2、AC-5・AC-8b・AC-9 |
+| D7 | PR #215 外部レビュー（Codex、P2）指摘によりこのPRで改訂: `<dialog>` の `onClose`（ネイティブ `close` イベント）がある限り、`requestClose` が1操作（閉じるボタン／Esc）につき2回実行され `onClose`（親コールバック）が2回呼ばれる。ネイティブ `close` イベントは `requestClose` が自ら呼ぶ `dialog.close()` の帰結であり、別の閉鎖経路ではないため、この経路では `requestClose` を再実行しない設計に改める。副次的に、遅延した `close` イベントが直後の再オープンを誤って閉じる事象（別Issue #214と同根の原因）も本コンポーネントでは防げる。`MonitoringDialogHost`（#214の対象）は本Issueでは改修しない | §4.2、AC-6 |
 
 ## 3. 構成
 
@@ -150,10 +151,20 @@ position: relative;          /* 本文内の絶対配置要素の包含ブロッ
 閉じる（閉じるボタン、Esc）:
 
 - Esc は `onCancel` で `preventDefault` し、閉じるボタンと同じ `requestClose` を通す（既存の二重実行防止 `closingRef` を踏襲）。
-- `onClose()` → 親が `open=false` → `dialog.close()`。
+- `onClose()` → 親が `open=false` → 効果（`useEffect`）が `dialog.close()` を呼ぶ。
 - 復帰は `queueMicrotask` 後に、(a) 保存要素が `isConnected` なら `focus({ preventScroll: true })`、未接続なら `#view-content` へ、(b) 保存した `scrollTop` を `scrollContainer` へ代入する。(b)は(a)の後に行い、フォーカスによる自動スクロールを上書きする。
 - 背景クリック（`::backdrop`）では閉じない（既存監視ダイアログと同じ）【確定】（§9 Q3）。
 - 地図の表示位置・ズームには一切触れない。`MapViewport` の API を呼ばない。
+
+**ネイティブ `close` イベントの二重実行防止（D7、PR #215差し戻し対応）**
+
+`dialog.close()` はネイティブの `close` イベントを発火させる。このイベントは `dialog.close()` を呼んだ結果として起きるものであり、`requestClose`（閉じるボタン／Esc）とは別の独立した閉鎖経路ではない。この `close` イベントで `requestClose` を再実行すると、`closingRef` が `queueMicrotask` で先に `false` へ戻ってしまうため（イベントはタスク、`queueMicrotask` はマイクロタスクで、後者が先に走る）、1操作につき `onClose`（親コールバック）が2回呼ばれる。
+
+修正方針:
+
+- `closingRef` とは別に `programmaticCloseRef`（`useRef(false)`）を設け、`useEffect` 内で `dialog.close()` を呼ぶ直前に `true` にする。
+- `<dialog>` の `onClose` ハンドラでは `requestClose` を呼ばない。`programmaticCloseRef.current` が `true` ならそれを `false` に戻すだけで何もしない（自分自身の `close()` 呼び出しの結果である正常系）。`false`（＝`requestClose` を経由しない予期しない閉鎖）の場合のみ、フォールバックとして `requestClose()` を呼ぶ（ブラウザ操作等、想定外の経路で閉じても `onClose`（親）が最低1回は呼ばれるようにするための保険。現状の実装ではこの経路は理論上通らない想定だが、想定外の閉鎖でも復帰処理が漏れないようフォールバックを残す）。
+- 効果として、閉じるボタン・Escいずれも `onClose`（親）は1操作につき正確に1回。閉じた直後に `open` が再び `true` になっても、遅延した `close` イベントは `programmaticCloseRef` により無視されるため、開き直した直後に勝手に閉じる事象（#214と同根）も本コンポーネントでは起きない。`MonitoringDialogHost`（#214の対象）は本Issueの範囲外のため未修正のまま残る。
 
 Tab 循環: 既存と同じく `onKeyDown` で `nextDialogFocusTarget` を使う。対象要素のセレクタには、横スクロール領域（`tabindex="0"`、§5.2）を含める。
 
@@ -249,6 +260,7 @@ export function buildDateHeaderLabels(columns: readonly TimeSeriesColumn[]): rea
 - [ ] AC-4: `DetailTimeSeriesTable` を `renderToStaticMarkup` し、上段の日付セルが日付境界の列にだけ文字を持ち、日付が前列と変わらない列の上段日付セルが空（テキストが空文字）であることも検証する。行見出しが `th scope="row"`、横スクロール div が `role="region"` と `tabindex="0"` を持つ。
 - [ ] AC-5: `?panelFixture=all-content` で「警報等時系列」の「詳細（仮）」を押すとダイアログが開く。開いた状態で、ダイアログ外（地図が見えている位置）でドラッグ・ホイール・ダブルクリックしても地図の中心・ズームが変わらない（開く前後で `map.getCenter()`・`getZoom()` 相当の値、または画面上の目印位置を記録して比較）。右側列もスクロールしない。`document.activeElement` が見出し（`h2`、`tabindex="-1"`）であり、フォーカスリングが出ていない（D6）。Tabで閉じるボタンへ移動でき、その時点でフォーカスリングが表示される。
 - [ ] AC-6: 右側列を下までスクロールし（`scrollTop` を記録、0より大きいこと）、「地域時系列予報」の「詳細（仮）」で開く。(a) Esc、(b) 閉じるボタン、それぞれで閉じた後、`document.activeElement` がその「詳細（仮）」ボタン（またはそのホスト要素）であり、列の `scrollTop` が開く前と一致し（差0〜1px）、地図の中心・ズームが開く前と同じ。Tab／Shift+Tab を繰り返してもフォーカスがダイアログ外へ出ない。
+- [ ] AC-6b（D7、PR #215差し戻し対応）: 親コンポーネントの `onClose` を一時的にラップし呼び出し回数を計測できる状態（例: 開発コンソールへの `console.count` 差し込み、またはブラウザDevToolsのブレークポイント／ステップ実行）で、(a) 閉じるボタンでの1回のクリック、(b) Escキーの1回の押下、それぞれについて `onClose` の呼び出しが正確に1回であることを確認する。加えて、閉じた直後（同一操作の延長で）ただちに同じ「詳細（仮）」ボタンで再度開き、遅延した `close` イベントによってダイアログが勝手に閉じないこと（開いた状態が保たれること）を確認する。AC-6のフォーカス／スクロール復帰の挙動に変化がないことも合わせて確認する。
 - [ ] AC-7: 1280×720 で「警報等時系列」サンプルを開き、表の横スクロール div の `scrollWidth > clientWidth`。横スクロールすると行見出し列の `getBoundingClientRect().left` が変わらず、データセルは行見出しの下に隠れる（透けない）。ダイアログ本文・見出しは横に動かない。初期表示で3列目が行見出しの直右にある。表の文字の computed `font-size` が14px以上。
 - [ ] AC-8: 1920×1080、1920×960、1280×720、1180×820 の各viewportで、ダイアログ（`<dialog>`）の `getBoundingClientRect()` を実測する。(a) 「警報等時系列」サンプル（長い本文）: 幅・高さが §4.1 表の幅・高さ上限と±1pxで一致し、本文領域 `.detail-dialog-body` の `scrollHeight > clientHeight`。(b) 「地域時系列予報」サンプル（短い本文）: 幅が960±1px、高さが同viewportの高さ上限より小さく、本文領域の `scrollHeight === clientHeight`（縦スクロールなし）。(c) 二重スクロールの再発防止: (a)(b)いずれも、ダイアログ要素の `scrollHeight === clientHeight` かつ `scrollWidth === clientWidth`、computed `overflow` が `hidden`。(a)で本文領域を最下部までスクロールした後もダイアログの `scrollTop === 0`。(d) いずれも閉じるボタンが見え、ページに横スクロールが発生しない。本文領域を縦スクロールしても見出しと閉じるボタンが見えたまま。
 - [ ] AC-8b: 閉じるボタンに可視テキストがなく（`textContent` がアイコン名 `close` のみで、そのspanは `aria-hidden="true"`）、アクセシブルネームが「閉じる」（`aria-label`）。ボタンのホスト要素の `getBoundingClientRect()` の幅・高さがともに48px以上。アイコンの computed `font-size` が見出し（`h2`）の computed `font-size` と一致する（24px、D6）。スクリーンショットで×アイコンが表示されている（アイコン名の文字列がそのまま表示されていない）。
@@ -263,6 +275,7 @@ export function buildDateHeaderLabels(columns: readonly TimeSeriesColumn[]): rea
 - Q2: 訓練電文のとき見出し横に「訓練」ラベルを出す案でよいか。isTraining が不明（null）のときは何も出さない案でよいか。 → 【確定】訓練時のみラベル、null は何も出さない。
 - Q3: 背景（暗くなった地図部分）のクリック・タップで閉じるか。現案は既存監視ダイアログに合わせて閉じない。 → 【確定】閉じない。
 - 実挙動未確認: iPad Safari での `showModal` 中の背景タッチ操作停止、`overscroll-behavior` の効き、`focus({preventScroll:true})` 後の `scrollTop` 復帰（AC-6・AC-9で確認）。§4.1 の寸法は算出値。二重スクロールの原因（§4.1）はコード調査による特定で、実測による再現確認は製造時に行う。
+- Q4（D7、PR #215差し戻し対応）: ネイティブ `close` イベントによる `onClose` 二重呼び出しは、単体テスト（DOM環境なし）では再現・検証できないため、AC-6bとして実画面の受け入れ条件に位置づけた。`programmaticCloseRef` によるフォールバック分岐（想定外の経路での閉鎖）が実際に通るケースがあるかは製造時のコード調査でも見つかっていない未確認点であり、製造・検収時に他の閉鎖経路（本コンポーネントが使わない `<form method="dialog">` 等）が今後追加されないよう留意する。
 
 ## 10. 後続Issueへの引き継ぎ
 
