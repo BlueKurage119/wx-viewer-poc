@@ -41,5 +41,5 @@
 
 .warning-badge-item__change {
   font-weight: 700;
-  color: var(--md-sys-color-on-surface);
+  color: inherit;
 }

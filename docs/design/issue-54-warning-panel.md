@@ -189,7 +189,7 @@ export function buildWarningCards(response: WarningsResponse, availability: 'ava
 
 - クラス名は `warning-badge-` 接頭辞。G1 の `.info-panel-*` を再定義しない。
 - バッジ: `font-size: 14px` 程度、角丸・余白は製造裁量。縁 `border: 1px solid var(--wx-alert-level-N-outline)`。
-- 変化の文字: `--md-sys-color-*` のみ。
+- 変化の文字: 色を独自に指定せず、バッジの `--wx-alert-level-N-on-container` を継承する(`inherit`)。太字で本文と区別する。
 
 ## 6. 開発用フィクスチャ `warning-badges`
 
