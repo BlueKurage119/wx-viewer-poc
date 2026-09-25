@@ -270,8 +270,8 @@ test('WeatherTileOverlay: タイムアウト時に complete: false で swap 完�
       }),
     );
     await waitUntil(() => notifications.length >= 1);
-    // 重複通知の検出窓: 従来の固定100ms待機と同等以上の猶予を確保する
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 重複通知の検出窓: 1件目到着後100ms待ち、従来の描画後100ms以上の窓を保証する
+    await new Promise((resolve) => setTimeout(resolve, 100));
   } finally {
     root.unmount();
     L.tileLayer = originalTileLayer;
