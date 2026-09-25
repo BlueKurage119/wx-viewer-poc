@@ -5,11 +5,13 @@
  * 本番ビルドでは `resolvePanelFixtureInput` が常に `undefined` を返す。
  */
 import { createElement } from 'react';
+import type { BulletinDto, WeatherMetadata } from '@wx-viewer-poc/shared';
 import type { InfoPanelCardInput, InfoPanelColumnInput } from './panelDefinitions';
 import {
   AreaForecastDetailFixtureEntry,
   WarningTimeSeriesDetailFixtureEntry,
 } from './detailDialogFixtures';
+import { buildBosaiBulletinCards } from './bosai/bosaiBulletinCards';
 
 const DUMMY_CONTENT = '（G2〜G7で実装）';
 
@@ -123,8 +125,257 @@ function buildFailedFixture(): InfoPanelColumnInput {
   });
 }
 
+/**
+ * フィクスチャ用のダミーメタデータ。
+ * ※ フィクスチャのタイトル・全文・区域データ等は合成であり、実電文ではありません。
+ * ※ F1〜F3 は現在時刻を起点とする同一日の時刻で作るため、日付をまたぐ直前（00:00〜00:50 JST）に開くと並びや日付表記が変わり得ます。
+ */
+function createFixtureMetadata(validAt: string | null = null): WeatherMetadata {
+  return {
+    source: null,
+    issuedAt: null,
+    validAt,
+    validFrom: null,
+    validTo: null,
+    fetchedAt: null,
+    lastSuccessAt: null,
+    availability: 'available',
+    sourceVersion: null,
+  };
+}
+
+export function buildBosaiBulletinsFixture(): InfoPanelColumnInput {
+  const nowMs = Date.now();
+  const allContent = buildAllContentFixture();
+
+  const bulletins: readonly BulletinDto[] = [
+    // F1: VPBS50 発表=現在−40分、区域重複あり、全文2文
+    {
+      eventId: 'fixture-f1',
+      telegramType: 'VPBS50',
+      infoType: '発表',
+      isCancelled: false,
+      reportDateTime: new Date(nowMs - 40 * 60 * 1000).toISOString(),
+      controlDateTime: new Date(nowMs - 40 * 60 * 1000).toISOString(),
+      title: '東京都気象防災速報（記録的短時間大雨）',
+      headlineText:
+        '東京都で記録的短時間大雨が観測されました。\n土砂災害や低い土地の浸水に警戒してください。',
+      informationTag: '記録雨',
+      hasSighting: null,
+      areas: [
+        {
+          areaCode: '130000',
+          areaName: '東京地方',
+          codeType: 'Area',
+          sequence: 1,
+          informationType: null,
+        },
+        {
+          areaCode: '130010',
+          areaName: '２３区東部',
+          codeType: 'Area',
+          sequence: 2,
+          informationType: null,
+        },
+        {
+          areaCode: '130108',
+          areaName: '江東区',
+          codeType: 'Area',
+          sequence: 3,
+          informationType: null,
+        },
+        {
+          areaCode: '130108',
+          areaName: '江東区',
+          codeType: 'Area',
+          sequence: 4,
+          informationType: null,
+        },
+      ],
+      isDirect: false,
+      matchedAreaCodes: [],
+      metadata: createFixtureMetadata(null),
+    },
+    // F2: VPHW51 発表=現在−10分、validAt=現在+50分、hasSighting=true、発表細分+市町村等3件
+    {
+      eventId: 'VPHW51:130010',
+      telegramType: 'VPHW51',
+      infoType: '発表',
+      isCancelled: false,
+      reportDateTime: new Date(nowMs - 10 * 60 * 1000).toISOString(),
+      controlDateTime: new Date(nowMs - 10 * 60 * 1000).toISOString(),
+      title: '東京都気象防災速報（竜巻目撃）',
+      headlineText: '東京地方で竜巻などの激しい突風が発生したとみられます。',
+      informationTag: null,
+      hasSighting: true,
+      areas: [
+        {
+          areaCode: '130010',
+          areaName: '東京地方',
+          codeType: 'Area',
+          sequence: 1,
+          informationType: '竜巻注意情報（発表細分）',
+        },
+        {
+          areaCode: '130011',
+          areaName: '２３区東部',
+          codeType: 'Area',
+          sequence: 2,
+          informationType: '竜巻注意情報（まとめた地域）',
+        },
+        {
+          areaCode: '130108',
+          areaName: '江東区',
+          codeType: 'Area',
+          sequence: 3,
+          informationType: '竜巻注意情報（市町村等）',
+        },
+        {
+          areaCode: '130107',
+          areaName: '墨田区',
+          codeType: 'Area',
+          sequence: 4,
+          informationType: '竜巻注意情報（市町村等）',
+        },
+      ],
+      isDirect: false,
+      matchedAreaCodes: [],
+      metadata: createFixtureMetadata(new Date(nowMs + 50 * 60 * 1000).toISOString()),
+    },
+    // F3: VPHW50 F2と同刻・同区域・同validAt、hasSighting=null
+    {
+      eventId: 'VPHW50:130010',
+      telegramType: 'VPHW50',
+      infoType: '発表',
+      isCancelled: false,
+      reportDateTime: new Date(nowMs - 10 * 60 * 1000).toISOString(),
+      controlDateTime: new Date(nowMs - 10 * 60 * 1000).toISOString(),
+      title: '東京都気象防災速報（竜巻注意）',
+      headlineText: '東京地方は、竜巻などの激しい突風が発生しやすい気象状況になっています。',
+      informationTag: null,
+      hasSighting: null,
+      areas: [
+        {
+          areaCode: '130010',
+          areaName: '東京地方',
+          codeType: 'Area',
+          sequence: 1,
+          informationType: '竜巻注意情報（発表細分）',
+        },
+        {
+          areaCode: '130011',
+          areaName: '２３区東部',
+          codeType: 'Area',
+          sequence: 2,
+          informationType: '竜巻注意情報（まとめた地域）',
+        },
+        {
+          areaCode: '130108',
+          areaName: '江東区',
+          codeType: 'Area',
+          sequence: 3,
+          informationType: '竜巻注意情報（市町村等）',
+        },
+        {
+          areaCode: '130107',
+          areaName: '墨田区',
+          codeType: 'Area',
+          sequence: 4,
+          informationType: '竜巻注意情報（市町村等）',
+        },
+      ],
+      isDirect: false,
+      matchedAreaCodes: [],
+      metadata: createFixtureMetadata(new Date(nowMs + 50 * 60 * 1000).toISOString()),
+    },
+    // F4: VPBS50 発表=現在−3時間1分（期限切れで非表示）
+    {
+      eventId: 'fixture-f4',
+      telegramType: 'VPBS50',
+      infoType: '発表',
+      isCancelled: false,
+      reportDateTime: new Date(nowMs - (3 * 60 + 1) * 60 * 1000).toISOString(),
+      controlDateTime: new Date(nowMs - (3 * 60 + 1) * 60 * 1000).toISOString(),
+      title: '東京都気象防災速報（線状降水帯発生）',
+      headlineText: '線状降水帯による非常に激しい雨が同じ場所に降り続いています。',
+      informationTag: '線状降水帯発生',
+      hasSighting: null,
+      areas: [
+        {
+          areaCode: '130000',
+          areaName: '東京地方',
+          codeType: 'Area',
+          sequence: 1,
+          informationType: null,
+        },
+      ],
+      isDirect: false,
+      matchedAreaCodes: [],
+      metadata: createFixtureMetadata(null),
+    },
+    // F5: VPHW50 発表=現在−20分、validAt=現在−1分（電文期限切れで非表示）
+    {
+      eventId: 'VPHW50:130020',
+      telegramType: 'VPHW50',
+      infoType: '発表',
+      isCancelled: false,
+      reportDateTime: new Date(nowMs - 20 * 60 * 1000).toISOString(),
+      controlDateTime: new Date(nowMs - 20 * 60 * 1000).toISOString(),
+      title: '東京都気象防災速報（竜巻注意）',
+      headlineText: '東京地方は、竜巻などの激しい突風が発生しやすい気象状況になっています。',
+      informationTag: null,
+      hasSighting: null,
+      areas: [
+        {
+          areaCode: '130010',
+          areaName: '東京地方',
+          codeType: 'Area',
+          sequence: 1,
+          informationType: '竜巻注意情報（発表細分）',
+        },
+      ],
+      isDirect: false,
+      matchedAreaCodes: [],
+      metadata: createFixtureMetadata(new Date(nowMs - 1 * 60 * 1000).toISOString()),
+    },
+    // F6: VPBS50 発表=現在−5分、取消、headlineText=null（非表示）
+    {
+      eventId: 'fixture-f6',
+      telegramType: 'VPBS50',
+      infoType: '取消',
+      isCancelled: true,
+      reportDateTime: new Date(nowMs - 5 * 60 * 1000).toISOString(),
+      controlDateTime: new Date(nowMs - 5 * 60 * 1000).toISOString(),
+      title: '東京都気象防災速報（線状降水帯直前予測）',
+      headlineText: null,
+      informationTag: '線状降水帯直前',
+      hasSighting: null,
+      areas: [],
+      isDirect: false,
+      matchedAreaCodes: [],
+      metadata: createFixtureMetadata(null),
+    },
+  ];
+
+  const bosaiBulletinCards = buildBosaiBulletinCards({
+    bulletins,
+    availability: 'available',
+    nowMs,
+  });
+
+  return Object.freeze({
+    bosaiBulletin: Object.freeze(bosaiBulletinCards),
+    warning: allContent.warning,
+    warningTimeSeries: allContent.warningTimeSeries,
+    earlyWarning: allContent.earlyWarning,
+    amedas: allContent.amedas,
+    areaForecast: allContent.areaForecast,
+  });
+}
+
 const FIXTURE_BUILDERS: Readonly<Record<string, () => InfoPanelColumnInput>> = Object.freeze({
   'all-content': buildAllContentFixture,
+  'bosai-bulletins': buildBosaiBulletinsFixture,
   mixed: buildMixedFixture,
   failed: buildFailedFixture,
 });
