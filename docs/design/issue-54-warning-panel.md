@@ -66,7 +66,7 @@
 | ファイル | 種別 | 役割 |
 |---|---|---|
 | `apps/web/src/api/warnings.ts` | 新規 | `fetchTileCatalog` を `path: '/api/weather/warnings'` で呼び、`parseWarningsResponse` で検証 |
-| `apps/web/src/map/panels/warning/warningBadges.ts` | 新規 | 純粋関数: コード表、並べ替え、短縮表記、変化種別判定、カード入力組み立て。React 非依存 |
+| `apps/web/src/map/panels/warning/warningBadges.ts` | 新規 | 純粋関数: コード表、並べ替え、短縮表記、変化種別判定、カード入力組み立て。カード入力の `content` 組み立てに限り `createElement` を使う(既存 `bosaiBulletinCards.ts` と同じ作り。JSX・hooks は使わない) |
 | `apps/web/src/map/panels/warning/useWarnings.ts` | 新規 | `useTileCatalogPolling` によるポーリング。`InfoPanelCardInput[]` を返す |
 | `apps/web/src/map/panels/warning/WarningBadgeList.tsx` | 新規 | バッジ群の描画 |
 | `apps/web/src/map/panels/warning/warningPanel.css` | 新規 | スタイル。`apps/web/src/index.css` に `@import` 1行を追加して読み込む(G2 と同じ流儀) |

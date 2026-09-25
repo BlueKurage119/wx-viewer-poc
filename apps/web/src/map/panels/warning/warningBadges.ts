@@ -2,8 +2,8 @@
  * 警報・注意報バッジの純粋関数群 (G3 #54)。
  *
  * コード表・並べ替え・短縮表記・新規/強化/緩和の判定・カード入力組み立てを行う。
- * React には依存しない。判定ロジックは単一関数 {@link resolveWarningChange} にまとめ、
- * 実電文確認後の差し替え（§4.3 未決 Q3）に備える。
+ * カード入力の content 組み立てに限り createElement を使う（JSX・hooks は使わない）。
+ * 判定ロジックは単一関数 {@link resolveWarningChange} にまとめる（§4.3）。
  */
 import { createElement } from 'react';
 import type { InfoPanelCardInput } from '../panelDefinitions';
