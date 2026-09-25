@@ -1,0 +1,48 @@
+.warning-badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.warning-badge-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.warning-badge-item--special {
+  background-color: var(--wx-alert-level-5-container);
+  color: var(--wx-alert-level-5-on-container);
+  border-color: var(--wx-alert-level-5-outline);
+}
+
+.warning-badge-item--danger {
+  background-color: var(--wx-alert-level-4-container);
+  color: var(--wx-alert-level-4-on-container);
+  border-color: var(--wx-alert-level-4-outline);
+}
+
+.warning-badge-item--warning {
+  background-color: var(--wx-alert-level-3-container);
+  color: var(--wx-alert-level-3-on-container);
+  border-color: var(--wx-alert-level-3-outline);
+}
+
+.warning-badge-item--advisory {
+  background-color: var(--wx-alert-level-2-container);
+  color: var(--wx-alert-level-2-on-container);
+  border-color: var(--wx-alert-level-2-outline);
+}
+
+.warning-badge-item__change {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 700;
+  color: inherit;
+  background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent);
+}

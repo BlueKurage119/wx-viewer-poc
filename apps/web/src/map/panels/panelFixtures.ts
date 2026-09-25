@@ -12,6 +12,8 @@ import {
   WarningTimeSeriesDetailFixtureEntry,
 } from './detailDialogFixtures';
 import { buildBosaiBulletinCards } from './bosai/bosaiBulletinCards';
+import { buildWarningCards } from './warning/warningBadges';
+import type { WarningCurrentItem, WarningsResponse } from '@wx-viewer-poc/shared';
 
 const DUMMY_CONTENT = '（G2〜G7で実装）';
 
@@ -373,9 +375,75 @@ export function buildBosaiBulletinsFixture(): InfoPanelColumnInput {
   });
 }
 
+/**
+ * §6 の合成データ(実電文ではない)。`buildWarningCards` を本番と同じ経路で通す。
+ */
+function buildWarningBadgesFixture(): InfoPanelColumnInput {
+  const allContent = buildAllContentFixture();
+
+  function item(
+    kindCode: string,
+    kindStatus: string,
+    lastKindCode: string | null,
+  ): WarningCurrentItem {
+    return {
+      sequence: 0,
+      kindCode,
+      kindName: `${kindCode}(合成データ)`,
+      kindStatus,
+      lastKindCode,
+      lastKindName: null,
+      kindIssuedAt: null,
+      sourceTelegram: 'fixture',
+    };
+  }
+
+  const items: readonly WarningCurrentItem[] = [
+    item('14', '継続', null), // W1
+    item('03', '発表', '10'), // W2
+    item('29', '発表', null), // W3
+    item('48', '継続', null), // W4
+    item('38', '継続', null), // W5
+    item('15', '警報から注意報', '05'), // W6
+    item('99', '発表', null), // W7(表外・描画されない)
+  ];
+
+  const response: WarningsResponse = {
+    terminalId: 'fixture-terminal',
+    venueId: 'east',
+    controlStatus: 'normal',
+    isTraining: false,
+    evaluatedAt: todayAt(14, 0),
+    area: { code: '1310800', name: '江東区' },
+    metadata: {
+      source: null,
+      issuedAt: todayAt(14, 0),
+      validAt: null,
+      validFrom: null,
+      validTo: null,
+      fetchedAt: null,
+      lastSuccessAt: null,
+      availability: 'available',
+      sourceVersion: null,
+    },
+    data: { items },
+    capabilities: { unsupportedKindCodes: ['04', '18'], supplementSource: 'warning-timeseries' },
+  };
+
+  return Object.freeze({
+    bosaiBulletin: Object.freeze([]),
+    warning: Object.freeze(buildWarningCards(response, 'available')),
+    warningTimeSeries: allContent.warningTimeSeries,
+    earlyWarning: allContent.earlyWarning,
+    amedas: allContent.amedas,
+    areaForecast: allContent.areaForecast,
+  });
+}
+
 const FIXTURE_BUILDERS: Readonly<Record<string, () => InfoPanelColumnInput>> = Object.freeze({
   'all-content': buildAllContentFixture,
   'bosai-bulletins': buildBosaiBulletinsFixture,
+  'warning-badges': buildWarningBadgesFixture,
   mixed: buildMixedFixture,
   failed: buildFailedFixture,
 });

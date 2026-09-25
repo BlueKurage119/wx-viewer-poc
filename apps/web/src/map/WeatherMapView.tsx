@@ -8,6 +8,7 @@ import { MapViewport, type MapViewportHandle } from './MapViewport';
 import { MapInformationColumnSlot } from './MapInformationColumnSlot';
 import { InfoPanelColumn } from './panels/InfoPanelColumn';
 import { useBosaiBulletins } from './panels/bosai/useBosaiBulletins';
+import { useWarnings } from './panels/warning/useWarnings';
 import { DEFAULT_INFO_PANEL_INPUT } from './panels/panelFixtures';
 import { DetailDialogScrollContainerProvider } from './detail/DetailDialogScrollContainerContext';
 import { MapLegend } from './MapLegend';
@@ -164,12 +165,19 @@ export function WeatherMapView({
     controlStatus,
   });
 
+  // 警報・注意報の定期取得 (G3)
+  const warningCards = useWarnings({
+    terminalId,
+    controlStatus,
+  });
+
   const infoPanelInput = useMemo(
     () => ({
       ...DEFAULT_INFO_PANEL_INPUT,
       bosaiBulletin: bosaiBulletinCards,
+      warning: warningCards,
     }),
-    [bosaiBulletinCards],
+    [bosaiBulletinCards, warningCards],
   );
 
   const effectiveTimelineViewModel = useMemo(() => {
