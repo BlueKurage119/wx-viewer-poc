@@ -4,7 +4,12 @@
  * 開発ビルド限定で `?panelFixture=<名前>` から状態セットを切り替える。
  * 本番ビルドでは `resolvePanelFixtureInput` が常に `undefined` を返す。
  */
+import { createElement } from 'react';
 import type { InfoPanelCardInput, InfoPanelColumnInput } from './panelDefinitions';
+import {
+  AreaForecastDetailFixtureEntry,
+  WarningTimeSeriesDetailFixtureEntry,
+} from './detailDialogFixtures';
 
 const DUMMY_CONTENT = '（G2〜G7で実装）';
 
@@ -22,12 +27,13 @@ function contentCard(
   timeKind: 'issued' | 'observed',
   availability: 'available' | 'stale',
   heading?: string,
+  content: InfoPanelCardInput['content'] = DUMMY_CONTENT,
 ): InfoPanelCardInput {
   return {
     key,
     heading,
     status: { kind: 'data', availability, time, timeKind },
-    content: DUMMY_CONTENT,
+    content,
   };
 }
 
@@ -64,15 +70,31 @@ function buildAllContentFixture(): InfoPanelColumnInput {
       ),
     ]),
     warning: Object.freeze([contentCard('warning', todayAt(14, 0), 'issued', 'available')]),
+    // 「詳細（仮）」入口 (G10 §6)。G4で本物のパネル本文に置き換える
     warningTimeSeries: Object.freeze([
-      contentCard('warningTimeSeries', todayAt(14, 0), 'issued', 'available'),
+      contentCard(
+        'warningTimeSeries',
+        todayAt(14, 0),
+        'issued',
+        'available',
+        undefined,
+        createElement(WarningTimeSeriesDetailFixtureEntry),
+      ),
     ]),
     earlyWarning: Object.freeze([
       contentCard('earlyWarning', todayAt(14, 0), 'issued', 'available'),
     ]),
     amedas: Object.freeze([contentCard('amedas', todayAt(14, 10), 'observed', 'available')]),
+    // 「詳細（仮）」入口 (G10 §6)。G6で本物のパネル本文に置き換える
     areaForecast: Object.freeze([
-      contentCard('areaForecast', todayAt(14, 0), 'issued', 'available'),
+      contentCard(
+        'areaForecast',
+        todayAt(14, 0),
+        'issued',
+        'available',
+        undefined,
+        createElement(AreaForecastDetailFixtureEntry),
+      ),
     ]),
   });
 }
