@@ -32,6 +32,7 @@
 | D3 | 時系列表は横幅超過時に表部分だけ横スクロール、行見出し列固定。列見出し2段（上段の日付は日付が変わる列にだけ、下段に時刻）。文字を過度に縮小しない | §5、AC-2・AC-7 |
 | D4 | 単体テストに加え、右側パネルに仮の入口とサンプル表を置き実画面で確認。仮の入口はG4〜G6で置き換える前提 | §6 |
 | D5 | 範囲外: 各パネル固有の中身（G4〜G6）、アメダスの取得済み範囲・未取得区間表示（G6） | §1 |
+| D6 | オーナーのiPad実機確認・UI監修で改訂（本設計書時点）: (a) 開いたときの初期フォーカスは閉じるボタンではなく見出し（`h2`、`tabindex="-1"`）へ移す。タッチで開いた際にフォーカスリングが出ないようにする。Tabで閉じるボタンへ移り、キーボード操作時はリングが出る。(b) 閉じるボタンの×アイコンの大きさを見出し（`md-typescale-headline-small`、24px）に揃える（ボタン自体は56pxのまま）。(c) 表の細部（日付ラベルの欠け等）は各パネル内容の実装時（G4〜G6）に改めて監修するため本Issueでは扱わない。AC-9はオーナーがiPad実機で確認し概ね問題なしと記録済み | §3.3、§4.2、AC-5・AC-8b・AC-9 |
 
 ## 3. 構成
 
@@ -92,7 +93,8 @@ export function formatDetailDialogMeta(meta: DetailDialogMeta, now: Date): {
 
 ### 3.3 見出し領域
 
-- 1行目: `title`（`md-typescale-headline-small`）。右端に閉じるボタン。**×アイコンのみ**とし（オーナーUI監修で確定）、`GbIconButton`（`color="standard"`、`size="md"`、`type="button"`）の中にアイコン `close` を置く。アイコン表示は `MonitoringToolbar.tsx` の `Icon`（Material Symbols を `aria-hidden="true"` の span で出す）と同じ方式とし、`detail/` 内に同等の小部品を置く（`monitoring/` は変更・importしない。共通化は監視ダイアログ大改修時に行う）。アクセシブルネームは `aria-label="閉じる"`（`title` も「閉じる」）。押せる範囲は48×48px以上: `size="md"` のコンテナ高は56px（`@material/web` の `icon-button.css` で `.icon-btn-md{--container-height:56px}` を確認済み。`sm` は40pxのため不可）。アイコン色はコンポーネント既定（`on-surface-variant` 系トークン）に任せ、HEX・独自色指定をしない。focus-visible の表示もコンポーネント既定に任せる。
+- 1行目: `title`（`md-typescale-headline-small`、24px）。右端に閉じるボタン。**×アイコンのみ**とし（オーナーUI監修で確定）、`GbIconButton`（`color="standard"`、`size="md"`、`type="button"`）の中にアイコン `close` を置く。アイコン表示は `MonitoringToolbar.tsx` の `Icon`（Material Symbols を `aria-hidden="true"` の span で出す）と同じ方式とし、`detail/` 内に同等の小部品を置く（`monitoring/` は変更・importしない。共通化は監視ダイアログ大改修時に行う）。アクセシブルネームは `aria-label="閉じる"`（`title` も「閉じる」）。押せる範囲は48×48px以上: `size="md"` のコンテナ高は56px（`@material/web` の `icon-button.css` で `.icon-btn-md{--container-height:56px}` を確認済み。`sm` は40pxのため不可、ボタン自体は変更しない）。アイコンサイズは見出しの文字サイズに揃え、`.detail-dialog-close-icon` の `font-size` を現行 20px から **24px** に改める（D6・オーナーUI監修）。アイコン色はコンポーネント既定（`on-surface-variant` 系トークン）に任せ、HEX・独自色指定をしない。focus-visible の表示もコンポーネント既定に任せる。
+- 見出し要素（`h2`）に `id={titleId}`・`tabindex="-1"` を付け、初期フォーカスの移動先とする（§4.2）。`:focus-visible` でリングが出ない要素なので、タッチでの初期フォーカスではリングが出ない。
 - 2行目: `target · time`（G1カードと同じ区切り）。`target` が null ならその要素を省き、`time.value` が null なら時刻要素を省く【確定】（§9 Q1）。どちらも null なら2行目自体を出さない。
 - 訓練: `isTraining === true` のとき見出し横に「訓練」ラベルを表示する【確定】（§9 Q2）。`false` は何も出さない。`null` は何も出さない【確定】（§9 Q2）。色は `tertiary-container`／`on-tertiary-container` トークン【設計案】。
 - `<dialog>` に `aria-labelledby`（見出しのid）。idは `useId` で生成し、複数インスタンスでも衝突させない。
@@ -143,7 +145,7 @@ position: relative;          /* 本文内の絶対配置要素の包含ブロッ
 
 1. `document.activeElement` を保存（開いたボタン）。`scrollContainer` があればその `scrollTop` を保存。
 2. `showModal()`。背景は inert になり、地図のドラッグ・ホイール・クリック、右側列のスクロール・クリックを受け付けない。
-3. 閉じるボタンへ `focus({ preventScroll: true })`（既存と同様 `queueMicrotask` 後）。
+3. 見出し（`h2`、`tabindex="-1"`）へ `focus({ preventScroll: true })`（既存と同様 `queueMicrotask` 後）。**閉じるボタンではなく見出しへ移す**（D6・オーナーiPad実機確認：閉じるボタンへ初期フォーカスするとタッチ操作でもフォーカスリングが出るため）。Tabで閉じるボタンへ移動でき、キーボード操作時はリングが表示される（コンポーネント既定の `:focus-visible`）。Tab循環・閉じた後のフォーカス／スクロール復帰は変更しない。
 
 閉じる（閉じるボタン、Esc）:
 
@@ -245,12 +247,12 @@ export function buildDateHeaderLabels(columns: readonly TimeSeriesColumn[]): rea
 - [ ] AC-2: `buildDateHeaderLabels` の単体テストで、(a) 先頭列は常に日付、(b) 同日の後続列は null、(c) JST 23時台→翌0時台の境界で日付が出る（UTCでは同日でもJSTで日付が変わるケース、例 `2026-09-23T14:00:00Z`→`2026-09-23T15:00:00Z` を含む）、(d) 表記が `9/24(木)` 形式。`validateRowSpans` が span 合計の過不足を検出する。
 - [ ] AC-3: `formatDetailDialogMeta` の単体テストで、target null・time.value null・isTraining true/false/null の各組合せが §3.3 どおり（null要素は省く、訓練はtrueのみ「訓練」、発表/観測の語が kind どおり）。`renderToStaticMarkup` でポータル抜きの内側部品 `DetailDialogInner`（open=true 相当）を描画し、見出し・対象・時刻・閉じるボタンの `aria-label="閉じる"`・`aria-labelledby` が出力される。
 - [ ] AC-4: `DetailTimeSeriesTable` を `renderToStaticMarkup` し、上段の日付セルが日付境界の列にだけ文字を持ち、日付が前列と変わらない列の上段日付セルが空（テキストが空文字）であることも検証する。行見出しが `th scope="row"`、横スクロール div が `role="region"` と `tabindex="0"` を持つ。
-- [ ] AC-5: `?panelFixture=all-content` で「警報等時系列」の「詳細（仮）」を押すとダイアログが開く。開いた状態で、ダイアログ外（地図が見えている位置）でドラッグ・ホイール・ダブルクリックしても地図の中心・ズームが変わらない（開く前後で `map.getCenter()`・`getZoom()` 相当の値、または画面上の目印位置を記録して比較）。右側列もスクロールしない。フォーカスは閉じるボタンにある。
+- [ ] AC-5: `?panelFixture=all-content` で「警報等時系列」の「詳細（仮）」を押すとダイアログが開く。開いた状態で、ダイアログ外（地図が見えている位置）でドラッグ・ホイール・ダブルクリックしても地図の中心・ズームが変わらない（開く前後で `map.getCenter()`・`getZoom()` 相当の値、または画面上の目印位置を記録して比較）。右側列もスクロールしない。`document.activeElement` が見出し（`h2`、`tabindex="-1"`）であり、フォーカスリングが出ていない（D6）。Tabで閉じるボタンへ移動でき、その時点でフォーカスリングが表示される。
 - [ ] AC-6: 右側列を下までスクロールし（`scrollTop` を記録、0より大きいこと）、「地域時系列予報」の「詳細（仮）」で開く。(a) Esc、(b) 閉じるボタン、それぞれで閉じた後、`document.activeElement` がその「詳細（仮）」ボタン（またはそのホスト要素）であり、列の `scrollTop` が開く前と一致し（差0〜1px）、地図の中心・ズームが開く前と同じ。Tab／Shift+Tab を繰り返してもフォーカスがダイアログ外へ出ない。
 - [ ] AC-7: 1280×720 で「警報等時系列」サンプルを開き、表の横スクロール div の `scrollWidth > clientWidth`。横スクロールすると行見出し列の `getBoundingClientRect().left` が変わらず、データセルは行見出しの下に隠れる（透けない）。ダイアログ本文・見出しは横に動かない。初期表示で3列目が行見出しの直右にある。表の文字の computed `font-size` が14px以上。
 - [ ] AC-8: 1920×1080、1920×960、1280×720、1180×820 の各viewportで、ダイアログ（`<dialog>`）の `getBoundingClientRect()` を実測する。(a) 「警報等時系列」サンプル（長い本文）: 幅・高さが §4.1 表の幅・高さ上限と±1pxで一致し、本文領域 `.detail-dialog-body` の `scrollHeight > clientHeight`。(b) 「地域時系列予報」サンプル（短い本文）: 幅が960±1px、高さが同viewportの高さ上限より小さく、本文領域の `scrollHeight === clientHeight`（縦スクロールなし）。(c) 二重スクロールの再発防止: (a)(b)いずれも、ダイアログ要素の `scrollHeight === clientHeight` かつ `scrollWidth === clientWidth`、computed `overflow` が `hidden`。(a)で本文領域を最下部までスクロールした後もダイアログの `scrollTop === 0`。(d) いずれも閉じるボタンが見え、ページに横スクロールが発生しない。本文領域を縦スクロールしても見出しと閉じるボタンが見えたまま。
-- [ ] AC-8b: 閉じるボタンに可視テキストがなく（`textContent` がアイコン名 `close` のみで、そのspanは `aria-hidden="true"`）、アクセシブルネームが「閉じる」（`aria-label`）。ボタンのホスト要素の `getBoundingClientRect()` の幅・高さがともに48px以上。スクリーンショットで×アイコンが表示されている（アイコン名の文字列がそのまま表示されていない）。
-- [ ] AC-9: iPad Pro 11インチ横の実機で、開く・表の横スワイプ（表だけが動きダイアログ・ページが動かない）・本文の縦スワイプ・閉じる後の列スクロール位置保持を確認する。実機で確認できない場合はエミュレーションで合格とせず「実挙動未確認」として統括へ返す。
+- [ ] AC-8b: 閉じるボタンに可視テキストがなく（`textContent` がアイコン名 `close` のみで、そのspanは `aria-hidden="true"`）、アクセシブルネームが「閉じる」（`aria-label`）。ボタンのホスト要素の `getBoundingClientRect()` の幅・高さがともに48px以上。アイコンの computed `font-size` が見出し（`h2`）の computed `font-size` と一致する（24px、D6）。スクリーンショットで×アイコンが表示されている（アイコン名の文字列がそのまま表示されていない）。
+- [ ] AC-9: iPad Pro 11インチ横の実機で、開く・表の横スワイプ（表だけが動きダイアログ・ページが動かない）・本文の縦スワイプ・閉じる後の列スクロール位置保持を確認する。実機で確認できない場合はエミュレーションで合格とせず「実挙動未確認」として統括へ返す。**オーナーがiPad実機で確認済み、概ね問題なし（D6）。** 表の細部（日付ラベルの欠け等の見た目）は各パネル内容の実装時（G4〜G6）に改めて監修するため、本Issueの合否判定には含めない。
 - [ ] AC-10: 「地域時系列予報」サンプルで、見出し2行目に対象・時刻が出ず（null）、「訓練」ラベルが表示される。「警報等時系列」サンプルでは「江東区 · HH:mm発表」形式で「訓練」は出ない。
 - [ ] AC-11: 新規・変更した css/tsx に色のHEX直書きがない（`#[0-9a-fA-F]{3,8}\b` 検索で0件）。
 - [ ] AC-12: `git diff --stat main` の変更が `apps/web/src/map/`（`detail/` 新設、`panels/panelFixtures.ts` 等のフィクスチャ、入口のためのスロット ref 取り回し）、`apps/web/tests/`、`apps/web/src/index.css` の `detail.css` import 1行に限られる。`apps/web/src/monitoring/` に差分がない（閉じるボタンのアイコン部品も `monitoring/` から import しない）。`apps/web/src/components/md/` に差分がない（既存 `GbIconButton` をそのまま使う）。`map.css` の `--wx-map-right-column-width` に差分がない。
