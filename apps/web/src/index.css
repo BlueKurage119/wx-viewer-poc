@@ -6,6 +6,7 @@
 @import './map/map.css';
 @import './map/panels/panels.css';
 @import './map/panels/bosai/bosaiBulletin.css';
+@import './map/panels/warning/warningPanel.css';
 @import './map/detail/detail.css';
 @import './monitoring/monitoring.css';
 
