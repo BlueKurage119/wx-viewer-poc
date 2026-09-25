@@ -48,6 +48,9 @@ export function DetailDialogInner({
   const closeButtonRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const closingRef = useRef(false);
+  // dialog.close() を自ら呼んだ結果として発火するネイティブ close イベントかどうかの印。
+  // requestClose の二重実行防止 (D7、PR #215差し戻し対応)。
+  const programmaticCloseRef = useRef(false);
   const titleId = useId();
   const { save, restore } = useDetailDialogReturn(scrollContainer);
 
@@ -72,7 +75,10 @@ export function DetailDialogInner({
       queueMicrotask(() => titleRef.current?.focus({ preventScroll: true }));
       return;
     }
-    if (dialog.open) dialog.close();
+    if (dialog.open) {
+      programmaticCloseRef.current = true;
+      dialog.close();
+    }
     // save/restore は scrollContainer が変わらない限り同一関数のため依存に含めない
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -90,7 +96,16 @@ export function DetailDialogInner({
         event.preventDefault();
         requestClose();
       }}
-      onClose={() => requestClose()}
+      onClose={() => {
+        // dialog.close() の結果として発火するネイティブ close イベント。
+        // requestClose (閉じるボタン／Esc) とは別の閉鎖経路ではないため、ここでは再実行しない (D7)。
+        if (programmaticCloseRef.current) {
+          programmaticCloseRef.current = false;
+          return;
+        }
+        // 想定外の経路（requestClose を経由しない閉鎖）へのフォールバック。
+        requestClose();
+      }}
       onKeyDown={(event) => {
         if (event.key !== 'Tab') return;
         const dialog = dialogRef.current;
