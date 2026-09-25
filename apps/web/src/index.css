@@ -5,6 +5,7 @@
 @import './theme/kikikuruDataColors.css';
 @import './map/map.css';
 @import './map/panels/panels.css';
+@import './map/detail/detail.css';
 @import './monitoring/monitoring.css';
 
 :root {

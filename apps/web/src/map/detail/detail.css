@@ -1,0 +1,133 @@
+/* 詳細ダイアログ共通コンポーネント (G10) */
+
+.detail-dialog {
+  inline-size: min(90vw, 960px);
+  block-size: fit-content;
+  max-inline-size: none;
+  max-block-size: 90dvh;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-md);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+}
+
+.detail-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-dialog::backdrop {
+  background: var(--md-sys-color-scrim);
+  opacity: 0.32;
+}
+
+.detail-dialog-heading {
+  flex: none;
+  padding: 24px 24px 16px;
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.detail-dialog-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.detail-dialog-heading-row h2 {
+  flex: 1;
+  margin: 0;
+}
+
+.detail-dialog-training-label {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.detail-dialog-close-icon {
+  font-family: 'Material Symbols Outlined', 'Material Icons', sans-serif;
+  font-size: 24px;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+  line-height: 1;
+}
+
+.detail-dialog-meta {
+  margin: 8px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.detail-dialog-body {
+  flex: 0 1 auto;
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  position: relative;
+  padding: 16px 24px 24px;
+}
+
+/* 時系列表 共通部品 (§5) */
+
+.detail-ts-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.detail-ts-caption {
+  position: absolute;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  inline-size: 1px;
+  block-size: 1px;
+  white-space: nowrap;
+}
+
+.detail-ts-table {
+  border-collapse: collapse;
+}
+
+.detail-ts-table th,
+.detail-ts-table td {
+  padding: 6px 10px;
+  font-size: 14px;
+  text-align: center;
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.detail-ts-table td {
+  min-inline-size: 4rem;
+  white-space: nowrap;
+}
+
+.detail-ts-table th[scope='row'],
+.detail-ts-table th.detail-ts-corner {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  min-inline-size: 7rem;
+  background: var(--md-sys-color-surface-container-high);
+  border-inline-end: 1px solid var(--md-sys-color-outline-variant);
+  text-align: start;
+  white-space: normal;
+}
+
+.detail-ts-table .detail-ts-date-boundary {
+  border-inline-start: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* §6: G4〜G6で置き換える前提の仮入口 */
+.detail-dialog-fixture-scroll-hint {
+  margin: 0 0 16px;
+  color: var(--md-sys-color-on-surface-variant);
+}
