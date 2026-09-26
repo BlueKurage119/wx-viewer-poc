@@ -27,6 +27,20 @@ const config = {
 };
 const execFileAsync = promisify(execFile);
 
+async function waitUntil(
+  predicate: () => boolean,
+  timeoutMs: number,
+  label: string,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      assert.fail(`waitUntil timeout: ${label}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 function setup() {
   const directory = mkdtempSync(join(tmpdir(), 'database-recovery-orchestration-'));
   const databasePath = join(directory, 'db.sqlite3');
@@ -624,7 +638,7 @@ test('差し戻し1: 開始通知の記録失敗でもfailed化し、失敗通�
   }
 });
 
-test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポーリング無効でも復旧通知を記録する', async () => {
+test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポーリング無効でも復旧通知を記録する', async (t) => {
   const { directory, databasePath, context } = setup();
   context.close();
   let release!: () => void;
@@ -632,11 +646,20 @@ test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポー�
     release = resolve;
   });
   let fetchCount = 0;
-  const port = 33000 + Math.floor(Math.random() * 1000);
+  const waitingVenues = new Set<string>();
+  const schedule = loadPollingScheduleConfig();
+  const alwaysOnSchedule = {
+    ...schedule,
+    periods: schedule.periods.map((period) => ({
+      ...period,
+      xmlSeconds: period.xmlSeconds ?? 60,
+    })),
+  };
   const starting = startServer({
     config: { databasePath, migrationsDirectory },
-    port,
+    port: 0,
     enablePolling: true,
+    pollingSchedule: alwaysOnSchedule,
     pollingServiceOptions: {
       fetchFn: async () => {
         fetchCount += 1;
@@ -650,16 +673,29 @@ test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポー�
         _connection: Parameters<typeof recoverWarningCurrent>[0],
         venue: Parameters<typeof recoverWarningCurrent>[1],
       ) => {
+        waitingVenues.add(venue.venueId);
         await gate;
         return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 1 };
       },
     },
   });
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  t.after(async () => {
+    release();
+    await starting.then((server) => server.close()).catch(() => undefined);
+  });
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  // server.ts の起動時復旧は VENUE_IDS を for...of で逐次 await するため、
+  // 会場は同時にではなく1つずつ recover を呼び出す(2会場が同時にゲート待機することはない)。
+  // 先頭会場が recover ゲートで待機した時点で、ループは次の会場へ進めず、
+  // 全会場のrecoverVenue完了を待つ evaluateVenues / 初期取得開始にも到達できないため、
+  // 「全会場復旧完了まで上流取得を開始しない」検証としてはこれで十分である。
+  await waitUntil(() => waitingVenues.size >= 1, 5000, '会場がrecoverゲートで待機する');
+  assert.equal(fetchCount, 0);
+  await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(fetchCount, 0);
   release();
   const server = await starting;
-  assert.ok(fetchCount > 0);
+  await waitUntil(() => fetchCount > 0, 5000, '全会場復旧完了後に上流取得が開始する');
   await server.close();
 
   const disabledDb = join(directory, 'disabled.sqlite3');
@@ -700,7 +736,6 @@ test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポー�
     );
   } finally {
     reopened.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 });
 
