@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type {
+  TimeseriesAddition,
   WarningTimeseriesData,
   WarningTimeseriesResponse,
   WarningTimeseriesTimeDefine,
@@ -17,6 +18,7 @@ import {
   RISK_CODE_TABLE,
   assignTransitionLabels,
   buildBaseQuantityRows,
+  buildRemarks,
   buildRiskTable,
   buildSeparateQuantityTables,
   buildWarningTimeSeriesCard,
@@ -26,6 +28,7 @@ import {
   resolveMergedDisplay,
   resolveWarningTimeSeriesPanelMessage,
   selectBaseBlockId,
+  selectPanelColumns,
   type RiskDisplay,
   type WtsColumn,
 } from '../src/map/panels/warningTimeSeries/warningTimeSeriesModel';
@@ -108,6 +111,35 @@ function quantityValue(
   };
 }
 
+function addition(
+  blockId: string,
+  propertyType: string,
+  areaDivision: string | null,
+  localIndex: number | null,
+  additionIndex: number,
+  noteIndex: number,
+  text: string,
+): TimeseriesAddition {
+  return {
+    blockId,
+    scope: {
+      kindIndex: 0,
+      propertyIndex: 0,
+      partName: 'Note',
+      partIndex: 0,
+      baseIndex: 0,
+      localIndex,
+    },
+    propertyType,
+    kindStatus: '発表',
+    kindDateTime: null,
+    areaDivision,
+    additionIndex,
+    noteIndex,
+    text,
+  };
+}
+
 // 3時間刻み14列(2026-09-27T06:00:00Z起点。日境界をまたいでも単調増加させるためms演算で作る)
 const COLS_BASE_MS = Date.parse('2026-09-27T06:00:00Z');
 const COLS: readonly WarningTimeseriesTimeDefine[] = Array.from({ length: 14 }, (_, i) =>
@@ -186,6 +218,26 @@ test('AC-2: 行順は電文の出現順(§5.7順・五十音順に並べ替わ�
     table2?.allRows.map((r) => r.label),
     ['大雨浸水', '雷'],
   );
+});
+
+test('AC-2 (区分の連続配置、§2.1-16): 同じ種類の区分行は最初の出現位置にまとめて連続する', () => {
+  const values: WarningTimeseriesValue[] = [
+    riskValue('block1', 't0', '風危険度', '30', '陸上'),
+    riskValue('block1', 't0', '雷危険度', '30'),
+    riskValue('block1', 't0', '風危険度', '30', '東京湾'),
+    riskValue('block1', 't0', '大雨浸水危険度', '30'),
+    riskValue('block1', 't0', '風危険度', '30', '海上'),
+  ];
+  const table = buildRiskTable(
+    { timeDefines: COLS, values, additions: null },
+    Date.parse('2026-09-27T07:00:00Z'),
+  );
+  assert.deepEqual(
+    table?.allRows.map((r) => r.label),
+    ['風(陸上)', '風(東京湾)', '風(海上)', '雷', '大雨浸水'],
+  );
+  // 見出し行(「風」単独)は無い
+  assert.ok(!table?.allRows.some((r) => r.label === '風'));
 });
 
 // ==========================================
@@ -340,8 +392,12 @@ test('AC-6: assignTransitionLabels', () => {
   const allLevel3: RiskDisplay[] = ['level3', 'level3', 'level3', 'level3', 'level3'];
   assert.deepEqual(assignTransitionLabels(allLevel3, 3), ['警戒', null, null, '警戒', null]);
 
+  // UI監修により「—」は廃止(§2.1-17)。noValueは文字なし(null)。
   const noValues: RiskDisplay[] = ['noValue', 'noValue'];
-  assert.deepEqual(assignTransitionLabels(noValues, null), ['—', '—']);
+  assert.deepEqual(assignTransitionLabels(noValues, null), [null, null]);
+
+  const missingValues: RiskDisplay[] = ['missing', 'missing'];
+  assert.deepEqual(assignTransitionLabels(missingValues, null), ['?', '?']);
 });
 
 // ==========================================
@@ -359,6 +415,25 @@ test('AC-7: 全セルがbelow/noValue/missingの行はvisibleRowsに現れず、
   );
   assert.ok(table?.allRows.some((r) => r.label === '濃霧'));
   assert.ok(!table?.visibleRows.some((r) => r.label === '濃霧'));
+  assert.ok(table?.visibleRows.some((r) => r.label === '大雨浸水'));
+});
+
+test('AC-7 (§2.1-19): 3列窓の外(4コマ目以降)にだけlevel2以上がある行はvisibleRowsに無い', () => {
+  const values: WarningTimeseriesValue[] = [
+    // now は t0 の区間内 -> パネル窓は t0,t1,t2 のみ。t5 は窓外
+    riskValue('block1', 't5', '土砂災害危険度', '30'),
+    riskValue('block1', 't0', '大雨浸水危険度', '30'),
+  ];
+  const table = buildRiskTable(
+    { timeDefines: COLS, values, additions: null },
+    Date.parse('2026-09-27T07:00:00Z'),
+  );
+  assert.deepEqual(
+    table?.panelColumns.map((c) => c.key),
+    ['block1::t0', 'block1::t1', 'block1::t2'],
+  );
+  assert.ok(table?.allRows.some((r) => r.label === '土砂災害'));
+  assert.ok(!table?.visibleRows.some((r) => r.label === '土砂災害'));
   assert.ok(table?.visibleRows.some((r) => r.label === '大雨浸水'));
 });
 
@@ -413,7 +488,7 @@ test('AC-8: buildWarningTimeSeriesCard の状態遷移', () => {
         Date.parse('2026-09-27T07:00:00Z'),
       ),
     ),
-    '注意報級以上の予想はありません',
+    '注意が必要な時間帯はありません',
   );
 
   // (d) 危険度0件 -> 「危険度の情報がありません」
@@ -425,6 +500,22 @@ test('AC-8: buildWarningTimeSeriesCard の状態遷移', () => {
       ),
     ),
     '危険度の情報がありません',
+  );
+  assert.equal(resolveWarningTimeSeriesPanelMessage(null), '危険度の情報がありません');
+
+  // 全列が過去 -> panelColumns 0件 -> 「最新の予想時間帯がありません」
+  assert.equal(
+    resolveWarningTimeSeriesPanelMessage(
+      buildRiskTable(
+        {
+          timeDefines: COLS,
+          values: [riskValue('block1', 't0', '大雨浸水危険度', '30')],
+          additions: null,
+        },
+        Date.parse(COLS[13].timeTo) + 1000,
+      ),
+    ),
+    '最新の予想時間帯がありません',
   );
 
   // (e) stale
@@ -458,6 +549,48 @@ test('AC-9: resolveCurrentColumnKey', () => {
   assert.equal(resolveCurrentColumnKey([], Date.now()), null);
 });
 
+test('AC-9: selectPanelColumns(パネルの3列窓)', () => {
+  const columns: readonly WtsColumn[] = COLS.map((c) => ({
+    key: c.timeId,
+    timeFrom: c.timeFrom,
+    timeTo: c.timeTo,
+    label: '',
+  }));
+  const keys = (cols: readonly WtsColumn[]) => cols.map((c) => c.key);
+
+  // 先頭より前 -> 1〜3列目
+  assert.deepEqual(keys(selectPanelColumns(columns, Date.parse(COLS[0].timeFrom) - 1000)), [
+    't0',
+    't1',
+    't2',
+  ]);
+  // 5列目の区間内 -> 5〜7列目
+  assert.deepEqual(keys(selectPanelColumns(columns, Date.parse(COLS[4].timeFrom) + 1000)), [
+    't4',
+    't5',
+    't6',
+  ]);
+  // 5列目のtimeToちょうど -> 6〜8列目
+  assert.deepEqual(keys(selectPanelColumns(columns, Date.parse(COLS[4].timeTo))), [
+    't5',
+    't6',
+    't7',
+  ]);
+  // 13列目(0始まりindex12)の区間内 -> 13〜14列目(2列)
+  assert.deepEqual(keys(selectPanelColumns(columns, Date.parse(COLS[12].timeFrom) + 1000)), [
+    't12',
+    't13',
+  ]);
+  // 14列目(最終列)の区間内 -> 14列目(1列)
+  assert.deepEqual(keys(selectPanelColumns(columns, Date.parse(COLS[13].timeFrom) + 1000)), [
+    't13',
+  ]);
+  // 末尾より後 -> 0列
+  assert.deepEqual(keys(selectPanelColumns(columns, Date.parse(COLS[13].timeTo) + 1000)), []);
+  // 列0件 -> 0列
+  assert.deepEqual(selectPanelColumns([], Date.now()), []);
+});
+
 // ==========================================
 // AC-10: 詳細
 // ==========================================
@@ -487,8 +620,12 @@ test('AC-10: 詳細ダイアログの3時間表・別欄・凡例', () => {
   assert.match(html, /切迫/);
   assert.match(html, /危険/);
   assert.match(html, /警戒/);
-  assert.match(html, /—/);
-  assert.match(html, /欠測・未取得|\?/);
+  assert.doesNotMatch(html, /—/); // UI監修: 「—」は廃止(§2.1-17)
+  assert.match(html, /欠測・未取得/);
+  // 凡例: 危険警報級の表記、レベル4・注記は無い
+  assert.match(html, /危険警報級/);
+  assert.doesNotMatch(html, /レベル4/);
+  assert.doesNotMatch(html, /文字は段階が変わる/);
 });
 
 test('AC-10d/e: condition=値なしは0と表示せず、valueTextはそのまま表示される', () => {
@@ -511,6 +648,83 @@ test('AC-10d/e: condition=値なしは0と表示せず、valueTextはそのま�
     'block1',
   );
   assert.deepEqual(cells2[0]?.cells[0], { kind: 'quantity', text: '10以上', condition: null });
+});
+
+// ==========================================
+// AC-19〜21: 備考(付加事項)
+// ==========================================
+test('AC-19: buildRemarksの結合(出現順・「、」連結・Base直下の複製・対応行無しは捨てる)', () => {
+  const rows = [
+    { key: '雷危険度::', propertyType: '雷危険度', areaDivision: null },
+    { key: '風危険度::陸上', propertyType: '風危険度', areaDivision: '陸上' },
+    { key: '風危険度::東京湾', propertyType: '風危険度', areaDivision: '東京湾' },
+  ];
+  const additions: TimeseriesAddition[] = [
+    addition('block1', '雷危険度', null, null, 0, 0, '竜巻'),
+    addition('block1', '雷危険度', null, null, 0, 1, 'ひょう'),
+    addition('block1', '風危険度', '陸上', 0, 1, 0, '陸上のみのNote'),
+    addition('block1', '風危険度', null, null, 2, 0, '全区分共通のNote'),
+    addition('block2', '雨', null, null, 3, 0, '対応行が無いNote'),
+  ];
+  const remarks = buildRemarks(additions, rows);
+  assert.equal(remarks?.byRow.get('雷危険度::'), '竜巻、ひょう');
+  // Base直下(localIndex=null)は電文構造上Localより先に出現するため、並びはBase→Localの順
+  assert.equal(remarks?.byRow.get('風危険度::陸上'), '全区分共通のNote、陸上のみのNote');
+  assert.equal(remarks?.byRow.get('風危険度::東京湾'), '全区分共通のNote');
+  // 対応行が無いNoteはどの行にも現れない
+  for (const [, text] of remarks?.byRow ?? []) {
+    assert.doesNotMatch(text, /対応行が無いNote/);
+  }
+
+  // 重複は除去しない
+  const dup = buildRemarks(
+    [
+      addition('block1', '雷危険度', null, null, 0, 0, '同じ内容'),
+      addition('block1', '雷危険度', null, null, 0, 1, '同じ内容'),
+    ],
+    rows,
+  );
+  assert.equal(dup?.byRow.get('雷危険度::'), '同じ内容、同じ内容');
+});
+
+test('AC-20/21: 時間セルへ非複製・null/空の区別', () => {
+  const rowsWithoutDivision = [{ key: '風危険度::', propertyType: '風危険度', areaDivision: null }];
+  // Base直下のNoteは、区分なし行があればそこだけに載る(複製しない)
+  const remarksWithPlainRow = buildRemarks(
+    [addition('block1', '風危険度', null, null, 0, 0, '無区分行のNote')],
+    [
+      ...rowsWithoutDivision,
+      { key: '風危険度::陸上', propertyType: '風危険度', areaDivision: '陸上' },
+    ],
+  );
+  assert.equal(remarksWithPlainRow?.byRow.get('風危険度::'), '無区分行のNote');
+  assert.equal(remarksWithPlainRow?.byRow.has('風危険度::陸上'), false);
+
+  // additions: [] でも byRow は存在する(空のMap)。null と区別する
+  const empty = buildRemarks([], rowsWithoutDivision);
+  assert.ok(empty !== null);
+  assert.equal(empty?.byRow.size, 0);
+
+  const notExtracted = buildRemarks(null, rowsWithoutDivision);
+  assert.equal(notExtracted, null);
+});
+
+test('AC-20: 3時間表の各行のセル数は常に時間列数+1(備考)。備考は時間セル・別欄・パネルに現れない', () => {
+  const timeDefines = [...COLS, td('block2', 'q0', 0, COLS[0].timeFrom, COLS[13].timeTo)];
+  const values: WarningTimeseriesValue[] = [
+    riskValue('block1', 't0', '雷危険度', '30'),
+    quantityValue('block2', 'q0', '雨', '２４時間最大雨量', '80', 'mm'),
+  ];
+  const additions: TimeseriesAddition[] = [
+    addition('block1', '雷危険度', null, null, 0, 0, '竜巻注意'),
+  ];
+  const data: WarningTimeseriesData = { timeDefines, values, additions };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  assert.match(html, /竜巻注意/);
+  // 別欄・パネルには出ない(パネル本体は本テストでは描画していないため、別欄側だけ確認する)
+  const separateOnly = html.slice(html.indexOf('wts-detail-separate'));
+  assert.doesNotMatch(separateOnly, /竜巻注意/);
 });
 
 // ==========================================

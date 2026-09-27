@@ -47,9 +47,38 @@ function isValidValue(raw: unknown): boolean {
   return true;
 }
 
+function isValidAddition(raw: unknown): boolean {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return false;
+  }
+  const addition = raw as Record<string, unknown>;
+  if (
+    typeof addition.blockId !== 'string' ||
+    typeof addition.propertyType !== 'string' ||
+    typeof addition.text !== 'string'
+  ) {
+    return false;
+  }
+  if (typeof addition.areaDivision !== 'string' && addition.areaDivision !== null) {
+    return false;
+  }
+  if (typeof addition.additionIndex !== 'number' || typeof addition.noteIndex !== 'number') {
+    return false;
+  }
+  if (
+    typeof addition.scope !== 'object' ||
+    addition.scope === null ||
+    Array.isArray(addition.scope)
+  ) {
+    return false;
+  }
+  const scope = addition.scope as Record<string, unknown>;
+  return typeof scope.localIndex === 'number' || scope.localIndex === null;
+}
+
 /**
  * 応答の最低限の実行時検証。不正なら null(設計書 §3.2)。
- * `additions`・`scope`・`capabilities` は検証・使用しない。
+ * `additions` は null または配列(要素を検証する)。`values[].scope`・`capabilities` は検証・使用しない。
  */
 export function parseWarningTimeseriesResponse(
   body: unknown,
@@ -106,6 +135,16 @@ export function parseWarningTimeseriesResponse(
     for (const raw of data.values) {
       if (!isValidValue(raw)) {
         return null;
+      }
+    }
+    if (data.additions !== null) {
+      if (!Array.isArray(data.additions)) {
+        return null;
+      }
+      for (const raw of data.additions) {
+        if (!isValidAddition(raw)) {
+          return null;
+        }
       }
     }
   }

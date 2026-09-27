@@ -1,7 +1,8 @@
 /**
- * 警報等時系列パネル本文 (G4 #55 §4.2〜§4.4)。
+ * 警報等時系列パネル本文 (G4 #55 §4.2〜§4.4、UI監修反映版)。
  *
- * パネル本体の危険度表(注意報級以上を含む行だけ)、「詳細」ボタン、詳細ダイアログを描画する。
+ * パネル本体は3列窓(現在を含む時間帯とその先2コマ)の単純な `<table>` とする
+ * (`DetailTimeSeriesTable` には日付行があり `apps/web/src/map/detail/**` は変更禁止のため使わない)。
  * セルの色・文字付与ロジックは model 側で確定済み。ここでは表示区分→クラス名/文字の
  * 対応付けだけを行う(製造裁量の内部関数分割)。
  */
@@ -9,7 +10,6 @@ import { useState, type ReactNode } from 'react';
 import type { WarningTimeseriesResponse } from '@wx-viewer-poc/shared';
 import { GbButton } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
-import { DetailTimeSeriesTable, type TimeSeriesRow } from '../../detail/DetailTimeSeriesTable';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import { resolvePanelTarget } from '../panelTargets';
 import {
@@ -30,7 +30,10 @@ const RISK_ARIA_NAME: Readonly<Record<RiskCell['display'], string>> = Object.fre
   missing: '欠測・未取得',
 });
 
-/** 危険度セルの表示内容(パネル本体・詳細で共用)。 */
+/**
+ * 危険度セルの表示内容(パネル本体・詳細で共用)。
+ * 文字の無いセルも同じ大きさで表示する(§2.1-14、CSS側で固定寸法を与える)。
+ */
 // eslint-disable-next-line react-refresh/only-export-components
 export function renderRiskCellContent(cell: RiskCell, columnLabel: string): ReactNode {
   const className = `wts-cell wts-cell-${cell.display}`;
@@ -42,14 +45,14 @@ export function renderRiskCellContent(cell: RiskCell, columnLabel: string): Reac
   );
 }
 
-/** 量的予想セルの表示内容(基準blockの行・別欄で共用)。 */
+/** 量的予想セルの表示内容(基準blockの行・別欄で共用)。値なしは空白(§2.1-17)。 */
 // eslint-disable-next-line react-refresh/only-export-components
 export function renderQuantityCellContent(cell: DetailCell): ReactNode {
   if (cell.kind === 'missing') {
     return <span className="wts-cell wts-cell-missing">?</span>;
   }
   if (cell.kind === 'noValue') {
-    return <span className="wts-cell wts-cell-noValue">—</span>;
+    return <span className="wts-cell wts-cell-noValue" aria-label="値なし" />;
   }
   return (
     <span className="wts-quantity-cell">
@@ -71,30 +74,37 @@ export function WarningTimeSeriesContent({ response, table }: WarningTimeSeriesC
   const scrollContainer = useDetailDialogScrollContainer();
   const data = response.data;
   const message = resolveWarningTimeSeriesPanelMessage(table);
+  const showTable = table !== null && table.visibleRows.length > 0;
 
   return (
     <div className="wts-panel">
       {message !== null && <p className="wts-panel-message">{message}</p>}
-      {table !== null && table.visibleRows.length > 0 && (
-        <div className="wts-panel-table">
-          <DetailTimeSeriesTable
-            caption="警報等時系列"
-            columns={table.columns.map((column) => ({
-              key: column.key,
-              at: column.timeFrom,
-              timeLabel: column.label,
-            }))}
-            rows={table.visibleRows.map((row): TimeSeriesRow => ({
-              key: row.key,
-              header: row.label,
-              cells: row.cells.map((cell, index) => ({
-                key: `${row.key}-${index}`,
-                content: renderRiskCellContent(cell, table.columns[index]?.label ?? ''),
-              })),
-            }))}
-            initialColumnKey={table.currentColumnKey ?? undefined}
-          />
-        </div>
+      {showTable && table !== null && (
+        <table className="wts-panel-table">
+          <caption className="wts-visually-hidden">警報等時系列</caption>
+          <thead>
+            <tr>
+              <th scope="col" />
+              {table.panelColumns.map((column) => (
+                <th key={column.key} scope="col">
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {table.visibleRows.map((row) => (
+              <tr key={row.key}>
+                <th scope="row">{row.label}</th>
+                {row.cells.map((cell, index) => (
+                  <td key={`${row.key}-${index}`}>
+                    {renderRiskCellContent(cell, table.panelColumns[index]?.label ?? '')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
       <GbButton color="text" size="sm" onClick={() => setOpen(true)}>
         詳細

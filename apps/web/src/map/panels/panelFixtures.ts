@@ -7,6 +7,7 @@
 import { createElement } from 'react';
 import type {
   BulletinDto,
+  TimeseriesAddition,
   WarningTimeseriesResponse,
   WarningTimeseriesTimeDefine,
   WarningTimeseriesValue,
@@ -123,6 +124,36 @@ function wtsTimeDefine(
   duration: string,
 ): WarningTimeseriesTimeDefine {
   return { blockId, timeId, sequence, timeFrom, timeTo, duration };
+}
+
+/** 付加事項(備考)の合成データ。実データの根拠は設計書§2.1-21(新潟市実電文)。 */
+function wtsAddition(
+  blockId: string,
+  propertyType: string,
+  areaDivision: string | null,
+  localIndex: number | null,
+  additionIndex: number,
+  noteIndex: number,
+  text: string,
+): TimeseriesAddition {
+  return {
+    blockId,
+    scope: {
+      kindIndex: 0,
+      propertyIndex: 0,
+      partName: 'Note',
+      partIndex: 0,
+      baseIndex: 0,
+      localIndex,
+    },
+    propertyType,
+    kindStatus: '発表',
+    kindDateTime: null,
+    areaDivision,
+    additionIndex,
+    noteIndex,
+    text,
+  };
 }
 
 /** 「今日0時JST」から`offsetHours`時間後のISO(日境界をまたいでも正しく進む)。 */
@@ -310,7 +341,20 @@ function buildWarningTimeseriesFixtureResponse(quiet: boolean): WarningTimeserie
     data: {
       timeDefines: [...block1TimeDefines, ...block2TimeDefines, ...block3TimeDefines],
       values,
-      additions: null,
+      // §6追補: quietでは additions:null(未取得)で確認する
+      additions: quiet
+        ? null
+        : [
+            // 雷 Base直下の「竜巻」「ひょう」(同じ行・出現順)
+            wtsAddition('block1', '雷危険度', null, null, 0, 0, '竜巻'),
+            wtsAddition('block1', '雷危険度', null, null, 0, 1, 'ひょう'),
+            // 風危険度のLocal(陸上)のNote(風(東京湾)の行には出ない)
+            wtsAddition('block1', '風危険度', '陸上', 0, 1, 0, '海上を含む可能性'),
+            // 風危険度のBase直下のNote(区分行だけの種類。両方の区分行へ複製される)
+            wtsAddition('block1', '風危険度', null, null, 2, 0, '急な強まりに注意'),
+            // block2の雨(24時間最大雨量)のNote(3時間表に対応行が無く、どこにも表示されない)
+            wtsAddition('block2', '雨', null, null, 3, 0, '合成データ: 対応行なし確認用'),
+          ],
     },
   };
 }

@@ -1,34 +1,42 @@
-/* 警報等時系列パネル・詳細ダイアログ (G4 #55) */
+/* 警報等時系列パネル・詳細ダイアログ (G4 #55、UI監修反映版) */
 
 .wts-panel-message {
   margin: 0 0 8px;
   color: var(--md-sys-color-on-surface-variant);
 }
 
-/* パネル本体の表部分だけ横スクロールし、パネル列自体には出さない(§4.2) */
+/* パネル本体: 3列窓の単純な表。横スクロールは出さない(§2.1-13) */
 .wts-panel-table {
   margin: 0 0 8px;
+  border-collapse: collapse;
   max-inline-size: 100%;
 }
 
-.wts-panel-table .detail-ts-table td {
-  min-inline-size: 2.5rem;
+.wts-panel-table th,
+.wts-panel-table td {
+  padding: 2px 4px;
+  font-size: 13px;
+  text-align: center;
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
 }
 
-.wts-panel-table .detail-ts-table th.detail-ts-corner,
-.wts-panel-table .detail-ts-table th[scope='row'] {
-  min-inline-size: 5rem;
+.wts-panel-table th[scope='row'] {
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
+/* データセルは固定寸法にし、文字の有無で大きさが変わらないようにする(§2.1-14) */
 .wts-cell {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-inline-size: 1.5em;
-  padding: 1px 4px;
+  inline-size: 3rem;
+  block-size: 1.75rem;
   border-radius: 3px;
   font-size: inherit;
   border: 1px solid transparent;
+  box-sizing: border-box;
 }
 
 .wts-cell-level5 {
@@ -105,13 +113,6 @@
   font-size: 13px;
 }
 
-.wts-legend-note {
-  flex: 1 1 100%;
-  margin: 0;
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 12px;
-}
-
 .wts-detail-separate {
   display: flex;
   flex-direction: column;
@@ -133,6 +134,24 @@
 .wts-detail-separate-table th[scope='row'] {
   text-align: start;
   white-space: normal;
+}
+
+/* 3時間表: 右端の「備考」列を固定する(§4.4、既存 detail.css は変更しない) */
+.wts-detail-3h .detail-ts-table tr > :last-child {
+  position: sticky;
+  inset-inline-end: 0;
+  z-index: 1;
+  min-inline-size: 6rem;
+  max-inline-size: 10rem;
+  white-space: normal;
+  background: var(--md-sys-color-surface-container-high);
+  border-inline-start: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.wts-remarks-unavailable {
+  margin: 4px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
 }
 
 .wts-visually-hidden {

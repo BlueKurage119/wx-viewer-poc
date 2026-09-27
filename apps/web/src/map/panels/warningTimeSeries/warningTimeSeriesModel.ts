@@ -2,11 +2,12 @@
  * 警報等時系列パネル・詳細ダイアログの純粋関数群 (G4 #55)。
  *
  * コード表、行・列モデルの組み立て、日単位危険度の3時間列への統合、
- * 切替セルの文字付与、量的予想の表組み立てを行う。JSX・hooksは使わない。
- * 設計書 §3.2・§4 を正とする。
+ * 切替セルの文字付与、量的予想の表組み立て、備考(付加事項)の結合を行う。
+ * JSX・hooksは使わない。設計書 §3.2・§4 を正とする(UI監修反映版)。
  */
 import { createElement } from 'react';
 import type {
+  TimeseriesAddition,
   WarningTimeseriesData,
   WarningTimeseriesResponse,
   WarningTimeseriesTimeDefine,
@@ -47,7 +48,8 @@ export function classifyRiskValue(value: WarningTimeseriesValue | undefined): Ri
   return entry === undefined ? 'missing' : entry.display;
 }
 
-export type RiskCellLabel = '切迫' | '危険' | '警戒' | '—' | '?' | null;
+/** UI監修により「—」を廃止。値なし・未満はどちらも空白(null)、欠測だけ「?」(§2.1-17)。 */
+export type RiskCellLabel = '切迫' | '危険' | '警戒' | '?' | null;
 
 export interface RiskCell {
   readonly display: RiskDisplay;
@@ -71,11 +73,15 @@ export interface WtsRow<C> {
 
 export interface RiskTable {
   readonly baseBlockId: string;
+  /** 全コマ(詳細で使う) */
   readonly columns: readonly WtsColumn[];
-  /** 詳細用(非表示行を含む) */
+  /** パネルの3列窓(§4.2 UI監修 §2.1-13) */
+  readonly panelColumns: readonly WtsColumn[];
+  /** 詳細用(非表示行を含み、cellsは`columns`の全コマ分) */
   readonly allRows: readonly WtsRow<RiskCell>[];
-  /** パネル用(§4.2 行の表示条件) */
+  /** パネル用(§4.2 行の表示条件。cellsは`panelColumns`分のみ) */
   readonly visibleRows: readonly WtsRow<RiskCell>[];
+  /** 詳細の初期スクロール列(従来どおり、パネル窓とは独立) */
   readonly currentColumnKey: string | null;
 }
 
@@ -170,7 +176,7 @@ export function selectBaseBlockId(data: WarningTimeseriesData): string | null {
   return best;
 }
 
-/** 現在列(§4.2): 初期スクロール位置。 */
+/** 詳細の初期スクロール列(§4.2「詳細の初期位置」)。従来どおり、パネル窓とは独立。 */
 export function resolveCurrentColumnKey(columns: readonly WtsColumn[], now: number): string | null {
   if (columns.length === 0) {
     return null;
@@ -188,6 +194,32 @@ export function resolveCurrentColumnKey(columns: readonly WtsColumn[], now: numb
     return first.key;
   }
   return last.key;
+}
+
+/**
+ * パネルの3列窓(§4.2 UI監修 §2.1-13)。現在列とその先2コマ。
+ * 全列未来なら先頭3列、全列過去なら0列、列0件なら0件。過去列で埋め合わせない。
+ */
+export function selectPanelColumns(
+  columns: readonly WtsColumn[],
+  now: number,
+): readonly WtsColumn[] {
+  if (columns.length === 0) {
+    return [];
+  }
+  const currentIndex = columns.findIndex((column) => {
+    const from = Date.parse(column.timeFrom);
+    const to = Date.parse(column.timeTo);
+    return from <= now && now < to;
+  });
+  if (currentIndex !== -1) {
+    return columns.slice(currentIndex, currentIndex + 3);
+  }
+  const first = columns[0] as WtsColumn;
+  if (now < Date.parse(first.timeFrom)) {
+    return columns.slice(0, 3);
+  }
+  return [];
 }
 
 /** 優先順位(§4.2 規則4): level5 > level4 > level3 > level2 > missing > below > noValue */
@@ -240,7 +272,7 @@ const LABEL_TEXT: Readonly<Record<'level3' | 'level4' | 'level5', RiskCellLabel>
 /**
  * 切替セルの文字付与(§4.3)。段階(level3〜5)が直前と異なる最初のセル、
  * および初期列(initialIndex、level3以上のときのみ)に文字を付ける。
- * missingは常に「?」、noValueは常に「—」。
+ * missingは常に「?」、noValue・belowは常にnull(UI監修 §2.1-17で「—」を廃止)。
  */
 export function assignTransitionLabels(
   displays: readonly RiskDisplay[],
@@ -249,9 +281,6 @@ export function assignTransitionLabels(
   return displays.map((display, index) => {
     if (display === 'missing') {
       return '?';
-    }
-    if (display === 'noValue') {
-      return '—';
     }
     if (display !== 'level3' && display !== 'level4' && display !== 'level5') {
       return null;
@@ -273,6 +302,44 @@ function riskRowKey(propertyType: string, areaDivision: string | null): string {
 function buildRiskRowLabel(propertyType: string, areaDivision: string | null): string {
   const base = propertyType.endsWith('危険度') ? propertyType.slice(0, -3) : propertyType;
   return areaDivision !== null ? `${base}(${areaDivision})` : base;
+}
+
+/**
+ * 同じ種類(groupKey)の行を、その種類の最初の出現位置にまとめて連続させる(§2.1-16)。
+ * まとまりの中の順は各メンバーの元の順(firstIndex)を保つ。見出し行は作らない。
+ * 危険度行(groupKey=propertyType)・量的予想行(groupKey=propertyType::valueType)・
+ * 詳細の危険度+量的予想の混在マージのいずれにも使える汎用の安定ソート。
+ */
+function groupConsecutiveByKind<T extends { readonly key: string }>(
+  entries: readonly T[],
+  groupKeyOf: (entry: T) => string,
+  firstIndexOf: (entry: T) => number,
+): readonly T[] {
+  const groupFirstIndex = new Map<string, number>();
+  for (const entry of entries) {
+    const groupKey = groupKeyOf(entry);
+    const idx = firstIndexOf(entry);
+    const prev = groupFirstIndex.get(groupKey);
+    if (prev === undefined || idx < prev) {
+      groupFirstIndex.set(groupKey, idx);
+    }
+  }
+  return entries
+    .map((entry, originalIndex) => ({ entry, originalIndex }))
+    .sort((a, b) => {
+      const ga = groupFirstIndex.get(groupKeyOf(a.entry)) as number;
+      const gb = groupFirstIndex.get(groupKeyOf(b.entry)) as number;
+      if (ga !== gb) {
+        return ga - gb;
+      }
+      const fa = firstIndexOf(a.entry);
+      const fb = firstIndexOf(b.entry);
+      if (fa !== fb) {
+        return fa - fb;
+      }
+      return a.originalIndex - b.originalIndex;
+    })
+    .map((wrapped) => wrapped.entry);
 }
 
 /** 危険度が0件ならnull(§4.1)。 */
@@ -299,30 +366,52 @@ export function buildRiskTable(data: WarningTimeseriesData, now: number): RiskTa
   }
 
   const rowOrder: string[] = [];
+  const rowFirstValueIndex = new Map<string, number>();
   const rowValues = new Map<string, WarningTimeseriesValue[]>();
   const rowMeta = new Map<
     string,
     { readonly propertyType: string; readonly areaDivision: string | null }
   >();
-  for (const value of data.values) {
+  data.values.forEach((value, valueIndex) => {
     if (value.valueCategory !== 'risk') {
-      continue;
+      return;
     }
     const key = riskRowKey(value.propertyType, value.areaDivision);
     if (!rowValues.has(key)) {
       rowOrder.push(key);
       rowValues.set(key, []);
       rowMeta.set(key, { propertyType: value.propertyType, areaDivision: value.areaDivision });
+      rowFirstValueIndex.set(key, valueIndex);
     }
     rowValues.get(key)?.push(value);
-  }
+  });
+
+  // 同じ種類(propertyType)の行を連続配置する(§2.1-16)。
+  const orderedRowKeys = groupConsecutiveByKind(
+    rowOrder.map((key) => ({ key })),
+    (entry) => (rowMeta.get(entry.key) as { readonly propertyType: string }).propertyType,
+    (entry) => rowFirstValueIndex.get(entry.key) ?? Number.MAX_SAFE_INTEGER,
+  ).map((entry) => entry.key);
 
   const currentColumnKey = resolveCurrentColumnKey(columns, now);
-  const initialIndex =
+  const detailInitialIndex =
     currentColumnKey === null ? null : columns.findIndex((c) => c.key === currentColumnKey);
 
-  const allRows: WtsRow<RiskCell>[] = rowOrder.map((key) => {
-    const values = rowMeta.has(key) ? (rowValues.get(key) as WarningTimeseriesValue[]) : [];
+  const panelColumns = selectPanelColumns(columns, now);
+  const panelColumnIndices = panelColumns.map((panelColumn) =>
+    columns.findIndex((c) => c.key === panelColumn.key),
+  );
+  const panelInitialIndexInFull =
+    panelColumnIndices.length > 0 ? (panelColumnIndices[0] as number) : null;
+
+  const isLevelUpDisplay = (display: RiskDisplay): boolean =>
+    display === 'level2' || display === 'level3' || display === 'level4' || display === 'level5';
+
+  const allRows: WtsRow<RiskCell>[] = [];
+  const visibleRows: WtsRow<RiskCell>[] = [];
+
+  for (const key of orderedRowKeys) {
+    const values = rowValues.has(key) ? (rowValues.get(key) as WarningTimeseriesValue[]) : [];
     const meta = rowMeta.get(key) as {
       readonly propertyType: string;
       readonly areaDivision: string | null;
@@ -378,24 +467,29 @@ export function buildRiskTable(data: WarningTimeseriesData, now: number): RiskTa
       });
     }
 
-    const labels = assignTransitionLabels(displays, initialIndex);
-    const cells: RiskCell[] = displays.map((display, index) => ({
+    // 詳細(全コマ)用のラベル・セル
+    const detailLabels = assignTransitionLabels(displays, detailInitialIndex);
+    const detailCells: RiskCell[] = displays.map((display, index) => ({
       display,
-      label: labels[index] ?? null,
+      label: detailLabels[index] ?? null,
       sources: sourcesPerColumn[index] ?? [],
     }));
+    allRows.push({ key, label, cells: detailCells });
 
-    return { key, label, cells };
-  });
+    // パネル(3列窓)用のラベル・セル。全コマに対して計算し、窓の範囲だけ切り出す
+    // (2・3列目の切替判定が全期間の直前列と比較されるようにするため)。
+    const panelLabels = assignTransitionLabels(displays, panelInitialIndexInFull);
+    const panelCells: RiskCell[] = panelColumnIndices.map((columnIndex) => ({
+      display: displays[columnIndex] as RiskDisplay,
+      label: panelLabels[columnIndex] ?? null,
+      sources: sourcesPerColumn[columnIndex] ?? [],
+    }));
+    if (panelCells.some((cell) => isLevelUpDisplay(cell.display))) {
+      visibleRows.push({ key, label, cells: panelCells });
+    }
+  }
 
-  const isLevelUpDisplay = (display: RiskDisplay): boolean =>
-    display === 'level2' || display === 'level3' || display === 'level4' || display === 'level5';
-
-  const visibleRows = allRows.filter((row) =>
-    row.cells.some((cell) => isLevelUpDisplay(cell.display)),
-  );
-
-  return { baseBlockId, columns, allRows, visibleRows, currentColumnKey };
+  return { baseBlockId, columns, panelColumns, allRows, visibleRows, currentColumnKey };
 }
 
 function buildQuantityRowKey(
@@ -431,7 +525,7 @@ function buildQuantityCell(value: WarningTimeseriesValue | undefined): DetailCel
   return { kind: 'quantity', text: value.valueText, condition: value.condition };
 }
 
-/** 詳細: 基準blockの量的予想の行(3時間表に追加、§4.4-(1))。 */
+/** 詳細: 基準blockの量的予想の行(3時間表に追加、§4.4-(1))。同種の区分行は連続配置(§2.1-16)。 */
 export function buildBaseQuantityRows(
   data: WarningTimeseriesData,
   baseBlockId: string,
@@ -442,34 +536,50 @@ export function buildBaseQuantityRows(
     .sort((a, b) => a.sequence - b.sequence);
 
   const rowOrder: string[] = [];
+  const rowFirstValueIndex = new Map<string, number>();
   const rowValues = new Map<string, WarningTimeseriesValue[]>();
   const rowMeta = new Map<
     string,
     {
+      readonly propertyType: string;
       readonly valueType: string;
       readonly areaDivision: string | null;
       readonly unit: string | null;
     }
   >();
 
-  for (const value of data.values) {
+  data.values.forEach((value, valueIndex) => {
     if (value.valueCategory !== 'quantity' || value.blockId !== baseBlockId) {
-      continue;
+      return;
     }
     const key = buildQuantityRowKey(value.propertyType, value.valueType, value.areaDivision);
     if (!rowValues.has(key)) {
       rowOrder.push(key);
       rowValues.set(key, []);
       rowMeta.set(key, {
+        propertyType: value.propertyType,
         valueType: value.valueType,
         areaDivision: value.areaDivision,
         unit: value.unit,
       });
+      rowFirstValueIndex.set(key, valueIndex);
     }
     rowValues.get(key)?.push(value);
-  }
+  });
 
-  return rowOrder.map((key) => {
+  const orderedRowKeys = groupConsecutiveByKind(
+    rowOrder.map((key) => ({ key })),
+    (entry) => {
+      const meta = rowMeta.get(entry.key) as {
+        readonly propertyType: string;
+        readonly valueType: string;
+      };
+      return `${meta.propertyType}::${meta.valueType}`;
+    },
+    (entry) => rowFirstValueIndex.get(entry.key) ?? Number.MAX_SAFE_INTEGER,
+  ).map((entry) => entry.key);
+
+  return orderedRowKeys.map((key) => {
     const values = rowValues.get(key) as WarningTimeseriesValue[];
     const meta = rowMeta.get(key) as {
       readonly valueType: string;
@@ -489,7 +599,7 @@ export function buildBaseQuantityRows(
   });
 }
 
-/** 詳細「別欄」: 基準以外のblockの量的予想をblockごとの表で返す(§4.4-(2))。 */
+/** 詳細「別欄」: 基準以外のblockの量的予想をblockごとの表で返す(§4.4-(2))。同種の区分行は連続配置。 */
 export function buildSeparateQuantityTables(
   data: WarningTimeseriesData,
   baseBlockId: string | null,
@@ -521,33 +631,49 @@ export function buildSeparateQuantityTables(
     }));
 
     const rowOrder: string[] = [];
+    const rowFirstValueIndex = new Map<string, number>();
     const rowValues = new Map<string, WarningTimeseriesValue[]>();
     const rowMeta = new Map<
       string,
       {
+        readonly propertyType: string;
         readonly valueType: string;
         readonly areaDivision: string | null;
         readonly unit: string | null;
       }
     >();
-    for (const value of data.values) {
+    data.values.forEach((value, valueIndex) => {
       if (value.valueCategory !== 'quantity' || value.blockId !== blockId) {
-        continue;
+        return;
       }
       const key = buildQuantityRowKey(value.propertyType, value.valueType, value.areaDivision);
       if (!rowValues.has(key)) {
         rowOrder.push(key);
         rowValues.set(key, []);
         rowMeta.set(key, {
+          propertyType: value.propertyType,
           valueType: value.valueType,
           areaDivision: value.areaDivision,
           unit: value.unit,
         });
+        rowFirstValueIndex.set(key, valueIndex);
       }
       rowValues.get(key)?.push(value);
-    }
+    });
 
-    const rows = rowOrder.map((key) => {
+    const orderedRowKeys = groupConsecutiveByKind(
+      rowOrder.map((key) => ({ key })),
+      (entry) => {
+        const meta = rowMeta.get(entry.key) as {
+          readonly propertyType: string;
+          readonly valueType: string;
+        };
+        return `${meta.propertyType}::${meta.valueType}`;
+      },
+      (entry) => rowFirstValueIndex.get(entry.key) ?? Number.MAX_SAFE_INTEGER,
+    ).map((entry) => entry.key);
+
+    const rows = orderedRowKeys.map((key) => {
       const values = rowValues.get(key) as WarningTimeseriesValue[];
       const meta = rowMeta.get(key) as {
         readonly valueType: string;
@@ -570,6 +696,74 @@ export function buildSeparateQuantityTables(
 
     return { blockId, columns, rows };
   });
+}
+
+/** additions比較用の並び順(電文の出現順に相当。blockIdは照合に使わないため考慮しない、§4.4)。 */
+function compareAdditionOrder(a: TimeseriesAddition, b: TimeseriesAddition): number {
+  const cmp = (x: number | null, y: number | null): number => (x ?? -1) - (y ?? -1);
+  return (
+    cmp(a.scope.kindIndex, b.scope.kindIndex) ||
+    cmp(a.scope.propertyIndex, b.scope.propertyIndex) ||
+    cmp(a.scope.partIndex, b.scope.partIndex) ||
+    cmp(a.scope.baseIndex, b.scope.baseIndex) ||
+    cmp(a.scope.localIndex, b.scope.localIndex) ||
+    cmp(a.additionIndex, b.additionIndex) ||
+    cmp(a.noteIndex, b.noteIndex)
+  );
+}
+
+/**
+ * 備考(§4.4)。rowKeyは3時間表の行キー。対応行の無いNoteは捨てる。additions===nullならnull。
+ * 備考列は常時表示(byRowが空でも列は出す)。
+ */
+export function buildRemarks(
+  additions: readonly TimeseriesAddition[] | null,
+  rows: readonly {
+    readonly key: string;
+    readonly propertyType: string;
+    readonly areaDivision: string | null;
+  }[],
+): { readonly byRow: ReadonlyMap<string, string> } | null {
+  if (additions === null) {
+    return null;
+  }
+
+  const sorted = [...additions].sort(compareAdditionOrder);
+  const textsByRow = new Map<string, string[]>();
+
+  for (const note of sorted) {
+    const isBaseNote = note.scope.localIndex === null;
+    let targetRows: readonly {
+      readonly key: string;
+      readonly propertyType: string;
+      readonly areaDivision: string | null;
+    }[];
+    if (isBaseNote) {
+      const withoutDivision = rows.filter(
+        (row) => row.propertyType === note.propertyType && row.areaDivision === null,
+      );
+      targetRows =
+        withoutDivision.length > 0
+          ? withoutDivision
+          : rows.filter((row) => row.propertyType === note.propertyType);
+    } else {
+      targetRows = rows.filter(
+        (row) => row.propertyType === note.propertyType && row.areaDivision === note.areaDivision,
+      );
+    }
+    for (const row of targetRows) {
+      if (!textsByRow.has(row.key)) {
+        textsByRow.set(row.key, []);
+      }
+      textsByRow.get(row.key)?.push(note.text);
+    }
+  }
+
+  const byRow = new Map<string, string>();
+  for (const [key, texts] of textsByRow) {
+    byRow.set(key, texts.join('、'));
+  }
+  return { byRow };
 }
 
 /**
@@ -603,15 +797,21 @@ export function buildWarningTimeSeriesCard(
 }
 
 /**
- * パネル本文のメッセージ文言(§4.1)。テストでは createPortal(DetailDialog) を経由せず
- * この純粋関数で状態分岐を検証する(SSRがportal未対応のため、§10前提の描画確認と併用)。
+ * パネル本文のメッセージ文言(§4.1・UI監修)。テストでは createPortal(DetailDialog) を
+ * 経由せずこの純粋関数で状態分岐を検証する(SSRがportal未対応のため)。
  */
 export function resolveWarningTimeSeriesPanelMessage(table: RiskTable | null): string | null {
   if (table === null) {
     return '危険度の情報がありません';
   }
+  if (table.columns.length === 0) {
+    return '危険度の情報がありません';
+  }
+  if (table.panelColumns.length === 0) {
+    return '最新の予想時間帯がありません';
+  }
   if (table.visibleRows.length === 0) {
-    return '注意報級以上の予想はありません';
+    return '注意が必要な時間帯はありません';
   }
   return null;
 }
