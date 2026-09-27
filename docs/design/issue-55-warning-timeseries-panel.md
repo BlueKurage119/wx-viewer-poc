@@ -54,6 +54,13 @@ UI監修(製造コミット fd2cafd の画面に対するユーザー判断):
    - 実データの根拠は、公式 VPWP50 実電文(新潟市。#33 設計書 §2 参照)で、雷の `SignificancyPart/Base/Addition/Note` に「竜巻」「ひょう」があること(refID なし)。
    - 手元のサンプル4本と、2026-09-27 時点の公式フィード現行 VPWP50 40件には、Note が0件だった(統括調査)。このため画面ではフィクスチャで確認する。
 
+UI監修(追加。実装 HEAD d14d042 時点):
+
+22. 値なし(および未満)のセルは背景色を付けない(透明)。「無着色」の実装を `--md-sys-color-surface` 系の塗りから背景なしへ改めた(d14d042 で実装済み)。
+23. 詳細ダイアログの3時間表では、表が見えている間、日付行と時刻行の見出しをダイアログ本文のスクロール領域の上端に吸着させ、常に表示する(ユーザー決定)。表の中に高さの上限を設けて二重スクロールにする案は採らない。
+24. 3時間区間の時刻見出しから「時」を除き、「21-24」の形にする(「時」だけが2行目に折り返すため)。パネルと詳細の3時間表の両方に適用する。別欄の「D日H時まで」「D日」は区間表記ではないため対象外とし、変更しない(ユーザー決定 2026-09-27)。
+25. 方式(a)を採用し、§7 に記載した `map/detail/**` の3ファイルの変更をユーザーが許可した(2026-09-27)。読み上げは各セルの時間帯入り `aria-label` で補う前提も統括判断で採用する。
+
 ### 2.2 基本設計 §5.8 の改訂文案(統括担当が反映する。本Issueでは basic-design.md を編集しない)
 
 経緯: §5.8 は「行の順序は§5.7で確定した段階内の固定順(暴風雪→大雨→洪水→暴風→大雪→波浪→高潮→土砂災害)を流用する」を【確定】としていた。しかし、VPWP50 の危険度の種類(`Property/Type`)は「大雨浸水危険度・土砂災害危険度・風危険度・雪危険度・波危険度・高潮危険度・雷危険度・融雪危険度・濃霧危険度・着氷危険度・着雪危険度・乾燥危険度・なだれ危険度・低温危険度・霜危険度」である(サンプル4本・別表2で確認)。これらは §5.7 の警報名と1対1に対応しない(例: 「風」は暴風雪/暴風/風雪/強風を含む)。対応付けは推測になるため、ユーザー判断により電文の出現順を採った。
@@ -78,6 +85,7 @@ UI監修(製造コミット fd2cafd の画面に対するユーザー判断):
 > - 風・高潮等の区分付きの行は、同じ種類の行を連続して並べる。並び順は電文の出現順を原則とし、その例外として、同じ種類の2つ目以降の区分行を同じ種類の最初の出現位置にまとめる（2026-09-27 ユーザー決定）。
 > - 値なし（危険度の値なし、量的予想の値なし）は空白で表示する。欠測・未取得は空白と区別して示す（2026-09-27 ユーザー決定）。
 > - 注意報級以上の時間帯が無いときは、発表時刻とともに「注意が必要な時間帯はありません」と表示する。取得できないときの表示とは区別する（2026-09-27 ユーザー決定）。
+> - 詳細の3時間表の日付・時刻の見出しは、表が見えている間はダイアログ上端に固定して表示する。3時間区間の時刻見出しは「21-24」のように「時」を付けない。別欄の「○日○時まで」の「時」は残す（2026-09-27 ユーザー決定）。
 > - パネルに表示する行の判定（注意報級以上を含む）は、パネルに表示する3列の範囲で行う（2026-09-27 ユーザー決定）。
 > - 値なしは未満と同じく空白で表示し、見た目では区別しない（読み上げでは区別する。2026-09-27 ユーザー了承）。
 > - 付加事項（例: 雷の「竜巻」「ひょう」）は、詳細ダイアログの3時間表の右端に固定した「備考」列に、現象・区分の行単位で表示する。時間帯のセルには割り当てない。パネルには表示しない。区域全体の付加事項は、同じ現象の各区分の行に複製して表示する。3時間表に対応する行が無い付加事項は表示しない。備考列は常時表示し、表示する付加事項が無い行・表では空白とする。付加事項が未取得の場合は、その旨を示し「付加事項なし」とは表示しない（2026-09-27 ユーザー決定）。
@@ -139,7 +147,7 @@ Issue #55 の受け入れ条件に「§5.7 の順で並ぶ」旨の記述があ�
 | `apps/web/src/map/panels/detailDialogFixtures.tsx` | 変更 | `WarningTimeSeriesDetailFixtureEntry` とそのサンプルを削除(#61 §10)。地域時系列予報側は残す |
 | `apps/web/tests/warningTimeSeriesPanel.test.ts(x)` | 新規 | 単体テスト |
 
-時系列表は、詳細の3時間表にだけ G10 の `DetailTimeSeriesTable` を使う(行見出し固定・`initialColumnKey` による初期位置合わせが既にあるため)。パネル本体は3列窓で日付行を出さないため、`warningTimeSeries/` 内の単純な `<table>` とする(§4.2、UI監修 §2.1-13)。`apps/web/src/map/detail/**` は変更しない。
+時系列表は、詳細の3時間表にだけ G10 の `DetailTimeSeriesTable` を使う(行見出し固定・`initialColumnKey` による初期位置合わせが既にあるため)。パネル本体は3列窓で日付行を出さないため、`warningTimeSeries/` 内の単純な `<table>` とする(§4.2、UI監修 §2.1-13)。`apps/web/src/map/detail/**` は §4.6 の吸着見出し(オプトイン)以外では変更しない。
 
 ### 3.2 型・シグネチャ
 
@@ -264,7 +272,7 @@ export function buildWarningTimeSeriesCard(
 - 現在列があればその列、全列が未来なら先頭列、全列が過去なら末尾列、列0件なら null。
 
 **表示(パネル)**:
-- パネルは `DetailTimeSeriesTable` を使わず、`warningTimeSeries/` 内の単純な `<table>` とする(部品には日付行があり、`map/detail/**` は変更禁止のため)。列見出しは時刻の1段だけ(JST `H-H時`、終端0時は24と書く)で、日付行は出さない。
+- パネルは `DetailTimeSeriesTable` を使わず、`warningTimeSeries/` 内の単純な `<table>` とする(部品には日付行があり、`map/detail/**` は変更禁止のため)。列見出しは時刻の1段だけ(JST `H-H`、例「21-24」。終端0時は24と書く。§2.1-24)で、日付行は出さない。
 - 横スクロールを出さない(表・パネル列とも `scrollWidth <= clientWidth`)。初期スクロール処理は持たない。
 - セル寸法(§2.1-14): 全データセルを固定の同じ大きさにする(例: `inline-size: 3rem; block-size: 1.75rem`。数値は製造裁量)。文字の有無でセルの幅・高さが変わらないこと。行見出し列は残りの幅を使い、折り返し可。最小のパネル列幅(18rem)でも3列が収まること。
 - 詳細の3時間表でも、データセルは文字の有無で大きさが変わらないようにする(`DetailTimeSeriesTable` の列幅はそのままで、セル内の色塗り要素を同じ大きさにする)。
@@ -291,7 +299,7 @@ export function buildWarningTimeSeriesCard(
 - 「?」は段階ではないため、全ての欠測セルに付ける。未満・値なしはどちらも無着色の空白とし(§2.1-17)、欠測は「?」と破線縁で区別する。未満と値なしは見た目では区別されず、`aria-label`(「注意報級未満」「値なし」)でだけ区別される(§9)。
 - 段階色セルは container 地・on-container 文字・1px outline 縁とする(#54 と同じ構造)。
 - 段階は `valueText`(電文の Name)・コードの大小・名称の部分一致では決めない。表のコードだけで決める。
-- 各セルに `aria-label`(例「21-24時 警報級」)を付ける。文字が無いセルの段階も支援技術で分かるようにするため。
+- 各セルに `aria-label`(例「21-24時 警報級」。読み上げ用なので「時」を付けたままにする)を付ける。文字が無いセルの段階も支援技術で分かるようにするため。
 
 ### 4.4 詳細ダイアログ【設計案・見た目は後日ユーザー監修】
 
@@ -336,6 +344,35 @@ export function buildWarningTimeSeriesCard(
 
 - 要求の `terminalId`/`controlStatus` は `WeatherMapView` の既存値をそのまま使う。parse で `controlStatus` 不一致・`isTraining` 矛盾を null にし、訓練データを本番表示に混ぜない。パネル上の訓練表示は、G1〜G3 と同様に付けない。詳細ダイアログは `isTraining` を meta に渡す(表示は既存部品が担う)。
 
+### 4.6 詳細3時間表の吸着見出し(§2.1-23)【推奨案: 共通部品へのオプトイン追加】
+
+**既存構造の確認(実装を読んだ結果)**
+- `DetailDialogInner` は、見出し `header.detail-dialog-heading`(タイトル・閉じるボタン・メタ)と、本文 `div.detail-dialog-body`(`overflow: auto`、縦スクロール領域)を兄弟として並べる。閉じるボタンなどの見出しは本文のスクロール領域の外にあるため、本文上端に吸着する要素と重ならない。
+- `DetailTimeSeriesTable` は `div.detail-ts-scroll`(`overflow-x: auto`)の中に1つの `<table>` を置き、`thead` に日付行と時刻行を持つ。行見出しは `position: sticky; inset-inline-start: 0` で固定している。
+- `overflow-x: auto` の要素は縦方向にもスクロール容器になる。このため `thead` に `position: sticky; top: 0` を当てても、基準が `.detail-ts-scroll`(縦にスクロールしない)になり、`.detail-dialog-body` の縦スクロールには吸着しない。CSS だけでは実現できない。
+- `DetailDialogScrollContainerContext` はダイアログを閉じた後に右側列の位置を戻すためのもので、本件には使わない。
+
+**比較**
+
+| 案 | 内容 | 利点 | 欠点 |
+|---|---|---|---|
+| (a) 共通部品にオプトイン機能を追加【推奨】 | `DetailTimeSeriesTable` に `stickyHeader?: boolean` を追加する。true のときだけ、見出しを別の横スクロール領域に分け、本文と横スクロールを同期する | 日付ラベル・初期スクロール・行見出しの固定を1か所で保てる。G5/G6 の時系列表も同じ機能を使える | `map/detail/**` の変更許可が必要。既定値の false で既存の出力が変わらないことを回帰 AC で守る |
+| (b) 警報等時系列側で独自に作る | 見出しの複製とスクロール同期を `warningTimeSeries/` 内で作る | 共通部品に触れない | 日付ラベル・初期スクロール・固定列の処理が二重になる。後続パネルでも同じものを作り直すことになる |
+
+**(a) の仕様**
+- 追加する props は `stickyHeader?: boolean`(既定 false)と、`TimeSeriesColumn.width?: string`(任意。列幅の指定)の2つ。false のときの DOM・クラス・挙動は現行と完全に同じにする。
+- true のときの構造:
+  - 外側 `div.detail-ts-sticky`: overflow を持たない。吸着の範囲をこの表に限る。
+  - 見出し `div.detail-ts-head`: `position: sticky; inset-block-start: 0; z-index: 2; overflow-x: hidden;` 背景 `--md-sys-color-surface-container-high`。中に `thead` だけの `<table>` を置き、日付行と時刻行を持つ。
+  - 本文 `div.detail-ts-scroll`: `tbody` だけの `<table>` を置く。横スクロールと、`region`・`tabIndex=0`・`aria-label` はこちらが担う。
+  - 2つの表は `table-layout: fixed` とし、同じ `<colgroup>` を持つ。行見出し列は `var(--detail-ts-row-header-width, 7rem)`、データ列は `column.width ?? var(--detail-ts-column-width, 4rem)` とする。これで列幅が一致する。
+- 横スクロールの同期: 本文の `scroll` イベントで `head.scrollLeft = body.scrollLeft` とする。見出し側は `overflow-x: hidden` なので利用者は直接スクロールしない。初期スクロール(`initialColumnKey`)は本文に設定したあとで同期する。計算式(`target.offsetLeft − 行見出し幅`)は変えない。
+- 固定列: 行見出し列(左端 sticky)は2つの表の両方に当てる。見出し側も `overflow-x: hidden` のスクロール容器なので、sticky は有効である。警報等時系列の備考列(右端 sticky、`.wts-detail-3h` 配下の `tr > :last-child`)も、2つの表の両方に当たるようにセレクタを書く。
+- 吸着の基準は、最も近いスクロール容器である `.detail-dialog-body` の上端とする。見出しはダイアログのヘッダー(閉じるボタン等)の下にあり、重ならない。`detail-ts-sticky` の外に出ると吸着が外れる。このため、別欄の表が見えている位置では3時間表の見出しは出ない。
+- アクセシビリティ: 見出しと本文が別々の表になるため、列見出しとセルの表上の関連付けは失われる。警報等時系列のセルは `aria-label` に時間帯を含むため、読み上げは保たれる。共通部品のコメントに、オプトイン時はセル側に時間帯のラベルを持たせる前提であることを書く。
+- 警報等時系列では `stickyHeader` を詳細の3時間表にだけ指定する。別欄の単純な表とパネルには使わない。
+- (a) の変更は、本 Issue のブランチで製造担当が行う。共通部品の変更であることをコミットと PR 本文で明示する。
+
 ## 5. スタイル
 
 - クラス名は `wts-` 接頭辞。`.info-panel-*`・`.detail-ts-*` を再定義しない(上書きは `.wts-*` 配下の子孫セレクタに限る)。
@@ -374,7 +411,8 @@ export function buildWarningTimeSeriesCard(
 
 - 新規: §3.1 の新規ファイル
 - 変更: `apps/web/src/index.css`(`@import` 1行のみ)、`apps/web/src/map/WeatherMapView.tsx`(フック呼び出しと `infoPanelInput` の1項目のみ)、`apps/web/src/map/panels/panelFixtures.ts`(§6 の範囲のみ)、`apps/web/src/map/panels/detailDialogFixtures.tsx`(警報等時系列の仮入口・サンプルの削除のみ)
-- 変更禁止: `apps/api/**`、`packages/**`、`apps/web/src/map/detail/**`、`apps/web/src/map/panels/` の他の既存ファイル、`apps/web/src/theme/**`、既存テスト(仮入口削除に伴い警報等時系列サンプル前提のテストが壊れる場合は、統括へ報告してから最小修正)、設定ファイル
+- 変更許可(§4.6 の吸着見出しに限る): `apps/web/src/map/detail/DetailTimeSeriesTable.tsx`(オプトインの prop と分岐の追加)、`apps/web/src/map/detail/detail.css`(新しいクラスの追加だけ。既存ルールは変えない)、`apps/web/tests/detailTimeSeriesTable.test.ts`(ケースの追加だけ。既存ケースは変えない)。
+- 変更禁止: `apps/api/**`、`packages/**`、`apps/web/src/map/detail/` の上記以外(`DetailDialog.tsx`・`timeSeriesHeader.ts`・`DetailDialogScrollContainerContext.tsx` 等)、`apps/web/src/map/panels/` の他の既存ファイル、`apps/web/src/theme/**`、既存テスト(仮入口削除に伴い警報等時系列サンプル前提のテストが壊れる場合は、統括へ報告してから最小修正)、設定ファイル
 - 注意: #61 の AC-7/AC-8 は警報等時系列サンプル(32列・長い本文)を寸法検証に使っていた。削除後、地域時系列予報サンプルだけで既存テストが通るかを製造時に確認し、通らなければ実装を止めて統括へ報告する。
 
 ## 8. 管理項目の結論
@@ -487,7 +525,7 @@ export function buildWarningTimeSeriesCard(
   - `warningTimeSeries/` 配下を `setTimeout|setInterval|localStorage` で検索し、0件。
   - `kindName` を行見出しに使っていない。
 - [ ] AC-17 境界:
-  - `git diff --stat main...HEAD` が §7 の範囲に限られ、`apps/api/`・`packages/`・`apps/web/src/map/detail/` に差分がない。
+  - `git diff --stat main...HEAD` が §7 の範囲に限られ、`apps/api/`・`packages/` に差分がなく、`apps/web/src/map/detail/` の差分は §7 の許可(§4.6)の範囲に限られる。
   - PR の対応表で、履歴表示・パネルでの備考表示・stale 表示の確定を「非対応/範囲外」と記載する。
   - 行の表示条件の判定範囲(3列の中)をユーザー決定として PR 本文に記載する。
 - [ ] AC-18 管理項目・基本設計:
@@ -511,6 +549,14 @@ export function buildWarningTimeSeriesCard(
   - §6 の合成応答で、3時間表を左端から右端まで横スクロールする間、備考列のセルの `getBoundingClientRect().right` が表スクロール領域の `right` と ±1px で一致し続ける。行見出し列の `left` も固定のままである。
   - 初期スクロール位置で、現在列が行見出しの直右にあり、備考列に隠れていない。
   - スクリーンショットを PR に添付する(Note は実フィードに0件のためフィクスチャで確認した旨を記載する)。
+- [ ] AC-23 吸着見出し(画面): `?panelFixture=warning-timeseries` の詳細を 1180×820 と 1280×720 で開き、次を確認する。
+  - (a) 本文を縦にスクロールして3時間表の見出しの元の位置が上に隠れても、日付行と時刻行が `.detail-dialog-body` の上端(±1px)に表示され続ける。ダイアログのヘッダーと閉じるボタンに重ならず、閉じるボタンを押せる。
+  - (b) 3時間表の最終行が本文上端を越えると、見出しの吸着が外れる(別欄の表の上に3時間表の見出しが残らない)。
+  - (c) 表を横スクロールしたとき、見出しのセルと本文のセルの左端が各列で ±1px 以内でそろう。これを初期位置・左端・右端の3点で確認する。行見出し列と備考列は、見出し側・本文側とも固定のままである。
+  - (d) 開いた直後の初期位置で、見出しと本文の現在列がそろっている。
+  - (e) 表の内側に縦スクロールが無い(`.detail-ts-scroll` の `scrollHeight === clientHeight`)。
+- [ ] AC-24 共通部品の回帰防止(単体): `stickyHeader` を指定しない `DetailTimeSeriesTable` の `renderToStaticMarkup` 出力が、変更前と同じである(既存の `detailTimeSeriesTable.test.ts` が無修正で通る。加えて、変更前の出力を固定した比較ケースを追加する)。`stickyHeader` 指定時は、見出しの表と本文の表の `colgroup` が同じ列数・同じ幅指定になるケースを追加する。`git diff main...HEAD -- apps/web/src/map/detail/` の差分が `DetailTimeSeriesTable.tsx` と `detail.css`(追加だけ)に限られる。
+- [ ] AC-25 時刻見出し(単体・画面): パネルと詳細3時間表の時刻見出しが「21-24」「0-3」の形で、「時」を含まない。別欄の見出しは「D日H時まで」「D日」のまま変わらない。画面で、時刻見出しが1行に収まる(見出しセルの高さが1行分である)。
 
 ## 11. 後続Issueへの引き継ぎ
 
