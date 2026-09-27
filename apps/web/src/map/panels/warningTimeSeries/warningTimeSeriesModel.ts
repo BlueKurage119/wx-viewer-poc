@@ -86,7 +86,13 @@ export interface RiskTable {
 }
 
 export type DetailCell =
-  | { readonly kind: 'quantity'; readonly text: string; readonly condition: string | null }
+  | {
+      readonly kind: 'quantity';
+      readonly text: string;
+      readonly condition: string | null;
+      /** 風向(単独行、統合されない片方のみの区分)の矢印回転角(§4.7)。8語一致時のみ数値、それ以外null。風向以外はundefined */
+      readonly windRotation?: number | null;
+    }
   | { readonly kind: 'noValue' }
   | { readonly kind: 'missing' };
 
@@ -518,6 +524,26 @@ function buildQuantityRowLabel(
   return label;
 }
 
+/** 方位→矢印回転角(§4.7)。navigationは回転0度で北を指すため、風下(吹いていく方向)＝風向+180°。 */
+export const WIND_DIRECTION_ROTATION: Readonly<Record<string, number>> = Object.freeze({
+  北: 180,
+  北東: 225,
+  東: 270,
+  南東: 315,
+  南: 0,
+  南西: 45,
+  西: 90,
+  北西: 135,
+});
+
+/** unit==='８方位漢字'かつ8語と完全一致する場合だけ回転角を返す。それ以外はnull(推測で丸めない、§4.7)。 */
+export function classifyWindDirection(valueText: string, unit: string | null): number | null {
+  if (unit !== '８方位漢字') {
+    return null;
+  }
+  return WIND_DIRECTION_ROTATION[valueText] ?? null;
+}
+
 function buildQuantityCell(value: WarningTimeseriesValue | undefined): DetailCell {
   if (value === undefined) {
     return { kind: 'missing' };
@@ -526,6 +552,30 @@ function buildQuantityCell(value: WarningTimeseriesValue | undefined): DetailCel
     return { kind: 'noValue' };
   }
   return { kind: 'quantity', text: value.valueText, condition: value.condition };
+}
+
+/**
+ * 3時間表(基準block)専用の量的予想セル。condition='風雪'の非表示・風向の矢印回転角付与は
+ * 3時間表にだけ適用し、別欄・パネルには適用しない(§2.1-28・29)。
+ */
+function buildBaseQuantityCell(value: WarningTimeseriesValue | undefined): DetailCell {
+  if (value === undefined) {
+    return { kind: 'missing' };
+  }
+  if (value.condition === '値なし') {
+    return { kind: 'noValue' };
+  }
+  // condition='風雪'は表示・読み上げに使わない(§2.1-28)
+  const condition = value.condition === '風雪' ? null : value.condition;
+  if (value.propertyType === '風' && value.valueType === '風向') {
+    return {
+      kind: 'quantity',
+      text: value.valueText,
+      condition,
+      windRotation: classifyWindDirection(value.valueText, value.unit),
+    };
+  }
+  return { kind: 'quantity', text: value.valueText, condition };
 }
 
 /** 詳細: 基準blockの量的予想の行(3時間表に追加、§4.4-(1))。同種の区分行は連続配置(§2.1-16)。 */
@@ -593,13 +643,200 @@ export function buildBaseQuantityRows(
     for (const value of values) {
       byTimeId.set(value.refId, value);
     }
-    const cells = columns.map((timeDefine) => buildQuantityCell(byTimeId.get(timeDefine.timeId)));
+    const cells = columns.map((timeDefine) =>
+      buildBaseQuantityCell(byTimeId.get(timeDefine.timeId)),
+    );
     return {
       key,
       label: buildQuantityRowLabel(meta.valueType, meta.areaDivision, meta.unit),
       cells,
     };
   });
+}
+
+type WindPartState = 'value' | 'noValue' | 'missing';
+
+function windPartState(value: WarningTimeseriesValue | undefined): WindPartState {
+  if (value === undefined) {
+    return 'missing';
+  }
+  if (value.condition === '値なし') {
+    return 'noValue';
+  }
+  return 'value';
+}
+
+interface WindDirectionPart {
+  readonly state: WindPartState;
+  readonly displayText: string | null;
+  readonly rotation: number | null;
+  readonly ariaClause: string;
+}
+
+function buildWindDirectionPart(value: WarningTimeseriesValue | undefined): WindDirectionPart {
+  const state = windPartState(value);
+  if (state !== 'value' || value === undefined) {
+    return {
+      state,
+      displayText: null,
+      rotation: null,
+      ariaClause: state === 'missing' ? '風向欠測' : '',
+    };
+  }
+  const text = value.valueText;
+  return {
+    state,
+    displayText: text,
+    rotation: classifyWindDirection(text, value.unit),
+    ariaClause: `${text}の風`,
+  };
+}
+
+interface WindSpeedPart {
+  readonly state: WindPartState;
+  readonly displayText: string | null;
+  readonly ariaClause: string;
+}
+
+function buildWindSpeedPart(value: WarningTimeseriesValue | undefined): WindSpeedPart {
+  const state = windPartState(value);
+  if (state !== 'value' || value === undefined) {
+    return { state, displayText: null, ariaClause: state === 'missing' ? '風速欠測' : '' };
+  }
+  const unitReading = value.unit === 'm/s' ? 'メートル毎秒' : (value.unit ?? '');
+  return {
+    state,
+    displayText: value.valueText,
+    ariaClause: `風速${value.valueText}${unitReading}`,
+  };
+}
+
+/** 風向・風速の統合セル(§4.7)。 */
+export interface WindCell {
+  readonly directionText: string | null;
+  readonly directionRotation: number | null;
+  readonly directionMissing: boolean;
+  readonly speedText: string | null;
+  readonly speedMissing: boolean;
+  readonly bothBlank: boolean;
+  readonly bothMissing: boolean;
+  readonly ariaLabel: string;
+}
+
+/** §4.7のセル結合表(7パターン)。direction/speedそれぞれの状態から独立に組み立てる。 */
+export function buildWindCell(
+  directionValue: WarningTimeseriesValue | undefined,
+  speedValue: WarningTimeseriesValue | undefined,
+): WindCell {
+  const d = buildWindDirectionPart(directionValue);
+  const s = buildWindSpeedPart(speedValue);
+  const bothBlank = d.state === 'noValue' && s.state === 'noValue';
+  const bothMissing = d.state === 'missing' && s.state === 'missing';
+  const ariaLabel = bothBlank
+    ? '値なし'
+    : bothMissing
+      ? '欠測'
+      : [d.ariaClause, s.ariaClause].filter((clause) => clause !== '').join(' ');
+  return {
+    directionText: d.displayText,
+    directionRotation: d.rotation,
+    directionMissing: d.state === 'missing',
+    speedText: s.displayText,
+    speedMissing: s.state === 'missing',
+    bothBlank,
+    bothMissing,
+    ariaLabel,
+  };
+}
+
+function buildWindRowLabel(areaDivision: string | null, unit: string | null): string {
+  let label = '風向・風速';
+  if (areaDivision !== null) {
+    label += `(${areaDivision})`;
+  }
+  if (unit !== null) {
+    label += ` ${unit}`;
+  }
+  return label;
+}
+
+export interface WindRowEntry {
+  readonly key: string;
+  readonly label: string;
+  readonly areaDivision: string | null;
+  readonly cells: readonly WindCell[];
+  /** values配列上の最初の出現位置(§2.1-16準拠の並び決定に使う) */
+  readonly firstIndex: number;
+}
+
+/**
+ * 風向・風速の統合行(§4.7)。基準blockの`風`Propertyで、同じareaDivisionに風向・最大風速の
+ * 両方があるものだけを1行にまとめる。片方しか無い区分はここに含めない(統合しない)。
+ */
+export function buildWindRows(
+  data: WarningTimeseriesData,
+  baseBlockId: string,
+): readonly WindRowEntry[] {
+  const columns = data.timeDefines
+    .filter((timeDefine) => timeDefine.blockId === baseBlockId)
+    .slice()
+    .sort((a, b) => a.sequence - b.sequence);
+
+  const directionByDivision = new Map<string, Map<string, WarningTimeseriesValue>>();
+  const speedByDivision = new Map<string, Map<string, WarningTimeseriesValue>>();
+  const speedUnitByDivision = new Map<string, string | null>();
+  const divisionOrder: string[] = [];
+  const firstIndexByDivision = new Map<string, number>();
+
+  data.values.forEach((value, valueIndex) => {
+    if (
+      value.valueCategory !== 'quantity' ||
+      value.blockId !== baseBlockId ||
+      value.propertyType !== '風' ||
+      (value.valueType !== '風向' && value.valueType !== '最大風速')
+    ) {
+      return;
+    }
+    const divisionKey = value.areaDivision ?? '';
+    if (!divisionOrder.includes(divisionKey)) {
+      divisionOrder.push(divisionKey);
+      firstIndexByDivision.set(divisionKey, valueIndex);
+    }
+    if (value.valueType === '風向') {
+      if (!directionByDivision.has(divisionKey)) {
+        directionByDivision.set(divisionKey, new Map());
+      }
+      directionByDivision.get(divisionKey)?.set(value.refId, value);
+    } else {
+      if (!speedByDivision.has(divisionKey)) {
+        speedByDivision.set(divisionKey, new Map());
+      }
+      speedByDivision.get(divisionKey)?.set(value.refId, value);
+      speedUnitByDivision.set(divisionKey, value.unit);
+    }
+  });
+
+  const rows: WindRowEntry[] = [];
+  for (const divisionKey of divisionOrder) {
+    const directionMap = directionByDivision.get(divisionKey);
+    const speedMap = speedByDivision.get(divisionKey);
+    if (!directionMap || !speedMap) {
+      continue; // 片方しか無い区分は統合しない
+    }
+    const areaDivision = divisionKey === '' ? null : divisionKey;
+    const unit = speedUnitByDivision.get(divisionKey) ?? null;
+    const cells = columns.map((column) =>
+      buildWindCell(directionMap.get(column.timeId), speedMap.get(column.timeId)),
+    );
+    rows.push({
+      key: `風::${divisionKey}`,
+      label: buildWindRowLabel(areaDivision, unit),
+      areaDivision,
+      cells,
+      firstIndex: firstIndexByDivision.get(divisionKey) as number,
+    });
+  }
+  return rows;
 }
 
 /** 詳細「別欄」: 基準以外のblockの量的予想をblockごとの表で返す(§4.4-(2))。同種の区分行は連続配置。 */

@@ -6,7 +6,7 @@
  * セルの色・文字付与ロジックは model 側で確定済み。ここでは表示区分→クラス名/文字の
  * 対応付けだけを行う(製造裁量の内部関数分割)。
  */
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import type { WarningTimeseriesResponse } from '@wx-viewer-poc/shared';
 import { GbButton } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
@@ -17,6 +17,7 @@ import {
   type DetailCell,
   type RiskCell,
   type RiskTable,
+  type WindCell,
 } from './warningTimeSeriesModel';
 import { WarningTimeSeriesDetail } from './WarningTimeSeriesDetail';
 
@@ -47,7 +48,23 @@ export function renderRiskCellContent(cell: RiskCell, columnLabel: string): Reac
   );
 }
 
-/** 量的予想セルの表示内容(基準blockの行・別欄で共用)。値なしは空白(§2.1-17)。 */
+/** 矢印アイコン(Material Symbols `navigation`、風下を指す。§4.7)。 */
+function WindArrow({ rotation }: { readonly rotation: number }) {
+  return (
+    <span
+      className="wts-wind-arrow"
+      aria-hidden="true"
+      style={{ '--wts-wind-rotate': `${rotation}deg` } as CSSProperties}
+    >
+      navigation
+    </span>
+  );
+}
+
+/**
+ * 量的予想セルの表示内容(基準blockの行・別欄で共用)。値なしは空白(§2.1-17)。
+ * `windRotation` が数値のときは矢印を前置する(統合されない風向単独行、§4.7)。
+ */
 // eslint-disable-next-line react-refresh/only-export-components
 export function renderQuantityCellContent(cell: DetailCell): ReactNode {
   if (cell.kind === 'missing') {
@@ -58,10 +75,56 @@ export function renderQuantityCellContent(cell: DetailCell): ReactNode {
   }
   return (
     <span className="wts-quantity-cell">
+      {cell.windRotation !== undefined && cell.windRotation !== null && (
+        <WindArrow rotation={cell.windRotation} />
+      )}
       {cell.text}
       {cell.condition !== null && (
         <small className="wts-quantity-condition">{cell.condition}</small>
       )}
+    </span>
+  );
+}
+
+/** 風向・風速の統合セルの表示内容(詳細3時間表のみ、§4.7)。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export function renderWindCellContent(cell: WindCell, columnLabel: string): ReactNode {
+  const ariaLabel = `${columnLabel}時 ${cell.ariaLabel}`;
+  if (cell.bothBlank) {
+    return <span className="wts-cell wts-cell-noValue" aria-label={ariaLabel} />;
+  }
+  if (cell.bothMissing) {
+    return (
+      <span className="wts-cell wts-cell-missing" aria-label={ariaLabel}>
+        ?
+      </span>
+    );
+  }
+  const parts: ReactNode[] = [];
+  if (cell.directionMissing) {
+    parts.push('?');
+  } else if (cell.directionText !== null) {
+    parts.push(
+      <span key="direction">
+        {cell.directionRotation !== null && <WindArrow rotation={cell.directionRotation} />}
+        {cell.directionText}
+      </span>,
+    );
+  }
+  if (cell.speedMissing) {
+    parts.push('?');
+  } else if (cell.speedText !== null) {
+    parts.push(cell.speedText);
+  }
+
+  return (
+    <span className="wts-quantity-cell" aria-label={ariaLabel}>
+      {parts.map((part, index) => (
+        <span key={index}>
+          {index > 0 ? ' ' : ''}
+          {part}
+        </span>
+      ))}
     </span>
   );
 }

@@ -274,9 +274,35 @@ function buildWarningTimeseriesFixtureResponse(quiet: boolean): WarningTimeserie
     if (i === 2 || i === 5) return;
     values.push(wtsRiskValue('block1', timeId, '風危険度', '東京湾', '01'));
   });
-  // 風(風向・最大風速、陸上/東京湾)
+  // 風(風向・最大風速、陸上/東京湾): 北西の風にcondition:'風雪'を1つ、8方位以外の「静穏」を1つ入れる(§4.7確認用)
+  const WIND_DIRECTIONS_8 = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
   block1Ids.forEach((timeId, i) => {
+    const landDirection = i === 3 ? '静穏' : (WIND_DIRECTIONS_8[i % 8] as string);
+    const landCondition = i === 7 ? '風雪' : null;
+    values.push(
+      wtsQuantityValue(
+        'block1',
+        timeId,
+        '風',
+        '風向',
+        '陸上',
+        landDirection,
+        '８方位漢字',
+        landCondition,
+      ),
+    );
     values.push(wtsQuantityValue('block1', timeId, '風', '最大風速', '陸上', `${10 + i}`, 'm/s'));
+    values.push(
+      wtsQuantityValue(
+        'block1',
+        timeId,
+        '風',
+        '風向',
+        '東京湾',
+        WIND_DIRECTIONS_8[(i + 2) % 8] as string,
+        '８方位漢字',
+      ),
+    );
     values.push(wtsQuantityValue('block1', timeId, '風', '最大風速', '東京湾', `${8 + i}`, 'm/s'));
   });
   // 雷危険度: 00とref欠落を1つずつ、表外コード99を1つ

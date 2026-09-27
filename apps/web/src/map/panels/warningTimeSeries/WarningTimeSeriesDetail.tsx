@@ -16,13 +16,19 @@ import {
   buildBaseQuantityRows,
   buildRemarks,
   buildSeparateQuantityTables,
+  buildWindRows,
   type DetailCell,
   type RiskCell,
   type RiskTable,
+  type WindRowEntry,
   type WtsColumn,
   type WtsRow,
 } from './warningTimeSeriesModel';
-import { renderRiskCellContent, renderQuantityCellContent } from './WarningTimeSeriesContent';
+import {
+  renderRiskCellContent,
+  renderQuantityCellContent,
+  renderWindCellContent,
+} from './WarningTimeSeriesContent';
 
 export interface WarningTimeSeriesDetailProps {
   readonly data: WarningTimeseriesData;
@@ -50,16 +56,39 @@ function parseRowSubject(key: string): {
   return { propertyType, areaDivision: areaDivisionRaw === '' ? null : areaDivisionRaw };
 }
 
+interface ThreeHourEntry {
+  readonly kind: 'risk' | 'quantity' | 'wind';
+  readonly key: string;
+  readonly label: string;
+  readonly groupKey: string;
+  readonly order: number;
+  readonly riskCells?: readonly RiskCell[];
+  readonly quantityCells?: readonly DetailCell[];
+  readonly windCells?: WindRowEntry['cells'];
+}
+
 /**
  * 危険度全行+基準block量的予想行を、電文の出現順(値配列の初出順)で並べる。
  * 同じ種類(危険度=propertyType、量的予想=propertyType::valueType)は、既に model 側で
  * 連続配置済みのため、行グループの最小出現順で束ねて全体をマージする(§2.1-16)。
+ * 風向・風速の統合行(§4.7)は、対応する風危険度行の直下に置く(§2.1-16の例外)。
+ * 対応する危険度行が無い統合行は、風の値の初出位置に置く(groupKey='風')。
  */
 function buildThreeHourRows(
   data: WarningTimeseriesData,
   table: RiskTable,
 ): { readonly rows: readonly TimeSeriesRow[]; readonly remarksUnavailable: boolean } {
-  const quantityRows = buildBaseQuantityRows(data, table.baseBlockId);
+  const windRows = buildWindRows(data, table.baseBlockId);
+  const windDivisionKeys = new Set(windRows.map((row) => row.areaDivision ?? ''));
+  // 統合された区分の風向・最大風速の単独行は、量的予想の行一覧から除く(§4.7、二重表示防止)
+  const quantityRows = buildBaseQuantityRows(data, table.baseBlockId).filter((row) => {
+    const parts = row.key.split('::');
+    if (parts[0] !== '風' || (parts[1] !== '風向' && parts[1] !== '最大風速')) {
+      return true;
+    }
+    const divisionKey = parts[2] ?? '';
+    return !windDivisionKeys.has(divisionKey);
+  });
 
   const firstIndex = (
     predicate: (v: WarningTimeseriesData['values'][number]) => boolean,
@@ -68,26 +97,51 @@ function buildThreeHourRows(
     return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
   };
 
-  const riskEntries = table.allRows.map((row) => ({
-    kind: 'risk' as const,
-    row,
+  const riskEntries: ThreeHourEntry[] = table.allRows.map((row) => ({
+    kind: 'risk',
+    key: row.key,
+    label: row.label,
     groupKey: parseRowSubject(row.key).propertyType,
     order: firstIndex(
       (v) => v.valueCategory === 'risk' && `${v.propertyType}::${v.areaDivision ?? ''}` === row.key,
     ),
+    riskCells: row.cells,
   }));
-  const quantityEntries = quantityRows.map((row) => ({
-    kind: 'quantity' as const,
-    row,
+  const quantityEntries: ThreeHourEntry[] = quantityRows.map((row) => ({
+    kind: 'quantity',
+    key: row.key,
+    label: row.label,
     groupKey: row.key.split('::').slice(0, 2).join('::'), // propertyType::valueType
     order: firstIndex(
       (v) =>
         v.valueCategory === 'quantity' &&
         `${v.propertyType}::${v.valueType}::${v.areaDivision ?? ''}` === row.key,
     ),
+    quantityCells: row.cells,
   }));
 
-  const combined = [...riskEntries, ...quantityEntries];
+  // 危険度行(風危険度)と区分が一致する統合行は、その行の直下に配置するため、通常のマージ対象から外す。
+  const riskDivisionKeys = new Set(
+    riskEntries
+      .filter((entry) => parseRowSubject(entry.key).propertyType === '風危険度')
+      .map((entry) => parseRowSubject(entry.key).areaDivision ?? ''),
+  );
+  const matchedWindRows = windRows.filter((row) => riskDivisionKeys.has(row.areaDivision ?? ''));
+  const unmatchedWindRows = windRows.filter((row) => !riskDivisionKeys.has(row.areaDivision ?? ''));
+  const windEntry = (row: WindRowEntry): ThreeHourEntry => ({
+    kind: 'wind',
+    key: row.key,
+    label: row.label,
+    groupKey: '風',
+    order: row.firstIndex,
+    windCells: row.cells,
+  });
+
+  const combined: ThreeHourEntry[] = [
+    ...riskEntries,
+    ...quantityEntries,
+    ...unmatchedWindRows.map(windEntry),
+  ];
   const groupFirstOrder = new Map<string, number>();
   for (const entry of combined) {
     const prev = groupFirstOrder.get(entry.groupKey);
@@ -104,37 +158,61 @@ function buildThreeHourRows(
     return a.order - b.order;
   });
 
-  const subjectRows = combined.map((entry) => ({
-    key: entry.row.key,
-    ...parseRowSubject(entry.row.key),
-  }));
+  // 風危険度行の直下に、区分が一致する統合行を挿入する(§4.7・§2.1-16の例外)
+  const final: ThreeHourEntry[] = [];
+  for (const entry of combined) {
+    final.push(entry);
+    if (entry.kind === 'risk' && parseRowSubject(entry.key).propertyType === '風危険度') {
+      const areaDivision = parseRowSubject(entry.key).areaDivision;
+      const match = matchedWindRows.find((row) => (row.areaDivision ?? null) === areaDivision);
+      if (match) {
+        final.push(windEntry(match));
+      }
+    }
+  }
+
+  const subjectRows = final.map((entry) => ({ key: entry.key, ...parseRowSubject(entry.key) }));
   const remarks = buildRemarks(data.additions, subjectRows);
   const remarksUnavailable = remarks === null;
 
-  const rows = combined.map((entry) => {
-    const remarkText = remarks?.byRow.get(entry.row.key) ?? '';
-    const remarkCell = { key: `${entry.row.key}-${REMARKS_COLUMN_KEY}`, content: remarkText };
+  const rows = final.map((entry) => {
+    const remarkText = remarks?.byRow.get(entry.key) ?? '';
+    const remarkCell = { key: `${entry.key}-${REMARKS_COLUMN_KEY}`, content: remarkText };
     if (entry.kind === 'risk') {
-      const row = entry.row as WtsRow<RiskCell>;
+      const cells = entry.riskCells as readonly RiskCell[];
       return {
-        key: row.key,
-        header: row.label,
+        key: entry.key,
+        header: entry.label,
         cells: [
-          ...row.cells.map((cell, index) => ({
-            key: `${row.key}-${index}`,
+          ...cells.map((cell, index) => ({
+            key: `${entry.key}-${index}`,
             content: renderRiskCellContent(cell, table.columns[index]?.label ?? ''),
           })),
           remarkCell,
         ],
       };
     }
-    const row = entry.row as WtsRow<DetailCell>;
+    if (entry.kind === 'wind') {
+      const cells = entry.windCells as WindRowEntry['cells'];
+      return {
+        key: entry.key,
+        header: entry.label,
+        cells: [
+          ...cells.map((cell, index) => ({
+            key: `${entry.key}-${index}`,
+            content: renderWindCellContent(cell, table.columns[index]?.label ?? ''),
+          })),
+          remarkCell,
+        ],
+      };
+    }
+    const cells = entry.quantityCells as readonly DetailCell[];
     return {
-      key: row.key,
-      header: row.label,
+      key: entry.key,
+      header: entry.label,
       cells: [
-        ...row.cells.map((cell, index) => ({
-          key: `${row.key}-${index}`,
+        ...cells.map((cell, index) => ({
+          key: `${entry.key}-${index}`,
           content: renderQuantityCellContent(cell),
         })),
         remarkCell,

@@ -91,6 +91,16 @@
   font-size: 0.85em;
 }
 
+/* 風向・風速の矢印(Material Symbols `navigation`、風下を指す。§4.7) */
+.wts-wind-arrow {
+  font-family: 'Material Symbols Outlined';
+  font-variation-settings: 'FILL' 1;
+  font-size: 16px;
+  display: inline-block;
+  transform: rotate(var(--wts-wind-rotate));
+  color: currentcolor;
+}
+
 .wts-detail {
   display: flex;
   flex-direction: column;
