@@ -68,9 +68,9 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+/* 値なしは背景・枠を含め何も表示しない(UI監修 2026-09-27) */
 .wts-cell-noValue {
-  background-color: var(--md-sys-color-surface);
-  color: var(--md-sys-color-on-surface-variant);
+  background-color: transparent;
 }
 
 .wts-cell-missing {
