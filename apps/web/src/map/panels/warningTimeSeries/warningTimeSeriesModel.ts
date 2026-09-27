@@ -98,12 +98,15 @@ function jstParts(iso: string): { readonly day: number; readonly hour: number } 
   return { day: d.getUTCDate(), hour: d.getUTCHours() };
 }
 
-/** パネル・詳細3時間表の列下段ラベル。終端0時は24と書く(§4.2)。 */
+/**
+ * パネル・詳細3時間表の列下段ラベル。終端0時は24と書く(§4.2)。
+ * 「時」は付けない(例「21-24」、§2.1-24)。読み上げ用の「時」はaria-label側で付与する。
+ */
 export function formatColumnLabel(timeFrom: string, timeTo: string): string {
   const from = jstParts(timeFrom).hour;
   const toHour = jstParts(timeTo).hour;
   const to = toHour === 0 ? 24 : toHour;
-  return `${from}-${to}時`;
+  return `${from}-${to}`;
 }
 
 /** 別欄の列見出し(§4.4)。「D日」または「D日H時まで」。 */

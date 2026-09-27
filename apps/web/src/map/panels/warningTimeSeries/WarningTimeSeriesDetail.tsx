@@ -151,6 +151,8 @@ function buildRemarksColumn(table: RiskTable, unavailable: boolean): TimeSeriesC
     key: REMARKS_COLUMN_KEY,
     at: lastColumn?.timeFrom ?? '',
     timeLabel: unavailable ? '備考(未取得)' : '備考',
+    // stickyHeaderのtable-layout:fixedで既定4remになるため、備考欄として広めの幅を指定する
+    width: '8rem',
   };
 }
 
@@ -235,6 +237,7 @@ export function WarningTimeSeriesDetail({ data, table }: WarningTimeSeriesDetail
             ]}
             rows={threeHour.rows}
             initialColumnKey={table.currentColumnKey ?? undefined}
+            stickyHeader
           />
           {threeHour.remarksUnavailable && (
             <p className="wts-remarks-unavailable">付加事項は取得できていません</p>

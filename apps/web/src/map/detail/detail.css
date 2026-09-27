@@ -126,6 +126,23 @@
   border-inline-start: 1px solid var(--md-sys-color-outline-variant);
 }
 
+/* 吸着見出し(オプトイン、§4.6・G4 #55)。stickyHeader=falseの既存表示には一切影響しない。 */
+.detail-ts-sticky {
+  /* overflowを持たない。吸着の基準は最も近いスクロール容器(.detail-dialog-body)にする */
+}
+
+.detail-ts-sticky .detail-ts-table {
+  table-layout: fixed;
+}
+
+.detail-ts-head {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+  overflow-x: hidden;
+  background: var(--md-sys-color-surface-container-high);
+}
+
 /* §6: G4〜G6で置き換える前提の仮入口 */
 .detail-dialog-fixture-scroll-hint {
   margin: 0 0 16px;

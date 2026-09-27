@@ -33,11 +33,13 @@ const RISK_ARIA_NAME: Readonly<Record<RiskCell['display'], string>> = Object.fre
 /**
  * 危険度セルの表示内容(パネル本体・詳細で共用)。
  * 文字の無いセルも同じ大きさで表示する(§2.1-14、CSS側で固定寸法を与える)。
+ * `columnLabel` は見出し表記(「時」を含まない、§2.1-24)。aria-labelは読み上げ用のため
+ * 「時」を付けたままにする(§4.3)。
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function renderRiskCellContent(cell: RiskCell, columnLabel: string): ReactNode {
   const className = `wts-cell wts-cell-${cell.display}`;
-  const ariaLabel = `${columnLabel} ${RISK_ARIA_NAME[cell.display]}`;
+  const ariaLabel = `${columnLabel}時 ${RISK_ARIA_NAME[cell.display]}`;
   return (
     <span className={className} aria-label={ariaLabel}>
       {cell.label ?? ''}

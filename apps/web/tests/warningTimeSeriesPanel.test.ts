@@ -23,6 +23,7 @@ import {
   buildSeparateQuantityTables,
   buildWarningTimeSeriesCard,
   classifyRiskValue,
+  formatColumnLabel,
   formatIntervalHeader,
   resolveCurrentColumnKey,
   resolveMergedDisplay,
@@ -725,6 +726,37 @@ test('AC-20: 3時間表の各行のセル数は常に時間列数+1(備考)。�
   // 別欄・パネルには出ない(パネル本体は本テストでは描画していないため、別欄側だけ確認する)
   const separateOnly = html.slice(html.indexOf('wts-detail-separate'));
   assert.doesNotMatch(separateOnly, /竜巻注意/);
+});
+
+// ==========================================
+// AC-25: 時刻見出し(「時」を含まない形)
+// ==========================================
+test('AC-25: formatColumnLabelは「時」を含まない形式で、aria-labelには「時」を残す', () => {
+  assert.equal(formatColumnLabel('2026-09-27T15:00:00Z', '2026-09-27T18:00:00Z'), '0-3'); // JST0-3時
+  assert.equal(formatColumnLabel('2026-09-26T12:00:00Z', '2026-09-26T15:00:00Z'), '21-24'); // 終端0時は24と書く
+
+  const table = buildRiskTable(
+    {
+      timeDefines: COLS,
+      values: [riskValue('block1', 't0', '大雨浸水危険度', '30')],
+      additions: null,
+    },
+    Date.parse('2026-09-27T07:00:00Z'),
+  );
+  // パネル列見出しに「時」を含まない
+  assert.ok(table?.panelColumns.every((c) => !c.label.includes('時')));
+  const html = renderToStaticMarkup(
+    el(WarningTimeSeriesDetail, {
+      data: {
+        timeDefines: COLS,
+        values: [riskValue('block1', 't0', '大雨浸水危険度', '30')],
+        additions: null,
+      },
+      table,
+    }),
+  );
+  // 読み上げ用aria-labelには「時」が付く
+  assert.match(html, /aria-label="[^"]*時 /);
 });
 
 // ==========================================
