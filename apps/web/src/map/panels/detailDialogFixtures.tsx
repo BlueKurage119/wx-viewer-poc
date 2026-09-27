@@ -40,29 +40,6 @@ function buildThreeHourColumns(count: number): readonly TimeSeriesColumn[] {
   });
 }
 
-// 警報等時系列（サンプル）: 行5（大雨・洪水・暴風・波浪・高潮）、3時間区切り32列（4日分）
-// 列数はAC-7の初期位置合わせ（§6設計根拠）のため、FHDでも必要列数(25)を満たすよう定めた値。減らさないこと。
-const WARNING_TIME_SERIES_COLUMNS = buildThreeHourColumns(32);
-const WARNING_LEVEL_SAMPLE = ['－', '注意報', '警報'] as const;
-
-const WARNING_TIME_SERIES_ROWS: readonly TimeSeriesRow[] = (
-  ['大雨', '洪水', '暴風', '波浪', '高潮'] as const
-).map((label, rowIndex) => ({
-  key: label,
-  header: label,
-  cells: WARNING_TIME_SERIES_COLUMNS.map((column, columnIndex) => ({
-    key: column.key,
-    content: WARNING_LEVEL_SAMPLE[(rowIndex + columnIndex) % WARNING_LEVEL_SAMPLE.length],
-  })),
-}));
-
-const WARNING_TIME_SERIES_META: DetailDialogMeta = {
-  title: '警報等時系列（サンプル）',
-  target: '江東区',
-  time: { kind: 'issued', value: todayJstPlusHours(-1) },
-  isTraining: false,
-};
-
 // 地域時系列予報（サンプル）: 行3（天気・風・気温）、列24（3日分）
 const AREA_FORECAST_COLUMNS = buildThreeHourColumns(24);
 const WEATHER_SAMPLE = ['晴れ', 'くもり', '雨'] as const;
@@ -103,56 +80,6 @@ const AREA_FORECAST_META: DetailDialogMeta = {
   time: { kind: 'issued', value: null },
   isTraining: true,
 };
-
-// AC-8: 全viewport（本文領域が最も高い1920×1080を含む）で本文領域の
-// scrollHeight − clientHeight ≥ 200px となるだけの段落数。2行以上の段落を40個並べる
-// （§6設計根拠: 目安30個以上に余裕を持たせた値）。
-const SCROLL_HINT_PARAGRAPH_COUNT = 40;
-
-function ScrollHintParagraph() {
-  return (
-    <>
-      <p className="detail-dialog-fixture-scroll-hint">
-        これは仮の入口のダミー本文です（本文領域の縦スクロール確認用の段落）。G4〜G6でこの入口は本物のパネル中身に置き換えられます。
-      </p>
-      {Array.from({ length: SCROLL_HINT_PARAGRAPH_COUNT }, (_, index) => (
-        <p key={index} className="detail-dialog-fixture-scroll-hint">
-          ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文
-          ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文ダミー本文
-        </p>
-      ))}
-    </>
-  );
-}
-
-/** G4で置き換える前提の「詳細（仮）」入口（警報等時系列サンプル） */
-export function WarningTimeSeriesDetailFixtureEntry() {
-  const [open, setOpen] = useState(false);
-  const scrollContainer = useDetailDialogScrollContainer();
-
-  return (
-    <>
-      <GbButton color="text" size="sm" onClick={() => setOpen(true)}>
-        詳細（仮）
-      </GbButton>
-      <DetailDialog
-        open={open}
-        meta={WARNING_TIME_SERIES_META}
-        onClose={() => setOpen(false)}
-        scrollContainer={scrollContainer}
-      >
-        <ScrollHintParagraph />
-        <DetailTimeSeriesTable
-          caption="警報等時系列（サンプル）"
-          rowHeaderLabel="種別"
-          columns={WARNING_TIME_SERIES_COLUMNS}
-          rows={WARNING_TIME_SERIES_ROWS}
-          initialColumnKey={WARNING_TIME_SERIES_COLUMNS[2]?.key}
-        />
-      </DetailDialog>
-    </>
-  );
-}
 
 /** G6で置き換える前提の「詳細（仮）」入口（地域時系列予報サンプル） */
 export function AreaForecastDetailFixtureEntry() {

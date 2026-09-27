@@ -9,6 +9,7 @@ import { MapInformationColumnSlot } from './MapInformationColumnSlot';
 import { InfoPanelColumn } from './panels/InfoPanelColumn';
 import { useBosaiBulletins } from './panels/bosai/useBosaiBulletins';
 import { useWarnings } from './panels/warning/useWarnings';
+import { useWarningTimeSeries } from './panels/warningTimeSeries/useWarningTimeSeries';
 import { DEFAULT_INFO_PANEL_INPUT } from './panels/panelFixtures';
 import { DetailDialogScrollContainerProvider } from './detail/DetailDialogScrollContainerContext';
 import { MapLegend } from './MapLegend';
@@ -171,13 +172,20 @@ export function WeatherMapView({
     controlStatus,
   });
 
+  // 警報等時系列の定期取得 (G4 #55)
+  const warningTimeSeriesCard = useWarningTimeSeries({
+    terminalId,
+    controlStatus,
+  });
+
   const infoPanelInput = useMemo(
     () => ({
       ...DEFAULT_INFO_PANEL_INPUT,
       bosaiBulletin: bosaiBulletinCards,
       warning: warningCards,
+      warningTimeSeries: [warningTimeSeriesCard],
     }),
-    [bosaiBulletinCards, warningCards],
+    [bosaiBulletinCards, warningCards, warningTimeSeriesCard],
   );
 
   const effectiveTimelineViewModel = useMemo(() => {
