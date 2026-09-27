@@ -44,15 +44,23 @@ export interface DetailTimeSeriesTableProps {
   readonly stickyHeader?: boolean;
 }
 
+const ROW_HEADER_WIDTH = 'var(--detail-ts-row-header-width, 7rem)';
+
+function columnWidth(column: TimeSeriesColumn): string {
+  return column.width ?? 'var(--detail-ts-column-width, 4rem)';
+}
+
+/** stickyHeader時の表幅。見出し・本文の両表に同じ列幅合計を明示し、内容や容器幅による伸縮で列がずれないようにする */
+function stickyTableWidth(columns: readonly TimeSeriesColumn[]): string {
+  return `calc(${[ROW_HEADER_WIDTH, ...columns.map(columnWidth)].join(' + ')})`;
+}
+
 function ColGroup({ columns }: { readonly columns: readonly TimeSeriesColumn[] }) {
   return (
     <colgroup>
-      <col style={{ width: 'var(--detail-ts-row-header-width, 7rem)' }} />
+      <col style={{ width: ROW_HEADER_WIDTH }} />
       {columns.map((column) => (
-        <col
-          key={column.key}
-          style={{ width: column.width ?? 'var(--detail-ts-column-width, 4rem)' }}
-        />
+        <col key={column.key} style={{ width: columnWidth(column) }} />
       ))}
     </colgroup>
   );
@@ -177,7 +185,7 @@ export function DetailTimeSeriesTable({
   return (
     <div className="detail-ts-sticky">
       <div className="detail-ts-head" ref={headRef}>
-        <table className="detail-ts-table">
+        <table className="detail-ts-table" style={{ width: stickyTableWidth(columns) }}>
           <ColGroup columns={columns} />
           <HeaderRows columns={columns} rowHeaderLabel={rowHeaderLabel} dateLabels={dateLabels} />
         </table>
@@ -194,7 +202,7 @@ export function DetailTimeSeriesTable({
           }
         }}
       >
-        <table className="detail-ts-table">
+        <table className="detail-ts-table" style={{ width: stickyTableWidth(columns) }}>
           <caption className="detail-ts-caption">{caption}</caption>
           <ColGroup columns={columns} />
           <BodyRows rows={rows} />

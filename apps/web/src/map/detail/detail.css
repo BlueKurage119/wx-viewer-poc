@@ -135,6 +135,14 @@
   table-layout: fixed;
 }
 
+/* 列幅はcolgroupだけで決める。セルの最小・最大幅指定が見出しと本文で異なる伸縮を起こさないよう打ち消す */
+.detail-ts-sticky .detail-ts-table :is(th, td) {
+  min-inline-size: 0;
+  max-inline-size: none;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
 .detail-ts-head {
   position: sticky;
   inset-block-start: 0;
