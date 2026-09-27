@@ -9,7 +9,14 @@
 .wts-panel-table {
   margin: 0 0 8px;
   border-collapse: collapse;
-  max-inline-size: 100%;
+  inline-size: 100%;
+}
+
+/* データ列は内容幅(固定寸法のセル)に縮め、残りの幅は行見出し列に回してカード全幅を使う */
+.wts-panel-table td,
+.wts-panel-table thead th:not(:first-child) {
+  inline-size: 1%;
+  white-space: nowrap;
 }
 
 .wts-panel-table th,
