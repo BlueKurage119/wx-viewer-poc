@@ -244,7 +244,11 @@ function buildThreeHourRows(
     ...parseRowSubject(entry.key),
     blockId: entry.kind === 'risk' ? null : table.baseBlockId,
   }));
-  const remarks = buildRemarks(data.additions, subjectRows);
+  const remarks = buildRemarks(
+    data.additions,
+    subjectRows,
+    data.timeDefines.map((timeDefine) => timeDefine.blockId),
+  );
   const remarksUnavailable = remarks === null;
 
   const rows = final.map((entry) => {

@@ -380,8 +380,17 @@ export function buildExtensionColumns(
   const lastTimeTo = (baseColumns[baseColumns.length - 1] as WtsColumn).timeTo;
   const lastTimeToMs = Date.parse(lastTimeTo);
 
+  // 危険度が参照する時間定義だけを候補にする。量的予想専用の区間は別欄に表示するため延長列にしない
+  const riskTimeKeys = new Set(
+    data.values
+      .filter((value) => value.valueCategory === 'risk')
+      .map((value) => timeDefineKey(value.blockId, value.refId)),
+  );
   const seen = new Map<string, WtsColumn>();
   for (const timeDefine of data.timeDefines) {
+    if (!riskTimeKeys.has(timeDefineKey(timeDefine.blockId, timeDefine.timeId))) {
+      continue;
+    }
     if (Date.parse(timeDefine.timeFrom) < lastTimeToMs) {
       continue; // 基準期間と重なる区間は3時間列へ複製する対象(§4.2)。延長列には出さない
     }
@@ -1031,10 +1040,19 @@ export function buildSeparateQuantityTables(
   });
 }
 
-/** additions比較用の並び順(電文の出現順に相当。blockIdは照合に使わないため考慮しない、§4.4)。 */
-function compareAdditionOrder(a: TimeseriesAddition, b: TimeseriesAddition): number {
+/**
+ * additions比較用の並び順(電文の出現順)。scopeの各indexはblock内で振り直されるため、
+ * まずblockの出現順(timeDefinesでの初出順)を比べる。順序が不明なblockは後ろに回す。
+ */
+function compareAdditionOrder(
+  a: TimeseriesAddition,
+  b: TimeseriesAddition,
+  blockOrder: ReadonlyMap<string, number>,
+): number {
   const cmp = (x: number | null, y: number | null): number => (x ?? -1) - (y ?? -1);
+  const blockRank = (blockId: string): number => blockOrder.get(blockId) ?? blockOrder.size;
   return (
+    blockRank(a.blockId) - blockRank(b.blockId) ||
     cmp(a.scope.kindIndex, b.scope.kindIndex) ||
     cmp(a.scope.propertyIndex, b.scope.propertyIndex) ||
     cmp(a.scope.partIndex, b.scope.partIndex) ||
@@ -1065,12 +1083,19 @@ export interface RemarkSubjectRow {
 export function buildRemarks(
   additions: readonly TimeseriesAddition[] | null,
   rows: readonly RemarkSubjectRow[],
+  blockIds: readonly string[] = [],
 ): { readonly byRow: ReadonlyMap<string, string> } | null {
   if (additions === null) {
     return null;
   }
 
-  const sorted = [...additions].sort(compareAdditionOrder);
+  const blockOrder = new Map<string, number>();
+  for (const blockId of blockIds) {
+    if (!blockOrder.has(blockId)) {
+      blockOrder.set(blockId, blockOrder.size);
+    }
+  }
+  const sorted = [...additions].sort((a, b) => compareAdditionOrder(a, b, blockOrder));
   const textsByRow = new Map<string, string[]>();
 
   for (const note of sorted) {

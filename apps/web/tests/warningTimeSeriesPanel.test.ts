@@ -1127,6 +1127,8 @@ test('AC-30: 量的予想・統合行・危険度いずれも延長列は空白�
     quantityValue('block1', 't0', '風', '風向', '北西', '８方位漢字', null, '陸上'),
     quantityValue('block1', 't0', '風', '最大風速', '15', 'm/s', null, '陸上'),
     riskValue('block1', 't0', '風危険度', '30', '陸上'),
+    // 延長列は危険度が参照する区間だけに作られるため、日単位の危険度を1つ置く
+    riskValue('block3', 'd0', '乾燥危険度', '01'),
   ];
   const data: WarningTimeseriesData = {
     timeDefines: [...COLS, dayCol],
@@ -1298,4 +1300,36 @@ test('buildSeparateQuantityTables: 基準block以外の量的予想をblockご�
   assert.equal(tables.length, 1);
   assert.equal(tables[0]?.blockId, 'block2');
   assert.equal(tables[0]?.rows[0]?.label, '２４時間最大雨量 mm');
+});
+
+// ==========================================
+// PR #227 レビュー指摘への対応
+// ==========================================
+test('AC-30: 量的予想だけが参照する基準外の区間は延長列にしない', () => {
+  const extFrom = COLS[13].timeTo;
+  const extTo = new Date(Date.parse(extFrom) + 24 * 60 * 60 * 1000).toISOString();
+  const rainDay = td('block2', 'r0', 0, extFrom, extTo); // 量的予想専用の区間
+  const data: WarningTimeseriesData = {
+    timeDefines: [...COLS, rainDay],
+    values: [
+      riskValue('block1', 't0', '大雨浸水危険度', '30'),
+      quantityValue('block2', 'r0', '雨', '２４時間最大雨量', '120', 'mm'),
+    ],
+    additions: null,
+  };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  assert.ok(table);
+  assert.equal(table?.extensionColumns.length, 0);
+  assert.equal(table?.detailColumns.length, 14);
+});
+
+test('AC-19: 同じ行の備考はblockの出現順を優先して連結する(scopeのindexはblock内で振り直される)', () => {
+  const later = addition('block3', '乾燥危険度', null, null, 0, 0, '後続block');
+  const earlier: TimeseriesAddition = {
+    ...addition('block1', '乾燥危険度', null, null, 0, 0, '先行block'),
+    scope: { ...later.scope, kindIndex: 5 },
+  };
+  const rows = [{ key: 'dry', propertyType: '乾燥危険度', areaDivision: null }];
+  const remarks = buildRemarks([later, earlier], rows, ['block1', 'block1', 'block2', 'block3']);
+  assert.equal(remarks?.byRow.get('dry'), '先行block、後続block');
 });
