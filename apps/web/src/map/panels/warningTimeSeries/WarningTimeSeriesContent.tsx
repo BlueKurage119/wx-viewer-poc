@@ -35,13 +35,14 @@ const RISK_ARIA_NAME: Readonly<Record<RiskCell['display'], string>> = Object.fre
 /**
  * 危険度セルの表示内容(パネル本体・詳細で共用)。
  * 文字の無いセルも同じ大きさで表示する(§2.1-14、CSS側で固定寸法を与える)。
- * `columnLabel` は見出し表記(「時」を含まない、§2.1-24)。aria-labelは読み上げ用のため
- * 「時」を付けたままにする(§4.3)。
+ * `columnTimePhrase` は読み上げ用の時間帯の完全な文言(呼び出し側で組み立てる。§4.3)。
+ * 基準列は「21-24時」のように「時」を付けた形、延長列は`formatIntervalHeader`の結果
+ * (「29日」等)を渡す(§2.1-33・§4.2)。
  */
 // eslint-disable-next-line react-refresh/only-export-components
-export function renderRiskCellContent(cell: RiskCell, columnLabel: string): ReactNode {
+export function renderRiskCellContent(cell: RiskCell, columnTimePhrase: string): ReactNode {
   const className = `wts-cell wts-cell-${cell.display}`;
-  const ariaLabel = `${columnLabel}時 ${RISK_ARIA_NAME[cell.display]}`;
+  const ariaLabel = `${columnTimePhrase} ${RISK_ARIA_NAME[cell.display]}`;
   return (
     <span className={className} aria-label={ariaLabel}>
       {cell.label ?? ''}
@@ -96,8 +97,8 @@ export function renderQuantityCellContent(cell: DetailCell): ReactNode {
  * 下段(風速): 値=風速の文字列、値なし=空白、欠測=「?」。上下は独立に決める。
  */
 // eslint-disable-next-line react-refresh/only-export-components
-export function renderWindCellContent(cell: WindCell, columnLabel: string): ReactNode {
-  const ariaLabel = `${columnLabel}時 ${cell.ariaLabel}`;
+export function renderWindCellContent(cell: WindCell, columnTimePhrase: string): ReactNode {
+  const ariaLabel = `${columnTimePhrase} ${cell.ariaLabel}`;
   const upper =
     cell.directionState === 'compass' && cell.directionRotation !== null ? (
       <WindArrow rotation={cell.directionRotation} />
@@ -153,7 +154,7 @@ export function WarningTimeSeriesContent({ response, table }: WarningTimeSeriesC
                 <th scope="row">{row.label}</th>
                 {row.cells.map((cell, index) => (
                   <td key={`${row.key}-${index}`}>
-                    {renderRiskCellContent(cell, table.panelColumns[index]?.label ?? '')}
+                    {renderRiskCellContent(cell, `${table.panelColumns[index]?.label ?? ''}時`)}
                   </td>
                 ))}
               </tr>

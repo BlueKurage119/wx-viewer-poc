@@ -18,6 +18,7 @@ import {
   buildSeparateQuantityTables,
   buildWindRowLabel,
   buildWindRows,
+  formatIntervalHeader,
   type DetailCell,
   type RiskCell,
   type RiskTable,
@@ -37,6 +38,19 @@ export interface WarningTimeSeriesDetailProps {
 }
 
 const REMARKS_COLUMN_KEY = 'remarks';
+
+/**
+ * 3時間表のセルaria-label用、時間帯の読み上げ文言(§4.2・§2.1-33)。
+ * 基準列は「21-24時」のように「時」を付けた形、延長列は時刻行が空欄のため
+ * `formatIntervalHeader`の結果(「29日」「29日12時まで」等)を使う。
+ */
+function columnTimePhrase(table: RiskTable, index: number): string {
+  if (index < table.columns.length) {
+    return `${table.detailColumns[index]?.label ?? ''}時`;
+  }
+  const column = table.detailColumns[index];
+  return column ? formatIntervalHeader(column.timeFrom, column.timeTo) : '';
+}
 
 function toTimeSeriesColumns(columns: readonly WtsColumn[]): readonly TimeSeriesColumn[] {
   return columns.map((column) => ({
@@ -224,7 +238,12 @@ function buildThreeHourRows(
     }
   }
 
-  const subjectRows = final.map((entry) => ({ key: entry.key, ...parseRowSubject(entry.key) }));
+  // 量的予想・統合行(3時間表=基準block)はblockIdで照合する。危険度の行はblockIdを照合しない(§4.4)。
+  const subjectRows = final.map((entry) => ({
+    key: entry.key,
+    ...parseRowSubject(entry.key),
+    blockId: entry.kind === 'risk' ? null : table.baseBlockId,
+  }));
   const remarks = buildRemarks(data.additions, subjectRows);
   const remarksUnavailable = remarks === null;
 
@@ -239,7 +258,7 @@ function buildThreeHourRows(
         cells: [
           ...cells.map((cell, index) => ({
             key: `${entry.key}-${index}`,
-            content: renderRiskCellContent(cell, table.detailColumns[index]?.label ?? ''),
+            content: renderRiskCellContent(cell, columnTimePhrase(table, index)),
           })),
           remarkCell,
         ],
@@ -253,7 +272,7 @@ function buildThreeHourRows(
         cells: [
           ...cells.map((cell, index) => ({
             key: `${entry.key}-${index}`,
-            content: renderWindCellContent(cell, table.detailColumns[index]?.label ?? ''),
+            content: renderWindCellContent(cell, columnTimePhrase(table, index)),
           })),
           remarkCell,
         ],

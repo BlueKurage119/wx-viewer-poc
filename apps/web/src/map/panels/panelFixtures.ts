@@ -172,8 +172,9 @@ function block1Hour(columnIndex: number): string {
 
 /**
  * §6の合成応答。`quiet=true` は全行が未満・値なしになる正常空フィクスチャ。
+ * テスト(AC-19/21、実データに近い合成応答での備考照合の確認)からも使うためexportする。
  */
-function buildWarningTimeseriesFixtureResponse(quiet: boolean): WarningTimeseriesResponse {
+export function buildWarningTimeseriesFixtureResponse(quiet: boolean): WarningTimeseriesResponse {
   wtsSequence = 0;
   const COLUMN_COUNT = 14;
   const block1Ids = Array.from({ length: COLUMN_COUNT }, (_, i) => `b1t${i}`);

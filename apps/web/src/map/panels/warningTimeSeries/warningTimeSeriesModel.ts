@@ -812,7 +812,7 @@ export function buildWindCell(
         : (() => {
             const unit = (speedValue as WarningTimeseriesValue).unit;
             const unitReading = unit === 'm/s' ? 'メートル毎秒' : (unit ?? '');
-            return `風速${speedText}${unitReading}`;
+            return `${speedText}${unitReading}`;
           })();
 
   const bothNoValue = directionState === 'noValue' && speedState === 'noValue';
@@ -1049,13 +1049,22 @@ function compareAdditionOrder(a: TimeseriesAddition, b: TimeseriesAddition): num
  * 備考(§4.4)。rowKeyは3時間表の行キー。対応行の無いNoteは捨てる。additions===nullならnull。
  * 備考列は常時表示(byRowが空でも列は出す)。
  */
+export interface RemarkSubjectRow {
+  readonly key: string;
+  readonly propertyType: string;
+  readonly areaDivision: string | null;
+  /**
+   * この行が属するblock(量的予想の行にだけ設定する)。危険度の行はnull/省略にする。
+   * 危険度のNoteはblockIdを照合に使わない(日単位blockの危険度も3時間表へ統合済みのため)が、
+   * 量的予想のNoteは同じblockId(時間区切り)の行にだけ載せる(3時間表以外のblockのNoteは
+   * 3時間表の行に載せない、5a6141c設計改訂)。
+   */
+  readonly blockId?: string | null;
+}
+
 export function buildRemarks(
   additions: readonly TimeseriesAddition[] | null,
-  rows: readonly {
-    readonly key: string;
-    readonly propertyType: string;
-    readonly areaDivision: string | null;
-  }[],
+  rows: readonly RemarkSubjectRow[],
 ): { readonly byRow: ReadonlyMap<string, string> } | null {
   if (additions === null) {
     return null;
@@ -1066,11 +1075,7 @@ export function buildRemarks(
 
   for (const note of sorted) {
     const isBaseNote = note.scope.localIndex === null;
-    let targetRows: readonly {
-      readonly key: string;
-      readonly propertyType: string;
-      readonly areaDivision: string | null;
-    }[];
+    let targetRows: readonly RemarkSubjectRow[];
     if (isBaseNote) {
       const withoutDivision = rows.filter(
         (row) => row.propertyType === note.propertyType && row.areaDivision === null,
@@ -1084,6 +1089,10 @@ export function buildRemarks(
         (row) => row.propertyType === note.propertyType && row.areaDivision === note.areaDivision,
       );
     }
+    // 量的予想の行(blockIdを持つ行)は、同じblockIdのNoteにだけ載せる。危険度の行は照合しない。
+    targetRows = targetRows.filter(
+      (row) => row.blockId === undefined || row.blockId === null || row.blockId === note.blockId,
+    );
     for (const row of targetRows) {
       if (!textsByRow.has(row.key)) {
         textsByRow.set(row.key, []);

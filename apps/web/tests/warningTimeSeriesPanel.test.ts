@@ -40,6 +40,7 @@ import {
 import { InfoPanelColumn } from '../src/map/panels/InfoPanelColumn.tsx';
 import { DetailDialogInner } from '../src/map/detail/DetailDialog.tsx';
 import { WarningTimeSeriesDetail } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesDetail.tsx';
+import { buildWarningTimeseriesFixtureResponse } from '../src/map/panels/panelFixtures.ts';
 
 const el = React.createElement;
 
@@ -695,6 +696,57 @@ test('AC-19: buildRemarksの結合(出現順・「、」連結・Base直下の�
   assert.equal(dup?.byRow.get('雷危険度::'), '同じ内容、同じ内容');
 });
 
+test('AC-19/21 (5a6141c設計改訂): 量的予想のNoteは同じblockIdの行にだけ載る。危険度はblockIdを照合しない', () => {
+  const quantityRows = [
+    { key: '雨::１時間最大雨量::', propertyType: '雨', areaDivision: null, blockId: 'block1' },
+  ];
+  // 別blockの雨Noteは、3時間表(block1)の雨の行には載らない
+  const otherBlockNote = buildRemarks(
+    [addition('block2', '雨', null, null, 0, 0, '別blockのNote')],
+    quantityRows,
+  );
+  assert.equal(otherBlockNote?.byRow.has('雨::１時間最大雨量::'), false);
+
+  // 同じblockの雨Noteは載る
+  const sameBlockNote = buildRemarks(
+    [addition('block1', '雨', null, null, 0, 0, '同じblockのNote')],
+    quantityRows,
+  );
+  assert.equal(sameBlockNote?.byRow.get('雨::１時間最大雨量::'), '同じblockのNote');
+
+  // 危険度の行(blockId未設定)は、blockIdが違うNoteでも載る(従来どおり)
+  const riskRows = [{ key: '雷危険度::', propertyType: '雷危険度', areaDivision: null }];
+  const riskNote = buildRemarks(
+    [addition('block3', '雷危険度', null, null, 0, 0, '別blockの危険度Note')],
+    riskRows,
+  );
+  assert.equal(riskNote?.byRow.get('雷危険度::'), '別blockの危険度Note');
+});
+
+test('AC-19/21: §6合成応答(block2の雨Note)は、雨Noteだけのadditionsでも3時間表・別欄・パネルのどこにも出ない', () => {
+  const response = buildWarningTimeseriesFixtureResponse(false);
+  const data = response.data;
+  assert.ok(data);
+  const table = buildRiskTable(data, Date.parse(response.metadata.issuedAt as string));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  assert.doesNotMatch(html, /合成データ: 対応行なし確認用/);
+
+  // 雨Noteだけのadditionsに絞っても出ない(block2の雨Noteはblock1の雨行と照合されない)
+  const rainOnlyAdditions = (data.additions ?? []).filter(
+    (a) => a.text === '合成データ: 対応行なし確認用',
+  );
+  assert.ok(rainOnlyAdditions.length > 0, '§6のフィクスチャに雨Noteが含まれていること');
+  const rainOnlyData = { ...data, additions: rainOnlyAdditions };
+  const rainOnlyTable = buildRiskTable(
+    rainOnlyData,
+    Date.parse(response.metadata.issuedAt as string),
+  );
+  const rainOnlyHtml = renderToStaticMarkup(
+    el(WarningTimeSeriesDetail, { data: rainOnlyData, table: rainOnlyTable }),
+  );
+  assert.doesNotMatch(rainOnlyHtml, /合成データ: 対応行なし確認用/);
+});
+
 test('AC-20/21: 時間セルへ非複製・null/空の区別', () => {
   const rowsWithoutDivision = [{ key: '風危険度::', propertyType: '風危険度', areaDivision: null }];
   // Base直下のNoteは、区分なし行があればそこだけに載る(複製しない)
@@ -783,7 +835,7 @@ test('AC-26: buildWindCellのd(8方位/方位外/値なし/欠測)×s(値/値な
   assert.equal(cell.directionRotation, 135);
   assert.equal(cell.speedState, 'value');
   assert.equal(cell.speedText, '15');
-  assert.equal(cell.ariaLabel, '陸上 北西の風 風速15メートル毎秒');
+  assert.equal(cell.ariaLabel, '陸上 北西の風 15メートル毎秒');
 
   // 8方位 × 値なし
   cell = buildWindCell(dir('北西'), speed('0', '値なし'), '陸上');
@@ -802,7 +854,7 @@ test('AC-26: buildWindCellのd(8方位/方位外/値なし/欠測)×s(値/値な
   cell = buildWindCell(other('静穏'), speed('15'), '陸上');
   assert.equal(cell.directionState, 'other');
   assert.equal(cell.directionRotation, null);
-  assert.equal(cell.ariaLabel, '陸上 静穏の風 風速15メートル毎秒');
+  assert.equal(cell.ariaLabel, '陸上 静穏の風 15メートル毎秒');
 
   // 方位外 × 値なし
   cell = buildWindCell(other('静穏'), speed('0', '値なし'), '陸上');
@@ -818,7 +870,7 @@ test('AC-26: buildWindCellのd(8方位/方位外/値なし/欠測)×s(値/値な
   cell = buildWindCell(dir('0', '値なし'), speed('15'), '陸上');
   assert.equal(cell.directionState, 'noValue');
   assert.equal(cell.speedText, '15');
-  assert.equal(cell.ariaLabel, '陸上 風速15メートル毎秒');
+  assert.equal(cell.ariaLabel, '陸上 15メートル毎秒');
 
   // 値なし × 値なし -> 「値なし」
   cell = buildWindCell(dir('0', '値なし'), speed('0', '値なし'), '陸上');
@@ -836,7 +888,7 @@ test('AC-26: buildWindCellのd(8方位/方位外/値なし/欠測)×s(値/値な
   cell = buildWindCell(undefined, speed('15'), '陸上');
   assert.equal(cell.directionState, 'missing');
   assert.equal(cell.speedText, '15');
-  assert.equal(cell.ariaLabel, '陸上 風向欠測 風速15メートル毎秒');
+  assert.equal(cell.ariaLabel, '陸上 風向欠測 15メートル毎秒');
 
   // 欠測 × 値なし
   cell = buildWindCell(undefined, speed('0', '値なし'), '陸上');
@@ -852,7 +904,7 @@ test('AC-26: buildWindCellのd(8方位/方位外/値なし/欠測)×s(値/値な
 
   // areaDivision===nullなら区分名を付けない
   cell = buildWindCell(dir('北西'), speed('15'), null);
-  assert.equal(cell.ariaLabel, '北西の風 風速15メートル毎秒');
+  assert.equal(cell.ariaLabel, '北西の風 15メートル毎秒');
 });
 
 test('AC-26: 8方位すべての回転角が§4.7の表どおりで、8語以外は原文表示(推測で丸めない)', () => {
@@ -1085,6 +1137,28 @@ test('AC-30: 量的予想・統合行・危険度いずれも延長列は空白�
   const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
   assert.match(html, /aria-label="対象期間外"/);
   assert.doesNotMatch(html, /対象期間外<\/span><span[^>]*>\?/); // 空白であり「?」ではない
+});
+
+test('AC-30: 危険度値がある延長列セルのaria-labelはformatIntervalHeaderの結果で始まる(時刻ラベルが空欄のため)', () => {
+  const extFrom = COLS[13].timeTo; // 基準範囲の終端(JST 0時想定、§4.2)
+  const extTo = new Date(Date.parse(extFrom) + 24 * 60 * 60 * 1000).toISOString();
+  const dayCol = td('block3', 'd0', 0, extFrom, extTo);
+  const values: WarningTimeseriesValue[] = [
+    riskValue('block1', 't0', '大雨浸水危険度', '30'),
+    riskValue('block3', 'd0', '乾燥危険度', '20'), // level2、延長列に値が入る
+  ];
+  const data: WarningTimeseriesData = {
+    timeDefines: [...COLS, dayCol],
+    values,
+    additions: null,
+  };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const expectedTimePhrase = formatIntervalHeader(extFrom, extTo);
+  assert.notEqual(expectedTimePhrase, ''); // 空文字のまま使っていないことの前提確認
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  // 「時 注意報級相当」のように空の時刻ラベルのままではなく、formatIntervalHeaderの結果で始まる
+  assert.match(html, new RegExp(`aria-label="${expectedTimePhrase} 注意報級相当"`));
+  assert.doesNotMatch(html, /aria-label="時 /);
 });
 
 // ==========================================
