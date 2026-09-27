@@ -769,65 +769,90 @@ test('AC-25: formatColumnLabelは「時」を含まない形式で、aria-label�
 // ==========================================
 // AC-26: 風向・風速の統合
 // ==========================================
-test('AC-26: buildWindCellの7パターン(値/値なし/欠測の組み合わせ)', () => {
+test('AC-26: buildWindCellのd(8方位/方位外/値なし/欠測)×s(値/値なし/欠測)の12通り', () => {
   const dir = (text: string, condition: string | null = null) =>
     quantityValue('block1', 't0', '風', '風向', text, '８方位漢字', condition, '陸上');
+  const other = (text: string) =>
+    quantityValue('block1', 't0', '風', '風向', text, '８方位漢字', null, '陸上');
   const speed = (text: string, condition: string | null = null) =>
     quantityValue('block1', 't0', '風', '最大風速', text, 'm/s', condition, '陸上');
 
-  // 値|値
-  let cell = buildWindCell(dir('北西'), speed('15'));
-  assert.equal(cell.directionText, '北西');
+  // 8方位 × 値
+  let cell = buildWindCell(dir('北西'), speed('15'), '陸上');
+  assert.equal(cell.directionState, 'compass');
   assert.equal(cell.directionRotation, 135);
+  assert.equal(cell.speedState, 'value');
   assert.equal(cell.speedText, '15');
+  assert.equal(cell.ariaLabel, '陸上 北西の風 風速15メートル毎秒');
+
+  // 8方位 × 値なし
+  cell = buildWindCell(dir('北西'), speed('0', '値なし'), '陸上');
+  assert.equal(cell.directionState, 'compass');
+  assert.equal(cell.speedState, 'noValue');
+  assert.equal(cell.speedText, null);
+  assert.equal(cell.ariaLabel, '陸上 北西の風');
+
+  // 8方位 × 欠測
+  cell = buildWindCell(dir('北西'), undefined, '陸上');
+  assert.equal(cell.directionState, 'compass');
+  assert.equal(cell.speedState, 'missing');
+  assert.equal(cell.ariaLabel, '陸上 北西の風 風速欠測');
+
+  // 方位外 × 値
+  cell = buildWindCell(other('静穏'), speed('15'), '陸上');
+  assert.equal(cell.directionState, 'other');
+  assert.equal(cell.directionRotation, null);
+  assert.equal(cell.ariaLabel, '陸上 静穏の風 風速15メートル毎秒');
+
+  // 方位外 × 値なし
+  cell = buildWindCell(other('静穏'), speed('0', '値なし'), '陸上');
+  assert.equal(cell.directionState, 'other');
+  assert.equal(cell.ariaLabel, '陸上 静穏の風');
+
+  // 方位外 × 欠測
+  cell = buildWindCell(other('静穏'), undefined, '陸上');
+  assert.equal(cell.directionState, 'other');
+  assert.equal(cell.ariaLabel, '陸上 静穏の風 風速欠測');
+
+  // 値なし × 値
+  cell = buildWindCell(dir('0', '値なし'), speed('15'), '陸上');
+  assert.equal(cell.directionState, 'noValue');
+  assert.equal(cell.speedText, '15');
+  assert.equal(cell.ariaLabel, '陸上 風速15メートル毎秒');
+
+  // 値なし × 値なし -> 「値なし」
+  cell = buildWindCell(dir('0', '値なし'), speed('0', '値なし'), '陸上');
+  assert.equal(cell.directionState, 'noValue');
+  assert.equal(cell.speedState, 'noValue');
+  assert.equal(cell.ariaLabel, '陸上 値なし');
+
+  // 値なし × 欠測
+  cell = buildWindCell(dir('0', '値なし'), undefined, '陸上');
+  assert.equal(cell.directionState, 'noValue');
+  assert.equal(cell.speedState, 'missing');
+  assert.equal(cell.ariaLabel, '陸上 風速欠測');
+
+  // 欠測 × 値
+  cell = buildWindCell(undefined, speed('15'), '陸上');
+  assert.equal(cell.directionState, 'missing');
+  assert.equal(cell.speedText, '15');
+  assert.equal(cell.ariaLabel, '陸上 風向欠測 風速15メートル毎秒');
+
+  // 欠測 × 値なし
+  cell = buildWindCell(undefined, speed('0', '値なし'), '陸上');
+  assert.equal(cell.directionState, 'missing');
+  assert.equal(cell.speedState, 'noValue');
+  assert.equal(cell.ariaLabel, '陸上 風向欠測');
+
+  // 欠測 × 欠測
+  cell = buildWindCell(undefined, undefined, '陸上');
+  assert.equal(cell.directionState, 'missing');
+  assert.equal(cell.speedState, 'missing');
+  assert.equal(cell.ariaLabel, '陸上 風向欠測 風速欠測');
+
+  // areaDivision===nullなら区分名を付けない
+  cell = buildWindCell(dir('北西'), speed('15'), null);
   assert.equal(cell.ariaLabel, '北西の風 風速15メートル毎秒');
-
-  // 値|値なし
-  cell = buildWindCell(dir('北西'), speed('0', '値なし'));
-  assert.equal(cell.directionText, '北西');
-  assert.equal(cell.speedText, null);
-  assert.equal(cell.speedMissing, false);
-  assert.equal(cell.ariaLabel, '北西の風');
-
-  // 値なし|値
-  cell = buildWindCell(dir('0', '値なし'), speed('15'));
-  assert.equal(cell.directionText, null);
-  assert.equal(cell.speedText, '15');
-  assert.equal(cell.ariaLabel, '風速15メートル毎秒');
-
-  // 値なし|値なし -> 空白
-  cell = buildWindCell(dir('0', '値なし'), speed('0', '値なし'));
-  assert.equal(cell.bothBlank, true);
-  assert.equal(cell.ariaLabel, '値なし');
-
-  // 欠測|欠測 -> 単一の「?」
-  cell = buildWindCell(undefined, undefined);
-  assert.equal(cell.bothMissing, true);
-  assert.equal(cell.ariaLabel, '欠測');
-
-  // 欠測|値
-  cell = buildWindCell(undefined, speed('15'));
-  assert.equal(cell.directionMissing, true);
-  assert.equal(cell.speedText, '15');
-  assert.equal(cell.ariaLabel, '風向欠測 風速15メートル毎秒');
-
-  // 欠測|値なし
-  cell = buildWindCell(undefined, speed('0', '値なし'));
-  assert.equal(cell.directionMissing, true);
-  assert.equal(cell.speedText, null);
-  assert.equal(cell.ariaLabel, '風向欠測');
-
-  // 値|欠測
-  cell = buildWindCell(dir('北西'), undefined);
-  assert.equal(cell.directionText, '北西');
-  assert.equal(cell.speedMissing, true);
-  assert.equal(cell.ariaLabel, '北西の風 風速欠測');
-
-  // 値なし|欠測
-  cell = buildWindCell(dir('0', '値なし'), undefined);
-  assert.equal(cell.directionText, null);
-  assert.equal(cell.speedMissing, true);
-  assert.equal(cell.ariaLabel, '風速欠測');
 });
 
 test('AC-26: 8方位すべての回転角が§4.7の表どおりで、8語以外は原文表示(推測で丸めない)', () => {
@@ -853,9 +878,11 @@ test('AC-26: condition=風雪の値はどこにも文字として出ない(値�
   const cell = buildWindCell(
     quantityValue('block1', 't0', '風', '風向', '北西', '８方位漢字', '風雪', '陸上'),
     quantityValue('block1', 't0', '風', '最大風速', '15', 'm/s', null, '陸上'),
+    '陸上',
   );
   assert.doesNotMatch(cell.ariaLabel, /風雪/);
-  assert.equal(cell.directionText, '北西');
+  assert.equal(cell.directionState, 'compass');
+  assert.equal(cell.directionRotation, 135);
 });
 
 test('AC-26: 風向だけの区分は統合されず単独行のまま矢印が付く', () => {
@@ -893,13 +920,8 @@ test('AC-27: 統合行は同じ区分の風危険度行の直下に、複数区�
   const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
 
   const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
-  assert.deepEqual(headings, [
-    '風(陸上)',
-    '風向・風速(陸上) m/s',
-    '風(東京湾)',
-    '風向・風速(東京湾) m/s',
-    '雷',
-  ]);
+  // 直下に置けた統合行は区分名を省く(§2.1-30、直上の危険度行で区分が分かるため)
+  assert.deepEqual(headings, ['風(陸上)', '風向・風速 m/s', '風(東京湾)', '風向・風速 m/s', '雷']);
 });
 
 test('AC-27: 対応する危険度行が無い統合行は、風の最初の出現位置に置かれる', () => {
@@ -931,6 +953,138 @@ test('AC-27: パネル本体・別欄には統合行・矢印が出ない', () =
   const separate = buildSeparateQuantityTables(data, table?.baseBlockId ?? null);
   assert.ok(separate.some((t) => t.blockId === 'block2'));
   assert.ok(!separate.some((t) => t.rows.some((r) => r.label.includes('風向・風速'))));
+});
+
+// ==========================================
+// AC-29: 雨の行の配置
+// ==========================================
+test('AC-29: 雨の行は大雨浸水・土砂災害の行のうち後ろのものの直後に移る', () => {
+  const values: WarningTimeseriesValue[] = [
+    riskValue('block1', 't0', '大雨浸水危険度', '30'),
+    riskValue('block1', 't0', '雷危険度', '30'),
+    riskValue('block1', 't0', '土砂災害危険度', '30'),
+    quantityValue('block1', 't0', '雨', '１時間最大雨量', '5', 'mm'),
+    riskValue('block1', 't0', '風危険度', '30', '陸上'),
+  ];
+  const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
+  assert.deepEqual(headings, ['大雨浸水', '雷', '土砂災害', '１時間最大雨量 mm', '風(陸上)']);
+});
+
+test('AC-29: 雨→大雨浸水→土砂災害の出現順でも、雨の行は土砂災害の直後に移る', () => {
+  const values: WarningTimeseriesValue[] = [
+    quantityValue('block1', 't0', '雨', '１時間最大雨量', '5', 'mm'),
+    riskValue('block1', 't0', '大雨浸水危険度', '30'),
+    riskValue('block1', 't0', '土砂災害危険度', '30'),
+  ];
+  const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
+  assert.deepEqual(headings, ['大雨浸水', '土砂災害', '１時間最大雨量 mm']);
+});
+
+test('AC-29: 大雨浸水・土砂災害の行が無い入力では、雨の行は出現順のまま', () => {
+  const values: WarningTimeseriesValue[] = [
+    riskValue('block1', 't0', '雷危険度', '30'),
+    quantityValue('block1', 't0', '雨', '１時間最大雨量', '5', 'mm'),
+    riskValue('block1', 't0', '風危険度', '30', '陸上'),
+  ];
+  const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
+  assert.deepEqual(headings, ['雷', '１時間最大雨量 mm', '風(陸上)']);
+});
+
+test('AC-29: 雪・波の量的予想の行は出現順から動かない', () => {
+  const values: WarningTimeseriesValue[] = [
+    riskValue('block1', 't0', '大雨浸水危険度', '30'),
+    quantityValue('block1', 't0', '雪', '最大降雪量', '5', 'cm'),
+    riskValue('block1', 't0', '土砂災害危険度', '30'),
+  ];
+  const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
+  assert.deepEqual(headings, ['大雨浸水', '最大降雪量 cm', '土砂災害']);
+});
+
+// ==========================================
+// AC-30: 延長列
+// ==========================================
+test('AC-30: 基準範囲より先の日単位危険度が延長列に表示され、パネル・初期列は延長列を含まない', () => {
+  // 基準block(block1): 当日06時〜翌日24時相当の14列(COLSを再利用)
+  // 日単位block(block3): 当日(06-24, 基準に重なる)・翌日(重なる)・翌々日(基準の外)の3区間
+  const dayCol0 = td('block3', 'd0', 0, COLS[0].timeFrom, COLS[6].timeFrom); // 基準内(重なる)
+  const dayCol1 = td('block3', 'd1', 1, COLS[6].timeFrom, COLS[13].timeTo); // 基準内(重なる、末尾まで)
+  const extFrom = COLS[13].timeTo; // 基準範囲の終端(翌々日開始)
+  const extTo = new Date(Date.parse(extFrom) + 24 * 60 * 60 * 1000).toISOString();
+  const dayCol2 = td('block3', 'd2', 2, extFrom, extTo); // 基準の外(延長列)
+
+  const values: WarningTimeseriesValue[] = [
+    riskValue('block1', 't0', '大雨浸水危険度', '30'),
+    riskValue('block3', 'd0', '乾燥危険度', '20'),
+    riskValue('block3', 'd1', '乾燥危険度', '20'),
+    riskValue('block3', 'd2', '乾燥危険度', '30'),
+    riskValue('block3', 'd0', '霜危険度', '00'),
+    riskValue('block3', 'd1', '霜危険度', '00'),
+    riskValue('block3', 'd2', '霜危険度', '00'),
+  ];
+  const data: WarningTimeseriesData = {
+    timeDefines: [...COLS, dayCol0, dayCol1, dayCol2],
+    values,
+    additions: null,
+  };
+  const now = Date.parse('2026-09-27T07:00:00Z'); // COLS[0]の区間内
+  const table = buildRiskTable(data, now);
+  assert.ok(table);
+
+  // 3時間表の列が14+1(延長列)になる
+  assert.equal(table?.detailColumns.length, 15);
+  assert.equal(table?.extensionColumns.length, 1);
+  assert.equal(table?.extensionColumns[0]?.timeFrom, extFrom);
+  assert.equal(table?.extensionColumns[0]?.label, ''); // 時刻行は空欄
+
+  // 乾燥の延長列セルには翌々日の値がある
+  const dryRow = table?.allRows.find((r) => r.label === '乾燥');
+  assert.equal(dryRow?.cells[14]?.display, 'level3'); // code 30
+
+  // 大雨浸水(3時間刻み)の延長列はoutOfRange(空白、「?」にしない)
+  const rainFloodRow = table?.allRows.find((r) => r.label === '大雨浸水');
+  assert.equal(rainFloodRow?.cells[14]?.display, 'outOfRange');
+
+  // パネルの3列窓は延長列を含まない(全列が過去でも延長列を表示しない)
+  const allPast = buildRiskTable(data, Date.parse(COLS[13].timeTo) + 999_999_999);
+  assert.equal(allPast?.panelColumns.length, 0);
+
+  // initialColumnKeyは基準列のいずれか
+  assert.ok(table?.currentColumnKey);
+  assert.ok(table?.columns.some((c) => c.key === table.currentColumnKey));
+});
+
+test('AC-30: 量的予想・統合行・危険度いずれも延長列は空白でaria-labelが「対象期間外」', () => {
+  const extFrom = COLS[13].timeTo;
+  const extTo = new Date(Date.parse(extFrom) + 24 * 60 * 60 * 1000).toISOString();
+  const dayCol = td('block3', 'd0', 0, extFrom, extTo);
+  const values: WarningTimeseriesValue[] = [
+    riskValue('block1', 't0', '大雨浸水危険度', '30'),
+    quantityValue('block1', 't0', '雨', '１時間最大雨量', '5', 'mm'),
+    quantityValue('block1', 't0', '風', '風向', '北西', '８方位漢字', null, '陸上'),
+    quantityValue('block1', 't0', '風', '最大風速', '15', 'm/s', null, '陸上'),
+    riskValue('block1', 't0', '風危険度', '30', '陸上'),
+  ];
+  const data: WarningTimeseriesData = {
+    timeDefines: [...COLS, dayCol],
+    values,
+    additions: null,
+  };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  assert.match(html, /aria-label="対象期間外"/);
+  assert.doesNotMatch(html, /対象期間外<\/span><span[^>]*>\?/); // 空白であり「?」ではない
 });
 
 // ==========================================

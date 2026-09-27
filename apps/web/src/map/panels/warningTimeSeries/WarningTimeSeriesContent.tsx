@@ -29,6 +29,7 @@ const RISK_ARIA_NAME: Readonly<Record<RiskCell['display'], string>> = Object.fre
   below: '注意報級未満',
   noValue: '値なし',
   missing: '欠測・未取得',
+  outOfRange: '対象期間外',
 });
 
 /**
@@ -73,6 +74,9 @@ export function renderQuantityCellContent(cell: DetailCell): ReactNode {
   if (cell.kind === 'noValue') {
     return <span className="wts-cell wts-cell-noValue" aria-label="値なし" />;
   }
+  if (cell.kind === 'outOfRange') {
+    return <span className="wts-cell wts-cell-noValue" aria-label="対象期間外" />;
+  }
   return (
     <span className="wts-quantity-cell">
       {cell.windRotation !== undefined && cell.windRotation !== null && (
@@ -86,45 +90,31 @@ export function renderQuantityCellContent(cell: DetailCell): ReactNode {
   );
 }
 
-/** 風向・風速の統合セルの表示内容(詳細3時間表のみ、§4.7)。 */
+/**
+ * 風向・風速の統合セルの表示内容(詳細3時間表のみ、§4.7・§2.1-31)。
+ * 上段(風向): 8方位=矢羽、方位外=「－」、値なし=空白、欠測=「?」。
+ * 下段(風速): 値=風速の文字列、値なし=空白、欠測=「?」。上下は独立に決める。
+ */
 // eslint-disable-next-line react-refresh/only-export-components
 export function renderWindCellContent(cell: WindCell, columnLabel: string): ReactNode {
   const ariaLabel = `${columnLabel}時 ${cell.ariaLabel}`;
-  if (cell.bothBlank) {
-    return <span className="wts-cell wts-cell-noValue" aria-label={ariaLabel} />;
-  }
-  if (cell.bothMissing) {
-    return (
-      <span className="wts-cell wts-cell-missing" aria-label={ariaLabel}>
-        ?
-      </span>
+  const upper =
+    cell.directionState === 'compass' && cell.directionRotation !== null ? (
+      <WindArrow rotation={cell.directionRotation} />
+    ) : cell.directionState === 'other' ? (
+      '－'
+    ) : cell.directionState === 'missing' ? (
+      '?'
+    ) : (
+      ''
     );
-  }
-  const parts: ReactNode[] = [];
-  if (cell.directionMissing) {
-    parts.push('?');
-  } else if (cell.directionText !== null) {
-    parts.push(
-      <span key="direction">
-        {cell.directionRotation !== null && <WindArrow rotation={cell.directionRotation} />}
-        {cell.directionText}
-      </span>,
-    );
-  }
-  if (cell.speedMissing) {
-    parts.push('?');
-  } else if (cell.speedText !== null) {
-    parts.push(cell.speedText);
-  }
+  const lower =
+    cell.speedState === 'value' ? cell.speedText : cell.speedState === 'missing' ? '?' : '';
 
   return (
-    <span className="wts-quantity-cell" aria-label={ariaLabel}>
-      {parts.map((part, index) => (
-        <span key={index}>
-          {index > 0 ? ' ' : ''}
-          {part}
-        </span>
-      ))}
+    <span className="wts-wind-cell" aria-label={ariaLabel}>
+      <span className="wts-wind-cell-upper">{upper}</span>
+      <span className="wts-wind-cell-lower">{lower}</span>
     </span>
   );
 }

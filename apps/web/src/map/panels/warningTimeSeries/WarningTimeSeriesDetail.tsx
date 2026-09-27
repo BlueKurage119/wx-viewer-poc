@@ -16,6 +16,7 @@ import {
   buildBaseQuantityRows,
   buildRemarks,
   buildSeparateQuantityTables,
+  buildWindRowLabel,
   buildWindRows,
   type DetailCell,
   type RiskCell,
@@ -67,21 +68,26 @@ interface ThreeHourEntry {
   readonly windCells?: WindRowEntry['cells'];
 }
 
+/** 雨に関わる危険度(大雨浸水・土砂災害・洪水)の行の直後に、雨の量的予想の行を置く(§4.6.1)。 */
+const RAIN_ANCHOR_PROPERTY_TYPES = new Set(['大雨浸水危険度', '土砂災害危険度', '洪水危険度']);
+
 /**
  * 危険度全行+基準block量的予想行を、電文の出現順(値配列の初出順)で並べる。
  * 同じ種類(危険度=propertyType、量的予想=propertyType::valueType)は、既に model 側で
  * 連続配置済みのため、行グループの最小出現順で束ねて全体をマージする(§2.1-16)。
  * 風向・風速の統合行(§4.7)は、対応する風危険度行の直下に置く(§2.1-16の例外)。
  * 対応する危険度行が無い統合行は、風の値の初出位置に置く(groupKey='風')。
+ * 雨の量的予想の行は、雨に関わる危険度の行のまとまりの直後に置く(§4.6.1)。
  */
 function buildThreeHourRows(
   data: WarningTimeseriesData,
   table: RiskTable,
 ): { readonly rows: readonly TimeSeriesRow[]; readonly remarksUnavailable: boolean } {
-  const windRows = buildWindRows(data, table.baseBlockId);
+  const windRows = buildWindRows(data, table.baseBlockId, table.extensionColumns);
   const windDivisionKeys = new Set(windRows.map((row) => row.areaDivision ?? ''));
   // 統合された区分の風向・最大風速の単独行は、量的予想の行一覧から除く(§4.7、二重表示防止)
-  const quantityRows = buildBaseQuantityRows(data, table.baseBlockId).filter((row) => {
+  const quantityRowsAll = buildBaseQuantityRows(data, table.baseBlockId, table.extensionColumns);
+  const quantityRows = quantityRowsAll.filter((row) => {
     const parts = row.key.split('::');
     if (parts[0] !== '風' || (parts[1] !== '風向' && parts[1] !== '最大風速')) {
       return true;
@@ -107,11 +113,36 @@ function buildThreeHourRows(
     ),
     riskCells: row.cells,
   }));
-  const quantityEntries: ThreeHourEntry[] = quantityRows.map((row) => ({
+
+  // 雨の行(§4.6.1)は、対応する危険度の行があれば通常のマージ対象から外し、後で直後に挿入する。
+  const hasRainAnchor = riskEntries.some((entry) =>
+    RAIN_ANCHOR_PROPERTY_TYPES.has(parseRowSubject(entry.key).propertyType),
+  );
+  const rainQuantityRows = hasRainAnchor
+    ? quantityRows.filter((row) => row.key.startsWith('雨::'))
+    : [];
+  const rainKeys = new Set(rainQuantityRows.map((row) => row.key));
+  const nonRainQuantityRows = hasRainAnchor
+    ? quantityRows.filter((row) => !rainKeys.has(row.key))
+    : quantityRows;
+
+  const quantityEntries: ThreeHourEntry[] = nonRainQuantityRows.map((row) => ({
     kind: 'quantity',
     key: row.key,
     label: row.label,
     groupKey: row.key.split('::').slice(0, 2).join('::'), // propertyType::valueType
+    order: firstIndex(
+      (v) =>
+        v.valueCategory === 'quantity' &&
+        `${v.propertyType}::${v.valueType}::${v.areaDivision ?? ''}` === row.key,
+    ),
+    quantityCells: row.cells,
+  }));
+  const rainEntries: ThreeHourEntry[] = rainQuantityRows.map((row) => ({
+    kind: 'quantity',
+    key: row.key,
+    label: row.label,
+    groupKey: row.key.split('::').slice(0, 2).join('::'),
     order: firstIndex(
       (v) =>
         v.valueCategory === 'quantity' &&
@@ -128,10 +159,11 @@ function buildThreeHourRows(
   );
   const matchedWindRows = windRows.filter((row) => riskDivisionKeys.has(row.areaDivision ?? ''));
   const unmatchedWindRows = windRows.filter((row) => !riskDivisionKeys.has(row.areaDivision ?? ''));
-  const windEntry = (row: WindRowEntry): ThreeHourEntry => ({
+  // 直下に置けた統合行は区分名を省く。置けなかった統合行(先頭位置)は区分名を付ける(§2.1-30)。
+  const windEntry = (row: WindRowEntry, includeDivision: boolean): ThreeHourEntry => ({
     kind: 'wind',
     key: row.key,
-    label: row.label,
+    label: buildWindRowLabel(row.areaDivision, row.unit, includeDivision),
     groupKey: '風',
     order: row.firstIndex,
     windCells: row.cells,
@@ -140,7 +172,7 @@ function buildThreeHourRows(
   const combined: ThreeHourEntry[] = [
     ...riskEntries,
     ...quantityEntries,
-    ...unmatchedWindRows.map(windEntry),
+    ...unmatchedWindRows.map((row) => windEntry(row, true)),
   ];
   const groupFirstOrder = new Map<string, number>();
   for (const entry of combined) {
@@ -159,15 +191,36 @@ function buildThreeHourRows(
   });
 
   // 風危険度行の直下に、区分が一致する統合行を挿入する(§4.7・§2.1-16の例外)
-  const final: ThreeHourEntry[] = [];
+  const withWind: ThreeHourEntry[] = [];
   for (const entry of combined) {
-    final.push(entry);
+    withWind.push(entry);
     if (entry.kind === 'risk' && parseRowSubject(entry.key).propertyType === '風危険度') {
       const areaDivision = parseRowSubject(entry.key).areaDivision;
       const match = matchedWindRows.find((row) => (row.areaDivision ?? null) === areaDivision);
       if (match) {
-        final.push(windEntry(match));
+        withWind.push(windEntry(match, false));
       }
+    }
+  }
+
+  // 雨の行を、雨に関わる危険度の行のうち最後のものの直後にまとめて挿入する(§4.6.1)。
+  let final = withWind;
+  if (hasRainAnchor && rainEntries.length > 0) {
+    let rainAnchorIndex = -1;
+    withWind.forEach((entry, index) => {
+      if (
+        entry.kind === 'risk' &&
+        RAIN_ANCHOR_PROPERTY_TYPES.has(parseRowSubject(entry.key).propertyType)
+      ) {
+        rainAnchorIndex = index;
+      }
+    });
+    if (rainAnchorIndex !== -1) {
+      final = [
+        ...withWind.slice(0, rainAnchorIndex + 1),
+        ...rainEntries,
+        ...withWind.slice(rainAnchorIndex + 1),
+      ];
     }
   }
 
@@ -186,7 +239,7 @@ function buildThreeHourRows(
         cells: [
           ...cells.map((cell, index) => ({
             key: `${entry.key}-${index}`,
-            content: renderRiskCellContent(cell, table.columns[index]?.label ?? ''),
+            content: renderRiskCellContent(cell, table.detailColumns[index]?.label ?? ''),
           })),
           remarkCell,
         ],
@@ -200,7 +253,7 @@ function buildThreeHourRows(
         cells: [
           ...cells.map((cell, index) => ({
             key: `${entry.key}-${index}`,
-            content: renderWindCellContent(cell, table.columns[index]?.label ?? ''),
+            content: renderWindCellContent(cell, table.detailColumns[index]?.label ?? ''),
           })),
           remarkCell,
         ],
@@ -224,7 +277,7 @@ function buildThreeHourRows(
 }
 
 function buildRemarksColumn(table: RiskTable, unavailable: boolean): TimeSeriesColumn {
-  const lastColumn = table.columns[table.columns.length - 1];
+  const lastColumn = table.detailColumns[table.detailColumns.length - 1];
   return {
     key: REMARKS_COLUMN_KEY,
     at: lastColumn?.timeFrom ?? '',
@@ -310,7 +363,7 @@ export function WarningTimeSeriesDetail({ data, table }: WarningTimeSeriesDetail
             caption="警報等時系列(3時間表)"
             rowHeaderLabel="要素"
             columns={[
-              ...toTimeSeriesColumns(table.columns),
+              ...toTimeSeriesColumns(table.detailColumns),
               buildRemarksColumn(table, threeHour.remarksUnavailable),
             ]}
             rows={threeHour.rows}

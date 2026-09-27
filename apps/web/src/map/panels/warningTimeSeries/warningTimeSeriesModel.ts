@@ -17,7 +17,15 @@ import type { InfoPanelCardInput } from '../panelDefinitions';
 import { WarningTimeSeriesContent } from './WarningTimeSeriesContent';
 
 export type RiskDisplay =
-  'level5' | 'level4' | 'level3' | 'level2' | 'below' | 'noValue' | 'missing';
+  | 'level5'
+  | 'level4'
+  | 'level3'
+  | 'level2'
+  | 'below'
+  | 'noValue'
+  | 'missing'
+  /** 延長列(§2.1-33)で、その行に対象範囲外を示すためだけに使う。3時間表の基準範囲には出ない。 */
+  | 'outOfRange';
 
 /** 別表4のコード表 (§2.3・§4.3で確認・確定)。名称は別表4と完全一致させる。 */
 export const RISK_CODE_TABLE: Readonly<
@@ -73,11 +81,15 @@ export interface WtsRow<C> {
 
 export interface RiskTable {
   readonly baseBlockId: string;
-  /** 全コマ(詳細で使う) */
+  /** 基準blockの全コマ(パネル・初期列の基準。延長列は含まない) */
   readonly columns: readonly WtsColumn[];
+  /** 詳細3時間表だけに足す日単位の延長列(§2.1-33)。パネルには出さない。 */
+  readonly extensionColumns: readonly WtsColumn[];
+  /** `columns`+`extensionColumns`(詳細の描画に使う全列) */
+  readonly detailColumns: readonly WtsColumn[];
   /** パネルの3列窓(§4.2 UI監修 §2.1-13) */
   readonly panelColumns: readonly WtsColumn[];
-  /** 詳細用(非表示行を含み、cellsは`columns`の全コマ分) */
+  /** 詳細用(非表示行を含み、cellsは`detailColumns`の全コマ分) */
   readonly allRows: readonly WtsRow<RiskCell>[];
   /** パネル用(§4.2 行の表示条件。cellsは`panelColumns`分のみ) */
   readonly visibleRows: readonly WtsRow<RiskCell>[];
@@ -94,7 +106,9 @@ export type DetailCell =
       readonly windRotation?: number | null;
     }
   | { readonly kind: 'noValue' }
-  | { readonly kind: 'missing' };
+  | { readonly kind: 'missing' }
+  /** 延長列(§2.1-33)で、危険度以外の行(量的予想・風向風速)が対象範囲外を示す。 */
+  | { readonly kind: 'outOfRange' };
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -351,6 +365,55 @@ function groupConsecutiveByKind<T extends { readonly key: string }>(
     .map((wrapped) => wrapped.entry);
 }
 
+/**
+ * 詳細3時間表の延長列(§2.1-33)。基準blockの最終列より後に始まる区間(他blockの日単位区間)を
+ * 対象とし、同じ(timeFrom,timeTo)は1列にまとめ、timeFrom昇順に並べる。日付行は既定どおり、
+ * 時刻行は空欄(呼び出し側で`label`をそのまま使う想定、ここでは空文字にする)。
+ */
+export function buildExtensionColumns(
+  data: WarningTimeseriesData,
+  baseColumns: readonly WtsColumn[],
+): readonly WtsColumn[] {
+  if (baseColumns.length === 0) {
+    return [];
+  }
+  const lastTimeTo = (baseColumns[baseColumns.length - 1] as WtsColumn).timeTo;
+  const lastTimeToMs = Date.parse(lastTimeTo);
+
+  const seen = new Map<string, WtsColumn>();
+  for (const timeDefine of data.timeDefines) {
+    if (Date.parse(timeDefine.timeFrom) < lastTimeToMs) {
+      continue; // 基準期間と重なる区間は3時間列へ複製する対象(§4.2)。延長列には出さない
+    }
+    const key = `${timeDefine.timeFrom}::${timeDefine.timeTo}`;
+    if (!seen.has(key)) {
+      seen.set(key, {
+        key: `ext::${key}`,
+        timeFrom: timeDefine.timeFrom,
+        timeTo: timeDefine.timeTo,
+        label: '',
+      });
+    }
+  }
+  return [...seen.values()].sort((a, b) => Date.parse(a.timeFrom) - Date.parse(b.timeFrom));
+}
+
+/** 延長列1つに対する行の値を(timeFrom,timeTo)の完全一致で探す。無ければundefined。 */
+function findExtensionValue(
+  values: readonly WarningTimeseriesValue[],
+  timeDefineMap: ReadonlyMap<string, WarningTimeseriesTimeDefine>,
+  column: WtsColumn,
+): WarningTimeseriesValue | undefined {
+  return values.find((value) => {
+    const timeDefine = timeDefineMap.get(timeDefineKey(value.blockId, value.refId));
+    return (
+      timeDefine !== undefined &&
+      timeDefine.timeFrom === column.timeFrom &&
+      timeDefine.timeTo === column.timeTo
+    );
+  });
+}
+
 /** 危険度が0件ならnull(§4.1)。 */
 export function buildRiskTable(data: WarningTimeseriesData, now: number): RiskTable | null {
   const baseBlockId = selectBaseBlockId(data);
@@ -373,6 +436,8 @@ export function buildRiskTable(data: WarningTimeseriesData, now: number): RiskTa
   for (const timeDefine of data.timeDefines) {
     timeDefineMap.set(timeDefineKey(timeDefine.blockId, timeDefine.timeId), timeDefine);
   }
+
+  const extensionColumns = buildExtensionColumns(data, columns);
 
   const rowOrder: string[] = [];
   const rowFirstValueIndex = new Map<string, number>();
@@ -476,12 +541,27 @@ export function buildRiskTable(data: WarningTimeseriesData, now: number): RiskTa
       });
     }
 
-    // 詳細(全コマ)用のラベル・セル
-    const detailLabels = assignTransitionLabels(displays, detailInitialIndex);
-    const detailCells: RiskCell[] = displays.map((display, index) => ({
+    // 延長列(§2.1-33): (blockId, refId===timeId)相当の完全一致で結合。無ければoutOfRange。
+    const extensionValues = values.filter((value) => value.blockId !== baseBlockId);
+    const extensionDisplays: RiskDisplay[] = extensionColumns.map((column) => {
+      const match = findExtensionValue(extensionValues, timeDefineMap, column);
+      return match === undefined ? 'outOfRange' : classifyRiskValue(match);
+    });
+    const extensionSources: { readonly blockId: string; readonly timeId: string }[][] =
+      extensionColumns.map((column) => {
+        const match = findExtensionValue(extensionValues, timeDefineMap, column);
+        return match ? [{ blockId: match.blockId, timeId: match.refId }] : [];
+      });
+
+    const fullDisplays = [...displays, ...extensionDisplays];
+    const fullSourcesPerColumn = [...sourcesPerColumn, ...extensionSources];
+
+    // 詳細(基準+延長列)用のラベル・セル。切替判定は延長列も同じ行の続きとして行う(§2.1-33)。
+    const detailLabels = assignTransitionLabels(fullDisplays, detailInitialIndex);
+    const detailCells: RiskCell[] = fullDisplays.map((display, index) => ({
       display,
       label: detailLabels[index] ?? null,
-      sources: sourcesPerColumn[index] ?? [],
+      sources: fullSourcesPerColumn[index] ?? [],
     }));
     allRows.push({ key, label, cells: detailCells });
 
@@ -498,7 +578,18 @@ export function buildRiskTable(data: WarningTimeseriesData, now: number): RiskTa
     }
   }
 
-  return { baseBlockId, columns, panelColumns, allRows, visibleRows, currentColumnKey };
+  const detailColumns = [...columns, ...extensionColumns];
+
+  return {
+    baseBlockId,
+    columns,
+    extensionColumns,
+    detailColumns,
+    panelColumns,
+    allRows,
+    visibleRows,
+    currentColumnKey,
+  };
 }
 
 function buildQuantityRowKey(
@@ -582,6 +673,7 @@ function buildBaseQuantityCell(value: WarningTimeseriesValue | undefined): Detai
 export function buildBaseQuantityRows(
   data: WarningTimeseriesData,
   baseBlockId: string,
+  extensionColumns: readonly WtsColumn[] = [],
 ): readonly WtsRow<DetailCell>[] {
   const columns = data.timeDefines
     .filter((timeDefine) => timeDefine.blockId === baseBlockId)
@@ -646,17 +738,31 @@ export function buildBaseQuantityRows(
     const cells = columns.map((timeDefine) =>
       buildBaseQuantityCell(byTimeId.get(timeDefine.timeId)),
     );
+    // 延長列(§2.1-33): 量的予想の行は常に空白(対象範囲外)。日単位の値はここには持たせない。
+    const extensionCells: DetailCell[] = extensionColumns.map(() => ({ kind: 'outOfRange' }));
     return {
       key,
       label: buildQuantityRowLabel(meta.valueType, meta.areaDivision, meta.unit),
-      cells,
+      cells: [...cells, ...extensionCells],
     };
   });
 }
 
-type WindPartState = 'value' | 'noValue' | 'missing';
+/** 風向の状態(§2.1-31)。8方位=8語一致、方位外=値はあるが8語以外。 */
+export type WindDirectionState = 'compass' | 'other' | 'noValue' | 'missing';
+export type WindSpeedState = 'value' | 'noValue' | 'missing';
 
-function windPartState(value: WarningTimeseriesValue | undefined): WindPartState {
+function classifyDirectionState(value: WarningTimeseriesValue | undefined): WindDirectionState {
+  if (value === undefined) {
+    return 'missing';
+  }
+  if (value.condition === '値なし') {
+    return 'noValue';
+  }
+  return classifyWindDirection(value.valueText, value.unit) !== null ? 'compass' : 'other';
+}
+
+function classifySpeedState(value: WarningTimeseriesValue | undefined): WindSpeedState {
   if (value === undefined) {
     return 'missing';
   }
@@ -666,92 +772,69 @@ function windPartState(value: WarningTimeseriesValue | undefined): WindPartState
   return 'value';
 }
 
-interface WindDirectionPart {
-  readonly state: WindPartState;
-  readonly displayText: string | null;
-  readonly rotation: number | null;
-  readonly ariaClause: string;
-}
-
-function buildWindDirectionPart(value: WarningTimeseriesValue | undefined): WindDirectionPart {
-  const state = windPartState(value);
-  if (state !== 'value' || value === undefined) {
-    return {
-      state,
-      displayText: null,
-      rotation: null,
-      ariaClause: state === 'missing' ? '風向欠測' : '',
-    };
-  }
-  const text = value.valueText;
-  return {
-    state,
-    displayText: text,
-    rotation: classifyWindDirection(text, value.unit),
-    ariaClause: `${text}の風`,
-  };
-}
-
-interface WindSpeedPart {
-  readonly state: WindPartState;
-  readonly displayText: string | null;
-  readonly ariaClause: string;
-}
-
-function buildWindSpeedPart(value: WarningTimeseriesValue | undefined): WindSpeedPart {
-  const state = windPartState(value);
-  if (state !== 'value' || value === undefined) {
-    return { state, displayText: null, ariaClause: state === 'missing' ? '風速欠測' : '' };
-  }
-  const unitReading = value.unit === 'm/s' ? 'メートル毎秒' : (value.unit ?? '');
-  return {
-    state,
-    displayText: value.valueText,
-    ariaClause: `風速${value.valueText}${unitReading}`,
-  };
-}
-
-/** 風向・風速の統合セル(§4.7)。 */
+/** 風向・風速の統合セル(§4.7・§2.1-31)。上段(風向)・下段(風速)を独立に決める2段セル。 */
 export interface WindCell {
-  readonly directionText: string | null;
+  readonly directionState: WindDirectionState;
   readonly directionRotation: number | null;
-  readonly directionMissing: boolean;
+  readonly speedState: WindSpeedState;
   readonly speedText: string | null;
-  readonly speedMissing: boolean;
-  readonly bothBlank: boolean;
-  readonly bothMissing: boolean;
+  /** 時間帯を除く読み上げ内容。区分名を含む(表示に区分名が無くても読み上げには残す、§2.1-30)。 */
   readonly ariaLabel: string;
 }
 
-/** §4.7のセル結合表(7パターン)。direction/speedそれぞれの状態から独立に組み立てる。 */
+/** §4.7・§2.1-31のセル結合。上段・下段を独立に決め、読み上げに区分名を含める。 */
 export function buildWindCell(
   directionValue: WarningTimeseriesValue | undefined,
   speedValue: WarningTimeseriesValue | undefined,
+  areaDivision: string | null,
 ): WindCell {
-  const d = buildWindDirectionPart(directionValue);
-  const s = buildWindSpeedPart(speedValue);
-  const bothBlank = d.state === 'noValue' && s.state === 'noValue';
-  const bothMissing = d.state === 'missing' && s.state === 'missing';
-  const ariaLabel = bothBlank
+  const directionState = classifyDirectionState(directionValue);
+  const directionRotation =
+    directionState === 'compass' && directionValue !== undefined
+      ? classifyWindDirection(directionValue.valueText, directionValue.unit)
+      : null;
+
+  const speedState = classifySpeedState(speedValue);
+  const speedText =
+    speedState === 'value' && speedValue !== undefined ? speedValue.valueText : null;
+
+  const directionClause =
+    directionState === 'missing'
+      ? '風向欠測'
+      : directionState === 'noValue'
+        ? ''
+        : `${(directionValue as WarningTimeseriesValue).valueText}の風`;
+  const speedClause =
+    speedState === 'missing'
+      ? '風速欠測'
+      : speedState === 'noValue'
+        ? ''
+        : (() => {
+            const unit = (speedValue as WarningTimeseriesValue).unit;
+            const unitReading = unit === 'm/s' ? 'メートル毎秒' : (unit ?? '');
+            return `風速${speedText}${unitReading}`;
+          })();
+
+  const bothNoValue = directionState === 'noValue' && speedState === 'noValue';
+  const contentLabel = bothNoValue
     ? '値なし'
-    : bothMissing
-      ? '欠測'
-      : [d.ariaClause, s.ariaClause].filter((clause) => clause !== '').join(' ');
-  return {
-    directionText: d.displayText,
-    directionRotation: d.rotation,
-    directionMissing: d.state === 'missing',
-    speedText: s.displayText,
-    speedMissing: s.state === 'missing',
-    bothBlank,
-    bothMissing,
-    ariaLabel,
-  };
+    : [directionClause, speedClause].filter((clause) => clause !== '').join(' ');
+  const ariaLabel = areaDivision !== null ? `${areaDivision} ${contentLabel}` : contentLabel;
+
+  return { directionState, directionRotation, speedState, speedText, ariaLabel };
 }
 
-function buildWindRowLabel(areaDivision: string | null, unit: string | null): string {
+/**
+ * 統合行の行見出し(§2.1-30)。同じ区分の風危険度行の直下に置ける場合は区分名を付けない
+ * (直上の行で区分が分かるため)。対応する危険度行が無く先頭位置に置く場合は区分名を付ける。
+ */
+export function buildWindRowLabel(
+  areaDivision: string | null,
+  unit: string | null,
+  includeDivision: boolean,
+): string {
   let label = '風向・風速';
-  if (areaDivision !== null) {
+  if (includeDivision && areaDivision !== null) {
     label += `(${areaDivision})`;
   }
   if (unit !== null) {
@@ -762,8 +845,8 @@ function buildWindRowLabel(areaDivision: string | null, unit: string | null): st
 
 export interface WindRowEntry {
   readonly key: string;
-  readonly label: string;
   readonly areaDivision: string | null;
+  readonly unit: string | null;
   readonly cells: readonly WindCell[];
   /** values配列上の最初の出現位置(§2.1-16準拠の並び決定に使う) */
   readonly firstIndex: number;
@@ -772,10 +855,12 @@ export interface WindRowEntry {
 /**
  * 風向・風速の統合行(§4.7)。基準blockの`風`Propertyで、同じareaDivisionに風向・最大風速の
  * 両方があるものだけを1行にまとめる。片方しか無い区分はここに含めない(統合しない)。
+ * `extensionColumns`のセルは常に(方位外扱いではなく)値なし相当の空白とする(§2.1-33、量的予想扱い)。
  */
 export function buildWindRows(
   data: WarningTimeseriesData,
   baseBlockId: string,
+  extensionColumns: readonly WtsColumn[] = [],
 ): readonly WindRowEntry[] {
   const columns = data.timeDefines
     .filter((timeDefine) => timeDefine.blockId === baseBlockId)
@@ -826,13 +911,21 @@ export function buildWindRows(
     const areaDivision = divisionKey === '' ? null : divisionKey;
     const unit = speedUnitByDivision.get(divisionKey) ?? null;
     const cells = columns.map((column) =>
-      buildWindCell(directionMap.get(column.timeId), speedMap.get(column.timeId)),
+      buildWindCell(directionMap.get(column.timeId), speedMap.get(column.timeId), areaDivision),
     );
+    // 延長列(§2.1-33): 風向・風速は量的予想と同様に対象範囲外として空白にする(欠測「?」にしない)。
+    const extensionCells: WindCell[] = extensionColumns.map(() => ({
+      directionState: 'noValue',
+      directionRotation: null,
+      speedState: 'noValue',
+      speedText: null,
+      ariaLabel: '対象期間外',
+    }));
     rows.push({
       key: `風::${divisionKey}`,
-      label: buildWindRowLabel(areaDivision, unit),
       areaDivision,
-      cells,
+      unit,
+      cells: [...cells, ...extensionCells],
       firstIndex: firstIndexByDivision.get(divisionKey) as number,
     });
   }
