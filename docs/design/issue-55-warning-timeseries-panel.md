@@ -360,7 +360,8 @@ export function buildWarningTimeSeriesCard(
     - `scope.localIndex === null`(Base 直下の Note、`areaDivision === null`)は、その `propertyType` の全ての行の備考とする。区分なしの行があればその行に、区分行しか無ければ各区分行に同じ本文を複製する(ユーザー決定 2026-09-27)。
       - #33 §3.4 の「Base の補足を各 Local へ複製しない」は、保存・API 層の方針である。API は引き続き Base の Note として返す。画面表示での複製は、ユーザー決定による例外として記録する。
     - 時間セルへは複製しない。
-    - `blockId` は照合に使わない。日単位 block の危険度も3時間表の行へ統合済みのため(§4.2)。ただし同じ `(propertyType, areaDivision)` の Note が複数 block にある場合も、下の連結規則で1つにまとめる。
+    - 危険度の Note は `blockId` を照合に使わない。日単位 block の危険度も3時間表の行へ統合済みのため(§4.2)。同じ `(propertyType, areaDivision)` の Note が複数 block にある場合も、下の連結規則で1つにまとめる。
+    - 量的予想の Note は、同じ `blockId`(時間区切り)の行にだけ載せる。3時間表以外の block(24時間最大雨量など、別欄の量的予想)の Note は3時間表の行に載せず、表示しない(検収で判明した規則と AC-19/21 の矛盾をユーザー決定で解消 2026-09-27)。
   - **表示形式**: 同じ行に載る Note は `(blockId の timeDefines 初出順, scope.kindIndex, propertyIndex, partIndex, baseIndex, localIndex, additionIndex, noteIndex)` の順、つまり電文の出現順とし、「、」で連結する。重複も除去しない(#33 §3.4 の保持方針に合わせる)。
   - **対応行が無い Note**: 3時間表に対応する行が無い Note(例: 別欄だけにある量的予想の Property、Local の区分名が一致しない Note)は表示しない。件数も画面に出さない(ユーザー決定 2026-09-27)。
     - パネルで非表示になった行は、詳細の3時間表には全行あるため、このケースに当たらない。
@@ -468,7 +469,7 @@ export function buildWarningTimeSeriesCard(
   - 統合行のデータセルは全て同じ2段の高さとし、文字の有無で変えない。
   - 統合行は他の行より高くなる(1行の高さの約2倍)。行見出しのセルも同じ行の高さに伸びる。
   - 他の行の高さは変えない。
-  - 上段の矢羽は 16px、下段は本文と同じ文字サイズとし、行間は詰める。数値は製造裁量。
+  - 上段の矢羽は 24px(332af31 でユーザーが変更)、下段は本文と同じ文字サイズとし、行間は詰める。数値は製造裁量。
 - 読み上げの単位は、`unit === 'm/s'` なら「メートル毎秒」、それ以外は `unit` の原文とする。
 - `condition === '風雪'` は表示にも読み上げにも使わない(§2.1-28)。`description` も使わない。
 

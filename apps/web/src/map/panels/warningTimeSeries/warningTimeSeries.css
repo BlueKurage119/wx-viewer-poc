@@ -172,7 +172,7 @@
 }
 
 /* 3時間表: 右端の「備考」列を固定する(§4.4、既存 detail.css は変更しない) */
-.wts-detail-3h .detail-ts-table tr> :last-child {
+.wts-detail-3h .detail-ts-table tr > :last-child {
   position: sticky;
   inset-inline-end: 0;
   z-index: 1;
