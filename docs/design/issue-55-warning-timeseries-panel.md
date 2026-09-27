@@ -485,7 +485,7 @@ export function buildWarningTimeSeriesCard(
 - Material Symbols Outlined は `apps/web/index.html` で Google Fonts から読み込み済みである。既存の利用例は `map/detail/DetailDialogIcon.tsx` と `.detail-dialog-close-icon`(`font-family: 'Material Symbols Outlined'` の `span` に、アイコン名の文字列をリガチャとして入れ、`aria-hidden="true"` を付ける方式)。これと同じ方式で `warningTimeSeries/` 内に小さな部品を作る(`map/detail/**` は変更しない。`DetailDialogIcon` は閉じるボタン用のクラスを持つため流用しない)。
 - `<span class="wts-wind-arrow" aria-hidden="true" style="--wts-wind-rotate: 135deg">navigation</span>` の形とする。CSS は次のとおり。
   - `font-family: 'Material Symbols Outlined'` とし、`font-variation-settings` は 'FILL' 1(塗りつぶし)とする(ユーザー決定 2026-09-27)。
-  - `font-size: 16px`、`display: inline-block`、`transform: rotate(var(--wts-wind-rotate))`。
+  - `font-size: 24px`、`display: inline-block`、`transform: rotate(var(--wts-wind-rotate))`。
   - `color: currentColor`(セル文字色 `--md-sys-color-on-surface` を継承)。HEX は使わない。
 - **既定の向きの実物確認**: Google Fonts 配信の `materialsymbolsoutlined/navigation/default/24px.svg` を取得して確認した。path の先端が `(480, -880)`(viewBox `0 -960 960 960` の上端中央)にあり、底辺が下にあるため、**回転0°で上(北)を指す**。上の回転角表はこれを基準とする。
 - 回転は `style` 属性に角度だけを渡し、色や寸法を `style` に書かない。
