@@ -174,3 +174,12 @@ test('Issue #58 AC-1: parseAreaForecastResponse - data null は許容され、�
   };
   assert.equal(parseAreaForecastResponse(invalidStation, 'normal'), null);
 });
+
+test('Issue #58 PR指摘: parseAreaForecastResponse - area の欠落・不正は null', () => {
+  const base = createValidResponse();
+  assert.ok(parseAreaForecastResponse(base, 'normal') !== null);
+
+  assert.equal(parseAreaForecastResponse({ ...base, area: undefined }, 'normal'), null);
+  assert.equal(parseAreaForecastResponse({ ...base, area: null }, 'normal'), null);
+  assert.equal(parseAreaForecastResponse({ ...base, area: { code: 130010 } }, 'normal'), null);
+});

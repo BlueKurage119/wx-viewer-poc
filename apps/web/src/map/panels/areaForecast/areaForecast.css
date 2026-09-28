@@ -190,10 +190,7 @@
   box-sizing: border-box;
 }
 
-/* 空セル (none) */
-.af-cell-none {
-  visibility: hidden;
-}
+/* 空セル (none): 中身を持たない空要素とし、aria-label「対象外」は読み上げに残す */
 
 /* 詳細ダイアログ内のスタイリング */
 .af-detail .detail-ts-table td {

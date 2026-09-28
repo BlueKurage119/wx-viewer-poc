@@ -52,6 +52,15 @@ export function parseAreaForecastResponse(
     return null;
   }
 
+  // area チェック (表記の算出で code・name を参照するため)
+  if (typeof record.area !== 'object' || record.area === null || Array.isArray(record.area)) {
+    return null;
+  }
+  const area = record.area as Record<string, unknown>;
+  if (typeof area.code !== 'string' || typeof area.name !== 'string') {
+    return null;
+  }
+
   // data チェック (null 許容)
   if (record.data !== null) {
     if (typeof record.data !== 'object' || Array.isArray(record.data)) {

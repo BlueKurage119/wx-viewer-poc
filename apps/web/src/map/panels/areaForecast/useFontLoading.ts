@@ -13,15 +13,11 @@ export interface FontLoadingStatus {
  * タイムアウト(3秒)または失敗時は非表示のまま維持する。
  */
 export function useFontLoading(): FontLoadingStatus {
-  const [status, setStatus] = useState<FontLoadingStatus>(() => {
-    // document.fonts がない環境 (SSR・Node.jsテスト環境)
-    if (typeof document === 'undefined' || !document.fonts) {
-      return { outlinedReady: false, sharpReady: false };
-    }
-    // 既に読み込み済みかどうかの簡易判定
-    const outlinedLoaded = document.fonts.check('24px "Material Symbols Outlined"');
-    const sharpLoaded = document.fonts.check('24px "Material Symbols Sharp"');
-    return { outlinedReady: outlinedLoaded, sharpReady: sharpLoaded };
+  // FontFaceSet.check() は該当 @font-face が未登録でも true を返し得るため、
+  // 初期値は未読込とし、対象文字を指定した load() の成功後だけ ready にする。
+  const [status, setStatus] = useState<FontLoadingStatus>({
+    outlinedReady: false,
+    sharpReady: false,
   });
 
   useEffect(() => {
