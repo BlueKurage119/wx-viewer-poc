@@ -150,9 +150,24 @@ export function buildPanelTable(response: EarlyWarningResponse, now: number): Wa
 
 export function buildDetailTable(response: EarlyWarningResponse): WarningTable {
   const near = columnsFor(response, 'near');
-  const occupied = new Set(near.map((column) => `${column.timeFrom}/${column.timeTo}`));
+  const occupied: { from: number; to: number }[] = [];
+  // 開始順の近距離列を統合し、穴を埋めずに被覆範囲を求める。
+  for (const column of near) {
+    const from = Date.parse(column.timeFrom);
+    const to = Date.parse(column.timeTo);
+    const previous = occupied.at(-1);
+    if (previous && from <= previous.to) {
+      previous.to = Math.max(previous.to, to);
+    } else {
+      occupied.push({ from, to });
+    }
+  }
   const far = columnsFor(response, 'far').filter(
-    (column) => !occupied.has(`${column.timeFrom}/${column.timeTo}`),
+    (column) =>
+      !occupied.some(
+        (range) =>
+          range.from <= Date.parse(column.timeFrom) && Date.parse(column.timeTo) <= range.to,
+      ),
   );
   const columns = [...near, ...far].sort(
     (a, b) =>
