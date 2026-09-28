@@ -21,14 +21,14 @@ export function InfoPanelColumn({ venueId, input }: InfoPanelColumnProps) {
     <>
       {PANEL_DEFINITIONS.map((definition) => {
         const cards = sortCardsByTimeDescending(resolvedInput[definition.id] ?? []);
-        const target = resolvePanelTarget(venueId, definition.id);
+        const defaultTarget = resolvePanelTarget(venueId, definition.id);
 
         return cards.map((card) => (
           <InfoPanelFrame
             key={`${definition.id}-${card.key}`}
             definition={definition}
             heading={card.heading}
-            target={target}
+            target={card.target ?? defaultTarget}
             status={card.status}
             issuedTimes={card.issuedTimes}
           >

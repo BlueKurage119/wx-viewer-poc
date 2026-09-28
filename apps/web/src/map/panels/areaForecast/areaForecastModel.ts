@@ -6,7 +6,7 @@ import type {
   WeatherArea,
   WeatherStation,
 } from '@wx-viewer-poc/shared';
-import { classifyWindDirection } from '../warningTimeSeries/warningTimeSeriesModel';
+import { classifyWindDirection16, isDirectionalText } from './windDirection16';
 import { buildWeatherView, type WeatherView } from './weatherIconMap';
 import { buildLevelView, type LevelView } from './windSpeedLevel';
 import { formatFullJstDate } from '../../detail/timeSeriesHeader';
@@ -16,12 +16,12 @@ const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 export type AreaForecastColumn = {
   readonly key: string;
   readonly at: UtcIso8601String; // 列の代表時刻（区間の開始時刻 = 同時刻の時点）
-  readonly intervalLabel: string | null; // 「9-12時」。この列から始まる区間が無ければ null
-  readonly pointLabel: string | null; // 「9時」。この列時刻の気温時点が無ければ null
+  readonly label: string; // 「9時」。全列に付ける時点1段の見出し（確定事項12）
 };
 
 export type DirView =
-  | { readonly kind: 'missing' }
+  | { readonly kind: 'missing' } // 参照欠落（欠測）
+  | { readonly kind: 'none'; readonly raw: string } // 方向なし（方位文字以外の文字列）→「ー」
   | { readonly kind: 'text'; readonly text: string; readonly rotation: number | null };
 
 export type WindView = {
@@ -103,10 +103,13 @@ export function buildDirView(valueText: string | null, unit: string | null): Dir
   if (valueText === null) {
     return { kind: 'missing' };
   }
+  if (!isDirectionalText(valueText)) {
+    return { kind: 'none', raw: valueText };
+  }
   return {
     kind: 'text',
     text: valueText,
-    rotation: classifyWindDirection(valueText, unit),
+    rotation: classifyWindDirection16(valueText, unit),
   };
 }
 
@@ -215,23 +218,12 @@ export function buildAreaForecastModel(data: AreaTimeseriesData): AreaForecastMo
     tempByFrom.set(td.timeFrom, td);
   }
 
-  // 列リストの構築
-  const columns: AreaForecastColumn[] = sortedTimes.map((at, index) => {
-    const reg = regionByFrom.get(at);
-    const temp = tempByFrom.get(at);
-    const intervalLabel =
-      reg !== undefined
-        ? `${toJstHour(reg.timeFrom)}-${toJstEndHour(reg.timeFrom, reg.timeTo)}時`
-        : null;
-    const pointLabel = temp !== undefined ? `${toJstHour(temp.timeFrom)}時` : null;
-
-    return {
-      key: `col-${index}-${at}`,
-      at,
-      intervalLabel,
-      pointLabel,
-    };
-  });
+  // 列リストの構築（見出しは時点1段「9時」、確定事項12）
+  const columns: AreaForecastColumn[] = sortedTimes.map((at, index) => ({
+    key: `col-${index}-${at}`,
+    at,
+    label: `${toJstHour(at)}時`,
+  }));
 
   // 区間セルの構築
   const intervals: IntervalCell[] = [];
@@ -374,29 +366,27 @@ export function selectPanelColumns(
 }
 
 /**
- * 画面表記の対象地点・地域名の解決 (Issue #58 §4.2, §4.3, AC-12)。
+ * 画面表記の対象地点・地域名の解決 (Issue #58 §4.2, §4.3, 確定事項11, AC-11)。
+ *
+ * パネル見出し・詳細ダイアログとも同じ「東京地方／東京（北の丸公園）」の1本の文字列で表す。
+ * `area.code` / `station.code` が会場定義と一致しない場合は、推測で定義名を付けず
+ * API の `area.name` / `station.name` をそのまま使う。
  */
-export function resolveAreaForecastTargets(
-  area: WeatherArea,
-  station: WeatherStation,
-): {
-  readonly weatherWindTarget: string;
-  readonly temperatureTarget: string;
-  readonly detailDialogTarget: string;
-} {
+export function resolveAreaForecastTarget(area: WeatherArea, station: WeatherStation): string {
   const isDefaultTokyo = area.code === '130010' && station.code === '44132';
   const areaName = isDefaultTokyo ? '東京地方' : area.name;
   const stationName = isDefaultTokyo ? '東京（北の丸公園）' : station.name;
-  return {
-    weatherWindTarget: `天気・風：${areaName}`,
-    temperatureTarget: `気温：${stationName}`,
-    detailDialogTarget: `${areaName}／${stationName}`,
-  };
+  return `${areaName}／${stationName}`;
 }
 
 // ==========================================
 // 読み上げテキスト (aria-label) 生成ヘルパー (Issue #58 §4.1, AC-9)
 // ==========================================
+
+/** 列見出しの読み上げ。例「2026年9月28日(月) 9時」(§4.1)。 */
+export function formatColumnAriaLabel(column: AreaForecastColumn): string {
+  return `${formatFullJstDate(column.at)} ${column.label}`;
+}
 
 export function formatIntervalRangeJst(fromIso: string, toIso: string): string {
   const fromHour = toJstHour(fromIso);
@@ -423,8 +413,13 @@ export function formatWindAriaLabel(interval: IntervalCell, column: AreaForecast
   }
   const timeRange = formatIntervalRangeJst(interval.timeFrom, interval.timeTo);
 
+  const direction = interval.wind.direction;
   const dirText =
-    interval.wind.direction.kind === 'missing' ? '風向欠測' : `${interval.wind.direction.text}の風`;
+    direction.kind === 'missing'
+      ? '風向欠測'
+      : direction.kind === 'none'
+        ? `風向なし（${direction.raw}）`
+        : `${direction.text}の風`;
 
   let speedText = '';
   if (interval.wind.level.kind === 'missing') {

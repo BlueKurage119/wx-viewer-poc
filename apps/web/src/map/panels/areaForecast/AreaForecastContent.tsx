@@ -7,19 +7,75 @@ import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollC
 import {
   buildAreaForecastModel,
   selectPanelColumns,
-  resolveAreaForecastTargets,
+  resolveAreaForecastTarget,
   formatWeatherAriaLabel,
   formatWindAriaLabel,
   formatTemperatureAriaLabel,
-  formatIntervalRangeJst,
-  toJstHour,
-  toJstEndHour,
+  formatColumnAriaLabel,
   type AreaForecastColumn,
   type AreaForecastTableModel,
+  type DirView,
   type IntervalCell,
   type PointCell,
 } from './areaForecastModel';
+import type { LevelView } from './windSpeedLevel';
 import { useFontLoading, type FontLoadingStatus } from './useFontLoading';
+
+/** 風向の矢羽根枠(24×24px固定)。矢羽根／漢字代替／「ー」／「?」のいずれか1つだけを枠内に表示する
+ * (§4.1a、§7、確定事項13: 風向の漢字は画面から消し aria-label にのみ残す)。 */
+function WindArrowBox({
+  direction,
+  level,
+  fontStatus,
+}: {
+  readonly direction: DirView;
+  readonly level: LevelView;
+  readonly fontStatus: FontLoadingStatus;
+}) {
+  if (direction.kind === 'missing') {
+    return (
+      <span className="af-wind-arrow-box" aria-hidden="true">
+        <span className="wts-cell-missing">?</span>
+      </span>
+    );
+  }
+  if (direction.kind === 'none') {
+    return (
+      <span className="af-wind-arrow-box" aria-hidden="true">
+        <span className="af-wind-none">ー</span>
+      </span>
+    );
+  }
+
+  const canShowArrow = direction.rotation !== null && fontStatus.outlinedReady;
+  if (!canShowArrow) {
+    return (
+      <span className="af-wind-arrow-box" aria-hidden="true">
+        <span className="af-wind-dir-fallback">{direction.text}</span>
+      </span>
+    );
+  }
+
+  const showFill = level.kind === 'known' && fontStatus.sharpReady;
+  return (
+    <span className="af-wind-arrow-box" aria-hidden="true">
+      {showFill && (
+        <span
+          className="af-wind-layer af-wind-fill"
+          style={{ color: level.colorVar, transform: `rotate(${direction.rotation}deg)` }}
+        >
+          navigation
+        </span>
+      )}
+      <span
+        className="af-wind-layer af-wind-outline"
+        style={{ transform: `rotate(${direction.rotation}deg)` }}
+      >
+        navigation
+      </span>
+    </span>
+  );
+}
 
 function WeatherCellView({
   interval,
@@ -76,12 +132,6 @@ function WindCellView({
   }
 
   const { direction, level } = interval.wind;
-  const showArrow = direction.kind === 'text' && direction.rotation !== null;
-  const rotation = direction.kind === 'text' ? (direction.rotation ?? 0) : 0;
-  const showFill = level.kind === 'known';
-  const showOutline = showArrow;
-
-  const dirText = direction.kind === 'text' ? direction.text : '';
 
   let rangeText = '';
   if (level.kind === 'known') {
@@ -93,37 +143,7 @@ function WindCellView({
   return (
     <div className="af-cell-wind" aria-label={ariaLabel}>
       <div className="af-wind-top">
-        <span className="af-wind-arrow-box" aria-hidden="true">
-          {showArrow && (
-            <>
-              {showFill && (
-                <span
-                  className="af-wind-layer af-wind-fill"
-                  style={{
-                    color: level.colorVar,
-                    transform: `rotate(${rotation}deg)`,
-                    visibility:
-                      fontStatus.outlinedReady && fontStatus.sharpReady ? 'visible' : 'hidden',
-                  }}
-                >
-                  navigation
-                </span>
-              )}
-              {showOutline && (
-                <span
-                  className="af-wind-layer af-wind-outline"
-                  style={{
-                    transform: `rotate(${rotation}deg)`,
-                    visibility: fontStatus.outlinedReady ? 'visible' : 'hidden',
-                  }}
-                >
-                  navigation
-                </span>
-              )}
-            </>
-          )}
-        </span>
-        {dirText && <span className="af-wind-dir-text">{dirText}</span>}
+        <WindArrowBox direction={direction} level={level} fontStatus={fontStatus} />
       </div>
       <div className="af-wind-range">
         {level.kind === 'missing' ? (
@@ -165,7 +185,7 @@ function TemperatureCellView({
   );
 }
 
-/** パネル専用表ビュー (最大3列表示) */
+/** パネル専用表ビュー (最大3列表示、時点1段見出し、確定事項12) */
 function AreaForecastPanelTable({
   table,
   columns,
@@ -188,18 +208,10 @@ function AreaForecastPanelTable({
         <caption className="af-visually-hidden">地域時系列予報</caption>
         <thead>
           <tr>
-            <th scope="col" aria-label="時間帯" />
-            {columns.map((col) => (
-              <th scope="col" key={`interval-${col.key}`}>
-                {col.intervalLabel ?? ''}
-              </th>
-            ))}
-          </tr>
-          <tr>
             <th scope="col" aria-label="時刻" />
             {columns.map((col) => (
-              <th scope="col" key={`point-${col.key}`}>
-                {col.pointLabel ?? ''}
+              <th scope="col" key={col.key} aria-label={formatColumnAriaLabel(col)}>
+                {col.label}
               </th>
             ))}
           </tr>
@@ -251,7 +263,7 @@ function AreaForecastPanelTable({
   );
 }
 
-/** 詳細ダイアログ (全区間・全時点を横スクロール) */
+/** 詳細ダイアログ (全区間・全時点を横スクロール、日付＋時点の2段見出し) */
 export function AreaForecastDetail({
   table,
   now,
@@ -268,29 +280,10 @@ export function AreaForecastDetail({
   const columns = table.columns.map((col) => ({
     key: col.key,
     at: col.at,
-    timeLabel: col.pointLabel ?? '',
-    ariaTimeLabel: col.pointLabel ?? '',
+    timeLabel: col.label,
+    ariaTimeLabel: col.label,
     width: '4rem',
   }));
-
-  const intervalHeaderCells = table.intervals.map((int, index) => {
-    if (int.kind === 'none') {
-      return {
-        key: `int-none-${index}`,
-        label: '',
-        span: int.span,
-        ariaLabel: '対象外',
-      };
-    }
-    const fromHour = toJstHour(int.timeFrom);
-    const toHour = toJstEndHour(int.timeFrom, int.timeTo);
-    return {
-      key: `int-${int.timeFrom}`,
-      label: `${fromHour}-${toHour}時`,
-      span: int.span,
-      ariaLabel: formatIntervalRangeJst(int.timeFrom, int.timeTo),
-    };
-  });
 
   const weatherRowCells = table.intervals.map((int, i) => {
     const col = table.columns[int.startIndex]!;
@@ -333,9 +326,8 @@ export function AreaForecastDetail({
       caption="地域時系列予報の全期間"
       rowHeaderLabel="日（曜日）"
       dateHeaderMode="day-weekday-on-change"
-      cornerLabels={{ date: '日（曜日）', interval: '時間帯', time: '時刻' }}
+      cornerLabels={{ date: '日（曜日）', time: '時刻' }}
       columns={columns}
-      intervalHeaderCells={intervalHeaderCells}
       rows={rows}
       initialColumnKey={initialColumnKey}
       stickyHeader
@@ -360,15 +352,10 @@ export function AreaForecastPanel({
   }
 
   const model = buildAreaForecastModel(response.data);
-  const targets = resolveAreaForecastTargets(response.area, response.data.station);
 
   if (model.kind === 'invalid') {
     return (
       <div className="af-panel">
-        <div className="af-target-block">
-          <p className="af-target-line">{targets.weatherWindTarget}</p>
-          <p className="af-target-line">{targets.temperatureTarget}</p>
-        </div>
         <p className="af-message">表示できない予報形式です</p>
       </div>
     );
@@ -378,10 +365,6 @@ export function AreaForecastPanel({
 
   return (
     <div className="af-panel">
-      <div className="af-target-block">
-        <p className="af-target-line">{targets.weatherWindTarget}</p>
-        <p className="af-target-line">{targets.temperatureTarget}</p>
-      </div>
       <AreaForecastPanelTable table={model} columns={panelColumns} fontStatus={fontStatus} />
       {onOpenDetail && (
         <GbButton color="text" size="sm" onClick={onOpenDetail}>
@@ -408,7 +391,7 @@ export function AreaForecastContent({
   }
 
   const model = buildAreaForecastModel(response.data);
-  const targets = resolveAreaForecastTargets(response.area, response.data.station);
+  const target = resolveAreaForecastTarget(response.area, response.data.station);
 
   return (
     <>
@@ -423,7 +406,7 @@ export function AreaForecastContent({
           open={open}
           meta={{
             title: '地域時系列予報',
-            target: targets.detailDialogTarget,
+            target,
             time: { kind: 'issued', value: response.metadata.issuedAt },
             isTraining: response.isTraining,
           }}

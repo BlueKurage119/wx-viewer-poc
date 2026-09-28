@@ -81,7 +81,7 @@ export function buildAreaForecastFixtureResponse(now: number): AreaTimeseriesRes
   ];
 
   // 風データ (風向・風速階級)
-  // インデックス 2: 階級1・「北」、3: 階級2・「北北西」(矢羽根なし)、4: 欠測
+  // インデックス 2: 階級1・「北」(矢羽根)、3: 階級2・「北北西」(unit=１６方位漢字、矢羽根)、4: 欠測
   const windList: {
     readonly dir: string | null;
     readonly unit: string | null;
@@ -90,16 +90,16 @@ export function buildAreaForecastFixtureResponse(now: number): AreaTimeseriesRes
     { dir: '南', unit: '８方位漢字', rank: '3' }, // 0: 階級3
     { dir: '南西', unit: '８方位漢字', rank: '4' }, // 1: 階級4
     { dir: '北', unit: '８方位漢字', rank: '1' }, // 2 (現在区間: 階級1)
-    { dir: '北北西', unit: '１６方位漢字', rank: '2' }, // 3: 階級2・矢羽根なし
-    { dir: null, unit: null, rank: null }, // 4: 欠測
+    { dir: '北北西', unit: '１６方位漢字', rank: '2' }, // 3: 階級2・矢羽根(unit=１６方位漢字)
+    { dir: null, unit: null, rank: null }, // 4: 欠測(参照欠落 → ?)
     { dir: '西', unit: '８方位漢字', rank: '5' }, // 5: 階級5
     { dir: '東', unit: '８方位漢字', rank: '6' }, // 6: 階級6
     { dir: '南東', unit: '８方位漢字', rank: '7' }, // 7: unknown 階級 '7'
-    { dir: '北東', unit: '８方位漢字', rank: '1' }, // 8
-    { dir: '北', unit: '８方位漢字', rank: '2' }, // 9
-    { dir: '南', unit: '８方位漢字', rank: '3' }, // 10
-    { dir: '西', unit: '８方位漢字', rank: '4' }, // 11
-    { dir: '東', unit: '８方位漢字', rank: '5' }, // 12
+    { dir: '北北西', unit: '８方位漢字', rank: '1' }, // 8: 矢羽根(unit=８方位漢字でも16方位表にあれば回転)
+    { dir: '北北北西', unit: '８方位漢字', rank: '2' }, // 9: 16方位表に無い方位文字 → 漢字代替
+    { dir: '静穏', unit: '８方位漢字', rank: '3' }, // 10: 方向なし → 「ー」
+    { dir: '東', unit: '８方位漢字', rank: '4' }, // 11
+    { dir: '北西', unit: '８方位漢字', rank: '5' }, // 12
     { dir: '北', unit: '８方位漢字', rank: '6' }, // 13
   ];
 

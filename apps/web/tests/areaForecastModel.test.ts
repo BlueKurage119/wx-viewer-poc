@@ -5,14 +5,20 @@ import type { AreaTimeseriesData } from '@wx-viewer-poc/shared';
 import {
   buildAreaForecastModel,
   selectPanelColumns,
-  resolveAreaForecastTargets,
+  resolveAreaForecastTarget,
   formatWeatherAriaLabel,
   formatWindAriaLabel,
   formatTemperatureAriaLabel,
   buildTemperatureView,
+  buildDirView,
 } from '../src/map/panels/areaForecast/areaForecastModel';
 import { buildWeatherView } from '../src/map/panels/areaForecast/weatherIconMap';
 import { buildLevelView } from '../src/map/panels/areaForecast/windSpeedLevel';
+import {
+  classifyWindDirection16,
+  isDirectionalText,
+} from '../src/map/panels/areaForecast/windDirection16';
+import { classifyWindDirection } from '../src/map/panels/warningTimeSeries/warningTimeSeriesModel';
 
 function sampleDto(): AreaTimeseriesData {
   return {
@@ -140,15 +146,12 @@ test('Issue #58 AC-2: values の順序シャッフル・refId結合・区間外�
   assert.equal(model1.kind, 'table');
   if (model1.kind !== 'table') return;
 
-  // 列数は 3列 (9時JST, 12時JST, 15時JST)
+  // 列数は 3列 (9時JST, 12時JST, 15時JST)。見出しは時点1段（確定事項12）
   assert.equal(model1.columns.length, 3);
-  assert.equal(model1.columns[0]!.intervalLabel, '9-12時');
-  assert.equal(model1.columns[0]!.pointLabel, '9時');
-  assert.equal(model1.columns[1]!.intervalLabel, '12-15時');
-  assert.equal(model1.columns[1]!.pointLabel, '12時');
-  // 最終列 (15時JST) は区間がないため intervalLabel は null、pointLabel は「15時」
-  assert.equal(model1.columns[2]!.intervalLabel, null);
-  assert.equal(model1.columns[2]!.pointLabel, '15時');
+  assert.equal(model1.columns[0]!.label, '9時');
+  assert.equal(model1.columns[1]!.label, '12時');
+  // 最終列 (15時JST) は区間がなくても見出しは「15時」のまま残す
+  assert.equal(model1.columns[2]!.label, '15時');
 
   // 9時の気温 (12℃) が「9-12時」列に置かれていること
   assert.equal(model1.points[0]!.kind, 'value');
@@ -350,15 +353,13 @@ test('Issue #58 AC-3: 14区間・15時点の生成と区間「6-9時」…「21-
   if (model.kind !== 'table') return;
 
   assert.equal(model.columns.length, 15);
-  // 先頭列 (23日06:00 JST)
-  assert.equal(model.columns[0]!.intervalLabel, '6-9時');
-  assert.equal(model.columns[0]!.pointLabel, '6時');
-  // 6番目 (24日00:00 JST終端の列: 23日21-24時)
-  assert.equal(model.columns[5]!.intervalLabel, '21-24時');
-  assert.equal(model.columns[5]!.pointLabel, '21時');
-  // 最終列 (25日00:00 JST)
-  assert.equal(model.columns[14]!.intervalLabel, null);
-  assert.equal(model.columns[14]!.pointLabel, '0時');
+  // 先頭列 (23日06:00 JST) 〜 6番目 (23日21時) 〜 最終列 (25日00:00 JST) まで時点1段の見出し
+  assert.equal(model.columns[0]!.label, '6時');
+  assert.equal(model.columns[5]!.label, '21時');
+  assert.equal(model.columns[14]!.label, '0時');
+  // 区間の範囲表記「6-9時」等は見出しに出さない
+  assert.equal(model.intervals[0]!.kind, 'value');
+  assert.equal(model.intervals[14]!.kind, 'none');
 });
 
 test('Issue #58 AC-4: パネル3列の単体テスト (現在区間起点・境界now=timeTo・未来先頭・3列未満・過去のみ)', () => {
@@ -497,22 +498,100 @@ test('Issue #58 AC-9: aria-label 生成ヘルパー', () => {
   assert.equal(formatWeatherAriaLabel(noneInt, model.columns[2]!), '2026年9月28日(月)、対象外');
 });
 
-test('Issue #58 AC-12: resolveAreaForecastTargets - 想定値で固定表記、不一致でAPI名称', () => {
-  // 想定値 (130010, 44132)
-  const defaultTargets = resolveAreaForecastTargets(
+test('Issue #58 AC-11: resolveAreaForecastTarget - 想定値で固定表記、不一致でAPI名称', () => {
+  // 想定値 (130010, 44132) -> 1行「東京地方／東京（北の丸公園）」(確定事項11)
+  const defaultTarget = resolveAreaForecastTarget(
     { code: '130010', name: '東京都' },
     { code: '44132', name: '東京管区気象台' },
   );
-  assert.equal(defaultTargets.weatherWindTarget, '天気・風：東京地方');
-  assert.equal(defaultTargets.temperatureTarget, '気温：東京（北の丸公園）');
-  assert.equal(defaultTargets.detailDialogTarget, '東京地方／東京（北の丸公園）');
+  assert.equal(defaultTarget, '東京地方／東京（北の丸公園）');
 
-  // 不一致 (別地点)
-  const otherTargets = resolveAreaForecastTargets(
+  // 不一致 (別地点) は API 名称
+  const otherTarget = resolveAreaForecastTarget(
     { code: '140010', name: '神奈川県東部' },
     { code: '46106', name: '横浜' },
   );
-  assert.equal(otherTargets.weatherWindTarget, '天気・風：神奈川県東部');
-  assert.equal(otherTargets.temperatureTarget, '気温：横浜');
-  assert.equal(otherTargets.detailDialogTarget, '神奈川県東部／横浜');
+  assert.equal(otherTarget, '神奈川県東部／横浜');
+});
+
+test('Issue #58 確定事項17: 16方位表・8方位表の回転角一致、16方位表に無い方位文字はnull', () => {
+  // 16方位の全16語が固定表どおりの回転角
+  const table16: Readonly<Record<string, number>> = {
+    北: 180,
+    北北東: 202.5,
+    北東: 225,
+    東北東: 247.5,
+    東: 270,
+    東南東: 292.5,
+    南東: 315,
+    南南東: 337.5,
+    南: 0,
+    南南西: 22.5,
+    南西: 45,
+    西南西: 67.5,
+    西: 90,
+    西北西: 112.5,
+    北西: 135,
+    北北西: 157.5,
+  };
+  for (const [text, rotation] of Object.entries(table16)) {
+    assert.equal(classifyWindDirection16(text, '８方位漢字') === rotation, true, text);
+    assert.equal(classifyWindDirection16(text, '１６方位漢字') === rotation, true, text);
+  }
+
+  // 8方位は #55 の classifyWindDirection と同じ角度になる
+  for (const text of ['北', '北東', '東', '南東', '南', '南西', '西', '北西']) {
+    assert.equal(
+      classifyWindDirection16(text, '８方位漢字'),
+      classifyWindDirection(text, '８方位漢字'),
+    );
+  }
+
+  // 16方位表に無い方位文字・unit不一致は null
+  assert.equal(classifyWindDirection16('北北北西', '８方位漢字'), null);
+  assert.equal(classifyWindDirection16('北', '３６方位漢字'), null);
+  assert.equal(classifyWindDirection16('北', null), null);
+
+  // 方位文字の判定
+  assert.equal(isDirectionalText('北北西'), true);
+  assert.equal(isDirectionalText('北北北西'), true);
+  assert.equal(isDirectionalText('静穏'), false);
+  assert.equal(isDirectionalText('風向不定'), false);
+  assert.equal(isDirectionalText('微風'), false);
+  assert.equal(isDirectionalText('風弱く'), false);
+  assert.equal(isDirectionalText(''), false);
+});
+
+test('Issue #58 §4.1a: buildDirView - missing/none/矢羽根可/漢字代替の4状態', () => {
+  // 欠測(参照欠落)
+  assert.deepEqual(buildDirView(null, null), { kind: 'missing' });
+
+  // 方向なし (方位文字以外) -> none
+  assert.deepEqual(buildDirView('静穏', '８方位漢字'), { kind: 'none', raw: '静穏' });
+
+  // 16方位表にあり矢羽根可 (unitがどちらでも)
+  assert.deepEqual(buildDirView('北北西', '１６方位漢字'), {
+    kind: 'text',
+    text: '北北西',
+    rotation: 157.5,
+  });
+  assert.deepEqual(buildDirView('北北西', '８方位漢字'), {
+    kind: 'text',
+    text: '北北西',
+    rotation: 157.5,
+  });
+
+  // 16方位表に無い方位文字 -> rotation null (漢字代替)
+  assert.deepEqual(buildDirView('北北北西', '８方位漢字'), {
+    kind: 'text',
+    text: '北北北西',
+    rotation: null,
+  });
+
+  // unit がそれ以外 -> rotation null (漢字代替)
+  assert.deepEqual(buildDirView('北', '３６方位漢字'), {
+    kind: 'text',
+    text: '北',
+    rotation: null,
+  });
 });

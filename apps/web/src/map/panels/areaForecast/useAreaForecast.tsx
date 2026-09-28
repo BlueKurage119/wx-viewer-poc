@@ -4,6 +4,7 @@ import type { InfoPanelCardInput } from '../panelDefinitions';
 import { useTileCatalogPolling } from '../../tiles/useTileCatalogPolling';
 import { fetchAreaForecast } from '../../../api/areaForecast';
 import { AreaForecastContent } from './AreaForecastContent';
+import { resolveAreaForecastTarget } from './areaForecastModel';
 import {
   isAreaForecastFixtureActive,
   type AreaForecastFixtureEnvironment,
@@ -20,6 +21,11 @@ export function buildAreaForecastCard(
   return {
     key: 'areaForecast',
     heading,
+    // データがあるときだけ対象表記を渡す(§4.2)。API コード不一致時は API 名称になる
+    target:
+      response.data !== null
+        ? resolveAreaForecastTarget(response.area, response.data.station)
+        : undefined,
     status: isAvailable
       ? {
           kind: 'data',

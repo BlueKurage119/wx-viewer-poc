@@ -8,7 +8,7 @@ import type { AreaTimeseriesResponse } from '@wx-viewer-poc/shared';
 import {
   buildAreaForecastModel,
   selectPanelColumns,
-  resolveAreaForecastTargets,
+  resolveAreaForecastTarget,
 } from '../src/map/panels/areaForecast/areaForecastModel.ts';
 import {
   AreaForecastDetail,
@@ -72,9 +72,15 @@ test('Issue #58 AC-7: area-forecast フィクスチャの表示内容（パネ�
     }),
   );
 
-  // 対象表記2行
-  assert.match(panelHtml, /天気・風：東京地方/);
-  assert.match(panelHtml, /気温：東京（北の丸公園）/);
+  // 旧2行の対象表記が本文に無いこと（対象表記はパネル見出しのメタ行に統合、確定事項11）
+  assert.doesNotMatch(panelHtml, /天気・風：/);
+  assert.doesNotMatch(panelHtml, /気温：/);
+
+  // カード入力の対象表記が1行「東京地方／東京（北の丸公園）」であること（確定事項11）
+  assert.equal(card.target, '東京地方／東京（北の丸公園）');
+
+  // 時点1段の見出し（区間「9-12時」等が DOM に無い）
+  assert.doesNotMatch(panelHtml, /\d+-\d+時/);
 
   // 行見出し: 天気、風（m/s）、気温
   assert.match(panelHtml, /<th scope="row">天気<\/th>/);
@@ -102,10 +108,10 @@ test('Issue #58 AC-7: area-forecast フィクスチャの表示内容（パネ�
 
   // 14区間・15時点の全列が含まれていること
   assert.equal(model.columns.length, 15);
-  // 見出しが3段（日（曜日）、時間帯、時刻）
+  // 見出しが2段（日（曜日）、時刻）。区間行「時間帯」は廃止（確定事項12）
   assert.match(detailHtml, /日（曜日）/);
-  assert.match(detailHtml, /時間帯/);
   assert.match(detailHtml, /時刻/);
+  assert.doesNotMatch(detailHtml, /時間帯/);
 
   // 風速階級1〜6すべてが表示されていること
   assert.match(detailHtml, /0-2/);
@@ -206,20 +212,27 @@ test('Issue #58 AC-12: 状態（loading、failed、stale、issuedAt=null、固�
     assert.notEqual(cardNullIssued.status.time, '2026-09-28T03:05:00Z');
   }
 
-  // 4. 固定表記ルール
-  const defaultTargets = resolveAreaForecastTargets(
+  // 4. 固定表記ルール（1行「東京地方／東京（北の丸公園）」、確定事項11）
+  const defaultTarget = resolveAreaForecastTarget(
     { code: '130010', name: '東京都' },
     { code: '44132', name: '東京' },
   );
-  assert.equal(defaultTargets.weatherWindTarget, '天気・風：東京地方');
-  assert.equal(defaultTargets.temperatureTarget, '気温：東京（北の丸公園）');
+  assert.equal(defaultTarget, '東京地方／東京（北の丸公園）');
 
-  const customTargets = resolveAreaForecastTargets(
+  const customTarget = resolveAreaForecastTarget(
     { code: '120010', name: '千葉県北西部' },
     { code: '45106', name: '千葉' },
   );
-  assert.equal(customTargets.weatherWindTarget, '天気・風：千葉県北西部');
-  assert.equal(customTargets.temperatureTarget, '気温：千葉');
+  assert.equal(customTarget, '千葉県北西部／千葉');
+
+  // buildAreaForecastCard のカード入力にも同じ規則で target が渡ること
+  const customResponse = {
+    ...response,
+    area: { code: '120010', name: '千葉県北西部' },
+    data: { ...response.data!, station: { code: '45106', name: '千葉' } },
+  };
+  const customCard = buildAreaForecastCard(customResponse, now);
+  assert.equal(customCard.target, '千葉県北西部／千葉');
 });
 
 test('Issue #58 AC-13: 風速色・コントラスト比・トークン検証', () => {
@@ -298,8 +311,8 @@ test('Issue #58 AC-18: フォント未読み込み時のリガチャ文字列非
   // visibility: hidden が矢羽根要素と天気アイコンに適用される
   assert.match(detailHtml, /visibility:hidden/);
 
-  // 風セル内に風向文字と範囲表記は残っていること
-  assert.match(detailHtml, /class="af-wind-dir-text"/);
+  // 風セル内は矢羽根枠に風向の漢字が代替表示され、範囲表記は残っていること
+  assert.match(detailHtml, /class="af-wind-dir-fallback"/);
   assert.match(detailHtml, /class="af-wind-range"/);
 
   // 天気セル内に名称は残っていること

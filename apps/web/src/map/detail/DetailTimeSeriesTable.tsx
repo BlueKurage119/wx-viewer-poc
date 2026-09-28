@@ -57,29 +57,7 @@ export interface DetailTimeSeriesTableProps {
   readonly bodyDateBoundaries?: boolean;
   /** 2種類の詳細だけで使う、月を省いた日付見出し。 */
   readonly dateHeaderMode?: 'day-weekday-on-change';
-  readonly cornerLabels?: {
-    readonly date: string;
-    readonly time: string;
-    readonly interval?: string;
-  };
-  readonly intervalHeaderCells?: readonly TimeSeriesIntervalHeaderCell[];
-}
-
-export interface TimeSeriesIntervalHeaderCell {
-  readonly key: string;
-  readonly label: string;
-  readonly span: number;
-  readonly ariaLabel?: string;
-}
-
-/** intervalHeaderCells の span 合計が列数と一致するか検証する (§4.3, AC-11) */
-// eslint-disable-next-line react-refresh/only-export-components
-export function validateIntervalHeaderSpans(
-  columns: readonly TimeSeriesColumn[],
-  intervalHeaderCells: readonly TimeSeriesIntervalHeaderCell[],
-): boolean {
-  const total = intervalHeaderCells.reduce((sum, cell) => sum + (cell.span ?? 1), 0);
-  return total === columns.length;
+  readonly cornerLabels?: { readonly date: string; readonly time: string };
 }
 
 const ROW_HEADER_WIDTH = 'var(--detail-ts-row-header-width, 7rem)';
@@ -110,18 +88,12 @@ function HeaderRows({
   dateLabels,
   dateHeaderMode,
   cornerLabels,
-  intervalHeaderCells,
 }: {
   readonly columns: readonly TimeSeriesColumn[];
   readonly rowHeaderLabel?: string;
   readonly dateLabels: readonly (string | null)[];
   readonly dateHeaderMode?: 'day-weekday-on-change';
-  readonly cornerLabels?: {
-    readonly date: string;
-    readonly time: string;
-    readonly interval?: string;
-  };
-  readonly intervalHeaderCells?: readonly TimeSeriesIntervalHeaderCell[];
+  readonly cornerLabels?: { readonly date: string; readonly time: string };
 }) {
   return (
     <thead>
@@ -145,18 +117,6 @@ function HeaderRows({
           </th>
         ))}
       </tr>
-      {intervalHeaderCells !== undefined && (
-        <tr>
-          <th scope="col" className="detail-ts-corner">
-            {cornerLabels?.interval}
-          </th>
-          {intervalHeaderCells.map((cell) => (
-            <th key={cell.key} scope="col" colSpan={cell.span} aria-label={cell.ariaLabel}>
-              {cell.label}
-            </th>
-          ))}
-        </tr>
-      )}
       <tr>
         <th scope="col" className="detail-ts-corner">
           {cornerLabels?.time}
@@ -220,7 +180,6 @@ export function DetailTimeSeriesTable({
   bodyDateBoundaries = false,
   dateHeaderMode,
   cornerLabels,
-  intervalHeaderCells,
 }: DetailTimeSeriesTableProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
@@ -237,19 +196,6 @@ export function DetailTimeSeriesTable({
   if (import.meta.env?.DEV) {
     for (const key of validateRowSpans(columns, rows)) {
       console.error(`DetailTimeSeriesTable: 行 "${key}" の span 合計が列数と一致しません`);
-    }
-  }
-
-  if (intervalHeaderCells !== undefined) {
-    if (!validateIntervalHeaderSpans(columns, intervalHeaderCells)) {
-      if (import.meta.env?.DEV) {
-        console.error(
-          'DetailTimeSeriesTable: intervalHeaderCells の span 合計が列数と一致しません',
-        );
-      }
-      throw new Error(
-        'DetailTimeSeriesTable: intervalHeaderCells の span 合計が列数と一致しません',
-      );
     }
   }
 
@@ -291,7 +237,6 @@ export function DetailTimeSeriesTable({
             dateLabels={dateLabels}
             dateHeaderMode={dateHeaderMode}
             cornerLabels={cornerLabels}
-            intervalHeaderCells={intervalHeaderCells}
           />
           <BodyRows
             columns={columns}
@@ -314,7 +259,6 @@ export function DetailTimeSeriesTable({
             dateLabels={dateLabels}
             dateHeaderMode={dateHeaderMode}
             cornerLabels={cornerLabels}
-            intervalHeaderCells={intervalHeaderCells}
           />
         </table>
       </div>
