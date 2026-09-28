@@ -143,6 +143,92 @@ test('DetailDialogInner: isTraining=true で「訓練」ラベルが出力され
   assert.match(html, /訓練/);
 });
 
+// §4.8: metaAction未指定時は変更前と完全に同じ出力(回帰防止)
+test('DetailDialogInner: metaAction未指定時のメタ行markupは変更前と同じ', () => {
+  const meta: DetailDialogMeta = {
+    title: '警報等時系列',
+    target: '江東区',
+    time: { kind: 'issued', value: '2026-09-24T05:00:00+09:00' },
+    isTraining: false,
+  };
+  const html = renderToStaticMarkup(el(DetailDialogInner, { open: true, meta, onClose: () => {} }));
+  assert.match(
+    html,
+    /<p class="detail-dialog-meta md-typescale-body-medium">江東区\s*·\s*[^<]*発表<\/p>/,
+  );
+  assert.doesNotMatch(html, /detail-dialog-meta-row/);
+  assert.doesNotMatch(html, /detail-dialog-meta-action/);
+});
+
+// §4.8: metaAction指定時はメタ行がdetail-dialog-meta-rowでラップされ、右端に配置される
+test('DetailDialogInner: metaAction指定時はdetail-dialog-meta-rowでラップされ右端にmetaActionが出る', () => {
+  const meta: DetailDialogMeta = {
+    title: '警報等時系列',
+    target: '江東区',
+    time: { kind: 'issued', value: '2026-09-24T05:00:00+09:00' },
+    isTraining: false,
+  };
+  const html = renderToStaticMarkup(
+    el(DetailDialogInner, {
+      open: true,
+      meta,
+      onClose: () => {},
+      metaAction: el('button', null, 'テストアクション'),
+    }),
+  );
+  const rowMatch = html.match(/<div class="detail-dialog-meta-row">(.*?)<\/div>\s*<\/header>/s);
+  assert.ok(rowMatch, 'detail-dialog-meta-row が見つからない');
+  const rowHtml = (rowMatch as RegExpMatchArray)[1];
+  assert.match(rowHtml, /<p class="detail-dialog-meta md-typescale-body-medium">江東区/);
+  assert.match(
+    rowHtml,
+    /<div class="detail-dialog-meta-action"><button[^>]*>テストアクション<\/button><\/div>/,
+  );
+  const metaIndex = rowHtml.indexOf('<p class="detail-dialog-meta');
+  const actionIndex = rowHtml.indexOf('<div class="detail-dialog-meta-action"');
+  assert.ok(metaIndex < actionIndex, 'metaActionはメタ文言より右に置く');
+});
+
+// §4.8: メタ文言が両方無い(target/time.value 共にnull)ときもmetaActionだけ表示される
+test('DetailDialogInner: metaAction指定・メタ文言が無いときもmetaActionは表示される', () => {
+  const meta: DetailDialogMeta = {
+    title: 'x',
+    target: null,
+    time: { kind: 'issued', value: null },
+    isTraining: null,
+  };
+  const html = renderToStaticMarkup(
+    el(DetailDialogInner, {
+      open: true,
+      meta,
+      onClose: () => {},
+      metaAction: el('button', null, 'テストアクション'),
+    }),
+  );
+  assert.match(html, /<div class="detail-dialog-meta-row">/);
+  assert.match(html, /テストアクション/);
+  assert.doesNotMatch(html, /class="detail-dialog-meta md-typescale-body-medium"/);
+});
+
+// §4.8: initialFocusRefの型・配線が壊れていないことをコンパイル・実行の両面で確認
+// (focus()呼び出し自体はeffect起点でrenderToStaticMarkupでは検証できないため、
+// initialFocusRef指定時もh2にtabindex="-1"がそのまま残ることだけ確認する)
+test('DetailDialogInner: initialFocusRef指定時もh2にtabindex="-1"は変わらず出力される', () => {
+  const meta: DetailDialogMeta = {
+    title: '警報等時系列',
+    target: null,
+    time: { kind: 'issued', value: null },
+    isTraining: null,
+  };
+  const ref = { current: null };
+  const html = renderToStaticMarkup(
+    el(DetailDialogInner, { open: true, meta, onClose: () => {}, initialFocusRef: ref }),
+  );
+  const h2Match = html.match(/<h2[^>]*>/);
+  assert.ok(h2Match, 'h2 が出力される');
+  assert.match((h2Match as RegExpMatchArray)[0], /tabindex="-1"/);
+});
+
 test('DetailDialogInner: open=false のとき本文が出力されない', () => {
   const meta: DetailDialogMeta = {
     title: 'x',

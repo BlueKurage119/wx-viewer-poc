@@ -5,14 +5,19 @@
  * 本番ビルドでは `resolvePanelFixtureInput` が常に `undefined` を返す。
  */
 import { createElement } from 'react';
-import type { BulletinDto, WeatherMetadata } from '@wx-viewer-poc/shared';
+import type {
+  BulletinDto,
+  TimeseriesAddition,
+  WarningTimeseriesResponse,
+  WarningTimeseriesTimeDefine,
+  WarningTimeseriesValue,
+  WeatherMetadata,
+} from '@wx-viewer-poc/shared';
 import type { InfoPanelCardInput, InfoPanelColumnInput } from './panelDefinitions';
-import {
-  AreaForecastDetailFixtureEntry,
-  WarningTimeSeriesDetailFixtureEntry,
-} from './detailDialogFixtures';
+import { AreaForecastDetailFixtureEntry } from './detailDialogFixtures';
 import { buildBosaiBulletinCards } from './bosai/bosaiBulletinCards';
 import { buildWarningCards } from './warning/warningBadges';
+import { buildWarningTimeSeriesCard } from './warningTimeSeries/warningTimeSeriesModel';
 import type { WarningCurrentItem, WarningsResponse } from '@wx-viewer-poc/shared';
 
 const DUMMY_CONTENT = '（G2〜G7で実装）';
@@ -39,6 +44,351 @@ function contentCard(
     status: { kind: 'data', availability, time, timeKind },
     content,
   };
+}
+
+/**
+ * 警報等時系列(§6)の合成データ組み立て。実電文ではなく、開発用に合成した値である。
+ * `buildWarningTimeSeriesCard` を本番と同じ経路で通す。
+ */
+let wtsSequence = 0;
+function nextWtsSequence(): number {
+  wtsSequence += 1;
+  return wtsSequence;
+}
+
+function wtsRiskValue(
+  blockId: string,
+  refId: string,
+  propertyType: string,
+  areaDivision: string | null,
+  valueCode: string | null,
+): WarningTimeseriesValue {
+  return {
+    blockId,
+    refId,
+    kindCode: null,
+    kindName: null,
+    kindStatus: '発表',
+    kindDateTime: null,
+    valueCategory: 'risk',
+    propertyType,
+    valueType: propertyType,
+    valueCode,
+    valueText: valueCode ?? '',
+    unit: null,
+    description: null,
+    condition: null,
+    areaDivision,
+    sequence: nextWtsSequence(),
+    scope: null,
+  };
+}
+
+function wtsQuantityValue(
+  blockId: string,
+  refId: string,
+  propertyType: string,
+  valueType: string,
+  areaDivision: string | null,
+  valueText: string,
+  unit: string | null,
+  condition: string | null = null,
+): WarningTimeseriesValue {
+  return {
+    blockId,
+    refId,
+    kindCode: null,
+    kindName: null,
+    kindStatus: '発表',
+    kindDateTime: null,
+    valueCategory: 'quantity',
+    propertyType,
+    valueType,
+    valueCode: null,
+    valueText,
+    unit,
+    description: null,
+    condition,
+    areaDivision,
+    sequence: nextWtsSequence(),
+    scope: null,
+  };
+}
+
+function wtsTimeDefine(
+  blockId: string,
+  timeId: string,
+  sequence: number,
+  timeFrom: string,
+  timeTo: string,
+  duration: string,
+): WarningTimeseriesTimeDefine {
+  return { blockId, timeId, sequence, timeFrom, timeTo, duration };
+}
+
+/** 付加事項(備考)の合成データ。実データの根拠は設計書§2.1-21(新潟市実電文)。 */
+function wtsAddition(
+  blockId: string,
+  propertyType: string,
+  areaDivision: string | null,
+  localIndex: number | null,
+  additionIndex: number,
+  noteIndex: number,
+  text: string,
+): TimeseriesAddition {
+  return {
+    blockId,
+    scope: {
+      kindIndex: 0,
+      propertyIndex: 0,
+      partName: 'Note',
+      partIndex: 0,
+      baseIndex: 0,
+      localIndex,
+    },
+    propertyType,
+    kindStatus: '発表',
+    kindDateTime: null,
+    areaDivision,
+    additionIndex,
+    noteIndex,
+    text,
+  };
+}
+
+/** 「今日0時JST」から`offsetHours`時間後のISO(日境界をまたいでも正しく進む)。 */
+function jstDayOffset(offsetHours: number): string {
+  const now = new Date();
+  const jstMs = now.getTime() + 9 * 60 * 60 * 1000;
+  const jst = new Date(jstMs);
+  jst.setUTCHours(0, 0, 0, 0);
+  return new Date(jst.getTime() + offsetHours * 60 * 60 * 1000 - 9 * 60 * 60 * 1000).toISOString();
+}
+
+/** 当日06時起点の3時間区切りの時刻ISOを返す(block1用)。 */
+function block1Hour(columnIndex: number): string {
+  return jstDayOffset(6 + columnIndex * 3);
+}
+
+/**
+ * §6の合成応答。`quiet=true` は全行が未満・値なしになる正常空フィクスチャ。
+ * テスト(AC-19/21、実データに近い合成応答での備考照合の確認)からも使うためexportする。
+ */
+export function buildWarningTimeseriesFixtureResponse(quiet: boolean): WarningTimeseriesResponse {
+  wtsSequence = 0;
+  const COLUMN_COUNT = 14;
+  const block1Ids = Array.from({ length: COLUMN_COUNT }, (_, i) => `b1t${i}`);
+  const block1TimeDefines: WarningTimeseriesTimeDefine[] = block1Ids.map((timeId, i) =>
+    wtsTimeDefine('block1', timeId, i, block1Hour(i), block1Hour(i + 1), 'PT3H'),
+  );
+
+  const block2TimeDefines: WarningTimeseriesTimeDefine[] = [
+    wtsTimeDefine('block2', 'b2t0', 0, jstDayOffset(0), jstDayOffset(24), 'PT24H'),
+    wtsTimeDefine('block2', 'b2t1', 1, jstDayOffset(24), jstDayOffset(48), 'PT24H'),
+  ];
+
+  const block3TimeDefines: WarningTimeseriesTimeDefine[] = [
+    wtsTimeDefine('block3', 'b3t0', 0, jstDayOffset(6), jstDayOffset(24), 'PT18H'),
+    wtsTimeDefine('block3', 'b3t1', 1, jstDayOffset(24), jstDayOffset(48), 'PT24H'),
+    wtsTimeDefine('block3', 'b3t2', 2, jstDayOffset(48), jstDayOffset(72), 'PT24H'),
+  ];
+
+  const riskCodes = (codes: readonly string[]): readonly string[] =>
+    quiet ? codes.map(() => '01') : codes;
+
+  const values: WarningTimeseriesValue[] = [];
+
+  // 大雨浸水危険度(切替セルの確認用)
+  riskCodes([
+    '11',
+    '21',
+    '21',
+    '31',
+    '31',
+    '41',
+    '51',
+    '50',
+    '31',
+    '21',
+    '11',
+    '01',
+    '01',
+    '01',
+  ]).forEach((code, i) =>
+    values.push(wtsRiskValue('block1', block1Ids[i] as string, '大雨浸水危険度', null, code)),
+  );
+  // 雨(１時間最大雨量 mm)
+  block1Ids.forEach((timeId, i) =>
+    values.push(
+      wtsQuantityValue(
+        'block1',
+        timeId,
+        '雨',
+        '１時間最大雨量',
+        null,
+        `${i + 1}`,
+        'mm',
+        i === 5 ? '値なし' : null,
+      ),
+    ),
+  );
+  // 土砂災害危険度
+  riskCodes([
+    '22',
+    '31',
+    '31',
+    '21',
+    '11',
+    '01',
+    '01',
+    '01',
+    '01',
+    '01',
+    '01',
+    '01',
+    '01',
+    '01',
+  ]).forEach((code, i) =>
+    values.push(wtsRiskValue('block1', block1Ids[i] as string, '土砂災害危険度', null, code)),
+  );
+  // 風危険度(陸上)
+  riskCodes([
+    '01',
+    '20',
+    '30',
+    '30',
+    '50',
+    '50',
+    '41',
+    '31',
+    '21',
+    '11',
+    '01',
+    '01',
+    '01',
+    '01',
+  ]).forEach((code, i) =>
+    values.push(wtsRiskValue('block1', block1Ids[i] as string, '風危険度', '陸上', code)),
+  );
+  // 風危険度(東京湾): 01と欠測のみ(非表示行、idx2/5はrefごと欠落=欠測)
+  block1Ids.forEach((timeId, i) => {
+    if (i === 2 || i === 5) return;
+    values.push(wtsRiskValue('block1', timeId, '風危険度', '東京湾', '01'));
+  });
+  // 風(風向・最大風速、陸上/東京湾): 北西の風にcondition:'風雪'を1つ、8方位以外の「静穏」を1つ入れる(§4.7確認用)
+  const WIND_DIRECTIONS_8 = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
+  block1Ids.forEach((timeId, i) => {
+    const landDirection = i === 3 ? '静穏' : (WIND_DIRECTIONS_8[i % 8] as string);
+    const landCondition = i === 7 ? '風雪' : null;
+    values.push(
+      wtsQuantityValue(
+        'block1',
+        timeId,
+        '風',
+        '風向',
+        '陸上',
+        landDirection,
+        '８方位漢字',
+        landCondition,
+      ),
+    );
+    values.push(wtsQuantityValue('block1', timeId, '風', '最大風速', '陸上', `${10 + i}`, 'm/s'));
+    values.push(
+      wtsQuantityValue(
+        'block1',
+        timeId,
+        '風',
+        '風向',
+        '東京湾',
+        WIND_DIRECTIONS_8[(i + 2) % 8] as string,
+        '８方位漢字',
+      ),
+    );
+    values.push(wtsQuantityValue('block1', timeId, '風', '最大風速', '東京湾', `${8 + i}`, 'm/s'));
+  });
+  // 雷危険度: 00とref欠落を1つずつ、表外コード99を1つ
+  values.push(
+    wtsRiskValue('block1', block1Ids[0] as string, '雷危険度', null, quiet ? '01' : '00'),
+  );
+  values.push(
+    wtsRiskValue('block1', block1Ids[1] as string, '雷危険度', null, quiet ? '01' : '99'),
+  );
+  // block1Ids[2] はref欠落(値を作らない)
+  for (let i = 3; i < COLUMN_COUNT; i += 1) {
+    values.push(wtsRiskValue('block1', block1Ids[i] as string, '雷危険度', null, '01'));
+  }
+  // 濃霧危険度: 全て01(非表示行)
+  block1Ids.forEach((timeId) =>
+    values.push(wtsRiskValue('block1', timeId, '濃霧危険度', null, '01')),
+  );
+
+  // 雨(２４時間最大雨量 mm)
+  values.push(wtsQuantityValue('block2', 'b2t0', '雨', '２４時間最大雨量', null, '120', 'mm'));
+  values.push(
+    wtsQuantityValue('block2', 'b2t1', '雨', '２４時間最大雨量', null, '0', 'mm', '値なし'),
+  );
+  // 雪(２４時間最大降雪量 cm)
+  values.push(wtsQuantityValue('block2', 'b2t0', '雪', '２４時間最大降雪量', null, '5', 'cm'));
+  values.push(wtsQuantityValue('block2', 'b2t1', '雪', '２４時間最大降雪量', null, '0', 'cm'));
+
+  // 乾燥危険度(日単位、3時間列へ複製)
+  riskCodes(['20', '01', '20']).forEach((code, i) =>
+    values.push(wtsRiskValue('block3', `b3t${i}`, '乾燥危険度', null, code)),
+  );
+  // 乾燥(実効湿度 %・最小湿度 %)
+  ['55', '60', '58'].forEach((text, i) =>
+    values.push(wtsQuantityValue('block3', `b3t${i}`, '乾燥', '実効湿度', null, text, '%')),
+  );
+  ['30', '28', '32'].forEach((text, i) =>
+    values.push(wtsQuantityValue('block3', `b3t${i}`, '乾燥', '最小湿度', null, text, '%')),
+  );
+  // 霜危険度: 全て00(非表示行)
+  ['b3t0', 'b3t1', 'b3t2'].forEach((timeId) =>
+    values.push(wtsRiskValue('block3', timeId, '霜危険度', null, '00')),
+  );
+
+  return {
+    terminalId: 'fixture-terminal',
+    venueId: 'east',
+    controlStatus: 'normal',
+    isTraining: false,
+    evaluatedAt: todayAt(5, 0),
+    area: { code: '130108', name: '江東区' },
+    metadata: {
+      source: null,
+      issuedAt: todayAt(5, 0),
+      validAt: null,
+      validFrom: null,
+      validTo: null,
+      fetchedAt: null,
+      lastSuccessAt: null,
+      availability: 'available',
+      sourceVersion: null,
+    },
+    data: {
+      timeDefines: [...block1TimeDefines, ...block2TimeDefines, ...block3TimeDefines],
+      values,
+      // §6追補: quietでは additions:null(未取得)で確認する
+      additions: quiet
+        ? null
+        : [
+            // 雷 Base直下の「竜巻」「ひょう」(同じ行・出現順)
+            wtsAddition('block1', '雷危険度', null, null, 0, 0, '竜巻'),
+            wtsAddition('block1', '雷危険度', null, null, 0, 1, 'ひょう'),
+            // 風危険度のLocal(陸上)のNote(風(東京湾)の行には出ない)
+            wtsAddition('block1', '風危険度', '陸上', 0, 1, 0, '海上を含む可能性'),
+            // 風危険度のBase直下のNote(区分行だけの種類。両方の区分行へ複製される)
+            wtsAddition('block1', '風危険度', null, null, 2, 0, '急な強まりに注意'),
+            // block2の雨(24時間最大雨量)のNote(3時間表に対応行が無く、どこにも表示されない)
+            wtsAddition('block2', '雨', null, null, 3, 0, '合成データ: 対応行なし確認用'),
+          ],
+    },
+  };
+}
+
+function buildWarningTimeSeriesFixtureCards(quiet: boolean): readonly InfoPanelCardInput[] {
+  const response = buildWarningTimeseriesFixtureResponse(quiet);
+  return [buildWarningTimeSeriesCard(response, 'available', Date.now())];
 }
 
 const LOADING_CARD: InfoPanelCardInput = { key: 'default', status: { kind: 'loading' } };
@@ -74,17 +424,8 @@ function buildAllContentFixture(): InfoPanelColumnInput {
       ),
     ]),
     warning: Object.freeze([contentCard('warning', todayAt(14, 0), 'issued', 'available')]),
-    // 「詳細（仮）」入口 (G10 §6)。G4で本物のパネル本文に置き換える
-    warningTimeSeries: Object.freeze([
-      contentCard(
-        'warningTimeSeries',
-        todayAt(14, 0),
-        'issued',
-        'available',
-        undefined,
-        createElement(WarningTimeSeriesDetailFixtureEntry),
-      ),
-    ]),
+    // §6の合成応答を本番と同じ buildWarningTimeSeriesCard に通す(G10の仮入口を撤去、AC-15)
+    warningTimeSeries: Object.freeze(buildWarningTimeSeriesFixtureCards(false)),
     earlyWarning: Object.freeze([
       contentCard('earlyWarning', todayAt(14, 0), 'issued', 'available'),
     ]),
@@ -440,10 +781,30 @@ function buildWarningBadgesFixture(): InfoPanelColumnInput {
   });
 }
 
+/** `warning-timeseries`: 通常表示(§6) */
+function buildWarningTimeseriesFixture(): InfoPanelColumnInput {
+  const allContent = buildAllContentFixture();
+  return Object.freeze({
+    ...allContent,
+    warningTimeSeries: Object.freeze(buildWarningTimeSeriesFixtureCards(false)),
+  });
+}
+
+/** `warning-timeseries-quiet`: 全行が未満・値なしで、表示行0件になる正常空(§6) */
+function buildWarningTimeseriesQuietFixture(): InfoPanelColumnInput {
+  const allContent = buildAllContentFixture();
+  return Object.freeze({
+    ...allContent,
+    warningTimeSeries: Object.freeze(buildWarningTimeSeriesFixtureCards(true)),
+  });
+}
+
 const FIXTURE_BUILDERS: Readonly<Record<string, () => InfoPanelColumnInput>> = Object.freeze({
   'all-content': buildAllContentFixture,
   'bosai-bulletins': buildBosaiBulletinsFixture,
   'warning-badges': buildWarningBadgesFixture,
+  'warning-timeseries': buildWarningTimeseriesFixture,
+  'warning-timeseries-quiet': buildWarningTimeseriesQuietFixture,
   mixed: buildMixedFixture,
   failed: buildFailedFixture,
 });

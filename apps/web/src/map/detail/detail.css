@@ -67,13 +67,31 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+/* metaAction(オプトイン、§4.8)を予報区・発表時刻の行の右端に置く */
+.detail-dialog-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 0;
+}
+
+.detail-dialog-meta-row .detail-dialog-meta {
+  margin: 0;
+}
+
+.detail-dialog-meta-action {
+  flex: 0 0 auto;
+}
+
 .detail-dialog-body {
   flex: 0 1 auto;
   min-block-size: 0;
   overflow: auto;
   overscroll-behavior: contain;
   position: relative;
-  padding: 16px 24px 24px;
+  --detail-dialog-body-padding-top: 16px;
+  padding: var(--detail-dialog-body-padding-top) 24px 24px;
 }
 
 /* 時系列表 共通部品 (§5) */
@@ -124,6 +142,32 @@
 
 .detail-ts-table .detail-ts-date-boundary {
   border-inline-start: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* 吸着見出し(オプトイン、§4.6・G4 #55)。stickyHeader=falseの既存表示には一切影響しない。 */
+.detail-ts-sticky {
+  /* overflowを持たない。吸着の基準は最も近いスクロール容器(.detail-dialog-body)にする */
+}
+
+.detail-ts-sticky .detail-ts-table {
+  table-layout: fixed;
+}
+
+/* 列幅はcolgroupだけで決める。セルの最小・最大幅指定が見出しと本文で異なる伸縮を起こさないよう打ち消す */
+.detail-ts-sticky .detail-ts-table :is(th, td) {
+  min-inline-size: 0;
+  max-inline-size: none;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.detail-ts-head {
+  position: sticky;
+  /* 吸着位置はスクロール容器の上余白の内側になるため、余白分だけ上へずらしてダイアログ見出しに接させる */
+  inset-block-start: calc(-1 * var(--detail-dialog-body-padding-top, 0px));
+  z-index: 2;
+  overflow-x: hidden;
+  background: var(--md-sys-color-surface-container-high);
 }
 
 /* §6: G4〜G6で置き換える前提の仮入口 */

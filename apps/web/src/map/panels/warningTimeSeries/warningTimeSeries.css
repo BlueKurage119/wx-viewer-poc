@@ -1,0 +1,214 @@
+/* 警報等時系列パネル・詳細ダイアログ (G4 #55、UI監修反映版) */
+
+.wts-panel-message {
+  margin: 0 0 8px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* パネル本体: 3列窓の単純な表。横スクロールは出さない(§2.1-13) */
+.wts-panel-table {
+  margin: 0 0 8px;
+  border-collapse: collapse;
+  inline-size: 100%;
+}
+
+/* データ列は内容幅(固定寸法のセル)に縮め、残りの幅は行見出し列に回してカード全幅を使う */
+.wts-panel-table td,
+.wts-panel-table thead th:not(:first-child) {
+  inline-size: 1%;
+  white-space: nowrap;
+}
+
+.wts-panel-table th,
+.wts-panel-table td {
+  padding: 2px 4px;
+  font-size: 13px;
+  text-align: center;
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.wts-panel-table th[scope='row'] {
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* データセルは固定寸法にし、文字の有無で大きさが変わらないようにする(§2.1-14) */
+.wts-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 3rem;
+  block-size: 1.75rem;
+  border-radius: 3px;
+  font-size: inherit;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+}
+
+.wts-cell-level5 {
+  background-color: var(--wx-alert-level-5-container);
+  color: var(--wx-alert-level-5-on-container);
+  border-color: var(--wx-alert-level-5-outline);
+}
+
+.wts-cell-level4 {
+  background-color: var(--wx-alert-level-4-container);
+  color: var(--wx-alert-level-4-on-container);
+  border-color: var(--wx-alert-level-4-outline);
+}
+
+.wts-cell-level3 {
+  background-color: var(--wx-alert-level-3-container);
+  color: var(--wx-alert-level-3-on-container);
+  border-color: var(--wx-alert-level-3-outline);
+}
+
+.wts-cell-level2 {
+  background-color: var(--wx-alert-level-2-container);
+  color: var(--wx-alert-level-2-on-container);
+  border-color: var(--wx-alert-level-2-outline);
+}
+
+.wts-cell-below {
+  background-color: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* 値なしは背景・枠を含め何も表示しない(UI監修 2026-09-27) */
+.wts-cell-noValue {
+  background-color: transparent;
+}
+
+.wts-cell-missing {
+  background-color: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+  border-color: var(--md-sys-color-outline);
+  border-style: dashed;
+}
+
+.wts-quantity-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.wts-quantity-condition {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.85em;
+}
+
+/* 風向・風速の矢印(Material Symbols `navigation`、風下を指す。§4.7) */
+.wts-wind-arrow {
+  font-family: 'Material Symbols Outlined';
+  font-variation-settings: 'FILL' 1;
+  font-size: 24px;
+  display: inline-block;
+  transform: rotate(var(--wts-wind-rotate));
+  color: currentcolor;
+}
+
+/* 統合行のセル: 上段(矢羽・「－」・「?」)・下段(風速)の2段(§2.1-31) */
+.wts-wind-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+}
+
+.wts-wind-cell-upper {
+  min-block-size: 16px;
+  display: flex;
+  align-items: center;
+}
+
+.wts-wind-cell-lower {
+  font-size: inherit;
+}
+
+.wts-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wts-legend {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.wts-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+/* 絞り込みスイッチ(§4.8) */
+.wts-narrow-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.wts-detail-separate {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wts-detail-separate-table {
+  border-collapse: collapse;
+}
+
+.wts-detail-separate-table th,
+.wts-detail-separate-table td {
+  padding: 6px 10px;
+  font-size: 14px;
+  text-align: center;
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.wts-detail-separate-table th[scope='row'] {
+  text-align: start;
+  white-space: normal;
+}
+
+/*
+ * 3時間表: 右端の「備考」列を固定する(§4.4、既存 detail.css は変更しない)。
+ * 左の縦線(§2.1-35・§4.6.2)は border-inline-start ではなく box-shadow で描く。
+ * detail.css の .detail-ts-table は border-collapse: collapse のため、固定(sticky)列の
+ * border-inline-start はスクロール時に隣のセル側へ描かれて消えることがある(§4.6.2)。
+ */
+.wts-detail-3h .detail-ts-table tr > :last-child {
+  position: sticky;
+  inset-inline-end: 0;
+  z-index: 1;
+  min-inline-size: 6rem;
+  max-inline-size: 10rem;
+  white-space: normal;
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: inset 1px 0 0 var(--md-sys-color-outline-variant);
+}
+
+.wts-remarks-unavailable {
+  margin: 4px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+}
+
+.wts-visually-hidden {
+  position: absolute;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  inline-size: 1px;
+  block-size: 1px;
+  white-space: nowrap;
+}

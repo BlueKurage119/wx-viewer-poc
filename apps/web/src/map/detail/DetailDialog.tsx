@@ -5,7 +5,7 @@
  * `document.body` 直下へ `createPortal` する（理由: 設計書 §3.1）。
  * 開閉・Escの扱い・フォーカス復帰は `apps/web/src/monitoring/MonitoringDialogHost.tsx` を踏襲する。
  */
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { GbIconButton } from '../../components/md';
 import { nextDialogFocusTarget } from '../../monitoring/monitoringDialogFocus';
@@ -19,6 +19,16 @@ export interface DetailDialogProps {
   readonly onClose: () => void;
   /** 閉じた後に右側列の scrollTop を戻す対象。省略時はスクロール復帰を行わない */
   readonly scrollContainer?: HTMLElement | null;
+  /**
+   * 予報区・発表時刻の行の右端に置く操作(例: 警報等時系列の絞り込みスイッチ、§4.8)。
+   * 未指定時はメタ行の出力を変更前と完全に同じにする(オプトイン、2026-09-28ユーザー許可)。
+   */
+  readonly metaAction?: ReactNode;
+  /**
+   * 開いたときの初期フォーカス先。未指定時は従来どおり見出し(h2)にフォーカスする
+   * (オプトイン、2026-09-28ユーザー許可)。
+   */
+  readonly initialFocusRef?: RefObject<HTMLElement | null>;
   readonly children?: ReactNode;
 }
 
@@ -42,6 +52,8 @@ export function DetailDialogInner({
   meta,
   onClose,
   scrollContainer,
+  metaAction,
+  initialFocusRef,
   children,
 }: DetailDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -72,7 +84,11 @@ export function DetailDialogInner({
       if (!dialog.open) dialog.showModal();
       // 初期フォーカスは閉じるボタンではなく見出しへ移す（D6・オーナーiPad実機確認）。
       // 閉じるボタンへ初期フォーカスするとタッチ操作でもフォーカスリングが出るため。
-      queueMicrotask(() => titleRef.current?.focus({ preventScroll: true }));
+      // initialFocusRef指定時はそちらへ移す(§4.8、警報等時系列のスイッチなど。未指定時は従来どおり見出し)。
+      queueMicrotask(() => {
+        const target = initialFocusRef?.current ?? titleRef.current;
+        target?.focus({ preventScroll: true });
+      });
       return;
     }
     if (dialog.open) {
@@ -142,12 +158,25 @@ export function DetailDialogInner({
                 <DetailDialogIcon>close</DetailDialogIcon>
               </GbIconButton>
             </div>
-            {showMetaLine && (
-              <p className="detail-dialog-meta md-typescale-body-medium">
-                {formatted.target}
-                {formatted.target !== null && formatted.time !== null ? ' · ' : ''}
-                {formatted.time}
-              </p>
+            {metaAction === undefined ? (
+              showMetaLine && (
+                <p className="detail-dialog-meta md-typescale-body-medium">
+                  {formatted.target}
+                  {formatted.target !== null && formatted.time !== null ? ' · ' : ''}
+                  {formatted.time}
+                </p>
+              )
+            ) : (
+              <div className="detail-dialog-meta-row">
+                {showMetaLine && (
+                  <p className="detail-dialog-meta md-typescale-body-medium">
+                    {formatted.target}
+                    {formatted.target !== null && formatted.time !== null ? ' · ' : ''}
+                    {formatted.time}
+                  </p>
+                )}
+                <div className="detail-dialog-meta-action">{metaAction}</div>
+              </div>
             )}
           </header>
           <div className="detail-dialog-body">{children}</div>
