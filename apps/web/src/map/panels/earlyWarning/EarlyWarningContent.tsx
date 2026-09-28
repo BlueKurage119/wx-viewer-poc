@@ -16,22 +16,27 @@ import type { IssuedTimes } from './issuedTimes';
 const DESCRIPTION: Readonly<Record<WarningCellKind, string>> = {
   high: '高',
   medium: '中',
-  none: 'なし',
-  noValue: '値なし',
+  none: '高・中の表示なし',
+  noValue: '高・中の表示なし',
   missing: '欠測',
   outOfRange: '対象外',
 };
 const CONTENT: Readonly<Record<WarningCellKind, string>> = {
   high: '高',
   medium: '中',
-  none: '－',
+  none: '',
   noValue: '',
   missing: '?',
   outOfRange: '',
 };
 function cellContent(kind: WarningCellKind, label: string) {
   if (kind === 'outOfRange') return <span aria-label={`${label}、対象外`} />;
-  const className = kind === 'missing' ? 'wts-cell wts-cell-missing' : `ew-cell ew-cell-${kind}`;
+  const className =
+    kind === 'missing'
+      ? 'wts-cell wts-cell-missing'
+      : kind === 'none' || kind === 'noValue'
+        ? 'ew-cell ew-cell-quiet'
+        : `ew-cell ew-cell-${kind}`;
   return (
     <span className={className} aria-label={`${label}、${DESCRIPTION[kind]}`}>
       {CONTENT[kind]}
@@ -178,8 +183,7 @@ export function EarlyWarningContent({
           <div className="wts-legend">
             <span className="wts-legend-item">{cellContent('high', '凡例')} 高</span>
             <span className="wts-legend-item">{cellContent('medium', '凡例')} 中</span>
-            <span className="wts-legend-item">{cellContent('none', '凡例')} なし</span>
-            <span className="wts-legend-item">{cellContent('noValue', '凡例')} 値なし</span>
+            <span className="wts-legend-item">{cellContent('none', '凡例')} 高・中の表示なし</span>
             <span className="wts-legend-item">{cellContent('missing', '凡例')} 欠測・未取得</span>
           </div>
           <EarlyWarningDetail table={buildDetailTable(response)} now={now} />

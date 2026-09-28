@@ -18,6 +18,9 @@ import { AreaForecastDetailFixtureEntry } from './detailDialogFixtures';
 import { buildBosaiBulletinCards } from './bosai/bosaiBulletinCards';
 import { buildWarningCards } from './warning/warningBadges';
 import { buildWarningTimeSeriesCard } from './warningTimeSeries/warningTimeSeriesModel';
+import { buildEarlyWarningFixtureResponse } from './earlyWarning/earlyWarningFixture';
+import { buildEarlyWarningCard } from './earlyWarning/useEarlyWarning';
+import { isEarlyWarningFixtureActive } from './earlyWarning/earlyWarningFixtureGate';
 import type { WarningCurrentItem, WarningsResponse } from '@wx-viewer-poc/shared';
 
 const DUMMY_CONTENT = '（G2〜G7で実装）';
@@ -809,13 +812,30 @@ const FIXTURE_BUILDERS: Readonly<Record<string, () => InfoPanelColumnInput>> = O
   failed: buildFailedFixture,
 });
 
-export const PANEL_FIXTURE_NAMES: readonly string[] = Object.freeze(Object.keys(FIXTURE_BUILDERS));
+/** 他パネルの生入力を保持して本パネルだけ確認用データに差し替える。 */
+export function buildEarlyWarningFixtureInput(
+  liveInput: InfoPanelColumnInput,
+  now: number,
+): InfoPanelColumnInput {
+  const response = buildEarlyWarningFixtureResponse(now);
+  return {
+    ...liveInput,
+    earlyWarning: [buildEarlyWarningCard(response, now, '警報級の可能性（確認用データ）')],
+  };
+}
+
+export const PANEL_FIXTURE_NAMES: readonly string[] = Object.freeze([
+  ...Object.keys(FIXTURE_BUILDERS),
+  'early-warning',
+]);
 
 /**
  * 開発ビルド限定で `?panelFixture=<名前>` からフィクスチャを取得する。
  * 本番ビルド・該当クエリなし・未知の名前のときは `undefined`。
  */
-export function resolvePanelFixtureInput(): InfoPanelColumnInput | undefined {
+export function resolvePanelFixtureInput(
+  liveInput?: InfoPanelColumnInput,
+): InfoPanelColumnInput | undefined {
   if (!import.meta.env?.DEV) {
     return undefined;
   }
@@ -825,6 +845,9 @@ export function resolvePanelFixtureInput(): InfoPanelColumnInput | undefined {
   const name = new URLSearchParams(window.location.search).get('panelFixture');
   if (name === null) {
     return undefined;
+  }
+  if (name === 'early-warning' && isEarlyWarningFixtureActive()) {
+    return buildEarlyWarningFixtureInput(liveInput ?? DEFAULT_INFO_PANEL_INPUT, Date.now());
   }
   const builder = FIXTURE_BUILDERS[name];
   return builder ? builder() : undefined;

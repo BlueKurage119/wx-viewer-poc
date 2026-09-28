@@ -15,7 +15,7 @@ export interface InfoPanelColumnProps {
 }
 
 export function InfoPanelColumn({ venueId, input }: InfoPanelColumnProps) {
-  const resolvedInput = resolvePanelFixtureInput() ?? input ?? DEFAULT_INFO_PANEL_INPUT;
+  const resolvedInput = resolvePanelFixtureInput(input) ?? input ?? DEFAULT_INFO_PANEL_INPUT;
 
   return (
     <>

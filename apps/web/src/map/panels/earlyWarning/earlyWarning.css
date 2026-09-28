@@ -42,10 +42,8 @@
   background: var(--wx-alert-level-2-container);
   color: var(--wx-alert-level-2-on-container);
 }
-.ew-cell-none,
-.ew-cell-noValue {
+.ew-cell-quiet {
   background: var(--md-sys-color-scrim);
-  color: var(--wx-jma-hue-white);
 }
 .ew-message {
   margin: 4px 0 8px;

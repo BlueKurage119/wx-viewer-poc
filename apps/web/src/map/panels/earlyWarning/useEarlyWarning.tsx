@@ -6,17 +6,23 @@ import { fetchEarlyWarning } from '../../../api/earlyWarning';
 import { available } from './earlyWarningModel';
 import { EarlyWarningContent } from './EarlyWarningContent';
 import type { IssuedTime, IssuedTimes } from './issuedTimes';
+import { isEarlyWarningFixtureActive } from './earlyWarningFixtureGate';
 function time(response: EarlyWarningResponse, segment: 'near' | 'far'): IssuedTime {
   if (!available(response, segment)) return { kind: 'unavailable' };
   const issued = response[segment].metadata.issuedAt;
   return issued === null ? { kind: 'unknown' } : { kind: 'issued', value: issued };
 }
-function card(response: EarlyWarningResponse, now: number): InfoPanelCardInput {
+export function buildEarlyWarningCard(
+  response: EarlyWarningResponse,
+  now: number,
+  heading?: string,
+): InfoPanelCardInput {
   const issuedTimes: IssuedTimes = { near: time(response, 'near'), far: time(response, 'far') };
   const near = available(response, 'near');
   const far = available(response, 'far');
   return {
     key: 'earlyWarning',
+    heading,
     status:
       near || far
         ? {
@@ -46,11 +52,11 @@ export function useEarlyWarning(params: {
   const state = useTileCatalogPolling({
     load,
     resetKey: `${terminalId}:${controlStatus}`,
-    enabled: true,
+    enabled: !isEarlyWarningFixtureActive(),
   });
   return useMemo(() => {
     if (state.status === 'ready' || state.status === 'stale')
-      return card(state.catalog, Date.now());
+      return buildEarlyWarningCard(state.catalog, Date.now());
     const kind = state.status === 'failed' ? 'unavailable' : 'loading';
     return {
       key: 'earlyWarning',

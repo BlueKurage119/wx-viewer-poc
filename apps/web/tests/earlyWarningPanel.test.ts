@@ -13,11 +13,19 @@ import {
   columnsFor,
 } from '../src/map/panels/earlyWarning/earlyWarningModel.ts';
 import {
+  EarlyWarningContent,
   EarlyWarningDetail,
   NearPanel,
 } from '../src/map/panels/earlyWarning/EarlyWarningContent.tsx';
 import { InfoPanelFrame } from '../src/map/panels/InfoPanelFrame.tsx';
 import { formatIssuedTimes } from '../src/map/panels/earlyWarning/issuedTimes.ts';
+import { buildEarlyWarningFixtureResponse } from '../src/map/panels/earlyWarning/earlyWarningFixture.ts';
+import { isEarlyWarningFixtureRequest } from '../src/map/panels/earlyWarning/earlyWarningFixtureGate.ts';
+import { buildEarlyWarningCard } from '../src/map/panels/earlyWarning/useEarlyWarning.tsx';
+import {
+  buildEarlyWarningFixtureInput,
+  PANEL_FIXTURE_NAMES,
+} from '../src/map/panels/panelFixtures.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -382,14 +390,14 @@ test('詳細は共通二段見出しで近距離・遠距離を表示し、雨�
   assert.match(html, /data-column-key="far:2:0"/);
   assert.equal((html.match(/rowSpan="2"/g) ?? []).length, 2);
   assert.equal((html.match(/<thead>/g) ?? []).length, 1);
-  assert.match(html, /aria-label="大雨・土砂災害、雨の警報級の可能性、10\/1、値なし"/);
+  assert.match(html, /aria-label="大雨・土砂災害、雨の警報級の可能性、10\/1、高・中の表示なし"/);
   assert.match(html, /aria-label="大雨・土砂災害、雨の警報級の可能性、10\/2、欠測"/);
   assert.match(html, /detail-ts-date-boundary/);
   assert.match(html, /role="region" aria-label="警報級の可能性の全期間"/);
   assert.doesNotMatch(html, /class="ew-table"/);
 });
 
-test('区間見出しは時なし、なし・値なし・欠測・項目不在はDOMと色で区別する', () => {
+test('区間見出しは時なし、なし・値なしは同じ表示で欠測・項目不在と区別する', () => {
   const dates = [
     ['a', '2026-09-28T03:00:00Z', '2026-09-28T09:00:00Z'],
     ['b', '2026-09-28T09:00:00Z', '2026-09-28T15:00:00Z'],
@@ -414,11 +422,11 @@ test('区間見出しは時なし、なし・値なし・欠測・項目不在�
   );
   assert.match(
     panel,
-    /class="ew-cell ew-cell-none" aria-label="大雨、9\/28 12-18、なし">－<\/span>/,
+    /class="ew-cell ew-cell-quiet" aria-label="大雨、9\/28 12-18、高・中の表示なし"><\/span>/,
   );
   assert.match(
     panel,
-    /class="ew-cell ew-cell-noValue" aria-label="大雨、9\/28 18-0、値なし"><\/span>/,
+    /class="ew-cell ew-cell-quiet" aria-label="大雨、9\/28 18-0、高・中の表示なし"><\/span>/,
   );
   assert.match(
     panel,
@@ -442,9 +450,93 @@ test('区間見出しは時なし、なし・値なし・欠測・項目不在�
     'utf8',
   );
   assert.match(css, /\.ew-cell\s*\{[^}]*inline-size:\s*3rem;/);
-  assert.match(
-    css,
-    /\.ew-cell-none,\s*\.ew-cell-noValue\s*\{[^}]*background:\s*var\(--md-sys-color-scrim\);[^}]*color:\s*var\(--wx-jma-hue-white\);/,
-  );
+  assert.match(css, /\.ew-cell-quiet\s*\{[^}]*background:\s*var\(--md-sys-color-scrim\);/);
   assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/);
+});
+
+test('開発フィクスチャはJSTの日界をまたぐ現在3コマとD+3以降を実モデルへ渡す', () => {
+  const now = Date.parse('2026-09-28T14:30:00Z'); // JST 9/28 23:30
+  const response = buildEarlyWarningFixtureResponse(now);
+  assert.deepEqual(
+    columnsFor(response, 'near').map((column) => [column.timeId, column.label]),
+    [
+      ['near-1', '9/28 18-0'],
+      ['near-2', '9/29 0-6'],
+      ['near-3', '9/29 6-12'],
+    ],
+  );
+  assert.deepEqual(
+    columnsFor(response, 'far').map((column) => [column.timeId, column.label]),
+    [
+      ['far-1', '10/1'],
+      ['far-2', '10/2'],
+      ['far-3', '10/3'],
+    ],
+  );
+  const panel = buildPanelTable(response, now);
+  assert.deepEqual(
+    panel.rows.map((row) => [row.label, ...row.cells]),
+    [
+      ['大雨', 'high', 'none', 'noValue'],
+      ['土砂災害', 'medium', 'missing', 'none'],
+      ['大雪', 'noValue', 'high', 'missing'],
+    ],
+  );
+  const detail = buildDetailTable(response);
+  assert.deepEqual(
+    detail.rows.map((row) => row.label),
+    ['大雨', '土砂災害', '大雪', '暴風（雪）', '波浪'],
+  );
+  assert.deepEqual(
+    detail.columns.map((column) => column.segment),
+    ['near', 'near', 'near', 'far', 'far', 'far'],
+  );
+  assert.equal(detail.rainJoined, true);
+  const card = buildEarlyWarningCard(response, now, '警報級の可能性（確認用データ）');
+  assert.equal(card.heading, '警報級の可能性（確認用データ）');
+  assert.equal(card.status.kind, 'data');
+  const content = card.content as React.ReactElement;
+  assert.equal(content.type, EarlyWarningContent);
+  assert.equal(content.props.response, response);
+  assert.equal(content.props.now, now);
+  const html = renderToStaticMarkup(createElement(EarlyWarningDetail, { table: detail, now }));
+  assert.equal((html.match(/rowSpan="2"/g) ?? []).length, 3);
+  assert.match(html, /aria-label="波浪、9\/28 18-0、対象外"/);
+  assert.doesNotMatch(html, /<th scope="row">高潮<\/th>/);
+});
+
+test('専用フィクスチャは開発ビルドの完全一致クエリでだけ有効になる', () => {
+  assert.equal(isEarlyWarningFixtureRequest(true, '?panelFixture=early-warning'), true);
+  assert.equal(isEarlyWarningFixtureRequest(true, '?panelFixture=all-content'), false);
+  assert.equal(isEarlyWarningFixtureRequest(true, ''), false);
+  assert.equal(isEarlyWarningFixtureRequest(false, '?panelFixture=early-warning'), false);
+  assert.deepEqual(
+    PANEL_FIXTURE_NAMES.filter((name) => name === 'early-warning'),
+    ['early-warning'],
+  );
+});
+
+test('専用フィクスチャは他パネルの入力を保持して警報級だけ差し替える', () => {
+  const originalCard = { key: 'existing', status: { kind: 'loading' as const } };
+  const live = {
+    bosaiBulletin: [originalCard],
+    warning: [originalCard],
+    warningTimeSeries: [originalCard],
+    earlyWarning: [originalCard],
+    amedas: [originalCard],
+    areaForecast: [originalCard],
+  };
+  const fixture = buildEarlyWarningFixtureInput(live, Date.parse('2026-09-28T14:30:00Z'));
+  for (const key of [
+    'bosaiBulletin',
+    'warning',
+    'warningTimeSeries',
+    'amedas',
+    'areaForecast',
+  ] as const) {
+    assert.equal(fixture[key], live[key]);
+  }
+  assert.equal(fixture.earlyWarning.length, 1);
+  assert.equal(fixture.earlyWarning[0]?.heading, '警報級の可能性（確認用データ）');
+  assert.notEqual(fixture.earlyWarning[0], originalCard);
 });
