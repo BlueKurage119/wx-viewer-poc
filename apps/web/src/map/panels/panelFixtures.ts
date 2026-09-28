@@ -24,7 +24,11 @@ import { isEarlyWarningFixtureActive } from './earlyWarning/earlyWarningFixtureG
 import { buildAreaForecastFixtureResponse } from './areaForecast/areaForecastFixture';
 import { buildAreaForecastCard } from './areaForecast/useAreaForecast';
 import { isAreaForecastFixtureActive } from './areaForecast/areaForecastFixtureGate';
-import type { WarningCurrentItem, WarningsResponse } from '@wx-viewer-poc/shared';
+import type {
+  AreaTimeseriesResponse,
+  WarningCurrentItem,
+  WarningsResponse,
+} from '@wx-viewer-poc/shared';
 
 const DUMMY_CONTENT = '（G2〜G7で実装）';
 
@@ -850,13 +854,15 @@ export function buildEarlyWarningFixtureInput(
 export function buildAreaForecastFixtureInput(
   liveInput: InfoPanelColumnInput,
   now: number,
+  response: AreaTimeseriesResponse = buildAreaForecastFixtureResponse(now),
 ): InfoPanelColumnInput {
-  const response = buildAreaForecastFixtureResponse(now);
   return {
     ...liveInput,
     areaForecast: [buildAreaForecastCard(response, now, '地域時系列予報（確認用データ）')],
   };
 }
+
+let areaForecastFixtureResponse: AreaTimeseriesResponse | undefined;
 
 export const PANEL_FIXTURE_NAMES: readonly string[] = Object.freeze([
   ...Object.keys(FIXTURE_BUILDERS),
@@ -885,7 +891,14 @@ export function resolvePanelFixtureInput(
     return buildEarlyWarningFixtureInput(liveInput ?? DEFAULT_INFO_PANEL_INPUT, Date.now());
   }
   if (name === 'area-forecast' && isAreaForecastFixtureActive()) {
-    return buildAreaForecastFixtureInput(liveInput ?? DEFAULT_INFO_PANEL_INPUT, Date.now());
+    // 応答を描画ごとに作り直すと詳細表が初期列へスクロールし直すため、最初の1回だけ作る
+    const now = Date.now();
+    areaForecastFixtureResponse ??= buildAreaForecastFixtureResponse(now);
+    return buildAreaForecastFixtureInput(
+      liveInput ?? DEFAULT_INFO_PANEL_INPUT,
+      now,
+      areaForecastFixtureResponse,
+    );
   }
   const builder = FIXTURE_BUILDERS[name];
   return builder ? builder() : undefined;

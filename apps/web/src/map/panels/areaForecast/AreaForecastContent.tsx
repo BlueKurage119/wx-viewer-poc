@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { AreaTimeseriesResponse } from '@wx-viewer-poc/shared';
 import { GbButton } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
@@ -272,17 +272,22 @@ export function AreaForecastDetail({
   readonly now: number;
   readonly fontStatus: FontLoadingStatus;
 }) {
+  // 共用部品は columns の変化で初期列へスクロールし直すため、毎秒の再描画で配列を作り直さない
+  const columns = useMemo(
+    () =>
+      table.columns.map((col) => ({
+        key: col.key,
+        at: col.at,
+        timeLabel: col.label,
+        ariaTimeLabel: col.label,
+        width: '4rem',
+      })),
+    [table.columns],
+  );
+
   if (table.columns.length === 0) {
     return <p className="af-message">発表された値はありません</p>;
   }
-
-  const columns = table.columns.map((col) => ({
-    key: col.key,
-    at: col.at,
-    timeLabel: col.label,
-    ariaTimeLabel: col.label,
-    width: '4rem',
-  }));
 
   const weatherRowCells = table.intervals.map((int, i) => {
     const col = table.columns[int.startIndex]!;
@@ -384,12 +389,20 @@ export function AreaForecastContent({
   const [open, setOpen] = useState(false);
   const scrollContainer = useDetailDialogScrollContainer();
   const fontStatus = useFontLoading();
+  // 毎秒の now 更新で表モデル(列配列)を作り直すと、詳細表が初期列へスクロールし直してしまう
+  const model = useMemo(
+    () => (response.data === null ? null : buildAreaForecastModel(response.data)),
+    [response.data],
+  );
 
-  if (response.data === null || response.metadata.availability === 'unavailable') {
+  if (
+    response.data === null ||
+    model === null ||
+    response.metadata.availability === 'unavailable'
+  ) {
     return <p className="af-message">取得できませんでした</p>;
   }
 
-  const model = buildAreaForecastModel(response.data);
   const target = resolveAreaForecastTarget(response.area, response.data.station);
 
   return (
