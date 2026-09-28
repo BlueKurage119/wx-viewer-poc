@@ -45,7 +45,10 @@ import {
   buildThreeHourRows,
 } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesDetail.tsx';
 import { Switch } from '../src/components/md/Switch.tsx';
-import { renderNarrowSwitchAction } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesContent.tsx';
+import {
+  renderNarrowSwitchAction,
+  renderRiskCellContent,
+} from '../src/map/panels/warningTimeSeries/WarningTimeSeriesContent.tsx';
 import { buildWarningTimeseriesFixtureResponse } from '../src/map/panels/panelFixtures.ts';
 
 const el = React.createElement;
@@ -751,6 +754,29 @@ test('AC-19/21: §6合成応答(block2の雨Note)は、雨Noteだけのadditions
     el(WarningTimeSeriesDetail, { data: rainOnlyData, table: rainOnlyTable, narrowed: false }),
   );
   assert.doesNotMatch(rainOnlyHtml, /合成データ: 対応行なし確認用/);
+});
+
+test('Issue #56 AC-18: 時刻によらずパネルの同じ行に有字・空・欠測の3セルを置く', () => {
+  for (const hour of [1, 7, 14, 23]) {
+    const now = Date.parse(`2026-09-28T${String(hour).padStart(2, '0')}:30:00+09:00`);
+    const fixture = buildWarningTimeseriesFixtureResponse(false, now);
+    assert.ok(fixture.data);
+    const table = buildRiskTable(fixture.data, now);
+    assert.ok(table);
+    assert.equal(table.panelColumns.length, 3);
+    const row = table.visibleRows.find((item) => item.label === '大雨浸水');
+    assert.ok(row);
+    assert.deepEqual(
+      row.cells.map((cell) => cell.display),
+      ['level3', 'below', 'missing'],
+    );
+    const cells = row.cells.map((cell) =>
+      renderToStaticMarkup(renderRiskCellContent(cell, '確認')),
+    );
+    assert.match(cells[0] ?? '', /wts-cell-level3/);
+    assert.match(cells[1] ?? '', /wts-cell-below/);
+    assert.match(cells[2] ?? '', /wts-cell-missing/);
+  }
 });
 
 test('AC-20/21: 時間セルへ非複製・null/空の区別', () => {

@@ -160,8 +160,8 @@ function wtsAddition(
 }
 
 /** 「今日0時JST」から`offsetHours`時間後のISO(日境界をまたいでも正しく進む)。 */
-function jstDayOffset(offsetHours: number): string {
-  const now = new Date();
+function jstDayOffset(offsetHours: number, nowMs: number): string {
+  const now = new Date(nowMs);
   const jstMs = now.getTime() + 9 * 60 * 60 * 1000;
   const jst = new Date(jstMs);
   jst.setUTCHours(0, 0, 0, 0);
@@ -169,32 +169,41 @@ function jstDayOffset(offsetHours: number): string {
 }
 
 /** 当日06時起点の3時間区切りの時刻ISOを返す(block1用)。 */
-function block1Hour(columnIndex: number): string {
-  return jstDayOffset(6 + columnIndex * 3);
+function block1Hour(columnIndex: number, nowMs: number): string {
+  return jstDayOffset(6 + columnIndex * 3, nowMs);
 }
 
 /**
  * §6の合成応答。`quiet=true` は全行が未満・値なしになる正常空フィクスチャ。
  * テスト(AC-19/21、実データに近い合成応答での備考照合の確認)からも使うためexportする。
  */
-export function buildWarningTimeseriesFixtureResponse(quiet: boolean): WarningTimeseriesResponse {
+export function buildWarningTimeseriesFixtureResponse(
+  quiet: boolean,
+  nowMs = Date.now(),
+): WarningTimeseriesResponse {
   wtsSequence = 0;
   const COLUMN_COUNT = 14;
   const block1Ids = Array.from({ length: COLUMN_COUNT }, (_, i) => `b1t${i}`);
   const block1TimeDefines: WarningTimeseriesTimeDefine[] = block1Ids.map((timeId, i) =>
-    wtsTimeDefine('block1', timeId, i, block1Hour(i), block1Hour(i + 1), 'PT3H'),
+    wtsTimeDefine('block1', timeId, i, block1Hour(i, nowMs), block1Hour(i + 1, nowMs), 'PT3H'),
   );
 
   const block2TimeDefines: WarningTimeseriesTimeDefine[] = [
-    wtsTimeDefine('block2', 'b2t0', 0, jstDayOffset(0), jstDayOffset(24), 'PT24H'),
-    wtsTimeDefine('block2', 'b2t1', 1, jstDayOffset(24), jstDayOffset(48), 'PT24H'),
+    wtsTimeDefine('block2', 'b2t0', 0, jstDayOffset(0, nowMs), jstDayOffset(24, nowMs), 'PT24H'),
+    wtsTimeDefine('block2', 'b2t1', 1, jstDayOffset(24, nowMs), jstDayOffset(48, nowMs), 'PT24H'),
   ];
 
   const block3TimeDefines: WarningTimeseriesTimeDefine[] = [
-    wtsTimeDefine('block3', 'b3t0', 0, jstDayOffset(6), jstDayOffset(24), 'PT18H'),
-    wtsTimeDefine('block3', 'b3t1', 1, jstDayOffset(24), jstDayOffset(48), 'PT24H'),
-    wtsTimeDefine('block3', 'b3t2', 2, jstDayOffset(48), jstDayOffset(72), 'PT24H'),
+    wtsTimeDefine('block3', 'b3t0', 0, jstDayOffset(6, nowMs), jstDayOffset(24, nowMs), 'PT18H'),
+    wtsTimeDefine('block3', 'b3t1', 1, jstDayOffset(24, nowMs), jstDayOffset(48, nowMs), 'PT24H'),
+    wtsTimeDefine('block3', 'b3t2', 2, jstDayOffset(48, nowMs), jstDayOffset(72, nowMs), 'PT24H'),
   ];
+
+  const currentIndex = block1TimeDefines.findIndex(
+    (time) => Date.parse(time.timeFrom) <= nowMs && nowMs < Date.parse(time.timeTo),
+  );
+  const firstFutureIndex = block1TimeDefines.findIndex((time) => Date.parse(time.timeFrom) > nowMs);
+  const panelStart = currentIndex >= 0 ? currentIndex : firstFutureIndex;
 
   const riskCodes = (codes: readonly string[]): readonly string[] =>
     quiet ? codes.map(() => '01') : codes;
@@ -217,9 +226,18 @@ export function buildWarningTimeseriesFixtureResponse(quiet: boolean): WarningTi
     '01',
     '01',
     '01',
-  ]).forEach((code, i) =>
-    values.push(wtsRiskValue('block1', block1Ids[i] as string, '大雨浸水危険度', null, code)),
-  );
+  ]).forEach((code, i) => {
+    if (!quiet && panelStart >= 0 && i === panelStart + 2) return;
+    const displayCode =
+      !quiet && panelStart >= 0 && i === panelStart
+        ? '30'
+        : !quiet && panelStart >= 0 && i === panelStart + 1
+          ? '01'
+          : code;
+    values.push(
+      wtsRiskValue('block1', block1Ids[i] as string, '大雨浸水危険度', null, displayCode),
+    );
+  });
   // 雨(１時間最大雨量 mm)
   block1Ids.forEach((timeId, i) =>
     values.push(
@@ -390,8 +408,9 @@ export function buildWarningTimeseriesFixtureResponse(quiet: boolean): WarningTi
 }
 
 function buildWarningTimeSeriesFixtureCards(quiet: boolean): readonly InfoPanelCardInput[] {
-  const response = buildWarningTimeseriesFixtureResponse(quiet);
-  return [buildWarningTimeSeriesCard(response, 'available', Date.now())];
+  const now = Date.now();
+  const response = buildWarningTimeseriesFixtureResponse(quiet, now);
+  return [buildWarningTimeSeriesCard(response, 'available', now)];
 }
 
 const LOADING_CARD: InfoPanelCardInput = { key: 'default', status: { kind: 'loading' } };
