@@ -346,13 +346,18 @@ export function AreaForecastDetail({
     return <p className="af-message">発表された値はありません</p>;
   }
 
+  // 詳細では最終の気温だけの列を除くため、その列から始まる区間(kind none)も除いて列数と span を合わせる
+  const detailIntervals = table.intervals.filter(
+    (int) => int.startIndex + int.span <= grid.intervalColumns.length,
+  );
+
   const weatherRowCells: TimeSeriesCell[] = [
     {
       key: 'weather-pad-start',
       span: 1,
       content: <div className="af-cell-weather af-cell-none" />,
     },
-    ...table.intervals.map((int, i) => {
+    ...detailIntervals.map((int, i) => {
       const col = table.columns[int.startIndex]!;
       return {
         key: `weather-int-${i}`,
@@ -373,7 +378,7 @@ export function AreaForecastDetail({
       span: 1,
       content: <div className="af-cell-wind af-cell-none" />,
     },
-    ...table.intervals.map((int, i) => {
+    ...detailIntervals.map((int, i) => {
       const col = table.columns[int.startIndex]!;
       return {
         key: `wind-int-${i}`,

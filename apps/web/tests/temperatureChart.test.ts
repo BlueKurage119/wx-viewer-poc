@@ -553,3 +553,38 @@ test('Issue #58 §4.3 & §5: 列幅が不正な場合の代替表示', () => {
   // 読み上げリストは維持される
   assert.match(html, /<ul class="af-visually-hidden">/);
 });
+
+test('Issue #58 AC-10 検収差し戻し: 詳細の各行の span 合計が列数と一致し、末尾余白セルに読み上げ名が無い', () => {
+  const now = Date.parse('2026-09-28T03:00:00Z');
+  const response = buildAreaForecastFixtureResponse(now);
+  const model = buildAreaForecastModel(response.data!);
+  assert.equal(model.kind, 'table');
+  if (model.kind !== 'table') return;
+
+  const detailHtml = renderToStaticMarkup(
+    createElement(AreaForecastDetail, {
+      table: model,
+      now,
+      fontStatus: { outlinedReady: true, sharpReady: true },
+    }),
+  );
+
+  const bodyRows = [...detailHtml.matchAll(/<tr[^>]*>(.*?)<\/tr>/gs)]
+    .map((m) => m[1]!)
+    .filter((row) => /<th scope="row">/.test(row));
+  assert.equal(bodyRows.length, 3);
+  const spans = bodyRows.map((row) =>
+    [...row.matchAll(/<td(?:\s[^>]*)?>/g)].reduce((sum, td) => {
+      const colSpan = /colSpan="(\d+)"|colspan="(\d+)"/.exec(td[0]);
+      return sum + Number(colSpan?.[1] ?? colSpan?.[2] ?? 1);
+    }, 0),
+  );
+  assert.equal(new Set(spans).size, 1, `各行の span 合計が一致する: ${spans.join(',')}`);
+
+  // 天気・風の行の末尾セルは余白列の空セル(読み上げ名なし)
+  for (const row of bodyRows.slice(0, 2)) {
+    const cells = [...row.matchAll(/<td(?:\s[^>]*)?>(.*?)<\/td>/gs)].map((m) => m[1]!);
+    const last = cells[cells.length - 1]!;
+    assert.doesNotMatch(last, /aria-label/, `末尾余白セルに読み上げ名が無い: ${last}`);
+  }
+});
