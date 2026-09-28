@@ -817,7 +817,7 @@ test('Issue #56 AC-18: 3時間表のセル中央配置は末尾の備考と別�
   const firstRow = html.match(/<tbody><tr>([\s\S]*?)<\/tr>/)?.[1] ?? '';
   assert.match(firstRow, /<td colSpan="1"><\/td>$/);
   assert.match(html, />備考(?:\(未取得\))?<\/th>/);
-  assert.match(html, /aria-label="[^\"]*2026年9月27日\(日\) 15-18時[^\"]*5/);
+  assert.match(html, /aria-label="[^"]*2026年9月27日\(日\) 15-18時[^"]*5/);
 });
 
 // ==========================================

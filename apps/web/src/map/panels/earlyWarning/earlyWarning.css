@@ -74,6 +74,7 @@
 }
 .ew-panel-table {
   overflow-x: visible;
+  inline-size: 100%;
 }
 .ew-panel-table .ew-table {
   min-inline-size: 0;
@@ -82,6 +83,7 @@
 .ew-panel-table .ew-table th,
 .ew-panel-table .ew-table td {
   white-space: normal;
+  padding-inline: 4px;
 }
 .ew-panel-table .ew-table td,
 .ew-panel-table .ew-table thead th:not(:first-child) {

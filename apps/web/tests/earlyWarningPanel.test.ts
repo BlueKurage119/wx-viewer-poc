@@ -490,6 +490,10 @@ test('区間見出しは時なし、なし・値なしは同じ表示で欠測�
   assert.match(css, /\.ew-detail \.detail-ts-table td\s*\{[^}]*padding-inline:\s*0\.5rem;/);
   assert.match(css, /\.ew-cell\s*\{[^}]*vertical-align:\s*middle;/);
   assert.match(css, /\.ew-panel-table \.ew-table td,[\s\S]*?inline-size:\s*1%;/);
+  assert.match(css, /\.ew-panel-table\s*\{[^}]*inline-size:\s*100%;/);
+  assert.match(css, /\.ew-panel-table \.ew-table\s*\{[^}]*inline-size:\s*100%;/);
+  assert.match(css, /\.ew-panel-table \.ew-table th,[\s\S]*?padding-inline:\s*4px;/);
+  assert.doesNotMatch(css, /\.ew-panel-table\s*\{[^}]*overflow-x:\s*auto;/);
   assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/);
 });
 
