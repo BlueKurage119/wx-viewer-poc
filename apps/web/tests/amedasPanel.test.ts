@@ -7,6 +7,7 @@ import {
   AMEDAS_TABLE_FIELDS,
   hourlyPrecipitationRows,
   amedasPlotRange,
+  amedasLinePaths,
   amedasTimeTicks,
   amedasDisplayValue,
   amedasValue,
@@ -223,4 +224,25 @@ test('気温の動的縦軸と時刻のみの6時間目盛り', () => {
   assert.notEqual(ticks[0]!.accessibleLabel, ticks[4]!.accessibleLabel);
   assert.match(ticks[0]!.accessibleLabel, /9\/27/);
   assert.match(ticks[4]!.accessibleLabel, /9\/28/);
+});
+
+test('折れ線は10分を超える未取得区間と欠測行で分断する', () => {
+  const minute = 60 * 1000;
+  const samples = [
+    { at: 0, value: 1 },
+    { at: 10 * minute, value: 2 },
+    { at: 20 * minute, value: null },
+    { at: 30 * minute, value: 3 },
+    { at: 40 * minute, value: 4 },
+    { at: 4 * 60 * minute, value: 5 },
+    { at: 4 * 60 * minute + 10 * minute, value: 6 },
+  ];
+  assert.deepEqual(
+    amedasLinePaths(
+      samples,
+      (at) => at / minute,
+      (value) => value,
+    ),
+    ['M 0 1 L 10 2', 'M 30 3 L 40 4', 'M 240 5 L 250 6'],
+  );
 });

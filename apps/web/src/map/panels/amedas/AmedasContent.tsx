@@ -12,6 +12,7 @@ import {
   AMEDAS_TABLE_FIELDS,
   hourlyPrecipitationRows,
   amedasPlotRange,
+  amedasLinePaths,
   amedasTimeTicks,
   amedasDisplayValue,
   nextAmedasWindowCount,
@@ -55,17 +56,7 @@ function Plot({
   const x = (at: number) => 32 + ((at - start) / (now - start)) * 560;
   const y = (value: number) =>
     range ? 148 - ((value - range.low) / (range.high - range.low)) * 116 : 148;
-  const paths: string[] = [];
-  let path = '';
-  for (const sample of samples) {
-    if (typeof sample.value !== 'number' || !Number.isFinite(sample.value)) {
-      if (path) paths.push(path);
-      path = '';
-    } else {
-      path += `${path ? ' L' : 'M'} ${x(sample.at)} ${y(sample.value)}`;
-    }
-  }
-  if (path) paths.push(path);
+  const paths = keyName === 'precipitation1h' ? [] : amedasLinePaths(samples, x, y);
   return (
     <section className="amedas-plot-section" aria-label={`${field.label}の推移`}>
       <h3>

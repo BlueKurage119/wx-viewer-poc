@@ -160,6 +160,40 @@ export function amedasTimeTicks(
   });
 }
 
+/** 10分を超える未取得区間と欠測値では線を分け、観測値を補間しない。 */
+export function amedasLinePaths(
+  samples: readonly { at: number; value: number | null | undefined }[],
+  x: (at: number) => number,
+  y: (value: number) => number,
+): readonly string[] {
+  const paths: string[] = [];
+  let path = '';
+  let previousAt: number | null = null;
+  for (const sample of samples) {
+    if (
+      !Number.isFinite(sample.at) ||
+      typeof sample.value !== 'number' ||
+      !Number.isFinite(sample.value)
+    ) {
+      if (path) paths.push(path);
+      path = '';
+      previousAt = null;
+      continue;
+    }
+    if (
+      previousAt !== null &&
+      (sample.at <= previousAt || sample.at - previousAt > 10 * 60 * 1000)
+    ) {
+      if (path) paths.push(path);
+      path = '';
+    }
+    path += `${path ? ' L' : 'M'} ${x(sample.at)} ${y(sample.value)}`;
+    previousAt = sample.at;
+  }
+  if (path) paths.push(path);
+  return paths;
+}
+
 /** 気温だけは0℃を固定下限とせず、実測値の変化幅を優先する。 */
 export function amedasPlotRange(
   values: readonly number[],
