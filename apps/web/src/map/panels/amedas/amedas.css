@@ -49,12 +49,18 @@
   overflow-x: auto;
 }
 .amedas-plot-scroll svg {
-  min-width: 620px;
+  display: block;
   width: 100%;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .amedas-plot-scroll svg {
+    min-width: 500px;
+  }
 }
 .amedas-plot-scroll text {
   fill: var(--md-sys-color-on-surface-variant);
-  font-size: 12px;
+  font-size: 16px;
 }
 .amedas-axis {
   stroke: var(--md-sys-color-outline);
