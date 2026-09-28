@@ -109,7 +109,7 @@ UI監修(追加。実装 HEAD c113b48 時点):
 > - 詳細の3時間表の日付・時刻の見出しは、表が見えている間はダイアログ上端に固定して表示する。3時間区間の時刻見出しは「21-24」のように「時」を付けない。別欄の「○日○時まで」の「時」は残す（2026-09-27 ユーザー決定）。
 > - 詳細の3時間表では、風向と風速を区分ごとに1行にまとめ、風下を指す矢印・方位名・風速を表示する。まとめた行は同じ区分の風の危険度の行の直下に置く。「風雪」の条件は表示しない（2026-09-27 ユーザー決定）。
 > - 詳細の3時間表で、風向・風速の行は行見出しを「風向・風速」と単位だけとし（区分は直上の風の危険度の行で示す）、セルは上段に矢羽、下段に風速の2段で表示する。8方位以外の風向は「－」とする。雨量の予想（１時間最大雨量等）の行は、雨に関わる危険度（大雨浸水・土砂災害）の行のまとまりの直後に置く（2026-09-27 ユーザー決定）。
-> - 詳細の3時間表は、日付が変わる列の左に表の本体まで縦線を引き、備考列の左にも縦線を引く。凡例の横のスイッチで「注意報級以上と量的予想のみ」の表示に切り替えられる。初期状態は全表示で、開くたびに全表示に戻る（2026-09-28 ユーザー決定）。
+> - 詳細の3時間表は、日付が変わる列の左に表の本体まで縦線を引き、備考列の左にも縦線を引く。予報区・発表時刻の行の右端のスイッチ「要注意のみ表示」で、注意報級以上の危険度と量的予想のみの表示に切り替えられる。開いたときはスイッチにフォーカスする。初期状態は全表示で、開くたびに全表示に戻る（2026-09-28 ユーザー決定）。
 > - パネルに表示する行の判定（注意報級以上を含む）は、パネルに表示する3列の範囲で行う（2026-09-27 ユーザー決定）。
 > - 値なしは未満と同じく空白で表示し、見た目では区別しない（読み上げでは区別する。2026-09-27 ユーザー了承）。
 > - 付加事項（例: 雷の「竜巻」「ひょう」）は、詳細ダイアログの3時間表の右端に固定した「備考」列に、現象・区分の行単位で表示する。時間帯のセルには割り当てない。パネルには表示しない。区域全体の付加事項は、同じ現象の各区分の行に複製して表示する。3時間表に対応する行が無い付加事項は表示しない。備考列は常時表示し、表示する付加事項が無い行・表では空白とする。付加事項が未取得の場合は、その旨を示し「付加事項なし」とは表示しない（2026-09-27 ユーザー決定）。
@@ -461,7 +461,9 @@ export function buildWarningTimeSeriesCard(
 - **部品**: Material Web の安定版 `md-switch`(`@material/web/switch/switch.js`)を型付きラッパー `Switch` にしてバレルから使う(`apps/web/src/components/md/Switch.tsx`。§06-ui-md3-protocol の「生タグを直書きしない」に従う)。Labs の `md-gb-switch` は CSS import attributes のため本番ビルドが失敗し、回避には `vite.config.ts` の変更が要るため採らない(f4ea462 の製造報告、2026-09-28 ユーザー決定)。f4ea462 で作成した `GbSwitch.tsx` は削除する。バンドル増分を記録する(G-09 参照)。
   - props は `selected`、`onChange`、`aria-label`、`id` を想定する。
   - React 19 での `selected` プロパティの反映と、`change` イベントの受け取りは実挙動を確認していない。必要なら ref で `addEventListener('change')` し、`selected` を読む(製造裁量)。
-- **ラベル**: 表示文言は「注意報級以上と量的予想のみ」とし、スイッチの右に `<label for>` で置く。スイッチにも同じ文言の `aria-label` を付ける(ラベルとの関連付けが Labs 部品で効かない場合に備える)。
+- **ラベル**: 表示文言は「要注意のみ表示」とし、スイッチの左に `<label for>` で置く。スイッチの `aria-label` は「注意報級以上の危険度と量的予想のみ表示」とし、絞り込みの内容を読み上げで補う(UI監修 2026-09-28 ユーザー決定)。
+- **配置(UI監修 2026-09-28 ユーザー決定)**: 凡例の下ではなく、ダイアログ見出し直下の「予報区・発表時刻」の行に右寄せで置く。`DetailDialog` にオプトインの `metaAction?: ReactNode` を追加し、指定時だけメタ行の右端に描画する(メタ行は flex で予報区・発表時刻を左、`metaAction` を右端に寄せる)。未指定時の出力は変更前と同じ。
+- **初期フォーカス(UI監修 2026-09-28 ユーザー決定)**: 開いたときの初期フォーカスをスイッチに合わせる(iPadで見出しへのフォーカスリングが目立つため)。`DetailDialog` にオプトインの `initialFocusRef?: RefObject<HTMLElement | null>` を追加し、指定時はその要素へ `focus({ preventScroll: true })`、未指定時は従来どおり見出しへフォーカスする。スイッチ側は ref でフォーカス可能な要素を渡す。
 - **状態**: `WarningTimeSeriesDetail` 内の `useState(false)` とする。ダイアログを閉じると部品が外れ、開くたびに false(全表示)になる。`localStorage` 等には保存しない。
 - **絞り込み時に残す行**(詳細の3時間表):
   - 危険度の行: 全期間(基準列＋延長列)のどこかに `level2`〜`level5` のセルがある行。
@@ -581,7 +583,7 @@ export function buildWarningTimeSeriesCard(
 - 新規: §3.1 の新規ファイル
 - 変更: `apps/web/src/index.css`(`@import` 1行のみ)、`apps/web/src/map/WeatherMapView.tsx`(フック呼び出しと `infoPanelInput` の1項目のみ)、`apps/web/src/map/panels/panelFixtures.ts`(§6 の範囲のみ)、`apps/web/src/map/panels/detailDialogFixtures.tsx`(警報等時系列の仮入口・サンプルの削除のみ)
 - 変更許可(§4.6 の吸着見出しと §4.6.2 の本体縦線に限る。後者は 2026-09-28 ユーザー許可): `apps/web/src/map/detail/DetailTimeSeriesTable.tsx`(オプトインの prop と分岐の追加)、`apps/web/src/map/detail/detail.css`(新しいクラスの追加と、`.detail-dialog-body` の上余白の変数化(値は16pxのまま。5fc1593)だけ)、`apps/web/tests/detailTimeSeriesTable.test.ts`(ケースの追加だけ。既存ケースは変えない)。`apps/web/src/components/md/Switch.tsx`(新規)と `apps/web/src/components/md/index.ts`(export 1行の追加と、f4ea462 で入れた GbSwitch に関するコメントの削除)。`GbSwitch.tsx` の削除。`vite.config.ts` は変更しない。§4.8 のスイッチのため。
-- 変更禁止: `apps/api/**`、`packages/**`、`apps/web/src/map/detail/` の上記以外(`DetailDialog.tsx`・`timeSeriesHeader.ts`・`DetailDialogScrollContainerContext.tsx` 等)、`apps/web/src/map/panels/` の他の既存ファイル、`apps/web/src/theme/**`、既存テスト(仮入口削除に伴い警報等時系列サンプル前提のテストが壊れる場合は、統括へ報告してから最小修正)、設定ファイル
+- 変更禁止: `apps/api/**`、`packages/**`、`apps/web/src/map/detail/` の上記以外(`DetailDialog.tsx` は §4.8 の `metaAction`・`initialFocusRef` のオプトイン追加と `detail.css` のメタ行配置ルール追加だけ許可(2026-09-28 ユーザー許可)。それ以外の `timeSeriesHeader.ts`・`DetailDialogScrollContainerContext.tsx` 等)、`apps/web/src/map/panels/` の他の既存ファイル、`apps/web/src/theme/**`、既存テスト(仮入口削除に伴い警報等時系列サンプル前提のテストが壊れる場合は、統括へ報告してから最小修正)、設定ファイル
 - 注意: #61 の AC-7/AC-8 は警報等時系列サンプル(32列・長い本文)を寸法検証に使っていた。削除後、地域時系列予報サンプルだけで既存テストが通るかを製造時に確認し、通らなければ実装を止めて統括へ報告する。
 
 ## 8. 管理項目の結論
@@ -771,7 +773,7 @@ export function buildWarningTimeSeriesCard(
   - 全行が消える入力で「該当する行はありません」が出る。
   - `warningTimeSeries/` 配下と `Switch.tsx` に `localStorage`・`sessionStorage` が無い。
 - [ ] AC-34 絞り込み(画面):
-  - 詳細を開き、凡例の横に `md-switch` があり、「注意報級以上と量的予想のみ」のラベルが見える。スイッチの `aria-label` も同じ文言である。
+  - 詳細を開き、凡例の横に `md-switch` があり、予報区・発表時刻の行の右端に「要注意のみ表示」のラベルが見え、凡例の下には無い。スイッチの `aria-label` は「注意報級以上の危険度と量的予想のみ表示」。開いた直後の `document.activeElement` がスイッチ(またはその内部のフォーカス要素)である。地域時系列予報サンプルの詳細は、初期フォーカスが従来どおり見出しで、メタ行の出力が変わらない。
   - スイッチを on にすると行が減る。閉じて開き直すと off に戻り、全行が出る。
   - キーボード(Tab で移動、Space で切替)でも操作できる。
   - ラベルをクリックして切り替わるかを記録する(切り替わらなければ記録のみで、合否は統括の判断)。
