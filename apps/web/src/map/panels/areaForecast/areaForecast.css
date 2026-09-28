@@ -48,8 +48,13 @@
   text-align: start;
   font-weight: normal;
   color: var(--md-sys-color-on-surface-variant);
-  white-space: nowrap;
-  padding-inline-start: 4px;
+  /* 行見出しは値セルに重ならないよう折り返し可・最小幅3remを確保する(AC-19) */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.2;
+  min-inline-size: 3rem;
+  padding-inline: 4px 2px;
 }
 
 /* データ列の幅固定: 4rem (§7, AC-8) */
@@ -69,6 +74,7 @@
 
 /* 天気行: block-size 固定 (アイコン 24px + 名称2行分) */
 .af-cell-weather {
+  inline-size: 100%;
   block-size: 4.5rem;
   display: flex;
   flex-direction: column;
@@ -104,6 +110,7 @@
 
 /* 風行: 上段(矢羽根24pxの固定枠のみ、風向の漢字行は置かない)と下段(範囲)の2段固定 (§7) */
 .af-cell-wind {
+  inline-size: 100%;
   block-size: 3.25rem;
   display: flex;
   flex-direction: column;
@@ -143,18 +150,9 @@
 
 .af-wind-fill {
   font-family: 'Material Symbols Sharp';
-  font-variation-settings:
-    'FILL' 1,
-    'wght' 400,
-    'GRAD' 0,
-    'opsz' 24;
-}
-
-.af-wind-outline {
-  font-family: 'Material Symbols Outlined';
   color: var(--md-sys-color-on-surface);
   font-variation-settings:
-    'FILL' 0,
+    'FILL' 1,
     'wght' 400,
     'GRAD' 0,
     'opsz' 24;
@@ -182,6 +180,7 @@
 
 /* 気温行: 1行固定 */
 .af-cell-temperature {
+  inline-size: 100%;
   block-size: 1.75rem;
   display: flex;
   align-items: center;

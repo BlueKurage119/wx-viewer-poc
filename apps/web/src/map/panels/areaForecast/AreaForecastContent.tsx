@@ -21,7 +21,7 @@ import {
 import type { LevelView } from './windSpeedLevel';
 import { useFontLoading, type FontLoadingStatus } from './useFontLoading';
 
-/** 風向の矢羽根枠(24×24px固定)。矢羽根／漢字代替／「ー」／「?」のいずれか1つだけを枠内に表示する
+/** 風向の矢羽根枠(24×24px固定)。矢羽根(塗り1層)／漢字代替／「ー」／「?」のいずれか1つだけを枠内に表示する
  * (§4.1a、§7、確定事項13: 風向の漢字は画面から消し aria-label にのみ残す)。 */
 function WindArrowBox({
   direction,
@@ -47,7 +47,8 @@ function WindArrowBox({
     );
   }
 
-  const canShowArrow = direction.rotation !== null && fontStatus.outlinedReady;
+  // 矢羽根の表示可否は塗り用フォント(Sharp)の読込だけで判定する(確定事項18)
+  const canShowArrow = direction.rotation !== null && fontStatus.sharpReady;
   if (!canShowArrow) {
     return (
       <span className="af-wind-arrow-box" aria-hidden="true">
@@ -56,20 +57,15 @@ function WindArrowBox({
     );
   }
 
-  const showFill = level.kind === 'known' && fontStatus.sharpReady;
+  // 階級不明・欠測は通常文字色(CSS既定)、既知階級は階級色の塗り1層
   return (
     <span className="af-wind-arrow-box" aria-hidden="true">
-      {showFill && (
-        <span
-          className="af-wind-layer af-wind-fill"
-          style={{ color: level.colorVar, transform: `rotate(${direction.rotation}deg)` }}
-        >
-          navigation
-        </span>
-      )}
       <span
-        className="af-wind-layer af-wind-outline"
-        style={{ transform: `rotate(${direction.rotation}deg)` }}
+        className="af-wind-layer af-wind-fill"
+        style={{
+          color: level.kind === 'known' ? level.colorVar : undefined,
+          transform: `rotate(${direction.rotation}deg)`,
+        }}
       >
         navigation
       </span>
@@ -204,7 +200,10 @@ function AreaForecastPanelTable({
 
   return (
     <div className="af-panel-table" role="region" aria-label="地域時系列予報" tabIndex={0}>
-      <table className="af-table">
+      <table
+        className="af-table"
+        style={{ minInlineSize: `calc(3rem + ${columns.length * 4}rem)` }}
+      >
         <caption className="af-visually-hidden">地域時系列予報</caption>
         <thead>
           <tr>

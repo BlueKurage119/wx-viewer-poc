@@ -150,7 +150,35 @@ test('Issue #58 AC-8: 寸法の固定・矢羽根24px枠・中心一致・stale�
   // 矢羽根枠が 24px の af-wind-arrow-box を持ち、af-wind-fill と af-wind-outline が同一枠に配置される
   assert.match(htmlAvailable, /class="af-wind-arrow-box"/);
   assert.match(htmlAvailable, /class="af-wind-layer af-wind-fill"/);
-  assert.match(htmlAvailable, /class="af-wind-layer af-wind-outline"/);
+  // 輪郭層は廃止(確定事項18): 塗り1層のみ
+  assert.doesNotMatch(htmlAvailable, /af-wind-outline/);
+  // 矢羽根の表示可否は Sharp だけで決まる(Outlined 未読込でも矢羽根は出る)
+  const sharpOnly = renderToStaticMarkup(
+    createElement(AreaForecastPanel, {
+      response,
+      now,
+      fontStatus: { outlinedReady: false, sharpReady: true },
+    }),
+  );
+  assert.match(sharpOnly, /af-wind-layer af-wind-fill/);
+  const outlinedOnly = renderToStaticMarkup(
+    createElement(AreaForecastPanel, {
+      response,
+      now,
+      fontStatus: { outlinedReady: true, sharpReady: false },
+    }),
+  );
+  assert.doesNotMatch(outlinedOnly, /af-wind-layer/);
+  assert.match(outlinedOnly, /af-wind-dir-fallback/);
+  // 階級不明('7')の矢羽根は階級色を付けない(style に color が無い、通常文字色=CSS既定)
+  const model = buildAreaForecastModel(response.data!);
+  assert.equal(model.kind, 'table');
+  if (model.kind === 'table') {
+    const detail = renderToStaticMarkup(
+      createElement(AreaForecastDetail, { table: model, now, fontStatus }),
+    );
+    assert.match(detail, /class="af-wind-layer af-wind-fill" style="transform:rotate\(315deg\)"/);
+  }
 });
 
 test('Issue #58 AC-10: 詳細ダイアログの仕様（凡例なし・予報要素追加なし・初期列）', () => {
@@ -259,37 +287,58 @@ test('Issue #58 AC-13: 風速色・コントラスト比・トークン検証', 
     );
   }
 
-  // 2. 矢羽根輪郭色(--md-sys-color-on-surface)とセル背景色(--md-sys-color-surface-container)のコントラスト比が 3:1 以上
-  function getThemeColors(dark: boolean): { onSurface: string; surfaceContainer: string } {
-    const properties = new Map<string, string>();
-    const rootStub = {
-      style: {
-        setProperty(k: string, v: string) {
-          properties.set(k, v);
-        },
+  // 2. 塗り色6色とパネル/詳細背景のダークでのコントラスト(確定事項19・20)
+  const properties = new Map<string, string>();
+  const rootStub = {
+    style: {
+      setProperty(k: string, v: string) {
+        properties.set(k, v);
       },
-    } as unknown as HTMLElement;
-    applyMd3Theme(DEFAULT_THEME_SEED, dark, rootStub);
-    return {
-      onSurface: properties.get('--md-sys-color-on-surface')!,
-      surfaceContainer: properties.get('--md-sys-color-surface-container')!,
-    };
+    },
+  } as unknown as HTMLElement;
+  applyMd3Theme(DEFAULT_THEME_SEED, true, rootStub);
+  const panelBg = properties.get('--md-sys-color-surface-container')!;
+  const detailBg = properties.get('--md-sys-color-surface-container-high')!;
+
+  const css = readFileSync(new URL('../src/theme/weatherDataColors.css', import.meta.url), 'utf-8');
+  const jma = readFileSync(new URL('../src/theme/officialJmaColors.css', import.meta.url), 'utf-8');
+  function tokenHex(name: string): string {
+    const m = new RegExp(`--${name}:\\s*([^;]+);`).exec(css);
+    assert.ok(m, name);
+    const v = m[1]!.trim();
+    const ref = /^var\(--([^)]+)\)$/.exec(v);
+    if (ref) return tokenHex2(ref[1]!);
+    return v;
   }
-
-  const light = getThemeColors(false);
-  const dark = getThemeColors(true);
-
-  const lightContrast = contrastRatio(light.onSurface, light.surfaceContainer);
-  const darkContrast = contrastRatio(dark.onSurface, dark.surfaceContainer);
-
-  assert.ok(
-    lightContrast >= 3.0,
-    `Light theme contrast must be >= 3.0, got ${lightContrast.toFixed(2)}`,
-  );
-  assert.ok(
-    darkContrast >= 3.0,
-    `Dark theme contrast must be >= 3.0, got ${darkContrast.toFixed(2)}`,
-  );
+  function tokenHex2(name: string): string {
+    const m = new RegExp(`--${name}:\\s*([^;]+);`).exec(jma);
+    assert.ok(m, name);
+    return m[1]!.trim();
+  }
+  // 階級 → nowcast トークン(§5.1)
+  const levelToken: Record<number, string> = {
+    1: 'wx-data-nowcast-1',
+    2: 'wx-data-nowcast-2',
+    3: 'wx-data-nowcast-4',
+    4: 'wx-data-nowcast-5',
+    5: 'wx-data-nowcast-6',
+    6: 'wx-data-nowcast-7',
+  };
+  for (const [level, token] of Object.entries(levelToken)) {
+    const fill = tokenHex(token);
+    for (const [label, bg] of [
+      ['panel', panelBg],
+      ['detail', detailBg],
+    ] as const) {
+      const ratio = contrastRatio(fill, bg);
+      if (level === '3') {
+        // 確定事項20: 階級3(nowcast-4)は 3:1 未満の既知の例外
+        assert.ok(ratio < 3.0, `level 3 ${label} is a known exception, got ${ratio.toFixed(2)}`);
+      } else {
+        assert.ok(ratio >= 3.0, `level ${level} ${label} must be >= 3.0, got ${ratio.toFixed(2)}`);
+      }
+    }
+  }
 });
 
 test('Issue #58 AC-18: フォント未読み込み時のリガチャ文字列非表示と枠維持', () => {
@@ -317,4 +366,29 @@ test('Issue #58 AC-18: フォント未読み込み時のリガチャ文字列非
 
   // 天気セル内に名称は残っていること
   assert.match(detailHtml, /class="af-weather-name"/);
+});
+
+test('Issue #58 AC-19: パネル表は行見出しの最小幅を確保し、値セルは列幅いっぱいの中央寄せ', () => {
+  const now = Date.parse('2026-09-28T03:00:00Z');
+  const response = sampleFixtureResponse(now);
+  const html = renderToStaticMarkup(
+    createElement(AreaForecastPanel, {
+      response,
+      now,
+      fontStatus: { outlinedReady: true, sharpReady: true },
+    }),
+  );
+  // 3列: 行見出し3rem + 4rem×3 を下回らない(狭い列幅で行見出しが値セルへ食い込まない)
+  assert.match(html, /<table class="af-table" style="min-inline-size:calc\(3rem \+ 12rem\)"/);
+
+  const css = readFileSync(
+    new URL('../src/map/panels/areaForecast/areaForecast.css', import.meta.url),
+    'utf-8',
+  );
+  // 行見出しは折り返し可で最小幅を持つ
+  assert.match(css, /th\[scope='row'\][^}]*white-space: normal;[^}]*min-inline-size: 3rem;/s);
+  // 各行の値は同じ幅(列幅いっぱい)で中央寄せされる
+  for (const cls of ['af-cell-weather', 'af-cell-wind', 'af-cell-temperature']) {
+    assert.match(css, new RegExp(`\\.${cls} \\{\\s*inline-size: 100%;`));
+  }
 });
