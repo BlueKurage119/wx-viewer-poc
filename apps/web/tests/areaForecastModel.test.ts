@@ -456,9 +456,21 @@ test('Issue #58 AC-6: 風速・風向・気温の単体テスト', () => {
   assert.equal(buildLevelView(null).kind, 'missing');
 
   // 気温
-  assert.deepEqual(buildTemperatureView(12, null, '度'), { kind: 'value', text: '12℃' });
-  assert.deepEqual(buildTemperatureView(-3, null, '度'), { kind: 'value', text: '-3℃' });
-  assert.deepEqual(buildTemperatureView(null, '約15度', null), { kind: 'value', text: '約15度' });
+  assert.deepEqual(buildTemperatureView(12, null, '度'), {
+    kind: 'value',
+    text: '12℃',
+    value: 12,
+  });
+  assert.deepEqual(buildTemperatureView(-3, null, '度'), {
+    kind: 'value',
+    text: '-3℃',
+    value: -3,
+  });
+  assert.deepEqual(buildTemperatureView(null, '約15度', null), {
+    kind: 'value',
+    text: '約15度',
+    value: null,
+  });
   assert.deepEqual(buildTemperatureView(null, null, null), { kind: 'missing' });
 });
 

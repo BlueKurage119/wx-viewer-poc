@@ -862,6 +862,7 @@ export function buildAreaForecastFixtureInput(
   };
 }
 
+let lastAreaForecastSearch: string | undefined;
 let areaForecastFixtureResponse: AreaTimeseriesResponse | undefined;
 
 export const PANEL_FIXTURE_NAMES: readonly string[] = Object.freeze([
@@ -891,7 +892,12 @@ export function resolvePanelFixtureInput(
     return buildEarlyWarningFixtureInput(liveInput ?? DEFAULT_INFO_PANEL_INPUT, Date.now());
   }
   if (name === 'area-forecast' && isAreaForecastFixtureActive()) {
-    // 応答を描画ごとに作り直すと詳細表が初期列へスクロールし直すため、最初の1回だけ作る
+    // 応答を描画ごとに作り直すと詳細表が初期列へスクロールし直すため、検索条件が変わらない限り1回だけ作る
+    const search = window.location.search;
+    if (search !== lastAreaForecastSearch) {
+      lastAreaForecastSearch = search;
+      areaForecastFixtureResponse = undefined;
+    }
     const now = Date.now();
     areaForecastFixtureResponse ??= buildAreaForecastFixtureResponse(now);
     return buildAreaForecastFixtureInput(
