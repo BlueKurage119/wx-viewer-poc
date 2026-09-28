@@ -172,7 +172,7 @@ export function buildAreaForecastFixtureResponse(
       { num: 6, text: null, unit: '度' }, // 11
       { num: 8, text: null, unit: '度' }, // 12
       { num: 10, text: null, unit: '度' }, // 13
-      { num: 12, text: null, unit: '度' }, // 14 (区間のない最終列)
+      { num: -10.5, text: null, unit: '度' }, // 14 (区間のない最終列、境目 M)
     ];
   }
 

@@ -1,6 +1,11 @@
 import { amedasPlotRange } from '../amedas/amedasModel';
 import { formatFullJstDate } from '../../detail/timeSeriesHeader';
-import { toJstHour, type AreaForecastColumn, type PointCell } from './areaForecastModel';
+import {
+  toJstHour,
+  type AreaForecastColumn,
+  type IntervalCell,
+  type PointCell,
+} from './areaForecastModel';
 
 export interface LabelPlacement {
   readonly index: number;
@@ -9,6 +14,112 @@ export interface LabelPlacement {
   readonly x: number;
   readonly y: number;
   readonly position: 'top' | 'bottom';
+}
+
+export interface TemperatureChartGrid {
+  readonly intervalColumns: readonly AreaForecastColumn[];
+  readonly boundaryPoints: readonly (PointCell | undefined)[];
+  readonly boundaryMoments: readonly { readonly at: string; readonly label: string }[];
+  readonly endBoundaryAt: string;
+  readonly endBoundaryLabel: string;
+  readonly droppedLastColumn: boolean;
+}
+
+/**
+ * 詳細ダイアログ用の区間列・境目ポイント・境界グリッドを構築する（Issue #58 §3.2, §3.3, AC-3）。
+ * 最終の気温だけの列（時刻が直前区間の終了時刻に等しい列）は詳細の列から除き、境目 M の点とする。
+ */
+export function buildTemperatureChartGrid(
+  columns: readonly AreaForecastColumn[],
+  intervals: readonly IntervalCell[],
+  points: readonly PointCell[],
+): TemperatureChartGrid {
+  if (columns.length === 0) {
+    return {
+      intervalColumns: [],
+      boundaryPoints: [],
+      boundaryMoments: [],
+      endBoundaryAt: '',
+      endBoundaryLabel: '',
+      droppedLastColumn: false,
+    };
+  }
+
+  const lastColIndex = columns.length - 1;
+  const lastCol = columns[lastColIndex]!;
+
+  // 直前区間の終了時刻を判定
+  let prevIntervalEndTime: string | null = null;
+  for (const int of intervals) {
+    if (int.kind === 'value') {
+      if (int.startIndex + int.span === lastColIndex) {
+        prevIntervalEndTime = int.timeTo;
+      }
+    }
+  }
+
+  // lastCol 自体が有効な区間を持つか
+  const lastHasInterval = intervals.some(
+    (int) =>
+      int.kind === 'value' &&
+      int.startIndex <= lastColIndex &&
+      lastColIndex < int.startIndex + int.span,
+  );
+
+  const shouldDrop =
+    lastColIndex > 0 &&
+    !lastHasInterval &&
+    prevIntervalEndTime !== null &&
+    lastCol.at === prevIntervalEndTime;
+
+  if (shouldDrop) {
+    const intervalColumns = columns.slice(0, lastColIndex);
+    const boundaryPoints: (PointCell | undefined)[] = [];
+    const boundaryMoments: { at: string; label: string }[] = [];
+
+    for (let i = 0; i <= lastColIndex; i++) {
+      boundaryPoints.push(points[i]);
+      const col = columns[i]!;
+      boundaryMoments.push({ at: col.at, label: col.label });
+    }
+
+    return {
+      intervalColumns,
+      boundaryPoints,
+      boundaryMoments,
+      endBoundaryAt: lastCol.at,
+      endBoundaryLabel: lastCol.label,
+      droppedLastColumn: true,
+    };
+  }
+
+  // 最終列を除去しない場合（または最後の区間の終了時刻に気温がない場合）
+  let lastTimeTo: string = lastCol.at;
+  for (const int of intervals) {
+    if (int.kind === 'value') {
+      if (int.startIndex + int.span === columns.length) {
+        lastTimeTo = int.timeTo;
+      }
+    }
+  }
+
+  const intervalColumns = [...columns];
+  const boundaryPoints: (PointCell | undefined)[] = [...points, undefined];
+  const boundaryMoments: { at: string; label: string }[] = columns.map((col) => ({
+    at: col.at,
+    label: col.label,
+  }));
+  const endLabel = `${toJstHour(lastTimeTo)}時`;
+  boundaryMoments.push({ at: lastTimeTo, label: endLabel });
+
+  return {
+    intervalColumns,
+    boundaryPoints,
+    boundaryMoments,
+    endBoundaryAt: lastTimeTo,
+    endBoundaryLabel: endLabel,
+    droppedLastColumn: false,
+  };
 }
 
 /**
@@ -95,11 +206,13 @@ function getBottomOverlap(yEnd: number, yPoint: number): number {
  * 点の上（ベースライン y = 点y - 8）を既定とする。
  * ラベル左右端（中心 ±16）における隣接線分の y を求め、
  * 上側矩形（点y-18〜点y-5）と交差し、下側矩形（点y+6〜点y+19）と交差しないとき下（点y + 17）。
- * 両方交差する場合は上（交差の小さい方）。
+ * 両方交差する場合は上。
+ * 境目0・M のラベルは x を [半幅, SVG幅 - 半幅] に丸めて SVG 外へのはみ出しを防ぐ。
  */
 export function calculateLabelPositions(
   values: readonly (number | null)[],
   getY: (value: number) => number,
+  viewBoxWidth: number,
 ): readonly LabelPlacement[] {
   const placements: LabelPlacement[] = [];
 
@@ -109,7 +222,7 @@ export function calculateLabelPositions(
       continue;
     }
 
-    const pointX = i * 64 + 32;
+    const pointX = 20 + i * 64;
     const pointY = getY(val);
 
     const hasLeft = i > 0 && values[i - 1] !== null && Number.isFinite(values[i - 1]);
@@ -145,19 +258,24 @@ export function calculateLabelPositions(
     let position: 'top' | 'bottom' = 'top';
     if (intersectsTop && !intersectsBottom) {
       position = 'bottom';
-    } else if (intersectsTop && intersectsBottom) {
-      position = bottomOverlap < topOverlap ? 'bottom' : 'top';
     } else {
       position = 'top';
     }
 
     const labelY = position === 'top' ? pointY - 8 : pointY + 17;
 
+    const text = `${val}`;
+    const halfWidth = (text.length * 7) / 2;
+    const labelX =
+      viewBoxWidth >= halfWidth * 2
+        ? Math.max(halfWidth, Math.min(viewBoxWidth - halfWidth, pointX))
+        : viewBoxWidth / 2;
+
     placements.push({
       index: i,
       value: val,
-      text: `${val}`,
-      x: pointX,
+      text,
+      x: labelX,
       y: labelY,
       position,
     });
@@ -166,58 +284,18 @@ export function calculateLabelPositions(
   return placements;
 }
 
-/**
- * 目盛り数値を計算する（Issue #58 §4.5）。
- * range の中の整数のうち、刻み {1, 2, 5, 10}℃ から目盛りが2〜4本になる最小の刻みの倍数。
- * 範囲が狭く2〜4本が無い場合は1〜4本になる刻み。
- */
-export function calculateTicks(range: { low: number; high: number } | null): number[] {
-  if (!range) return [];
-  const steps = [1, 2, 5, 10] as const;
-
-  const getTicksForStep = (step: number): number[] => {
-    const first = Math.ceil(range.low / step) * step;
-    const last = Math.floor(range.high / step) * step;
-    if (first > last) return [];
-    const ticks: number[] = [];
-    for (let val = first; val <= last + step * 0.001; val += step) {
-      const rounded = Math.round(val / step) * step;
-      ticks.push(rounded === 0 ? 0 : rounded);
-    }
-    return ticks;
-  };
-
-  // 1) 2〜4本になる最小の刻み
-  for (const step of steps) {
-    const ticks = getTicksForStep(step);
-    if (ticks.length >= 2 && ticks.length <= 4) {
-      return ticks;
-    }
-  }
-
-  // 2) 1〜4本になる最小の刻み
-  for (const step of steps) {
-    const ticks = getTicksForStep(step);
-    if (ticks.length >= 1 && ticks.length <= 4) {
-      return ticks;
-    }
-  }
-
-  return getTicksForStep(10);
-}
-
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 /**
- * JST日付が変わる列インデックスを計算する（Issue #58 §3, §4.3, AC-5）。
- * 先頭列（index 0）は除き、日付が変わる列の左端 x = i * 64 に縦線を描く。
+ * JST日付が変わる境目インデックスを計算する（Issue #58 §3.2, §4.3, AC-5）。
+ * 先頭境目（index 0）は除き、日付が変わる境目の x = 20 + 64 * k に縦線を描く。
  */
-export function calculateDateBoundaries(columns: readonly { at: string }[]): number[] {
+export function calculateDateBoundaries(moments: readonly { readonly at: string }[]): number[] {
   const boundaries: number[] = [];
   let previousKey: string | null = null;
 
-  for (let i = 0; i < columns.length; i++) {
-    const at = columns[i]!.at;
+  for (let i = 0; i < moments.length; i++) {
+    const at = moments[i]!.at;
     const jstMs = new Date(at).getTime() + JST_OFFSET_MS;
     const jst = new Date(jstMs);
     const key = `${jst.getUTCFullYear()}-${jst.getUTCMonth() + 1}-${jst.getUTCDate()}`;
@@ -239,14 +317,14 @@ export function calculateDateBoundaries(columns: readonly { at: string }[]): num
  */
 export function formatTemperatureReaderItem(
   point: PointCell | undefined,
-  column: AreaForecastColumn,
+  moment: { readonly at: string },
 ): string | null {
   if (!point || point.kind === 'none') {
     return null;
   }
 
-  const dateStr = formatFullJstDate(column.at);
-  const hour = toJstHour(column.at);
+  const dateStr = formatFullJstDate(moment.at);
+  const hour = toJstHour(moment.at);
   const prefix = `${dateStr} ${hour}時`;
 
   if (point.temperature.kind === 'missing') {
@@ -267,17 +345,40 @@ export function formatTemperatureReaderItem(
 
 /**
  * 視覚的に隠した読み上げリストの全項目を生成する（Issue #58 §4.7, AC-10）。
+ * 境目 0〜M の各境目について項目を生成する。
  */
 export function buildTemperatureReaderItems(
-  points: readonly PointCell[],
-  columns: readonly AreaForecastColumn[],
+  points: readonly (PointCell | undefined)[],
+  moments: readonly { readonly at: string }[],
 ): readonly string[] {
   const items: string[] = [];
-  for (let i = 0; i < columns.length; i++) {
-    const item = formatTemperatureReaderItem(points[i], columns[i]!);
+  const count = Math.min(points.length, moments.length);
+  for (let i = 0; i < count; i++) {
+    const item = formatTemperatureReaderItem(points[i], moments[i]!);
     if (item !== null) {
       items.push(item);
     }
   }
   return items;
+}
+
+/**
+ * 列幅の検査（Issue #58 §4.3, §5）。
+ * 先頭余白列 1.25rem・区間列すべて 4rem・末尾余白列 2.5rem 以外の幅があれば false。
+ */
+export function isTemperatureChartWidthValid(
+  columnWidths: readonly string[] | undefined,
+  expectedCount: number,
+): boolean {
+  if (!columnWidths || columnWidths.length === 0) return true;
+  if (columnWidths.length !== expectedCount) return false;
+  if (expectedCount < 2) return false;
+
+  if (columnWidths[0] !== '1.25rem') return false;
+  if (columnWidths[columnWidths.length - 1] !== '2.5rem') return false;
+
+  for (let i = 1; i < columnWidths.length - 1; i++) {
+    if (columnWidths[i] !== '4rem') return false;
+  }
+  return true;
 }

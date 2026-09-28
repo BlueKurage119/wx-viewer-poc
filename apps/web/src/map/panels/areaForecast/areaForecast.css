@@ -205,13 +205,40 @@
   margin: 0 auto;
 }
 
-/* 気温折れ線グラフ行 (Issue #58 §4.8) */
+/* 詳細見出しのスタイリング (Issue #58 §3.2, §4.8) */
+/* 見出し表のセル(左上角を除く)ははみ出して見えるよう overflow: visible にする */
+.af-detail .detail-ts-head th:not(.detail-ts-corner) {
+  overflow: visible;
+}
+
+/* 時刻行の見出しセル(左上角を除く)を半列左へずらし、境目に中心を合わせる */
+.af-detail .detail-ts-head tr:last-child th:not(.detail-ts-corner) {
+  transform: translateX(-50%);
+  border-block-end: none;
+}
+
+/* 時刻行セルから消した下罫線を見出し表の下端に付け替える */
+.af-detail .detail-ts-head table {
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* 気温折れ線グラフ行 (Issue #58 §4.5, §4.8) */
 .af-detail .detail-ts-table td:has(> .af-temp-chart) {
   padding: 0;
 }
 
+/* 行見出し「気温（℃）」の文字サイズ (§4.5: 18px, 500, line-height 1.3) */
 .af-detail .detail-ts-table th:has(> .af-temp-chart-header) {
-  padding-block: 0;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.af-temp-chart-header,
+.af-temp-chart-title {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 .af-temp-chart {
@@ -223,33 +250,6 @@
 
 .af-temp-chart-svg {
   display: block;
-}
-
-.af-temp-chart-header {
-  position: relative;
-  block-size: 8rem;
-  box-sizing: border-box;
-}
-
-.af-temp-chart-title {
-  position: absolute;
-  inset-block-start: 4px;
-  inset-inline-start: 4px;
-  font-size: 11px;
-  line-height: 1.2;
-  color: var(--md-sys-color-on-surface-variant);
-  white-space: nowrap;
-}
-
-.af-temp-chart-tick {
-  position: absolute;
-  inset-inline-end: 4px;
-  transform: translateY(-50%);
-  font-size: 11px;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: var(--md-sys-color-on-surface-variant);
-  pointer-events: none;
 }
 
 .af-temp-chart-label {

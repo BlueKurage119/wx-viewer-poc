@@ -1,49 +1,28 @@
 import { useMemo, type ReactNode } from 'react';
-import type { AreaForecastColumn, PointCell } from './areaForecastModel';
 import {
   calculateDateBoundaries,
   calculateLabelPositions,
   calculateTemperatureRange,
   calculateTemperatureY,
-  calculateTicks,
   temperatureLinePaths,
   buildTemperatureReaderItems,
+  isTemperatureChartWidthValid,
+  type TemperatureChartGrid,
 } from './temperatureChartModel';
 
 export interface TemperatureChartProps {
-  readonly points: readonly PointCell[];
-  readonly columns: readonly AreaForecastColumn[];
+  readonly grid: TemperatureChartGrid;
   readonly columnWidths?: readonly string[];
 }
 
 /**
- * 詳細ダイアログの気温折れ線グラフ行見出し（目盛り数値付き、Issue #58 §4.5）。
+ * 詳細ダイアログの気温折れ線グラフ行見出し（Issue #58 §4.5）。
+ * 目盛りは描かず、「気温（℃）」の文字のみ。
  */
-export function TemperatureChartHeader({
-  range,
-}: {
-  readonly range: { low: number; high: number } | null;
-}): ReactNode {
-  const ticks = useMemo(() => calculateTicks(range), [range]);
-
+export function TemperatureChartHeader(): ReactNode {
   return (
     <div className="af-temp-chart-header">
       <span className="af-temp-chart-title">気温（℃）</span>
-      {range &&
-        ticks.map((tick) => {
-          const y = calculateTemperatureY(tick, range);
-          const topPercent = (y / 128) * 100;
-          return (
-            <span
-              key={tick}
-              className="af-temp-chart-tick"
-              style={{ top: `${topPercent}%` }}
-              aria-hidden="true"
-            >
-              {tick}
-            </span>
-          );
-        })}
     </div>
   );
 }
@@ -51,35 +30,33 @@ export function TemperatureChartHeader({
 /**
  * 詳細ダイアログの気温折れ線グラフ行セル（Issue #58 §4）。
  */
-export function TemperatureChart({
-  points,
-  columns,
-  columnWidths,
-}: TemperatureChartProps): ReactNode {
-  const columnCount = columns.length;
+export function TemperatureChart({ grid, columnWidths }: TemperatureChartProps): ReactNode {
+  const intervalCount = grid.intervalColumns.length;
+  const boundaryCount = grid.boundaryPoints.length;
+  // 先頭余白列(1) + 区間列(M) + 末尾余白列(1)
+  const totalColumnCount = intervalCount + 2;
 
   // 読み上げリストの項目一覧
   const readerItems = useMemo(
-    () => buildTemperatureReaderItems(points, columns),
-    [points, columns],
+    () => buildTemperatureReaderItems(grid.boundaryPoints, grid.boundaryMoments),
+    [grid.boundaryPoints, grid.boundaryMoments],
   );
 
-  // 全列が '4rem' であるかの検証（Issue #58 §3, §5）
-  const isWidthValid = useMemo(() => {
-    if (!columnWidths || columnWidths.length === 0) return true;
-    return columnWidths.every((width) => width === '4rem');
-  }, [columnWidths]);
+  // 列幅の検証（先頭 1.25rem, 区間 4rem, 末尾 2.5rem、Issue #58 §4.3, §5）
+  const isWidthValid = useMemo(
+    () => isTemperatureChartWidthValid(columnWidths, totalColumnCount),
+    [columnWidths, totalColumnCount],
+  );
 
-  // 数値配列の抽出
+  // 数値配列の抽出（境目 0〜M）
   const temperatureValues = useMemo(
     () =>
-      columns.map((_, i) => {
-        const pt = points[i];
+      grid.boundaryPoints.map((pt) => {
         if (!pt || pt.kind !== 'value') return null;
         if (pt.temperature.kind !== 'value') return null;
         return pt.temperature.value;
       }),
-    [points, columns],
+    [grid.boundaryPoints],
   );
 
   const range = useMemo(() => calculateTemperatureRange(temperatureValues), [temperatureValues]);
@@ -89,7 +66,10 @@ export function TemperatureChart({
     return (val: number) => calculateTemperatureY(val, range);
   }, [range]);
 
-  const getX = (index: number) => index * 64 + 32;
+  const getX = (index: number) => 20 + index * 64;
+
+  const viewBoxWidth = 20 + 64 * intervalCount + 40;
+  const svgWidth = `calc(1.25rem + ${intervalCount * 4}rem + 2.5rem)`;
 
   const linePaths = useMemo(
     () => (range ? temperatureLinePaths(temperatureValues, getX, getY) : []),
@@ -97,39 +77,38 @@ export function TemperatureChart({
   );
 
   const labels = useMemo(
-    () => (range ? calculateLabelPositions(temperatureValues, getY) : []),
-    [range, temperatureValues, getY],
+    () => (range ? calculateLabelPositions(temperatureValues, getY, viewBoxWidth) : []),
+    [range, temperatureValues, getY, viewBoxWidth],
   );
 
-  const ticks = useMemo(() => calculateTicks(range), [range]);
+  const dateBoundaries = useMemo(
+    () => calculateDateBoundaries(grid.boundaryMoments),
+    [grid.boundaryMoments],
+  );
 
-  const dateBoundaries = useMemo(() => calculateDateBoundaries(columns), [columns]);
-
-  // 全列が欠測（数値0件かつ文字値0件）かどうか判定
+  // 全境目が欠測（数値0件かつ文字値0件）かどうか判定
   const isAllMissing = useMemo(() => {
     if (range !== null) return false;
-    // 数値0件のとき、文字値が1点でもあるか判定
-    const hasAnyText = columns.some((_, i) => {
-      const pt = points[i];
+    const hasAnyText = grid.boundaryPoints.some((pt) => {
       return pt?.kind === 'value' && pt.temperature.kind === 'value';
     });
     return !hasAnyText;
-  }, [range, points, columns]);
+  }, [range, grid.boundaryPoints]);
 
-  // 列幅が 4rem 以外を含む場合はグラフを描かず代替文字表示（Issue #58 §3）
+  // 列幅が規定と異なる場合はグラフを描かず代替文字表示（Issue #58 §3, §4.3）
   if (!isWidthValid) {
     return (
       <div className="af-temp-chart af-temp-chart-fallback">
         <div className="af-temp-chart-fallback-text">
-          {columns.map((col, i) => {
-            const pt = points[i];
+          {grid.boundaryMoments.map((m, i) => {
+            const pt = grid.boundaryPoints[i];
             let text = '対象外';
             if (pt && pt.kind === 'value') {
               text = pt.temperature.kind === 'missing' ? '欠測' : pt.temperature.text;
             }
             return (
-              <span key={col.key} className="af-temp-chart-fallback-item">
-                {col.label} {text}
+              <span key={`fallback-${i}-${m.at}`} className="af-temp-chart-fallback-item">
+                {m.label} {text}
               </span>
             );
           })}
@@ -143,9 +122,6 @@ export function TemperatureChart({
     );
   }
 
-  const svgWidth = `${columnCount * 4}rem`;
-  const viewBoxWidth = columnCount * 64;
-
   return (
     <div className="af-temp-chart">
       <svg
@@ -154,9 +130,9 @@ export function TemperatureChart({
         viewBox={`0 0 ${viewBoxWidth} 128`}
         aria-hidden="true"
       >
-        {/* 日付境界の縦線 */}
+        {/* 日付境界の縦線 (Issue #58 §4.3, AC-5) */}
         {dateBoundaries.map((colIdx) => {
-          const x = colIdx * 64;
+          const x = 20 + colIdx * 64;
           return (
             <line
               key={`date-boundary-${colIdx}`}
@@ -170,23 +146,6 @@ export function TemperatureChart({
           );
         })}
 
-        {/* 水平補助線（目盛り位置） */}
-        {range &&
-          ticks.map((tick) => {
-            const y = calculateTemperatureY(tick, range);
-            return (
-              <line
-                key={`tick-line-${tick}`}
-                x1={0}
-                y1={y}
-                x2={viewBoxWidth}
-                y2={y}
-                stroke="var(--md-sys-color-outline-variant)"
-                strokeWidth={1}
-              />
-            );
-          })}
-
         {/* 折れ線 */}
         {linePaths.map((p, idx) => (
           <path
@@ -199,11 +158,11 @@ export function TemperatureChart({
           />
         ))}
 
-        {/* 点 (circle r=3.5) */}
+        {/* 点 (circle r=3.5, 中心 x = 20 + 64k) */}
         {labels.map((lbl) => (
           <circle
             key={`circle-${lbl.index}`}
-            cx={lbl.x}
+            cx={20 + lbl.index * 64}
             cy={getY(lbl.value)}
             r={3.5}
             fill="var(--md-sys-color-primary)"
@@ -228,14 +187,15 @@ export function TemperatureChart({
 
         {/* 欠測・文字値のみの「?」表示（全欠測でない場合） */}
         {!isAllMissing &&
-          columns.map((_, i) => {
-            const pt = points[i];
+          grid.boundaryMoments.map((_, i) => {
+            if (i >= boundaryCount) return null;
+            const pt = grid.boundaryPoints[i];
             if (!pt || pt.kind !== 'value') return null;
             const isMissing = pt.temperature.kind === 'missing';
             const isTextOnly = pt.temperature.kind === 'value' && pt.temperature.value === null;
             if (!isMissing && !isTextOnly) return null;
 
-            const cx = getX(i);
+            const cx = 20 + i * 64;
             return (
               <text
                 key={`question-${i}`}

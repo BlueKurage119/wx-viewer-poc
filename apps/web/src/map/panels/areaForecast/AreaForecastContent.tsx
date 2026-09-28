@@ -2,7 +2,12 @@ import { useMemo, useState } from 'react';
 import type { AreaTimeseriesResponse } from '@wx-viewer-poc/shared';
 import { GbButton } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
-import { DetailTimeSeriesTable, type TimeSeriesRow } from '../../detail/DetailTimeSeriesTable';
+import {
+  DetailTimeSeriesTable,
+  type TimeSeriesCell,
+  type TimeSeriesColumn,
+  type TimeSeriesRow,
+} from '../../detail/DetailTimeSeriesTable';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import {
   buildAreaForecastModel,
@@ -21,7 +26,7 @@ import {
 import type { LevelView } from './windSpeedLevel';
 import { useFontLoading, type FontLoadingStatus } from './useFontLoading';
 import { TemperatureChart, TemperatureChartHeader } from './TemperatureChart';
-import { calculateTemperatureRange } from './temperatureChartModel';
+import { buildTemperatureChartGrid } from './temperatureChartModel';
 
 /** 風向の矢羽根枠(24×24px固定)。矢羽根(塗り1層)／漢字代替／「ー」／「?」のいずれか1つだけを枠内に表示する
  * (§4.1a、§7、確定事項13: 風向の漢字は画面から消し aria-label にのみ残す)。 */
@@ -274,63 +279,96 @@ export function AreaForecastDetail({
   readonly now: number;
   readonly fontStatus: FontLoadingStatus;
 }) {
+  const grid = useMemo(
+    () => buildTemperatureChartGrid(table.columns, table.intervals, table.points),
+    [table.columns, table.intervals, table.points],
+  );
+
   // 共用部品は columns の変化で初期列へスクロールし直すため、毎秒の再描画で配列を作り直さない
-  const columns = useMemo(
-    () =>
-      table.columns.map((col) => ({
-        key: col.key,
-        at: col.at,
-        timeLabel: col.label,
-        ariaTimeLabel: col.label,
-        width: '4rem',
-      })),
-    [table.columns],
-  );
+  // 先頭余白列(1.25rem) + 区間列(4rem) + 末尾余白列(2.5rem)
+  const columns = useMemo<TimeSeriesColumn[]>(() => {
+    if (grid.intervalColumns.length === 0) return [];
 
-  const tempValues = useMemo(
-    () =>
-      table.columns.map((_, i) => {
-        const pt = table.points[i];
-        if (!pt || pt.kind !== 'value') return null;
-        if (pt.temperature.kind !== 'value') return null;
-        return pt.temperature.value;
-      }),
-    [table.columns, table.points],
-  );
-  const tempRange = useMemo(() => calculateTemperatureRange(tempValues), [tempValues]);
+    const firstCol = grid.intervalColumns[0]!;
+    const padStart: TimeSeriesColumn = {
+      key: 'af-pad-start',
+      at: firstCol.at,
+      timeLabel: '',
+      ariaTimeLabel: '',
+      width: '1.25rem',
+    };
 
-  if (table.columns.length === 0) {
+    const intervalCols: TimeSeriesColumn[] = grid.intervalColumns.map((col) => ({
+      key: col.key,
+      at: col.at,
+      timeLabel: col.label,
+      ariaTimeLabel: col.label,
+      width: '4rem',
+    }));
+
+    const padEnd: TimeSeriesColumn = {
+      key: 'af-pad-end',
+      at: grid.endBoundaryAt,
+      timeLabel: grid.endBoundaryLabel,
+      ariaTimeLabel: grid.endBoundaryLabel,
+      width: '2.5rem',
+    };
+
+    return [padStart, ...intervalCols, padEnd];
+  }, [grid]);
+
+  if (table.columns.length === 0 || grid.intervalColumns.length === 0) {
     return <p className="af-message">発表された値はありません</p>;
   }
 
-  const weatherRowCells = table.intervals.map((int, i) => {
-    const col = table.columns[int.startIndex]!;
-    return {
-      key: `weather-int-${i}`,
-      span: int.span,
-      content: <WeatherCellView interval={int} column={col} fontStatus={fontStatus} />,
-    };
-  });
+  const weatherRowCells: TimeSeriesCell[] = [
+    {
+      key: 'weather-pad-start',
+      span: 1,
+      content: <div className="af-cell-weather af-cell-none" />,
+    },
+    ...table.intervals.map((int, i) => {
+      const col = table.columns[int.startIndex]!;
+      return {
+        key: `weather-int-${i}`,
+        span: int.span,
+        content: <WeatherCellView interval={int} column={col} fontStatus={fontStatus} />,
+      };
+    }),
+    {
+      key: 'weather-pad-end',
+      span: 1,
+      content: <div className="af-cell-weather af-cell-none" />,
+    },
+  ];
 
-  const windRowCells = table.intervals.map((int, i) => {
-    const col = table.columns[int.startIndex]!;
-    return {
-      key: `wind-int-${i}`,
-      span: int.span,
-      content: <WindCellView interval={int} column={col} fontStatus={fontStatus} />,
-    };
-  });
+  const windRowCells: TimeSeriesCell[] = [
+    {
+      key: 'wind-pad-start',
+      span: 1,
+      content: <div className="af-cell-wind af-cell-none" />,
+    },
+    ...table.intervals.map((int, i) => {
+      const col = table.columns[int.startIndex]!;
+      return {
+        key: `wind-int-${i}`,
+        span: int.span,
+        content: <WindCellView interval={int} column={col} fontStatus={fontStatus} />,
+      };
+    }),
+    {
+      key: 'wind-pad-end',
+      span: 1,
+      content: <div className="af-cell-wind af-cell-none" />,
+    },
+  ];
 
-  const tempRowCells = [
+  const tempRowCells: TimeSeriesCell[] = [
     {
       key: 'temp-chart-cell',
-      span: table.columns.length,
+      span: columns.length,
       content: (
-        <TemperatureChart
-          points={table.points}
-          columns={table.columns}
-          columnWidths={columns.map((c) => c.width)}
-        />
+        <TemperatureChart grid={grid} columnWidths={columns.map((c) => c.width ?? '4rem')} />
       ),
     },
   ];
@@ -340,13 +378,13 @@ export function AreaForecastDetail({
     { key: 'wind', header: '風（m/s）', cells: windRowCells },
     {
       key: 'temperature',
-      header: <TemperatureChartHeader range={tempRange} />,
+      header: <TemperatureChartHeader />,
       cells: tempRowCells,
     },
   ];
 
   const panelCols = selectPanelColumns(table.columns, table.intervals, now);
-  const initialColumnKey = panelCols[0]?.key ?? table.columns[0]?.key;
+  const initialColumnKey = panelCols[0]?.key ?? grid.intervalColumns[0]?.key;
 
   return (
     <DetailTimeSeriesTable
