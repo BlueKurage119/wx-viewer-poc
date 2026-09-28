@@ -1,7 +1,11 @@
+import './setupEnv.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { AmedasResponse } from '@wx-viewer-poc/shared';
 import { parseAmedasResponse } from '../src/api/amedas';
+import { buildAmedasFailedCard } from '../src/map/panels/amedas/useAmedas';
 import {
   AMEDAS_FIELDS,
   AMEDAS_TABLE_FIELDS,
@@ -19,6 +23,7 @@ import {
 } from '../src/map/panels/amedas/amedasModel';
 
 const at = '2026-09-28T00:00:00.000Z';
+(globalThis as unknown as { React: typeof React }).React = React;
 const response: AmedasResponse = {
   terminalId: 'htrcph01',
   venueId: 'trc',
@@ -105,6 +110,12 @@ test('24時間の境界と会場・端末の応答整合を検証する', () => 
   assert.equal(parseAmedasResponse(response, 'htrcph01', 'normal')?.venueId, 'trc');
   assert.equal(parseAmedasResponse(response, 'hkeagh01', 'normal'), null);
   assert.equal(parseAmedasResponse(response, 'htrcph01', 'training'), null);
+});
+
+test('保持値のない通信失敗は失敗状態と通信異常を表示する', () => {
+  const card = buildAmedasFailedCard();
+  assert.deepEqual(card.status, { kind: 'failed' });
+  assert.equal(renderToStaticMarkup(card.content), '<p role="alert">通信異常</p>');
 });
 
 test('時雨量と羽田湿度の視覚・読み上げ表示を区別する', () => {

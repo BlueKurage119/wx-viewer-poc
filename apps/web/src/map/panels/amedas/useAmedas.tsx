@@ -29,6 +29,13 @@ export function buildAmedasCard(
     content: <AmedasContent response={response} now={now} staleMessage={staleMessage} />,
   };
 }
+export function buildAmedasFailedCard(): InfoPanelCardInput {
+  return {
+    key: 'amedas',
+    status: { kind: 'failed' },
+    content: <p role="alert">通信異常</p>,
+  };
+}
 export function useAmedas(params: {
   terminalId: string;
   controlStatus: WeatherControlStatus;
@@ -64,13 +71,7 @@ export function useAmedas(params: {
       return buildAmedasCard(state.catalog, Date.parse(state.catalog.evaluatedAt));
     if (state.status === 'stale')
       return buildAmedasCard(state.catalog, Date.now(), state.failure.kind);
-    return {
-      key: 'amedas',
-      status: state.status === 'failed' ? { kind: 'failed' } : { kind: 'loading' },
-      content:
-        state.status === 'failed' ? (
-          <p role="alert">{state.failure.kind === 'network' ? '通信異常' : '取得できません'}</p>
-        ) : undefined,
-    } satisfies InfoPanelCardInput;
+    if (state.status === 'failed') return buildAmedasFailedCard();
+    return { key: 'amedas', status: { kind: 'loading' } } satisfies InfoPanelCardInput;
   }, [state, venueId, terminalId, controlStatus]);
 }
