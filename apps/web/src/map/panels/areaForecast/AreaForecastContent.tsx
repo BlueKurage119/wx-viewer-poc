@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AreaTimeseriesResponse } from '@wx-viewer-poc/shared';
 import { GbButton } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
@@ -269,6 +269,9 @@ function AreaForecastPanelTable({
   );
 }
 
+/** 初期スクロールで左へ戻す幅: 先頭余白列(1.25rem)と同じく、時刻見出し(最大2桁)の左半分が収まる幅 */
+const INITIAL_SCROLL_LABEL_MARGIN_PX = 20;
+
 function stripHourSuffix(label: string): string {
   return label.replace(/時$/, '');
 }
@@ -323,6 +326,21 @@ export function AreaForecastDetail({
 
     return [padStart, ...intervalCols, padEnd];
   }, [grid]);
+
+  const panelCols = selectPanelColumns(table.columns, table.intervals, now);
+  const initialColumnKey = panelCols[0]?.key ?? grid.intervalColumns[0]?.key;
+
+  // 共用部品は初期列の左端(境目)を行見出しの右端に合わせる。境目に中心を置いた時刻見出しの
+  // 左半分が隠れるため、時刻の数字の分だけ左へ戻す(UI監修 2026-09-29)。
+  // 子(共用部品)の effect の後に実行され、scroll イベントで見出し側も同期される
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const body = wrapRef.current?.querySelector<HTMLElement>('.detail-ts-scroll');
+    if (!body || !initialColumnKey) return;
+    body.scrollLeft = Math.max(0, body.scrollLeft - INITIAL_SCROLL_LABEL_MARGIN_PX);
+    const head = wrapRef.current?.querySelector<HTMLElement>('.detail-ts-head');
+    if (head) head.scrollLeft = body.scrollLeft;
+  }, [initialColumnKey, columns]);
 
   if (table.columns.length === 0 || grid.intervalColumns.length === 0) {
     return <p className="af-message">発表された値はありません</p>;
@@ -390,21 +408,20 @@ export function AreaForecastDetail({
     },
   ];
 
-  const panelCols = selectPanelColumns(table.columns, table.intervals, now);
-  const initialColumnKey = panelCols[0]?.key ?? grid.intervalColumns[0]?.key;
-
   return (
-    <DetailTimeSeriesTable
-      caption="地域時系列予報の全期間"
-      rowHeaderLabel="日（曜日）"
-      dateHeaderMode="day-weekday-on-change"
-      cornerLabels={{ date: '日（曜日）', time: '時刻' }}
-      columns={columns}
-      rows={rows}
-      initialColumnKey={initialColumnKey}
-      stickyHeader
-      bodyDateBoundaries
-    />
+    <div ref={wrapRef}>
+      <DetailTimeSeriesTable
+        caption="地域時系列予報の全期間"
+        rowHeaderLabel="日（曜日）"
+        dateHeaderMode="day-weekday-on-change"
+        cornerLabels={{ date: '日（曜日）', time: '時刻' }}
+        columns={columns}
+        rows={rows}
+        initialColumnKey={initialColumnKey}
+        stickyHeader
+        bodyDateBoundaries
+      />
+    </div>
   );
 }
 
