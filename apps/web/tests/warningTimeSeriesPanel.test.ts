@@ -44,7 +44,7 @@ import {
   WarningTimeSeriesDetail,
   buildThreeHourRows,
 } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesDetail.tsx';
-import { GbSwitch } from '../src/components/md/GbSwitch.tsx';
+import { Switch } from '../src/components/md/Switch.tsx';
 import { buildWarningTimeseriesFixtureResponse } from '../src/map/panels/panelFixtures.ts';
 
 const el = React.createElement;
@@ -1254,14 +1254,26 @@ test('AC-33: 全行が消える入力では「該当する行はありません�
   void html;
 });
 
-// AC-34: `<md-gb-switch>`の実配線は保留中(WarningTimeSeriesDetail.tsx のコメント参照。
-// vite buildがRollupエラーで失敗するため、統括への報告事項としてこのテストではラベル文言と
-// GbSwitchコンポーネント自体の存在だけを確認する(画面での動作確認はAC-34としては未達)。
-test('GbSwitchコンポーネントが型どおりに存在し、絞り込みラベルの定数が詳細ダイアログに残っている', () => {
-  assert.equal(typeof GbSwitch, 'object'); // React.forwardRefはobject
+// AC-34: 詳細を開くと凡例の横にmd-switchがあり、ラベル・aria-labelが同じ文言になる(SSR)。
+test('AC-34: 詳細ダイアログに凡例の横のmd-switchとラベルが配線されている', () => {
+  const values: WarningTimeseriesValue[] = [riskValue('block1', 't0', '大雨浸水危険度', '30')];
+  const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  assert.match(html, /<md-switch/);
+  assert.match(html, /注意報級以上と量的予想のみ/);
+  assert.match(html, /aria-label="注意報級以上と量的予想のみ"/);
+  // labelがfor属性でスイッチのidに結び付いている
+  const forMatch = html.match(/<label for="([^"]+)">注意報級以上と量的予想のみ<\/label>/);
+  assert.ok(forMatch, 'labelのfor属性が見つからない');
+  assert.match(html, new RegExp(`<md-switch[^>]*id="${forMatch?.[1]}"`));
 });
 
-test('AC-33: warningTimeSeries配下とGbSwitch.tsxにlocalStorage・sessionStorageが無い', () => {
+test('Switchコンポーネントが型どおりに存在する', () => {
+  assert.equal(typeof Switch, 'object'); // React.forwardRefはobject
+});
+
+test('AC-33: warningTimeSeries配下とSwitch.tsxにlocalStorage・sessionStorageが無い', () => {
   const dir = new URL('../src/map/panels/warningTimeSeries/', import.meta.url);
   const files = readdirSync(dir).filter((f) => f.endsWith('.ts') || f.endsWith('.tsx'));
   for (const file of files) {
@@ -1269,7 +1281,7 @@ test('AC-33: warningTimeSeries配下とGbSwitch.tsxにlocalStorage・sessionStor
     assert.doesNotMatch(content, /localStorage|sessionStorage/, file);
   }
   const switchContent = readFileSync(
-    new URL('../src/components/md/GbSwitch.tsx', import.meta.url),
+    new URL('../src/components/md/Switch.tsx', import.meta.url),
     'utf8',
   );
   assert.doesNotMatch(switchContent, /localStorage|sessionStorage/);

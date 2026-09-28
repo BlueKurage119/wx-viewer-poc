@@ -6,7 +6,9 @@
  * (2) 別欄: 基準以外のblockの量的予想をblockごとの表で示す(備考は置かない)。
  * 凡例は本文の先頭に置く(パネル本体には置かない)。
  */
+import { useState } from 'react';
 import type { WarningTimeseriesData } from '@wx-viewer-poc/shared';
+import { Switch } from '../../../components/md';
 import {
   DetailTimeSeriesTable,
   type TimeSeriesColumn,
@@ -430,8 +432,8 @@ const NARROW_SWITCH_LABEL = '注意報級以上と量的予想のみ';
 const NARROW_SWITCH_ID = 'wts-narrow-switch';
 
 export function WarningTimeSeriesDetail({ data, table }: WarningTimeSeriesDetailProps) {
-  // 絞り込みスイッチの配線は保留中(下記コメント参照)。既定は全表示(§4.8)。
-  const narrowed = false;
+  // ダイアログを開くたびに全表示(false)になる。保存しない(§4.8)。
+  const [narrowed, setNarrowed] = useState(false);
   const separateTables = buildSeparateQuantityTables(data, table?.baseBlockId ?? null);
   const threeHour = table !== null ? buildThreeHourRows(data, table, narrowed) : null;
 
@@ -441,15 +443,12 @@ export function WarningTimeSeriesDetail({ data, table }: WarningTimeSeriesDetail
         <WtsLegend />
         <div className="wts-narrow-switch">
           <label htmlFor={NARROW_SWITCH_ID}>{NARROW_SWITCH_LABEL}</label>
-          {/*
-            製造メモ: `md-gb-switch`(@material/web/labs)をここへ配線すると、vite build が
-            Rollupエラーで失敗する(switch-element.js の `import ... with { type: 'css' }` を
-            解決できない)。button用に vite.config.ts へ既にある専用プラグイン
-            (materialWebLabsCssResult)と同種の対応が switch にも必要だが、vite.config.ts は
-            設定ファイルで変更禁止のため、ここでは配線を止めて統括へ報告する(設計書§4.8の
-            指示どおり、無理に回避しない)。GbSwitch.tsx・exportは用意済みで、
-            vite.config.ts側の対応後にこのコメントを外して有効化できる。
-          */}
+          <Switch
+            id={NARROW_SWITCH_ID}
+            selected={narrowed}
+            onChange={setNarrowed}
+            aria-label={NARROW_SWITCH_LABEL}
+          />
         </div>
       </div>
       {table !== null && threeHour !== null && (
