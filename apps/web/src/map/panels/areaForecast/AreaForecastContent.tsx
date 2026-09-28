@@ -20,6 +20,11 @@ import {
 } from './areaForecastModel';
 import type { LevelView } from './windSpeedLevel';
 import { useFontLoading, type FontLoadingStatus } from './useFontLoading';
+import {
+  TemperatureChart,
+  TemperatureChartHeader,
+  calculateTemperatureRange,
+} from './TemperatureChart.jsx';
 
 /** 風向の矢羽根枠(24×24px固定)。矢羽根(塗り1層)／漢字代替／「ー」／「?」のいずれか1つだけを枠内に表示する
  * (§4.1a、§7、確定事項13: 風向の漢字は画面から消し aria-label にのみ残す)。 */
@@ -285,6 +290,18 @@ export function AreaForecastDetail({
     [table.columns],
   );
 
+  const tempValues = useMemo(
+    () =>
+      table.columns.map((_, i) => {
+        const pt = table.points[i];
+        if (!pt || pt.kind !== 'value') return null;
+        if (pt.temperature.kind !== 'value') return null;
+        return pt.temperature.value;
+      }),
+    [table.columns, table.points],
+  );
+  const tempRange = useMemo(() => calculateTemperatureRange(tempValues), [tempValues]);
+
   if (table.columns.length === 0) {
     return <p className="af-message">発表された値はありません</p>;
   }
@@ -307,19 +324,28 @@ export function AreaForecastDetail({
     };
   });
 
-  const tempRowCells = table.points.map((pt, i) => {
-    const col = table.columns[i]!;
-    return {
-      key: `temp-pt-${i}`,
-      span: 1,
-      content: <TemperatureCellView point={pt} column={col} />,
-    };
-  });
+  const tempRowCells = [
+    {
+      key: 'temp-chart-cell',
+      span: table.columns.length,
+      content: (
+        <TemperatureChart
+          points={table.points}
+          columns={table.columns}
+          columnWidths={columns.map((c) => c.width)}
+        />
+      ),
+    },
+  ];
 
   const rows: readonly TimeSeriesRow[] = [
     { key: 'weather', header: '天気', cells: weatherRowCells },
     { key: 'wind', header: '風（m/s）', cells: windRowCells },
-    { key: 'temperature', header: '気温', cells: tempRowCells },
+    {
+      key: 'temperature',
+      header: <TemperatureChartHeader range={tempRange} />,
+      cells: tempRowCells,
+    },
   ];
 
   const panelCols = selectPanelColumns(table.columns, table.intervals, now);

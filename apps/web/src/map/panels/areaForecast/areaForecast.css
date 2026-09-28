@@ -204,3 +204,82 @@
 .af-detail .detail-ts-table td .af-cell-temperature {
   margin: 0 auto;
 }
+
+/* 気温折れ線グラフ行 (Issue #58 §4.8) */
+.af-detail .detail-ts-table td:has(> .af-temp-chart) {
+  padding: 0;
+}
+
+.af-detail .detail-ts-table th:has(> .af-temp-chart-header) {
+  padding-block: 0;
+}
+
+.af-temp-chart {
+  display: block;
+  inline-size: 100%;
+  block-size: 8rem;
+  overflow: visible;
+}
+
+.af-temp-chart-svg {
+  display: block;
+}
+
+.af-temp-chart-header {
+  position: relative;
+  block-size: 8rem;
+  box-sizing: border-box;
+}
+
+.af-temp-chart-title {
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-start: 4px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--md-sys-color-on-surface-variant);
+  white-space: nowrap;
+}
+
+.af-temp-chart-tick {
+  position: absolute;
+  inset-inline-end: 4px;
+  transform: translateY(-50%);
+  font-size: 11px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--md-sys-color-on-surface-variant);
+  pointer-events: none;
+}
+
+.af-temp-chart-label {
+  paint-order: stroke;
+  stroke: var(--md-sys-color-surface-container-high);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-temp-chart-question,
+.af-temp-chart-empty {
+  font-variant-numeric: tabular-nums;
+}
+
+.af-temp-chart-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  block-size: 8rem;
+  padding-inline: 8px;
+  overflow-x: auto;
+  box-sizing: border-box;
+}
+
+.af-temp-chart-fallback-text {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface);
+  white-space: nowrap;
+}
