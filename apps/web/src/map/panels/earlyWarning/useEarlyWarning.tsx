@@ -6,7 +6,10 @@ import { fetchEarlyWarning } from '../../../api/earlyWarning';
 import { available } from './earlyWarningModel';
 import { EarlyWarningContent } from './EarlyWarningContent';
 import type { IssuedTime, IssuedTimes } from './issuedTimes';
-import { isEarlyWarningFixtureActive } from './earlyWarningFixtureGate';
+import {
+  isEarlyWarningFixtureActive,
+  type EarlyWarningFixtureEnvironment,
+} from './earlyWarningFixtureGate';
 function time(response: EarlyWarningResponse, segment: 'near' | 'far'): IssuedTime {
   if (!available(response, segment)) return { kind: 'unavailable' };
   const issued = response[segment].metadata.issuedAt;
@@ -43,8 +46,9 @@ export function buildEarlyWarningCard(
 export function useEarlyWarning(params: {
   readonly terminalId: string;
   readonly controlStatus: WeatherControlStatus;
+  readonly fixtureEnvironment?: EarlyWarningFixtureEnvironment;
 }): InfoPanelCardInput {
-  const { terminalId, controlStatus } = params;
+  const { terminalId, controlStatus, fixtureEnvironment } = params;
   const load = useCallback(
     (signal: AbortSignal) => fetchEarlyWarning({ terminalId, controlStatus, signal }),
     [terminalId, controlStatus],
@@ -52,7 +56,7 @@ export function useEarlyWarning(params: {
   const state = useTileCatalogPolling({
     load,
     resetKey: `${terminalId}:${controlStatus}`,
-    enabled: !isEarlyWarningFixtureActive(),
+    enabled: !isEarlyWarningFixtureActive(fixtureEnvironment),
   });
   return useMemo(() => {
     if (state.status === 'ready' || state.status === 'stale')

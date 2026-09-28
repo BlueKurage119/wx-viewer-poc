@@ -3,9 +3,14 @@ export function isEarlyWarningFixtureRequest(isDev: boolean, search: string): bo
   return isDev && new URLSearchParams(search).get('panelFixture') === 'early-warning';
 }
 
-export function isEarlyWarningFixtureActive(): boolean {
-  return isEarlyWarningFixtureRequest(
-    import.meta.env?.DEV === true,
-    typeof window === 'undefined' ? '' : (window.location?.search ?? ''),
-  );
+export interface EarlyWarningFixtureEnvironment {
+  readonly isDev: boolean;
+  readonly search?: string;
+}
+
+export function isEarlyWarningFixtureActive(environment?: EarlyWarningFixtureEnvironment): boolean {
+  const search = typeof window === 'undefined' ? '' : (window.location?.search ?? '');
+  if (environment !== undefined)
+    return isEarlyWarningFixtureRequest(environment.isDev, environment.search ?? search);
+  return isEarlyWarningFixtureRequest(import.meta.env?.DEV === true, search);
 }
