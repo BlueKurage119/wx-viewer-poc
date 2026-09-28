@@ -14,7 +14,7 @@ function text(time: IssuedTime): string {
   return formatPanelTime(time.value, 'issued');
 }
 export function formatNearIssuedTime(time: IssuedTime): string {
-  return `明後日まで: ${text(time)}`;
+  return text(time);
 }
 export function formatIssuedTimes(times: IssuedTimes): string {
   return `明後日まで: ${text(times.near)} · 明々後日以降: ${text(times.far)}`;

@@ -83,3 +83,8 @@
 .ew-panel-table .ew-table td {
   white-space: normal;
 }
+.ew-panel-table .ew-table td,
+.ew-panel-table .ew-table thead th:not(:first-child) {
+  inline-size: 1%;
+  white-space: nowrap;
+}

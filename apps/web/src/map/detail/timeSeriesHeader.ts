@@ -25,6 +25,7 @@ function toJstDateParts(iso: string): {
 /** 上段（日付）の表示。日付が前列と変わる列と先頭列だけ文字列、他は null */
 export function buildDateHeaderLabels(
   columns: readonly TimeSeriesColumn[],
+  mode: 'month-day' | 'day-weekday-on-change' = 'month-day',
 ): readonly (string | null)[] {
   let previousKey: string | null = null;
   return columns.map((column) => {
@@ -34,8 +35,30 @@ export function buildDateHeaderLabels(
       return null;
     }
     previousKey = key;
-    return `${parts.month}/${parts.day}(${WEEKDAY_KANJI[parts.weekday]})`;
+    return `${mode === 'month-day' ? `${parts.month}/` : ''}${parts.day}(${WEEKDAY_KANJI[parts.weekday]})`;
   });
+}
+
+/** 読み上げ用の完全なJST日付。 */
+export function formatFullJstDate(iso: string): string {
+  const parts = toJstDateParts(iso);
+  return `${parts.year}年${parts.month}月${parts.day}日(${WEEKDAY_KANJI[parts.weekday]})`;
+}
+
+/** 区間の時刻を、翌日0時終端は24時として読み上げる。 */
+export function formatJstTimeRange(from: string, to: string): string {
+  const start = new Date(Date.parse(from) + JST_OFFSET_MS);
+  const end = new Date(Date.parse(to) + JST_OFFSET_MS);
+  const startHour = start.getUTCHours();
+  const endHour = end.getUTCHours();
+  const endDay = toJstDateParts(to);
+  const startDay = toJstDateParts(from);
+  const crossesDay =
+    endDay.year !== startDay.year || endDay.month !== startDay.month || endDay.day !== startDay.day;
+  if (crossesDay && (endHour !== 0 || Date.parse(to) - Date.parse(from) > 24 * 60 * 60 * 1000)) {
+    return `${startHour}時から${formatFullJstDate(to)}${endHour}時まで`;
+  }
+  return `${startHour}-${crossesDay ? 24 : endHour}時`;
 }
 
 /** 縦結合・横結合を考慮したデータ列配置。行見出し列は含めない。 */

@@ -12,6 +12,7 @@ import {
   type WarningTable,
 } from './earlyWarningModel';
 import type { IssuedTimes } from './issuedTimes';
+import { formatFullJstDate, formatJstTimeRange } from '../../detail/timeSeriesHeader';
 
 const DESCRIPTION: Readonly<Record<WarningCellKind, string>> = {
   high: '高',
@@ -114,7 +115,10 @@ export function EarlyWarningDetail({
         {
           key: `${row.key}:${column.key}`,
           rowSpan: joined && rowIndex === rainIndex ? 2 : undefined,
-          content: cellContent(kind, `${subject}、${column.label}`),
+          content: cellContent(
+            kind,
+            `${subject}、${formatFullJstDate(column.timeFrom)} ${formatJstTimeRange(column.timeFrom, column.timeTo)}`,
+          ),
         },
       ];
     }),
@@ -123,11 +127,14 @@ export function EarlyWarningDetail({
     key: column.key,
     at: column.timeFrom,
     timeLabel: column.label.includes(' ') ? column.label.split(' ').slice(1).join(' ') : '',
+    ariaTimeLabel: formatJstTimeRange(column.timeFrom, column.timeTo),
   }));
   return (
     <DetailTimeSeriesTable
       caption="警報級の可能性の全期間"
       rowHeaderLabel="現象"
+      dateHeaderMode="day-weekday-on-change"
+      cornerLabels={{ date: '日（曜日）', time: '時間帯' }}
       columns={columns}
       rows={rows}
       initialColumnKey={selectPanelColumns(table.columns, now)[0]?.key}

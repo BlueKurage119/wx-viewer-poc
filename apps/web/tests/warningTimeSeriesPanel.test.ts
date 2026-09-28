@@ -806,7 +806,10 @@ test('Issue #56 AC-18: 3時間表のセル中央配置は末尾の備考と別�
   assert.doesNotMatch(css, /\.wts-detail-separate-table[^}]*padding-inline: 0\.5rem;/);
   const data: WarningTimeseriesData = {
     timeDefines: COLS,
-    values: [riskValue('block1', 't0', '雷危険度', '30')],
+    values: [
+      riskValue('block1', 't0', '雷危険度', '30'),
+      quantityValue('block1', 't0', '雨', '１時間最大雨量', '5', 'mm'),
+    ],
     additions: null,
   };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
@@ -814,6 +817,7 @@ test('Issue #56 AC-18: 3時間表のセル中央配置は末尾の備考と別�
   const firstRow = html.match(/<tbody><tr>([\s\S]*?)<\/tr>/)?.[1] ?? '';
   assert.match(firstRow, /<td colSpan="1"><\/td>$/);
   assert.match(html, />備考(?:\(未取得\))?<\/th>/);
+  assert.match(html, /aria-label="[^\"]*2026年9月27日\(日\) 15-18時[^\"]*5/);
 });
 
 // ==========================================
@@ -1171,7 +1175,7 @@ test('AC-30: 量的予想・統合行・危険度いずれも延長列は空白�
   assert.doesNotMatch(html, /対象期間外<\/span><span[^>]*>\?/); // 空白であり「?」ではない
 });
 
-test('AC-30: 危険度値がある延長列セルのaria-labelはformatIntervalHeaderの結果で始まる(時刻ラベルが空欄のため)', () => {
+test('AC-30: 危険度値がある延長列セルのaria-labelは完全な日付と時間帯で始まる', () => {
   const extFrom = COLS[13].timeTo; // 基準範囲の終端(JST 0時想定、§4.2)
   const extTo = new Date(Date.parse(extFrom) + 24 * 60 * 60 * 1000).toISOString();
   const dayCol = td('block3', 'd0', 0, extFrom, extTo);
@@ -1189,7 +1193,10 @@ test('AC-30: 危険度値がある延長列セルのaria-labelはformatIntervalH
   assert.notEqual(expectedTimePhrase, ''); // 空文字のまま使っていないことの前提確認
   const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   // 「時 注意報級相当」のように空の時刻ラベルのままではなく、formatIntervalHeaderの結果で始まる
-  assert.match(html, new RegExp(`aria-label="${expectedTimePhrase} 注意報級相当"`));
+  assert.match(
+    html,
+    /aria-label="2026年9月29日\(火\) 9時から2026年9月30日\(水\)9時まで 注意報級相当"/,
+  );
   assert.doesNotMatch(html, /aria-label="時 /);
 });
 

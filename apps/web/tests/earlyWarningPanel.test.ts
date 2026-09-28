@@ -320,7 +320,8 @@ test('パネル本文の空状態と見出しは近距離だけを表示し、�
       children: '本文',
     }),
   );
-  assert.match(heading, /明後日まで: 発表時刻不明/);
+  assert.match(heading, /発表時刻不明/);
+  assert.doesNotMatch(heading, /明後日まで:/);
   assert.doesNotMatch(heading, /明々後日以降/);
   assert.equal(
     formatIssuedTimes(issuedTimes).startsWith('明後日まで: 発表時刻不明 · 明々後日以降:'),
@@ -356,7 +357,8 @@ test('遠距離だけ取得できてもパネルは近距離の未取得を示�
       children: '本文',
     }),
   );
-  assert.match(heading, /明後日まで: 未取得/);
+  assert.match(heading, /未取得/);
+  assert.doesNotMatch(heading, /明後日まで:/);
   assert.doesNotMatch(heading, /明々後日以降/);
   assert.match(formatIssuedTimes(issuedTimes), /明々後日以降:/);
 });
@@ -402,8 +404,14 @@ test('詳細は共通二段見出しで近距離・遠距離を表示し、雨�
   assert.match(html, /data-column-key="far:2:0"/);
   assert.equal((html.match(/rowSpan="2"/g) ?? []).length, 2);
   assert.equal((html.match(/<thead>/g) ?? []).length, 1);
-  assert.match(html, /aria-label="大雨・土砂災害、雨の警報級の可能性、10\/1、高・中の表示なし"/);
-  assert.match(html, /aria-label="大雨・土砂災害、雨の警報級の可能性、10\/2、欠測"/);
+  assert.match(
+    html,
+    /aria-label="大雨・土砂災害、雨の警報級の可能性、2026年10月1日\(木\) 0-24時、高・中の表示なし"/,
+  );
+  assert.match(
+    html,
+    /aria-label="大雨・土砂災害、雨の警報級の可能性、2026年10月2日\(金\) 0-24時、欠測"/,
+  );
   assert.match(html, /detail-ts-date-boundary/);
   assert.match(html, /role="region" aria-label="警報級の可能性の全期間"/);
   assert.doesNotMatch(html, /class="ew-table"/);
@@ -465,11 +473,13 @@ test('区間見出しは時なし、なし・値なしは同じ表示で欠測�
       now: Date.parse('2026-09-28T04:00:00Z'),
     }),
   );
-  assert.match(detail, /9\/28\(月\)/);
+  assert.match(detail, />28\(月\)<\/th>/);
+  assert.match(detail, /日（曜日）/);
+  assert.match(detail, /時間帯/);
   assert.match(detail, />12-18<\/th>/);
   assert.doesNotMatch(detail, />12-18時<\/th>/);
-  assert.match(detail, /aria-label="大雪、9\/28 18-24、欠測"/);
-  assert.match(detail, /aria-label="土砂災害、9\/28 12-18、対象外"><\/span>/);
+  assert.match(detail, /aria-label="大雪、2026年9月28日\(月\) 18-24時、欠測"/);
+  assert.match(detail, /aria-label="土砂災害、2026年9月28日\(月\) 12-18時、対象外"><\/span>/);
   assert.doesNotMatch(detail, /<th scope="row">波浪<\/th>/);
   const css = readFileSync(
     new URL('../src/map/panels/earlyWarning/earlyWarning.css', import.meta.url),
@@ -479,6 +489,7 @@ test('区間見出しは時なし、なし・値なしは同じ表示で欠測�
   assert.match(css, /\.ew-cell-quiet\s*\{[^}]*background:\s*var\(--md-sys-color-scrim\);/);
   assert.match(css, /\.ew-detail \.detail-ts-table td\s*\{[^}]*padding-inline:\s*0\.5rem;/);
   assert.match(css, /\.ew-cell\s*\{[^}]*vertical-align:\s*middle;/);
+  assert.match(css, /\.ew-panel-table \.ew-table td,[\s\S]*?inline-size:\s*1%;/);
   assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/);
 });
 
@@ -529,7 +540,7 @@ test('開発フィクスチャはJSTの日界をまたぐ現在3コマとD+3以�
   assert.equal(content.props.now, now);
   const html = renderToStaticMarkup(createElement(EarlyWarningDetail, { table: detail, now }));
   assert.equal((html.match(/rowSpan="2"/g) ?? []).length, 3);
-  assert.match(html, /aria-label="波浪、9\/28 18-24、対象外"/);
+  assert.match(html, /aria-label="波浪、2026年9月28日\(月\) 18-24時、対象外"/);
   assert.doesNotMatch(html, /<th scope="row">高潮<\/th>/);
 });
 
