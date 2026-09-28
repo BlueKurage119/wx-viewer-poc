@@ -1,0 +1,68 @@
+.ew-section h3 {
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+.ew-scroll {
+  overflow-x: auto;
+  max-inline-size: 100%;
+}
+.ew-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  min-inline-size: max-content;
+}
+.ew-table th,
+.ew-table td {
+  padding: 4px 6px;
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+  text-align: center;
+}
+.ew-table th[scope='row'] {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background: var(--md-sys-color-surface-container);
+  text-align: start;
+  white-space: nowrap;
+}
+.ew-detail .ew-table th[scope='row'] {
+  background: var(--md-sys-color-surface);
+}
+.ew-cell {
+  display: inline-flex;
+  min-inline-size: 2rem;
+  min-block-size: 1.5rem;
+  justify-content: center;
+  align-items: center;
+  border-radius: 3px;
+}
+.ew-cell-high {
+  background: var(--wx-alert-level-3-container);
+  color: var(--wx-alert-level-3-on-container);
+}
+.ew-cell-medium {
+  background: var(--wx-alert-level-2-container);
+  color: var(--wx-alert-level-2-on-container);
+}
+.ew-cell-missing {
+  border: 1px dashed var(--md-sys-color-outline);
+}
+.ew-message {
+  margin: 4px 0 8px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.ew-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-end: 12px;
+  font-size: 13px;
+}
+.ew-visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

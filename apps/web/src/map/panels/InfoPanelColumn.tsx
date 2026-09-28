@@ -30,6 +30,7 @@ export function InfoPanelColumn({ venueId, input }: InfoPanelColumnProps) {
             heading={card.heading}
             target={target}
             status={card.status}
+            issuedTimes={card.issuedTimes}
           >
             {card.content}
           </InfoPanelFrame>

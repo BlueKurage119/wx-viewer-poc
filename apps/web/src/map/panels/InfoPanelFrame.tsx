@@ -8,6 +8,7 @@ import type { ReactNode, WheelEvent } from 'react';
 import type { InfoPanelDefinition, InfoPanelStatus } from './panelDefinitions';
 import { resolveInfoPanelDisplay } from './panelDisplayState';
 import { formatPanelTime } from './panelTime';
+import { formatIssuedTimes, type IssuedTimes } from './earlyWarning/issuedTimes';
 
 export interface InfoPanelFrameProps {
   readonly definition: InfoPanelDefinition;
@@ -15,6 +16,7 @@ export interface InfoPanelFrameProps {
   readonly target?: string;
   readonly status: InfoPanelStatus;
   readonly children?: ReactNode;
+  readonly issuedTimes?: IssuedTimes;
 }
 
 function stopWheelPropagation(event: WheelEvent<HTMLElement>): void {
@@ -28,6 +30,7 @@ export function InfoPanelFrame({
   target,
   status,
   children,
+  issuedTimes,
 }: InfoPanelFrameProps) {
   const display = resolveInfoPanelDisplay(definition.presence, status);
 
@@ -37,7 +40,11 @@ export function InfoPanelFrame({
 
   const headingText = heading ?? definition.title;
   const timeText =
-    display.mode === 'content' ? formatPanelTime(display.time, display.timeKind) : undefined;
+    issuedTimes !== undefined
+      ? formatIssuedTimes(issuedTimes)
+      : display.mode === 'content'
+        ? formatPanelTime(display.time, display.timeKind)
+        : undefined;
 
   return (
     <article

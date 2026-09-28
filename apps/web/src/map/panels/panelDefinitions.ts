@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react';
 import type { Availability } from '@wx-viewer-poc/shared';
+import type { IssuedTimes } from './earlyWarning/issuedTimes';
 
 export type InfoPanelId =
   | 'bosaiBulletin' // 気象防災速報（竜巻含む）
@@ -58,6 +59,7 @@ export interface InfoPanelCardInput {
   readonly heading?: string; // 省略時は definition.title（速報は Report/Head/Title）
   readonly status: InfoPanelStatus;
   readonly content?: ReactNode;
+  readonly issuedTimes?: IssuedTimes;
 }
 
 /** 種別ごとの入力。always 種別は常に1件、occasional 種別は0件以上 */
