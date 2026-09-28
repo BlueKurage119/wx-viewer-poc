@@ -4,21 +4,16 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { AreaTimeseriesResponse, AreaTimeseriesData } from '@wx-viewer-poc/shared';
+import type { AreaTimeseriesResponse } from '@wx-viewer-poc/shared';
 import {
   buildAreaForecastModel,
   selectPanelColumns,
   resolveAreaForecastTargets,
-  formatWeatherAriaLabel,
-  formatWindAriaLabel,
-  formatTemperatureAriaLabel,
 } from '../src/map/panels/areaForecast/areaForecastModel.ts';
 import {
-  AreaForecastContent,
   AreaForecastDetail,
   AreaForecastPanel,
 } from '../src/map/panels/areaForecast/AreaForecastContent.tsx';
-import { InfoPanelFrame } from '../src/map/panels/InfoPanelFrame.tsx';
 import { buildAreaForecastCard } from '../src/map/panels/areaForecast/useAreaForecast.tsx';
 import { buildAreaForecastFixtureResponse } from '../src/map/panels/areaForecast/areaForecastFixture.ts';
 import { isAreaForecastFixtureRequest } from '../src/map/panels/areaForecast/areaForecastFixtureGate.ts';

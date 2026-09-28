@@ -9,18 +9,10 @@ import {
   formatWeatherAriaLabel,
   formatWindAriaLabel,
   formatTemperatureAriaLabel,
-  toJstHour,
-  toJstEndHour,
   buildTemperatureView,
 } from '../src/map/panels/areaForecast/areaForecastModel';
-import {
-  buildWeatherView,
-  WEATHER_ICON_TABLE,
-} from '../src/map/panels/areaForecast/weatherIconMap';
-import {
-  buildLevelView,
-  WIND_SPEED_LEVEL_TABLE,
-} from '../src/map/panels/areaForecast/windSpeedLevel';
+import { buildWeatherView } from '../src/map/panels/areaForecast/weatherIconMap';
+import { buildLevelView } from '../src/map/panels/areaForecast/windSpeedLevel';
 
 function sampleDto(): AreaTimeseriesData {
   return {
