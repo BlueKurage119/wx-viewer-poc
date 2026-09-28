@@ -13,7 +13,7 @@ import {
   formatTemperatureReaderItem,
   buildTemperatureReaderItems,
   temperatureLinePaths,
-} from '../src/map/panels/areaForecast/temperatureChart.ts';
+} from '../src/map/panels/areaForecast/temperatureChartModel.ts';
 import {
   TemperatureChart,
   TemperatureChartHeader,

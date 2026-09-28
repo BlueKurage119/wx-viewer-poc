@@ -8,7 +8,7 @@ import {
   calculateTicks,
   temperatureLinePaths,
   buildTemperatureReaderItems,
-} from './temperatureChart';
+} from './temperatureChartModel';
 
 export interface TemperatureChartProps {
   readonly points: readonly PointCell[];
