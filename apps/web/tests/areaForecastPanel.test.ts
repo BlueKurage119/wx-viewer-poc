@@ -224,20 +224,21 @@ test('Issue #58 AC-12: 状態（loading、failed、stale、issuedAt=null、固�
 
 test('Issue #58 AC-13: 風速色・コントラスト比・トークン検証', () => {
   // 1. areaForecast 配下に HEX (#...) や rgb(...) がハードコードされていないこと
+  const dir = new URL('../src/map/panels/areaForecast/', import.meta.url);
   const files = [
-    'apps/web/src/map/panels/areaForecast/areaForecastModel.ts',
-    'apps/web/src/map/panels/areaForecast/weatherIconMap.ts',
-    'apps/web/src/map/panels/areaForecast/windSpeedLevel.ts',
-    'apps/web/src/map/panels/areaForecast/AreaForecastContent.tsx',
-    'apps/web/src/map/panels/areaForecast/useAreaForecast.tsx',
-    'apps/web/src/map/panels/areaForecast/areaForecast.css',
-    'apps/web/src/map/panels/areaForecast/areaForecastFixture.ts',
-    'apps/web/src/map/panels/areaForecast/areaForecastFixtureGate.ts',
+    'areaForecastModel.ts',
+    'weatherIconMap.ts',
+    'windSpeedLevel.ts',
+    'AreaForecastContent.tsx',
+    'useAreaForecast.tsx',
+    'areaForecast.css',
+    'areaForecastFixture.ts',
+    'areaForecastFixtureGate.ts',
   ];
 
   const hexRgbRegex = /#[0-9a-fA-F]{3,8}\b|rgb\(/;
   for (const file of files) {
-    const content = readFileSync(file, 'utf-8');
+    const content = readFileSync(new URL(file, dir), 'utf-8');
     assert.equal(
       hexRgbRegex.test(content),
       false,
