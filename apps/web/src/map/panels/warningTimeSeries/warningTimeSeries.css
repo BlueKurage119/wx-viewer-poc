@@ -27,6 +27,16 @@
   border-block-end: 1px solid var(--md-sys-color-outline-variant);
 }
 
+.wts-panel-table td,
+.wts-detail-3h .detail-ts-table tbody td:not(:last-child) {
+  vertical-align: middle;
+}
+
+.wts-panel-table td .wts-cell,
+.wts-detail-3h .detail-ts-table tbody td:not(:last-child) .wts-cell {
+  vertical-align: middle;
+}
+
 .wts-panel-table th[scope='row'] {
   text-align: start;
   white-space: normal;
@@ -196,6 +206,12 @@
   white-space: normal;
   background: var(--md-sys-color-surface-container-high);
   box-shadow: inset 1px 0 0 var(--md-sys-color-outline-variant);
+}
+
+/* 各行の末尾は備考。時間列だけ4rem列の中央に3remセルを置く。 */
+.wts-detail-3h .detail-ts-table tbody td:not(:last-child) {
+  padding-inline: 0.5rem;
+  text-align: center;
 }
 
 .wts-remarks-unavailable {

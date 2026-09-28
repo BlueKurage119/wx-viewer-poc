@@ -793,6 +793,29 @@ test('AC-20: 3時間表の各行のセル数は常に時間列数+1(備考)。�
   assert.doesNotMatch(separateOnly, /竜巻注意/);
 });
 
+test('Issue #56 AC-18: 3時間表のセル中央配置は末尾の備考と別欄に波及しない', () => {
+  const css = readFileSync(
+    new URL('../src/map/panels/warningTimeSeries/warningTimeSeries.css', import.meta.url),
+    'utf8',
+  );
+  assert.match(css, /\.wts-panel-table td \.wts-cell,[\s\S]*?vertical-align: middle;/);
+  assert.match(
+    css,
+    /\.wts-detail-3h \.detail-ts-table tbody td:not\(:last-child\)\s*\{[^}]*padding-inline: 0\.5rem;/,
+  );
+  assert.doesNotMatch(css, /\.wts-detail-separate-table[^}]*padding-inline: 0\.5rem;/);
+  const data: WarningTimeseriesData = {
+    timeDefines: COLS,
+    values: [riskValue('block1', 't0', '雷危険度', '30')],
+    additions: null,
+  };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
+  const firstRow = html.match(/<tbody><tr>([\s\S]*?)<\/tr>/)?.[1] ?? '';
+  assert.match(firstRow, /<td colSpan="1"><\/td>$/);
+  assert.match(html, />備考(?:\(未取得\))?<\/th>/);
+});
+
 // ==========================================
 // AC-25: 時刻見出し(「時」を含まない形)
 // ==========================================
