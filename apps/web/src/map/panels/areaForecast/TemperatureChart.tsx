@@ -277,5 +277,3 @@ export function TemperatureChart({
     </div>
   );
 }
-
-export { calculateTemperatureRange } from './temperatureChart';

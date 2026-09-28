@@ -20,11 +20,8 @@ import {
 } from './areaForecastModel';
 import type { LevelView } from './windSpeedLevel';
 import { useFontLoading, type FontLoadingStatus } from './useFontLoading';
-import {
-  TemperatureChart,
-  TemperatureChartHeader,
-  calculateTemperatureRange,
-} from './TemperatureChart.jsx';
+import { TemperatureChart, TemperatureChartHeader } from './TemperatureChart.jsx';
+import { calculateTemperatureRange } from './temperatureChart';
 
 /** 風向の矢羽根枠(24×24px固定)。矢羽根(塗り1層)／漢字代替／「ー」／「?」のいずれか1つだけを枠内に表示する
  * (§4.1a、§7、確定事項13: 風向の漢字は画面から消し aria-label にのみ残す)。 */
