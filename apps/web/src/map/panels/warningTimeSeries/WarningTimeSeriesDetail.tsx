@@ -12,13 +12,13 @@ import {
   type TimeSeriesColumn,
   type TimeSeriesRow,
 } from '../../detail/DetailTimeSeriesTable';
+import { formatFullJstDate, formatJstTimeRange } from '../../detail/timeSeriesHeader';
 import {
   buildBaseQuantityRows,
   buildRemarks,
   buildSeparateQuantityTables,
   buildWindRowLabel,
   buildWindRows,
-  formatIntervalHeader,
   isLevelUpDisplay,
   type DetailCell,
   type RiskCell,
@@ -43,16 +43,13 @@ export interface WarningTimeSeriesDetailProps {
 const REMARKS_COLUMN_KEY = 'remarks';
 
 /**
- * 3時間表のセルaria-label用、時間帯の読み上げ文言(§4.2・§2.1-33)。
- * 基準列は「21-24時」のように「時」を付けた形、延長列は時刻行が空欄のため
- * `formatIntervalHeader`の結果(「29日」「29日12時まで」等)を使う。
+ * 3時間表のセルaria-label用、完全な日付と時間帯。
  */
 function columnTimePhrase(table: RiskTable, index: number): string {
-  if (index < table.columns.length) {
-    return `${table.detailColumns[index]?.label ?? ''}時`;
-  }
   const column = table.detailColumns[index];
-  return column ? formatIntervalHeader(column.timeFrom, column.timeTo) : '';
+  return column
+    ? `${formatFullJstDate(column.timeFrom)} ${formatJstTimeRange(column.timeFrom, column.timeTo)}`
+    : '';
 }
 
 function toTimeSeriesColumns(columns: readonly WtsColumn[]): readonly TimeSeriesColumn[] {
@@ -60,6 +57,7 @@ function toTimeSeriesColumns(columns: readonly WtsColumn[]): readonly TimeSeries
     key: column.key,
     at: column.timeFrom,
     timeLabel: column.label,
+    ariaTimeLabel: formatJstTimeRange(column.timeFrom, column.timeTo),
   }));
 }
 
@@ -344,6 +342,7 @@ export function buildThreeHourRows(
       cells: [
         ...cells.map((cell, index) => ({
           key: `${entry.key}-${index}`,
+          ariaLabel: `${entry.label}、${columnTimePhrase(table, index)}、${cell.kind === 'quantity' ? `${cell.text}${cell.condition ?? ''}` : cell.kind === 'missing' ? '欠測・未取得' : cell.kind === 'noValue' ? '値なし' : '対象期間外'}`,
           content: renderQuantityCellContent(cell),
         })),
         remarkCell,
@@ -441,6 +440,8 @@ export function WarningTimeSeriesDetail({ data, table, narrowed }: WarningTimeSe
             <DetailTimeSeriesTable
               caption="警報等時系列(3時間表)"
               rowHeaderLabel="要素"
+              dateHeaderMode="day-weekday-on-change"
+              cornerLabels={{ date: '日（曜日）', time: '時間帯' }}
               columns={[
                 ...toTimeSeriesColumns(table.detailColumns),
                 buildRemarksColumn(table, threeHour.remarksUnavailable),

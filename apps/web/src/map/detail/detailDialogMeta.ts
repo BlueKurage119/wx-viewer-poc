@@ -5,6 +5,7 @@
  * null は「要素ごと省く」（§3.3、確定Q1・Q2）。boolean へ丸めない (07-wx-data-protocol.md)。
  */
 import { formatPanelTime } from '../panels/panelTime';
+import { formatIssuedTimes, type IssuedTimes } from '../panels/earlyWarning/issuedTimes';
 
 /** 見出し下に出す時刻。発表と観測を型で区別し、値が無い場合も種別は保持する */
 export interface DetailDialogTime {
@@ -18,6 +19,7 @@ export interface DetailDialogMeta {
   readonly time: DetailDialogTime;
   /** 本番/訓練。true=訓練、false=本番、null=不明。boolean に丸めない */
   readonly isTraining: boolean | null;
+  readonly issuedTimes?: IssuedTimes;
 }
 
 export interface FormattedDetailDialogMeta {
@@ -33,7 +35,12 @@ export function formatDetailDialogMeta(
 ): FormattedDetailDialogMeta {
   return {
     target: meta.target,
-    time: meta.time.value === null ? null : formatPanelTime(meta.time.value, meta.time.kind, now),
+    time:
+      meta.issuedTimes !== undefined
+        ? formatIssuedTimes(meta.issuedTimes)
+        : meta.time.value === null
+          ? null
+          : formatPanelTime(meta.time.value, meta.time.kind, now),
     // isTraining === true のときだけ表示。false・null は何も出さない（§3.3、確定Q2）
     trainingLabel: meta.isTraining === true ? '訓練' : null,
   };

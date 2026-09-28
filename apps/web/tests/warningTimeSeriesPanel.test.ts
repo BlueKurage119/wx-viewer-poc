@@ -45,7 +45,10 @@ import {
   buildThreeHourRows,
 } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesDetail.tsx';
 import { Switch } from '../src/components/md/Switch.tsx';
-import { renderNarrowSwitchAction } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesContent.tsx';
+import {
+  renderNarrowSwitchAction,
+  renderRiskCellContent,
+} from '../src/map/panels/warningTimeSeries/WarningTimeSeriesContent.tsx';
 import { buildWarningTimeseriesFixtureResponse } from '../src/map/panels/panelFixtures.ts';
 
 const el = React.createElement;
@@ -753,6 +756,29 @@ test('AC-19/21: §6合成応答(block2の雨Note)は、雨Noteだけのadditions
   assert.doesNotMatch(rainOnlyHtml, /合成データ: 対応行なし確認用/);
 });
 
+test('Issue #56 AC-18: 時刻によらずパネルの同じ行に有字・空・欠測の3セルを置く', () => {
+  for (const hour of [1, 7, 14, 23]) {
+    const now = Date.parse(`2026-09-28T${String(hour).padStart(2, '0')}:30:00+09:00`);
+    const fixture = buildWarningTimeseriesFixtureResponse(false, now);
+    assert.ok(fixture.data);
+    const table = buildRiskTable(fixture.data, now);
+    assert.ok(table);
+    assert.equal(table.panelColumns.length, 3);
+    const row = table.visibleRows.find((item) => item.label === '大雨浸水');
+    assert.ok(row);
+    assert.deepEqual(
+      row.cells.map((cell) => cell.display),
+      ['level3', 'below', 'missing'],
+    );
+    const cells = row.cells.map((cell) =>
+      renderToStaticMarkup(renderRiskCellContent(cell, '確認')),
+    );
+    assert.match(cells[0] ?? '', /wts-cell-level3/);
+    assert.match(cells[1] ?? '', /wts-cell-below/);
+    assert.match(cells[2] ?? '', /wts-cell-missing/);
+  }
+});
+
 test('AC-20/21: 時間セルへ非複製・null/空の区別', () => {
   const rowsWithoutDivision = [{ key: '風危険度::', propertyType: '風危険度', areaDivision: null }];
   // Base直下のNoteは、区分なし行があればそこだけに載る(複製しない)
@@ -791,6 +817,33 @@ test('AC-20: 3時間表の各行のセル数は常に時間列数+1(備考)。�
   // 別欄・パネルには出ない(パネル本体は本テストでは描画していないため、別欄側だけ確認する)
   const separateOnly = html.slice(html.indexOf('wts-detail-separate'));
   assert.doesNotMatch(separateOnly, /竜巻注意/);
+});
+
+test('Issue #56 AC-18: 3時間表のセル中央配置は末尾の備考と別欄に波及しない', () => {
+  const css = readFileSync(
+    new URL('../src/map/panels/warningTimeSeries/warningTimeSeries.css', import.meta.url),
+    'utf8',
+  );
+  assert.match(css, /\.wts-panel-table td \.wts-cell,[\s\S]*?vertical-align: middle;/);
+  assert.match(
+    css,
+    /\.wts-detail-3h \.detail-ts-table tbody td:not\(:last-child\)\s*\{[^}]*padding-inline: 0\.5rem;/,
+  );
+  assert.doesNotMatch(css, /\.wts-detail-separate-table[^}]*padding-inline: 0\.5rem;/);
+  const data: WarningTimeseriesData = {
+    timeDefines: COLS,
+    values: [
+      riskValue('block1', 't0', '雷危険度', '30'),
+      quantityValue('block1', 't0', '雨', '１時間最大雨量', '5', 'mm'),
+    ],
+    additions: null,
+  };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
+  const firstRow = html.match(/<tbody><tr>([\s\S]*?)<\/tr>/)?.[1] ?? '';
+  assert.match(firstRow, /<td colSpan="1"><\/td>$/);
+  assert.match(html, />備考(?:\(未取得\))?<\/th>/);
+  assert.match(html, /aria-label="[^"]*2026年9月27日\(日\) 15-18時[^"]*5/);
 });
 
 // ==========================================
@@ -1148,7 +1201,7 @@ test('AC-30: 量的予想・統合行・危険度いずれも延長列は空白�
   assert.doesNotMatch(html, /対象期間外<\/span><span[^>]*>\?/); // 空白であり「?」ではない
 });
 
-test('AC-30: 危険度値がある延長列セルのaria-labelはformatIntervalHeaderの結果で始まる(時刻ラベルが空欄のため)', () => {
+test('AC-30: 危険度値がある延長列セルのaria-labelは完全な日付と時間帯で始まる', () => {
   const extFrom = COLS[13].timeTo; // 基準範囲の終端(JST 0時想定、§4.2)
   const extTo = new Date(Date.parse(extFrom) + 24 * 60 * 60 * 1000).toISOString();
   const dayCol = td('block3', 'd0', 0, extFrom, extTo);
@@ -1166,7 +1219,10 @@ test('AC-30: 危険度値がある延長列セルのaria-labelはformatIntervalH
   assert.notEqual(expectedTimePhrase, ''); // 空文字のまま使っていないことの前提確認
   const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   // 「時 注意報級相当」のように空の時刻ラベルのままではなく、formatIntervalHeaderの結果で始まる
-  assert.match(html, new RegExp(`aria-label="${expectedTimePhrase} 注意報級相当"`));
+  assert.match(
+    html,
+    /aria-label="2026年9月29日\(火\) 9時から2026年9月30日\(水\)9時まで 注意報級相当"/,
+  );
   assert.doesNotMatch(html, /aria-label="時 /);
 });
 

@@ -8,6 +8,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { DetailTimeSeriesTable } from '../src/map/detail/DetailTimeSeriesTable.tsx';
 import type { TimeSeriesColumn, TimeSeriesRow } from '../src/map/detail/DetailTimeSeriesTable.tsx';
+import { validateRowSpans } from '../src/map/detail/timeSeriesHeader.ts';
+import {
+  buildDateHeaderLabels,
+  formatFullJstDate,
+  formatJstTimeRange,
+} from '../src/map/detail/timeSeriesHeader.ts';
 
 const el = React.createElement;
 
@@ -62,6 +68,52 @@ test('DetailTimeSeriesTable: 日付セル・行見出し・横スクロール領
   const c2Match = firstHeaderRow.match(/<th[^>]*data-column-key="c2"[^>]*>([\s\S]*?)<\/th>/);
   assert.ok(c0Match?.[1], 'c0列（初回列）の上段日付セルは文字を持つべき');
   assert.ok(c2Match?.[1], 'c2列（日付境界）の上段日付セルは文字を持つべき');
+});
+
+test('Issue #56 AC-19: オプトインだけ日(曜日)を出し、月・年をまたぐ列は完全日付で読む', () => {
+  const dates: readonly TimeSeriesColumn[] = [
+    { key: 'a', at: '2026-12-31T09:00:00+09:00', timeLabel: '9-12', ariaTimeLabel: '9-12時' },
+    { key: 'b', at: '2026-12-31T12:00:00+09:00', timeLabel: '12-15', ariaTimeLabel: '12-15時' },
+    { key: 'c', at: '2027-01-01T00:00:00+09:00', timeLabel: '0-3', ariaTimeLabel: '0-3時' },
+  ];
+  assert.deepEqual(buildDateHeaderLabels(dates), ['12/31(木)', null, '1/1(金)']);
+  assert.deepEqual(buildDateHeaderLabels(dates, 'day-weekday-on-change'), [
+    '31(木)',
+    null,
+    '1(金)',
+  ]);
+  assert.equal(formatFullJstDate(dates[2]!.at), '2027年1月1日(金)');
+  assert.equal(
+    formatJstTimeRange('2026-12-31T18:00:00+09:00', '2027-01-01T00:00:00+09:00'),
+    '18-24時',
+  );
+  assert.equal(
+    formatJstTimeRange('2026-12-31T12:00:00+09:00', '2027-01-02T00:00:00+09:00'),
+    '12時から2027年1月2日(土)0時まで',
+  );
+  const html = renderToStaticMarkup(
+    el(DetailTimeSeriesTable, {
+      caption: '確認',
+      columns: dates,
+      rows: [
+        {
+          key: 'r',
+          header: '大雨',
+          cells: dates.map((date) => ({ key: date.key, content: '高' })),
+        },
+      ],
+      stickyHeader: true,
+      bodyDateBoundaries: true,
+      dateHeaderMode: 'day-weekday-on-change',
+      cornerLabels: { date: '日（曜日）', time: '時間帯' },
+    }),
+  );
+  assert.match(html, /aria-label="2026年12月31日\(木\) 9-12時">31\(木\)<\/th>/);
+  assert.match(html, /data-column-key="b" aria-label="2026年12月31日\(木\) 12-15時"><\/th>/);
+  assert.match(html, /aria-label="2027年1月1日\(金\) 0-3時">1\(金\)<\/th>/);
+  assert.match(html, /日（曜日）/);
+  assert.match(html, /時間帯/);
+  assert.equal((html.match(/class="detail-ts-date-boundary"/g) ?? []).length, 5);
 });
 
 // AC-24: stickyHeaderを指定しない場合の出力は、追加前(変更前)の出力と完全に同じであることを固定する。
@@ -225,4 +277,100 @@ test('DetailTimeSeriesTable: colSpanセルは覆う範囲の先頭列が境界�
   assert.equal(tds.length, 2);
   assert.doesNotMatch(tds[0] ?? '', /detail-ts-date-boundary/); // s0(先頭)-s1: 境界なし
   assert.match(tds[1] ?? '', /detail-ts-date-boundary/); // s2(境界)-s3
+});
+
+test('rowSpan: 縦結合・横結合を配置し、日付境界と既定DOMを維持する', () => {
+  const mergedRows: readonly TimeSeriesRow[] = [
+    {
+      key: 'rain',
+      header: '大雨',
+      cells: [
+        { key: 'r0', content: '高', rowSpan: 2 },
+        { key: 'r1', content: '中', span: 2 },
+      ],
+    },
+    {
+      key: 'soil',
+      header: '土砂災害',
+      cells: [
+        { key: 's1', content: '－' },
+        { key: 's2', content: '?' },
+      ],
+    },
+  ];
+  assert.deepEqual(validateRowSpans(columns, mergedRows), []);
+  const html = renderToStaticMarkup(
+    el(DetailTimeSeriesTable, {
+      caption: '結合',
+      columns,
+      rows: mergedRows,
+      stickyHeader: true,
+      bodyDateBoundaries: true,
+    }),
+  );
+  assert.match(html, /class="detail-ts-sticky"/);
+  assert.match(html, /rowSpan="2"/);
+  assert.match(html, /colSpan="2"/);
+  assert.match(html, /class="detail-ts-date-boundary"[^>]*>\?<\/td>/);
+  assert.equal((html.match(/<thead>/g) ?? []).length, 1);
+  assert.equal((html.match(/<tr>/g) ?? []).length, 4);
+});
+
+test('rowSpan: 行末超過・列不足・重なり・無効な結合値を検出する', () => {
+  const make = (
+    cells: TimeSeriesRow['cells'],
+    last: TimeSeriesRow['cells'],
+  ): readonly TimeSeriesRow[] => [
+    { key: 'first', header: '大雨', cells },
+    { key: 'last', header: '土砂災害', cells: last },
+  ];
+  assert.deepEqual(
+    validateRowSpans(
+      columns,
+      make(
+        [
+          { key: 'x', content: '高', rowSpan: 3 },
+          { key: 'y', content: '中', span: 2 },
+        ],
+        [{ key: 'z', content: '－', span: 3 }],
+      ),
+    ),
+    ['first'],
+  );
+  assert.deepEqual(
+    validateRowSpans(
+      columns,
+      make(
+        [
+          { key: 'x', content: '高', rowSpan: 2 },
+          { key: 'y', content: '中', span: 2 },
+        ],
+        [{ key: 'z', content: '－' }],
+      ),
+    ),
+    ['last'],
+  );
+  assert.deepEqual(
+    validateRowSpans(
+      columns,
+      make(
+        [
+          { key: 'x', content: '高', rowSpan: 2 },
+          { key: 'y', content: '中', span: 2 },
+        ],
+        [
+          { key: 'z', content: '－', span: 2 },
+          { key: 'overlap', content: '?' },
+        ],
+      ),
+    ),
+    ['last'],
+  );
+  assert.deepEqual(
+    validateRowSpans(
+      columns,
+      make([{ key: 'bad', content: '高', span: 0 }], [{ key: 'z', content: '－', span: 3 }]),
+    ),
+    ['first'],
+  );
 });

@@ -10,6 +10,7 @@ import { InfoPanelColumn } from './panels/InfoPanelColumn';
 import { useBosaiBulletins } from './panels/bosai/useBosaiBulletins';
 import { useWarnings } from './panels/warning/useWarnings';
 import { useWarningTimeSeries } from './panels/warningTimeSeries/useWarningTimeSeries';
+import { useEarlyWarning } from './panels/earlyWarning/useEarlyWarning';
 import { DEFAULT_INFO_PANEL_INPUT } from './panels/panelFixtures';
 import { DetailDialogScrollContainerProvider } from './detail/DetailDialogScrollContainerContext';
 import { MapLegend } from './MapLegend';
@@ -178,14 +179,17 @@ export function WeatherMapView({
     controlStatus,
   });
 
+  const earlyWarningCard = useEarlyWarning({ terminalId, controlStatus });
+
   const infoPanelInput = useMemo(
     () => ({
       ...DEFAULT_INFO_PANEL_INPUT,
       bosaiBulletin: bosaiBulletinCards,
       warning: warningCards,
       warningTimeSeries: [warningTimeSeriesCard],
+      earlyWarning: [earlyWarningCard],
     }),
-    [bosaiBulletinCards, warningCards, warningTimeSeriesCard],
+    [bosaiBulletinCards, warningCards, warningTimeSeriesCard, earlyWarningCard],
   );
 
   const effectiveTimelineViewModel = useMemo(() => {

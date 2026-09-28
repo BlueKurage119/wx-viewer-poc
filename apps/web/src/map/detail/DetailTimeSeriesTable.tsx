@@ -12,19 +12,27 @@
  * 失われる。呼び出し側はセルの `aria-label` に時間帯を含めること。
  */
 import { useEffect, useRef, type ReactNode } from 'react';
-import { buildDateHeaderLabels, validateRowSpans } from './timeSeriesHeader';
+import {
+  buildDateHeaderLabels,
+  formatFullJstDate,
+  layoutTimeSeriesRows,
+  validateRowSpans,
+} from './timeSeriesHeader';
 
 export interface TimeSeriesColumn {
   readonly key: string;
   readonly at: string; // 列の代表時刻 ISO8601（区間なら開始時刻）。日付段の判定に使う
   readonly timeLabel: string; // 下段の表示（例「9時」「9-12時」）
+  readonly ariaTimeLabel?: string; // 上段日付見出しで読む時間帯。省略時はtimeLabelを使用
   /** 列幅(任意)。指定が無ければ `--detail-ts-column-width`(既定4rem)。stickyHeader時のcolgroupに使う */
   readonly width?: string;
 }
 
 export interface TimeSeriesCell {
   readonly key: string;
+  readonly ariaLabel?: string;
   readonly span?: number; // 区間結合。既定1
+  readonly rowSpan?: number; // 行方向の結合。既定1、未指定時は従来のDOMを維持
   readonly content: ReactNode; // 空欄・「－」・「—」等の区別は呼び出し側の責務
 }
 
@@ -47,6 +55,9 @@ export interface DetailTimeSeriesTableProps {
    * 見出しから本文まで縦線を通す(§4.6.2)。既定false(既存の挙動を維持、AC-24)。
    */
   readonly bodyDateBoundaries?: boolean;
+  /** 2種類の詳細だけで使う、月を省いた日付見出し。 */
+  readonly dateHeaderMode?: 'day-weekday-on-change';
+  readonly cornerLabels?: { readonly date: string; readonly time: string };
 }
 
 const ROW_HEADER_WIDTH = 'var(--detail-ts-row-header-width, 7rem)';
@@ -75,16 +86,20 @@ function HeaderRows({
   columns,
   rowHeaderLabel,
   dateLabels,
+  dateHeaderMode,
+  cornerLabels,
 }: {
   readonly columns: readonly TimeSeriesColumn[];
   readonly rowHeaderLabel?: string;
   readonly dateLabels: readonly (string | null)[];
+  readonly dateHeaderMode?: 'day-weekday-on-change';
+  readonly cornerLabels?: { readonly date: string; readonly time: string };
 }) {
   return (
     <thead>
       <tr>
         <th scope="col" className="detail-ts-corner">
-          {rowHeaderLabel}
+          {cornerLabels?.date ?? rowHeaderLabel}
         </th>
         {columns.map((column, index) => (
           <th
@@ -92,13 +107,20 @@ function HeaderRows({
             scope="col"
             data-column-key={column.key}
             className={dateLabels[index] !== null ? 'detail-ts-date-boundary' : undefined}
+            aria-label={
+              dateHeaderMode === 'day-weekday-on-change'
+                ? `${formatFullJstDate(column.at)} ${column.ariaTimeLabel ?? column.timeLabel}`.trim()
+                : undefined
+            }
           >
             {dateLabels[index]}
           </th>
         ))}
       </tr>
       <tr>
-        <th scope="col" className="detail-ts-corner" />
+        <th scope="col" className="detail-ts-corner">
+          {cornerLabels?.time}
+        </th>
         {columns.map((column, index) => (
           <th
             key={column.key}
@@ -116,36 +138,34 @@ function HeaderRows({
 function BodyRows({
   rows,
   dateBoundaryColumnIndices,
+  columns,
 }: {
+  readonly columns: readonly TimeSeriesColumn[];
   readonly rows: readonly TimeSeriesRow[];
   /** 日付境界にあたる列のインデックス(0始まり、先頭列は含まない)。undefinedなら付けない(既定挙動、AC-24) */
   readonly dateBoundaryColumnIndices?: ReadonlySet<number>;
 }) {
+  const layout = layoutTimeSeriesRows(columns, rows);
   return (
     <tbody>
-      {rows.map((row) => {
-        let columnIndex = 0;
-        return (
-          <tr key={row.key}>
-            <th scope="row">{row.header}</th>
-            {row.cells.map((cell) => {
-              const span = cell.span ?? 1;
-              const isBoundary = dateBoundaryColumnIndices?.has(columnIndex) ?? false;
-              const td = (
-                <td
-                  key={cell.key}
-                  colSpan={span}
-                  className={isBoundary ? 'detail-ts-date-boundary' : undefined}
-                >
-                  {cell.content}
-                </td>
-              );
-              columnIndex += span;
-              return td;
-            })}
-          </tr>
-        );
-      })}
+      {rows.map((row, rowIndex) => (
+        <tr key={row.key}>
+          <th scope="row">{row.header}</th>
+          {layout.rows[rowIndex]?.map(({ cell, columnIndex }) => (
+            <td
+              key={cell.key}
+              colSpan={cell.span ?? 1}
+              rowSpan={cell.rowSpan}
+              aria-label={cell.ariaLabel}
+              className={
+                dateBoundaryColumnIndices?.has(columnIndex) ? 'detail-ts-date-boundary' : undefined
+              }
+            >
+              {cell.content}
+            </td>
+          ))}
+        </tr>
+      ))}
     </tbody>
   );
 }
@@ -158,10 +178,12 @@ export function DetailTimeSeriesTable({
   initialColumnKey,
   stickyHeader = false,
   bodyDateBoundaries = false,
+  dateHeaderMode,
+  cornerLabels,
 }: DetailTimeSeriesTableProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
-  const dateLabels = buildDateHeaderLabels(columns);
+  const dateLabels = buildDateHeaderLabels(columns, dateHeaderMode);
   // 先頭列は行見出し列の右境界と二重になるため除く(§4.6.2)。
   const dateBoundaryColumnIndices = bodyDateBoundaries
     ? new Set(
@@ -209,8 +231,18 @@ export function DetailTimeSeriesTable({
       >
         <table className="detail-ts-table">
           <caption className="detail-ts-caption">{caption}</caption>
-          <HeaderRows columns={columns} rowHeaderLabel={rowHeaderLabel} dateLabels={dateLabels} />
-          <BodyRows rows={rows} dateBoundaryColumnIndices={dateBoundaryColumnIndices} />
+          <HeaderRows
+            columns={columns}
+            rowHeaderLabel={rowHeaderLabel}
+            dateLabels={dateLabels}
+            dateHeaderMode={dateHeaderMode}
+            cornerLabels={cornerLabels}
+          />
+          <BodyRows
+            columns={columns}
+            rows={rows}
+            dateBoundaryColumnIndices={dateBoundaryColumnIndices}
+          />
         </table>
       </div>
     );
@@ -221,7 +253,13 @@ export function DetailTimeSeriesTable({
       <div className="detail-ts-head" ref={headRef}>
         <table className="detail-ts-table" style={{ width: stickyTableWidth(columns) }}>
           <ColGroup columns={columns} />
-          <HeaderRows columns={columns} rowHeaderLabel={rowHeaderLabel} dateLabels={dateLabels} />
+          <HeaderRows
+            columns={columns}
+            rowHeaderLabel={rowHeaderLabel}
+            dateLabels={dateLabels}
+            dateHeaderMode={dateHeaderMode}
+            cornerLabels={cornerLabels}
+          />
         </table>
       </div>
       <div
@@ -239,7 +277,11 @@ export function DetailTimeSeriesTable({
         <table className="detail-ts-table" style={{ width: stickyTableWidth(columns) }}>
           <caption className="detail-ts-caption">{caption}</caption>
           <ColGroup columns={columns} />
-          <BodyRows rows={rows} dateBoundaryColumnIndices={dateBoundaryColumnIndices} />
+          <BodyRows
+            columns={columns}
+            rows={rows}
+            dateBoundaryColumnIndices={dateBoundaryColumnIndices}
+          />
         </table>
       </div>
     </div>
