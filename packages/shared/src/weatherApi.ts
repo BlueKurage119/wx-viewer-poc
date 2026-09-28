@@ -213,15 +213,16 @@ export type AreaTimeseriesResponse = WeatherContext &
 // ==========================================
 
 export type AmedasPublicElement =
-  'temp' | 'humidity' | 'windDirection' | 'wind' | 'precipitation1h';
+  'temp' | 'humidity' | 'windDirection' | 'wind' | 'precipitation1h' | 'precipitation10m';
 
-/** 公開5要素のみ。地点が提供しない要素はキー自体を持たない（欠測は null）。 */
+/** 公開要素のみ。地点が提供しない要素はキー自体を持たない（欠測は null）。 */
 export interface AmedasElementValues {
   readonly temp?: number | null;
   readonly humidity?: number | null;
   readonly windDirection?: number | null;
   readonly wind?: number | null;
   readonly precipitation1h?: number | null;
+  readonly precipitation10m?: number | null;
 }
 
 export interface AmedasObservationDto {

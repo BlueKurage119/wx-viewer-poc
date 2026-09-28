@@ -1,0 +1,100 @@
+.amedas-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+.amedas-values > div {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 28px;
+}
+.amedas-values dt {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+}
+.amedas-values dd {
+  margin: 0;
+  text-align: right;
+  font-size: 16px;
+  font-weight: 600;
+}
+.amedas-values > div:last-child {
+  grid-column: 1 / -1;
+}
+.amedas-alert {
+  color: var(--md-sys-color-error);
+  margin: 0 0 8px;
+}
+.amedas-plot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 12px;
+}
+.amedas-plot-section {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 0;
+}
+.amedas-plot-section h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.amedas-plot-scroll,
+.amedas-table-scroll {
+  overflow-x: auto;
+}
+.amedas-plot-scroll svg {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .amedas-plot-scroll svg {
+    min-width: 500px;
+  }
+}
+.amedas-plot-scroll text {
+  fill: var(--md-sys-color-on-surface-variant);
+  font-size: 16px;
+}
+.amedas-axis {
+  stroke: var(--md-sys-color-outline);
+}
+.amedas-graph-line {
+  stroke: var(--md-sys-color-primary);
+  stroke-width: 2;
+}
+.amedas-graph-mark {
+  fill: var(--md-sys-color-primary);
+}
+.amedas-table-scroll {
+  margin-top: 16px;
+}
+.amedas-table caption {
+  padding: 0 0 12px;
+  text-align: left;
+  font-weight: 600;
+}
+.amedas-table {
+  border-collapse: collapse;
+  min-width: 650px;
+  width: 100%;
+}
+.amedas-table th,
+.amedas-table td {
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  padding: 7px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.amedas-time-summary {
+  margin: 0 0 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+}
