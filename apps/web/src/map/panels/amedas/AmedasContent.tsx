@@ -9,7 +9,9 @@ import { DetailDialog } from '../../detail/DetailDialog';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import {
   AMEDAS_FIELDS,
-  amedasValue,
+  amedasDisplayValue,
+  nextAmedasWindowCount,
+  visibleAmedasRows,
   formatAmedasTime,
   latestAmedasRow,
   recentAmedasRows,
@@ -120,6 +122,12 @@ function Detail({
 }) {
   const rows = recentAmedasRows(response, now);
   const start = now - 24 * 60 * 60 * 1000;
+  const [tableWindows, setTableWindows] = useState(1);
+  const table = visibleAmedasRows(rows, now, tableWindows);
+  const earliest = rows[0]?.observedAt;
+  const latest = rows[rows.length - 1]?.observedAt;
+  const startMissing = earliest === undefined || Date.parse(earliest) > start;
+  const endMissing = latest === undefined || Date.parse(latest) < now;
   return (
     <div className="amedas-detail">
       {staleMessage && (
@@ -127,20 +135,36 @@ function Detail({
           {staleMessage}
         </p>
       )}
-      <p>
-        直近24時間：{formatAmedasTime(new Date(start).toISOString())}〜
-        {formatAmedasTime(new Date(now).toISOString())}
+      <p className="amedas-time-summary">
+        <span>
+          直近24時間 {formatAmedasTime(new Date(start).toISOString())}〜
+          {formatAmedasTime(new Date(now).toISOString())}
+        </span>
+        {(startMissing || endMissing) && (
+          <span>
+            {' '}
+            · 未取得：
+            {startMissing && (
+              <span
+                aria-label={`開始側 ${earliest ? formatAmedasTime(earliest) + 'まで' : '全期間'}`}
+              >
+                開始側{earliest ? `〜${formatAmedasTime(earliest)}` : ' 全期間'}
+              </span>
+            )}
+            {startMissing && endMissing ? '、' : ''}
+            {endMissing && (
+              <span aria-label={`現在側 ${latest ? formatAmedasTime(latest) + 'から' : '全期間'}`}>
+                現在側{latest ? ` ${formatAmedasTime(latest)}〜` : ' 全期間'}
+              </span>
+            )}
+          </span>
+        )}
       </p>
       {rows.length === 0 ? (
         <p>この期間の観測値は取得できません</p>
       ) : (
         <>
-          {Date.parse(rows[0]!.observedAt) > start && (
-            <p>期間開始〜{formatAmedasTime(rows[0]!.observedAt)}は未取得</p>
-          )}
-          {Date.parse(rows[rows.length - 1]!.observedAt) < now && (
-            <p>{formatAmedasTime(rows[rows.length - 1]!.observedAt)}〜現在は未取得</p>
-          )}
+          <p className="amedas-rain-note">時雨量は各観測時刻を終点とする直前1時間の積算値</p>
           <div className="amedas-plot-grid">
             {METRICS.map((key) => (
               <Plot key={key} response={response} rows={rows} keyName={key} now={now} />
@@ -165,17 +189,39 @@ function Detail({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {table.rows.map((row) => (
                   <tr key={row.observedAt}>
                     <th scope="row">{formatAmedasTime(row.observedAt)}</th>
                     {AMEDAS_FIELDS.map((field) => (
-                      <td key={field.key}>{amedasValue(response, row, field.key)}</td>
+                      <td key={field.key}>
+                        {(() => {
+                          const display = amedasDisplayValue(response, row, field.key);
+                          return display.accessibleLabel ? (
+                            <span
+                              aria-label={`${formatAmedasTime(row.observedAt)} ${display.accessibleLabel}`}
+                            >
+                              {display.text}
+                            </span>
+                          ) : (
+                            display.text
+                          );
+                        })()}
+                      </td>
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {table.hasMore && (
+            <GbButton
+              color="text"
+              size="sm"
+              onClick={() => setTableWindows(nextAmedasWindowCount(rows, now, tableWindows))}
+            >
+              続きを見る
+            </GbButton>
+          )}
         </>
       )}
     </div>
@@ -205,7 +251,20 @@ export function AmedasContent({
           {AMEDAS_FIELDS.map((field) => (
             <div key={field.key}>
               <dt>{field.label}</dt>
-              <dd>{amedasValue(response, row, field.key as AmedasPublicElement)}</dd>
+              <dd>
+                {(() => {
+                  const display = amedasDisplayValue(
+                    response,
+                    row,
+                    field.key as AmedasPublicElement,
+                  );
+                  return display.accessibleLabel ? (
+                    <span aria-label={display.accessibleLabel}>{display.text}</span>
+                  ) : (
+                    display.text
+                  );
+                })()}
+              </dd>
             </div>
           ))}
         </dl>

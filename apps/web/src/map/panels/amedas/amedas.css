@@ -6,13 +6,19 @@
 }
 .amedas-values > div {
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 28px;
 }
 .amedas-values dt {
   color: var(--md-sys-color-on-surface-variant);
   font-size: 12px;
 }
 .amedas-values dd {
-  margin: 2px 0 0;
+  margin: 0;
+  text-align: right;
   font-size: 16px;
   font-weight: 600;
 }
@@ -71,4 +77,15 @@
   padding: 7px;
   text-align: left;
   white-space: nowrap;
+}
+
+.amedas-time-summary {
+  margin: 0 0 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+}
+.amedas-rain-note {
+  margin: 0 0 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
 }
