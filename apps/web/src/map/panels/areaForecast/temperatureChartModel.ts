@@ -299,7 +299,8 @@ export function calculateDateBoundaries(moments: readonly { readonly at: string 
     const jstMs = new Date(at).getTime() + JST_OFFSET_MS;
     const jst = new Date(jstMs);
     const key = `${jst.getUTCFullYear()}-${jst.getUTCMonth() + 1}-${jst.getUTCDate()}`;
-    if (i > 0 && key !== previousKey) {
+    // 右端の境目(最後の点)は表の外側の端にあたり、日付見出し・本文の日付罫線も出さないため除く(確定事項14)
+    if (i > 0 && i < moments.length - 1 && key !== previousKey) {
       boundaries.push(i);
     }
     previousKey = key;

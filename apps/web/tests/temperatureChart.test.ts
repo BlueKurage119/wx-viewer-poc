@@ -233,11 +233,15 @@ test('Issue #58 AC-5: 日付境界の縦線計算 (先頭境目を除き日付�
     { at: '2026-09-28T03:00:00Z', label: '12時' }, // 28日
     { at: '2026-09-28T15:00:00Z', label: '0時' }, // 29日 00:00 JST (日付変化)
     { at: '2026-09-28T18:00:00Z', label: '3時' }, // 29日
-    { at: '2026-09-29T15:00:00Z', label: '0時' }, // 30日 00:00 JST (日付変化)
+    { at: '2026-09-29T15:00:00Z', label: '0時' }, // 30日 00:00 JST (右端の境目)
   ];
 
   const boundaries = calculateDateBoundaries(moments);
-  assert.deepEqual(boundaries, [2, 4], '先頭境目を除き、日付が変わる境目インデックスが抽出される');
+  assert.deepEqual(
+    boundaries,
+    [2],
+    '先頭と右端の境目を除き、日付が変わる境目インデックスが抽出される',
+  );
 });
 
 test('Issue #58 AC-1 & AC-2: 詳細ダイアログの3行構成と気温グラフレンダリング、境目位置一致', () => {
@@ -587,4 +591,13 @@ test('Issue #58 AC-10 検収差し戻し: 詳細の各行の span 合計が列�
     const last = cells[cells.length - 1]!;
     assert.doesNotMatch(last, /aria-label/, `末尾余白セルに読み上げ名が無い: ${last}`);
   }
+});
+
+test('Issue #58 PR #233 指摘: 右端の境目が0時でもグラフの日付境界線を描かない(本文の日付罫線と揃える)', () => {
+  const moments = [
+    { at: '2026-09-29T09:00:00Z' }, // 29日 18時 JST
+    { at: '2026-09-29T12:00:00Z' }, // 29日 21時 JST
+    { at: '2026-09-29T15:00:00Z' }, // 30日 0時 JST(右端の境目)
+  ];
+  assert.deepEqual(calculateDateBoundaries(moments), []);
 });
