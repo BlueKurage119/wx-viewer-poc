@@ -4,6 +4,7 @@ import type {
   AmedasPublicElement,
   AmedasResponse,
 } from '@wx-viewer-poc/shared';
+import { GbButton } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import {
@@ -211,9 +212,9 @@ export function AmedasContent({
       ) : (
         <p>取得できません</p>
       )}
-      <button type="button" className="amedas-detail-button" onClick={() => setOpen(true)}>
+      <GbButton color="text" size="sm" onClick={() => setOpen(true)}>
         詳細
-      </button>
+      </GbButton>
       <DetailDialog
         open={open}
         meta={{
