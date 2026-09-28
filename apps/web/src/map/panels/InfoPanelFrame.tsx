@@ -73,7 +73,9 @@ export function InfoPanelFrame({
           <div className="info-panel-card-skeleton" aria-hidden="true" />
         )}
         {display.mode === 'failed' && (
-          <p className="info-panel-card-failed">取得できませんでした</p>
+          <div className="info-panel-card-failed">
+            {definition.id === 'amedas' && children ? children : '取得できませんでした'}
+          </div>
         )}
         {display.mode === 'content' && children}
       </div>

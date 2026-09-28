@@ -551,3 +551,5 @@ select {
     gap: 8px;
   }
 }
+
+@import './map/panels/amedas/amedas.css';
