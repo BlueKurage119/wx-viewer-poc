@@ -21,10 +21,6 @@ import {
 } from './areaForecastModel';
 import { useFontLoading, type FontLoadingStatus } from './useFontLoading';
 
-if (typeof window !== 'undefined' && typeof process === 'undefined') {
-  void import('./areaForecast.css');
-}
-
 function WeatherCellView({
   interval,
   column,
