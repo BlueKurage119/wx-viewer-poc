@@ -120,6 +120,7 @@ const AMEDAS_PUBLIC_ELEMENTS: readonly AmedasPublicElement[] = [
   'windDirection',
   'wind',
   'precipitation1h',
+  'precipitation10m',
 ] as const;
 
 function resolveUnsupportedAmedasElements(elements: string): readonly AmedasPublicElement[] {
@@ -130,6 +131,7 @@ function resolveUnsupportedAmedasElements(elements: string): readonly AmedasPubl
     windDirection: 2,
     wind: 3,
     precipitation1h: 1,
+    precipitation10m: 1,
   };
   for (const elem of AMEDAS_PUBLIC_ELEMENTS) {
     const idx = indexMap[elem];
@@ -792,6 +794,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
             windDirection?: number | null;
             wind?: number | null;
             precipitation1h?: number | null;
+            precipitation10m?: number | null;
           }
         >();
 
@@ -811,6 +814,8 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
             entry.wind = obs.valueNumber;
           } else if (obs.element === 'precipitation1h') {
             entry.precipitation1h = obs.valueNumber;
+          } else if (obs.element === 'precipitation10m') {
+            entry.precipitation10m = obs.valueNumber;
           }
         }
 

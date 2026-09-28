@@ -9,6 +9,7 @@
 @import './map/panels/warning/warningPanel.css';
 @import './map/panels/warningTimeSeries/warningTimeSeries.css';
 @import './map/panels/earlyWarning/earlyWarning.css';
+@import './map/panels/amedas/amedas.css';
 @import './map/panels/areaForecast/areaForecast.css';
 @import './map/detail/detail.css';
 @import './monitoring/monitoring.css';

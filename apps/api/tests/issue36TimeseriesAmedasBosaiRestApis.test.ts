@@ -675,6 +675,7 @@ test('B3b #37 controlStatus 非対応: training/test 指定時は常に data: nu
     'windDirection',
     'wind',
     'precipitation1h',
+    'precipitation10m',
   ]);
   assert.deepEqual(resTraining.body.capabilities.unsupportedElements, []);
 
@@ -1191,7 +1192,7 @@ test('B7 #36 capabilities: data: null でも capabilities が返り、unsupporte
 // ---------------------------------------------------------------------------
 // B8 #37 公開要素の限定
 // ---------------------------------------------------------------------------
-test('B8 #37 公開要素の限定: 公開5要素以外(maxTemp, minTemp, maxTempTime, sun1h, snow, pressure等)はDTOに現れず、quality_flag, is_estimated も存在しない', async () => {
+test('B8 #37 公開要素の限定: 公開6要素以外(maxTemp, minTemp, maxTempTime, sun1h, snow, pressure等)はDTOに現れず、quality_flag, is_estimated も存在しない', async () => {
   const { db, app } = createTestApp();
 
   saveAmedasSnapshot(db.connection, {
@@ -1319,6 +1320,22 @@ test('B9 #37 非対応要素と欠測の区別: trc では humidity キーがな
         qualityFlag: 0,
         isEstimated: false,
       },
+      {
+        observedAt: '2026-09-14T06:00:00.000Z',
+        element: 'precipitation1h',
+        valueNumber: 5.5,
+        valueText: null,
+        qualityFlag: 0,
+        isEstimated: false,
+      },
+      {
+        observedAt: '2026-09-14T06:00:00.000Z',
+        element: 'precipitation10m',
+        valueNumber: 0.5,
+        valueText: null,
+        qualityFlag: 0,
+        isEstimated: false,
+      },
     ],
   });
 
@@ -1357,6 +1374,8 @@ test('B9 #37 非対応要素と欠測の区別: trc では humidity キーがな
   assert.deepEqual(resEast.body.capabilities.unsupportedElements, []);
   assert.equal(resEast.body.data.observations[0].values.temp, null); // 欠測は null
   assert.equal(resEast.body.data.observations[0].values.humidity, 65);
+  assert.equal(resEast.body.data.observations[0].values.precipitation1h, 5.5);
+  assert.equal(resEast.body.data.observations[0].values.precipitation10m, 0.5);
 
   // trc
   const resTrc = await client.get('/api/weather/amedas?terminalId=htrcph01&controlStatus=normal');
@@ -1367,7 +1386,7 @@ test('B9 #37 非対応要素と欠測の区別: trc では humidity キーがな
 
   // 合成 elems 注入: 実在の会場コードや地点番号をハードコードした判定になっていないことの検証
   // elems='10110000' (桁0:temp=1, 桁1:precip1h=0, 桁2:windDir=1, 桁3:wind=1, 桁6:humidity=0)
-  // 公開5要素のうち precipitation1h と humidity が非対応 -> unsupportedElements: ['humidity', 'precipitation1h']
+  // 公開6要素のうち降水2項目と humidity が非対応
   const syntheticTarget: AmedasTarget = {
     stationCode: '44136' as AmedasTarget['stationCode'],
     displayName: '合成地点',
@@ -1408,9 +1427,14 @@ test('B9 #37 非対応要素と欠測の区別: trc では humidity キーがな
     '/api/weather/amedas?terminalId=hkeagh01&controlStatus=normal',
   );
   assert.equal(resSynth.status, 200);
-  assert.deepEqual(resSynth.body.capabilities.unsupportedElements, ['humidity', 'precipitation1h']);
+  assert.deepEqual(resSynth.body.capabilities.unsupportedElements, [
+    'humidity',
+    'precipitation1h',
+    'precipitation10m',
+  ]);
   assert.equal('humidity' in resSynth.body.data.observations[0].values, false);
   assert.equal('precipitation1h' in resSynth.body.data.observations[0].values, false);
+  assert.equal('precipitation10m' in resSynth.body.data.observations[0].values, false);
   assert.equal(resSynth.body.data.observations[0].values.temp, 22.5);
 });
 

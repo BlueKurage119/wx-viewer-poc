@@ -12,6 +12,7 @@ import { useWarnings } from './panels/warning/useWarnings';
 import { useWarningTimeSeries } from './panels/warningTimeSeries/useWarningTimeSeries';
 import { useEarlyWarning } from './panels/earlyWarning/useEarlyWarning';
 import { useAreaForecast } from './panels/areaForecast/useAreaForecast';
+import { useAmedas } from './panels/amedas/useAmedas';
 import { DEFAULT_INFO_PANEL_INPUT } from './panels/panelFixtures';
 import { DetailDialogScrollContainerProvider } from './detail/DetailDialogScrollContainerContext';
 import { MapLegend } from './MapLegend';
@@ -181,6 +182,7 @@ export function WeatherMapView({
   });
 
   const earlyWarningCard = useEarlyWarning({ terminalId, controlStatus });
+  const amedasCard = useAmedas({ terminalId, controlStatus, venueId: venue.id });
   const areaForecastCard = useAreaForecast({ terminalId, controlStatus });
 
   const infoPanelInput = useMemo(
@@ -190,9 +192,17 @@ export function WeatherMapView({
       warning: warningCards,
       warningTimeSeries: [warningTimeSeriesCard],
       earlyWarning: [earlyWarningCard],
+      amedas: [amedasCard],
       areaForecast: [areaForecastCard],
     }),
-    [bosaiBulletinCards, warningCards, warningTimeSeriesCard, earlyWarningCard, areaForecastCard],
+    [
+      bosaiBulletinCards,
+      warningCards,
+      warningTimeSeriesCard,
+      earlyWarningCard,
+      amedasCard,
+      areaForecastCard,
+    ],
   );
 
   const effectiveTimelineViewModel = useMemo(() => {
