@@ -5,15 +5,17 @@ import { test } from 'node:test';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  buildTemperatureChartGrid,
   calculateDateBoundaries,
   calculateLabelPositions,
   calculateTemperatureRange,
   calculateTemperatureY,
-  calculateTicks,
   formatTemperatureReaderItem,
   buildTemperatureReaderItems,
+  isTemperatureChartWidthValid,
   temperatureLinePaths,
 } from '../src/map/panels/areaForecast/temperatureChartModel.ts';
+import * as tempModelModule from '../src/map/panels/areaForecast/temperatureChartModel.ts';
 import {
   TemperatureChart,
   TemperatureChartHeader,
@@ -21,6 +23,7 @@ import {
 import {
   buildAreaForecastModel,
   type AreaForecastColumn,
+  type IntervalCell,
   type PointCell,
 } from '../src/map/panels/areaForecast/areaForecastModel.ts';
 import {
@@ -51,8 +54,8 @@ function contrastRatio(hex1: string, hex2: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-test('Issue #58 AC-3: temperatureChart 単体テスト (線分割・1点・同値・空・負値・ラベル上下判定)', () => {
-  const getX = (i: number) => i * 64 + 32;
+test('Issue #58 AC-3: temperatureChart 単体テスト (線分割・1点・同値・空・負値・ラベル上下判定・丸め・最終列除去・目盛り関数不在)', () => {
+  const getX = (i: number) => 20 + i * 64;
 
   // 1. temperatureLinePaths: null (欠測・文字値・対象外) で線を切り補間しない
   const valuesWithGap: (number | null)[] = [10, 15, null, 12, 14, 16];
@@ -91,7 +94,7 @@ test('Issue #58 AC-3: temperatureChart 単体テスト (線分割・1点・同�
   assert.equal(flatPaths[0], `M ${getX(0)} 64 L ${getX(1)} 64 L ${getX(2)} 64`);
 
   // 平坦ケースのラベル上下判定は「上」
-  const flatLabels = calculateLabelPositions(flatValues, flatGetY);
+  const flatLabels = calculateLabelPositions(flatValues, flatGetY, 20 + 2 * 64 + 40);
   assert.equal(flatLabels.length, 3);
   for (const lbl of flatLabels) {
     assert.equal(lbl.position, 'top', '平坦ケースのラベルは上');
@@ -111,50 +114,133 @@ test('Issue #58 AC-3: temperatureChart 単体テスト (線分割・1点・同�
   // 6. ラベルの上下判定: 急上昇・急下降
   // (a) 急下降ケース (前列が高温で点yより上、線分が上側矩形に入る -> ラベルは下)
   // 列0: 30℃ (y=30), 列1: 0℃ (y=98), 列2: 0℃ (y=98)
-  // range: [0, 30] -> 列0の点y=30, 列1の点y=98
-  // 列1において、左側線分の x_1 - 16 での y は 98 - (98 - 30)*0.25 = 81
-  // 列1の上側矩形は [98-18, 98-5] = [80, 93]。81 は上側矩形と交差する！
-  // 下側矩形 [98+6, 98+19] = [104, 117] とは交差しない。
-  // したがって列1のラベルは「下」になるべき。
   const dropValues: (number | null)[] = [30, 0, 0];
   const dropRange = { low: 0, high: 30 };
   const dropGetY = (v: number) => calculateTemperatureY(v, dropRange);
-  const dropLabels = calculateLabelPositions(dropValues, dropGetY);
+  const dropLabels = calculateLabelPositions(dropValues, dropGetY, 20 + 2 * 64 + 40);
   const dropLabel1 = dropLabels.find((l) => l.index === 1)!;
   assert.equal(dropLabel1.position, 'bottom', '急下降で上側矩形と交差するため下');
   assert.equal(dropLabel1.y, dropGetY(0) + 17);
 
   // (b) 急上昇ケース (次列が高温で点yより上、線分が上側矩形に入る -> ラベルは下)
-  // 列0: 0℃, 列1: 0℃, 列2: 30℃
-  // 列1において、右側線分の x_1 + 16 での y は 98 + (30 - 98)*0.25 = 81
-  // 上側矩形 [80, 93] と交差する！
-  // したがって列1のラベルは「下」になるべき。
   const riseValues: (number | null)[] = [0, 0, 30];
-  const riseLabels = calculateLabelPositions(riseValues, dropGetY);
+  const riseLabels = calculateLabelPositions(riseValues, dropGetY, 20 + 2 * 64 + 40);
   const riseLabel1 = riseLabels.find((l) => l.index === 1)!;
   assert.equal(riseLabel1.position, 'bottom', '急上昇で上側矩形と交差するため下');
   assert.equal(riseLabel1.y, dropGetY(0) + 17);
 
-  // 7. calculateTicks の検証 (2〜4本になる最小の刻み、同値、null)
-  assert.deepEqual(calculateTicks(null), []);
-  assert.deepEqual(calculateTicks({ low: 10.8, high: 21.2 }), [15, 20]);
-  assert.deepEqual(calculateTicks({ low: 14.5, high: 15.5 }), [15]);
-});
+  // (c) 境目0・M の丸め（端の点に対する x 丸め）
+  // 境目0 (pointX = 20): 文字が長く半幅 25 の場合、左端制限で 25 に丸められる
+  // -100.5 は長さ 6 文字 -> 半幅 21px。21 > 20 なので x=21 に丸められる
+  const longZeroLabels = calculateLabelPositions([-100.5], dropGetY, 200);
+  assert.equal(longZeroLabels[0]!.x, 21, '境目0の左端丸めが機能する');
 
-test('Issue #58 AC-5: 日付境界の縦線計算 (先頭列を除き日付変化列の左端 x=i*64)', () => {
-  const columns: AreaForecastColumn[] = [
-    { key: 'c0', at: '2026-09-28T00:00:00Z', label: '9時' }, // 28日
-    { key: 'c1', at: '2026-09-28T03:00:00Z', label: '12時' }, // 28日
-    { key: 'c2', at: '2026-09-28T15:00:00Z', label: '0時' }, // 29日 00:00 JST (日付変化)
-    { key: 'c3', at: '2026-09-28T18:00:00Z', label: '3時' }, // 29日
-    { key: 'c4', at: '2026-09-29T15:00:00Z', label: '0時' }, // 30日 00:00 JST (日付変化)
+  // 境目M (pointX = 84): viewBoxWidth 95 の場合、95 - 17.5 = 77.5 に丸められる
+  const roundMLabels = calculateLabelPositions([0, -10.5], dropGetY, 95);
+  const roundLblM = roundMLabels.find((l) => l.index === 1)!;
+  assert.equal(roundLblM.x, 95 - 17.5, '境目Mの右端丸めが機能する');
+
+  // 7. 最終の気温だけの列の除去判定 (buildTemperatureChartGrid)
+  const baseCols: AreaForecastColumn[] = [
+    { key: 'c0', at: '2026-09-28T00:00:00Z', label: '9時' },
+    { key: 'c1', at: '2026-09-28T03:00:00Z', label: '12時' },
+    { key: 'c2', at: '2026-09-28T06:00:00Z', label: '15時' }, // 直前区間終了時刻 15:00 と一致する気温のみ列
+  ];
+  const baseIntervals: IntervalCell[] = [
+    {
+      kind: 'value',
+      startIndex: 0,
+      span: 1,
+      timeFrom: '2026-09-28T00:00:00Z',
+      timeTo: '2026-09-28T03:00:00Z',
+      weather: { kind: 'value', text: '晴れ', icon: 'sunny' },
+      wind: {
+        direction: { kind: 'text', text: '北', rotation: 0 },
+        level: { kind: 'known', rank: 1, colorVar: '--c', rangeLabel: '0-2' },
+      },
+    },
+    {
+      kind: 'value',
+      startIndex: 1,
+      span: 1,
+      timeFrom: '2026-09-28T03:00:00Z',
+      timeTo: '2026-09-28T06:00:00Z',
+      weather: { kind: 'value', text: 'くもり', icon: 'cloud' },
+      wind: {
+        direction: { kind: 'text', text: '北', rotation: 0 },
+        level: { kind: 'known', rank: 1, colorVar: '--c', rangeLabel: '0-2' },
+      },
+    },
+  ];
+  const basePoints: PointCell[] = [
+    {
+      kind: 'value',
+      index: 0,
+      at: '2026-09-28T00:00:00Z',
+      temperature: { kind: 'value', text: '15℃', value: 15 },
+    },
+    {
+      kind: 'value',
+      index: 1,
+      at: '2026-09-28T03:00:00Z',
+      temperature: { kind: 'value', text: '18℃', value: 18 },
+    },
+    {
+      kind: 'value',
+      index: 2,
+      at: '2026-09-28T06:00:00Z',
+      temperature: { kind: 'value', text: '20℃', value: 20 },
+    },
   ];
 
-  const boundaries = calculateDateBoundaries(columns);
-  assert.deepEqual(boundaries, [2, 4], '先頭列を除き、日付が変わる列インデックスが抽出される');
+  // (a) 直前区間の終了時刻と一致する場合: 最終列が除去され、境目 M の値になる
+  const gridDropped = buildTemperatureChartGrid(baseCols, baseIntervals, basePoints);
+  assert.equal(gridDropped.droppedLastColumn, true);
+  assert.equal(gridDropped.intervalColumns.length, 2, '区間列は2列に短縮');
+  assert.equal(gridDropped.boundaryPoints.length, 3, '境目は3点（0, 1, 2）');
+  assert.equal(
+    gridDropped.boundaryPoints[2]?.kind === 'value' &&
+      gridDropped.boundaryPoints[2].temperature.value,
+    20,
+    '境目 M (2) に除去された列の値が入る',
+  );
+  assert.equal(gridDropped.endBoundaryAt, '2026-09-28T06:00:00Z');
+  assert.equal(gridDropped.endBoundaryLabel, '15時');
+
+  // (b) 直前区間の終了時刻と一致しない場合: 除去されない
+  const diffCols: AreaForecastColumn[] = [
+    baseCols[0]!,
+    baseCols[1]!,
+    { key: 'c2-diff', at: '2026-09-28T09:00:00Z', label: '18時' },
+  ];
+  const gridNotDropped = buildTemperatureChartGrid(diffCols, baseIntervals, basePoints);
+  assert.equal(gridNotDropped.droppedLastColumn, false);
+  assert.equal(gridNotDropped.intervalColumns.length, 3);
+  assert.equal(gridNotDropped.boundaryPoints.length, 4);
+  assert.equal(gridNotDropped.boundaryPoints[3], undefined, '境目 M は対象外(undefined)');
+
+  // 8. 目盛りの関数が存在しないこと
+  assert.equal(
+    'calculateTicks' in tempModelModule,
+    false,
+    'calculateTicks 関数は削除され存在しないこと',
+  );
 });
 
-test('Issue #58 AC-1 & AC-2: 詳細ダイアログの3行構成と気温グラフレンダリング、中心一致', () => {
+test('Issue #58 AC-5: 日付境界の縦線計算 (先頭境目を除き日付変化境目の x=20+64*k)', () => {
+  const moments = [
+    { at: '2026-09-28T00:00:00Z', label: '9時' }, // 28日 (先頭)
+    { at: '2026-09-28T03:00:00Z', label: '12時' }, // 28日
+    { at: '2026-09-28T15:00:00Z', label: '0時' }, // 29日 00:00 JST (日付変化)
+    { at: '2026-09-28T18:00:00Z', label: '3時' }, // 29日
+    { at: '2026-09-29T15:00:00Z', label: '0時' }, // 30日 00:00 JST (日付変化)
+  ];
+
+  const boundaries = calculateDateBoundaries(moments);
+  assert.deepEqual(boundaries, [2, 4], '先頭境目を除き、日付が変わる境目インデックスが抽出される');
+});
+
+test('Issue #58 AC-1 & AC-2: 詳細ダイアログの3行構成と気温グラフレンダリング、境目位置一致', () => {
   const now = Date.parse('2026-09-28T03:00:00Z');
   const response = buildAreaForecastFixtureResponse(now);
   const model = buildAreaForecastModel(response.data!);
@@ -178,12 +264,16 @@ test('Issue #58 AC-1 & AC-2: 詳細ダイアログの3行構成と気温グラ�
   // 詳細ダイアログに旧気温数値行のセルのクラス `.af-cell-temperature` が存在しないこと
   assert.doesNotMatch(detailHtml, /class="af-cell-temperature"/);
 
-  // SVG 内に線・点・数値ラベル・目盛りが描画されていること
-  assert.match(detailHtml, /class="af-temp-chart-svg"/);
-  assert.match(detailHtml, /<circle/);
-  assert.match(detailHtml, /<path[^>]*stroke="var\(--md-sys-color-primary\)"/);
-  assert.match(detailHtml, /class="af-temp-chart-label"/);
-  assert.match(detailHtml, /class="af-temp-chart-tick"/);
+  // 目盛りが存在しないこと
+  assert.doesNotMatch(detailHtml, /class="af-temp-chart-tick"/);
+
+  // 行見出し「気温（℃）」の文字サイズが CSS で 18px に指定されていること
+  const cssContent = readFileSync(
+    new URL('../src/map/panels/areaForecast/areaForecast.css', import.meta.url),
+    'utf-8',
+  );
+  assert.match(cssContent, /font-size:\s*18px;/);
+  assert.match(cssContent, /font-weight:\s*500;/);
 
   // パネルの表（気温数値行を含む）は変更前と DOM が同じ
   const panelHtml = renderToStaticMarkup(
@@ -196,10 +286,19 @@ test('Issue #58 AC-1 & AC-2: 詳細ダイアログの3行構成と気温グラ�
   assert.match(panelHtml, /<th scope="row">気温<\/th>/);
   assert.match(panelHtml, /class="af-cell-temperature"/);
 
-  // AC-2: 各点の circle の中心 x と数値ラベルの中心 x が列中心 (i*64+32) と一致する
-  // 最終列 (index 14) の点 x = 14*64+32 = 928
-  assert.match(detailHtml, /<circle[^>]*cx="928"/);
-  assert.match(detailHtml, /<text[^>]*x="928"[^>]*class="af-temp-chart-label"/);
+  // AC-2: 各点の circle の中心 x と最後の点の中心 x
+  // 14区間・15時点（通常フィクスチャ）で最終列が除去され、14区間列 + 境目0〜14
+  // 境目0の点 x = 20 + 0*64 = 20
+  // 最後の点（境目14）の点 x = 20 + 14*64 = 916
+  assert.match(detailHtml, /<circle[^>]*cx="20"/);
+  assert.match(detailHtml, /<circle[^>]*cx="916"/);
+
+  // 天気・風の行の先頭と末尾に余白空セルが存在すること（aria-labelなし）
+  assert.match(detailHtml, /<div class="af-cell-weather af-cell-none"><\/div>/);
+  assert.match(detailHtml, /<div class="af-cell-wind af-cell-none"><\/div>/);
+
+  // 時刻見出しのずらし CSS が存在すること
+  assert.match(cssContent, /transform:\s*translateX\(-50%\);/);
 });
 
 test('Issue #58 AC-6: 各状態 (通常・single・flat・empty・text・stale) の寸法と表示', () => {
@@ -218,9 +317,10 @@ test('Issue #58 AC-6: 各状態 (通常・single・flat・empty・text・stale) 
       createElement(AreaForecastDetail, { table: model, now, fontStatus }),
     );
 
-    // SVG 幅 列数×64px (15列 * 4rem = 60rem, 15*64 = 960)
-    assert.match(html, /inline-size:60rem/);
-    assert.match(html, /viewBox="0 0 960 128"/);
+    // SVG 幅 20 + 64*M + 40 px (M=14 の場合 20 + 64*14 + 40 = 956)
+    // CSS inlineSize: calc(1.25rem + 56rem + 2.5rem)
+    assert.match(html, /inline-size:calc\(1\.25rem \+ 56rem \+ 2\.5rem\)/);
+    assert.match(html, /viewBox="0 0 956 128"/);
 
     if (c === 'empty') {
       // empty では「気温の予想なし」だけ
@@ -229,7 +329,7 @@ test('Issue #58 AC-6: 各状態 (通常・single・flat・empty・text・stale) 
       assert.doesNotMatch(html, /class="af-temp-chart-question"/);
       assert.doesNotMatch(html, /<circle/);
     } else if (c === 'text') {
-      // text では各列が「?」だけで点・線・原文の文字が無い（原文は読み上げリストにだけある）
+      // text では各境目が「?」だけで点・線・原文の文字が無い（原文は読み上げリストにだけある）
       assert.doesNotMatch(html, /<circle/);
       assert.doesNotMatch(html, /class="af-temp-chart-label"/);
       assert.doesNotMatch(html, /気温の予想なし/);
@@ -256,7 +356,6 @@ test('Issue #58 AC-6: 各状態 (通常・single・flat・empty・text・stale) 
   });
   const prodModel = buildAreaForecastModel(prodResp.data!);
   if (prodModel.kind === 'table') {
-    // 通常データのインデックス2は15℃、インデックス8は-10.5℃、インデックス0は20℃
     assert.equal(
       prodModel.points[2]?.kind === 'value' && prodModel.points[2].temperature.value,
       15,
@@ -298,6 +397,7 @@ test('Issue #58 AC-8: 色トークン・コントラスト計算・HEX/rgb直書
       },
     },
   } as unknown as HTMLElement;
+
   applyMd3Theme(DEFAULT_THEME_SEED, true, rootStub);
 
   const detailBg = properties.get('--md-sys-color-surface-container-high')!;
@@ -317,14 +417,14 @@ test('Issue #58 AC-8: 色トークン・コントラスト計算・HEX/rgb直書
 });
 
 test('Issue #58 AC-10: 読み上げリストとアクセシビリティ仕様', () => {
-  const columns: AreaForecastColumn[] = [
-    { key: 'c0', at: '2026-09-28T00:00:00Z', label: '9時' },
-    { key: 'c1', at: '2026-09-28T03:00:00Z', label: '12時' },
-    { key: 'c2', at: '2026-09-28T06:00:00Z', label: '15時' },
-    { key: 'c3', at: '2026-09-28T09:00:00Z', label: '18時' },
+  const moments = [
+    { at: '2026-09-28T00:00:00Z', label: '9時' },
+    { at: '2026-09-28T03:00:00Z', label: '12時' },
+    { at: '2026-09-28T06:00:00Z', label: '15時' },
+    { at: '2026-09-28T09:00:00Z', label: '18時' },
   ];
 
-  const points: PointCell[] = [
+  const points: (PointCell | undefined)[] = [
     {
       kind: 'value',
       index: 0,
@@ -352,63 +452,92 @@ test('Issue #58 AC-10: 読み上げリストとアクセシビリティ仕様', 
   ];
 
   // formatTemperatureReaderItem の単体検証
-  assert.equal(formatTemperatureReaderItem(undefined, columns[0]!), null);
-  assert.equal(formatTemperatureReaderItem({ kind: 'none', index: 0 }, columns[0]!), null);
+  assert.equal(formatTemperatureReaderItem(undefined, moments[0]!), null);
+  assert.equal(formatTemperatureReaderItem({ kind: 'none', index: 0 }, moments[0]!), null);
   assert.equal(
-    formatTemperatureReaderItem(points[0], columns[0]!),
+    formatTemperatureReaderItem(points[0], moments[0]!),
     '2026年9月28日(月) 9時、気温15度',
   );
 
-  const items = buildTemperatureReaderItems(points, columns);
+  const items = buildTemperatureReaderItems(points, moments);
   assert.equal(items.length, 4);
   assert.equal(items[0], '2026年9月28日(月) 9時、気温15度');
   assert.equal(items[1], '2026年9月28日(月) 12時、気温マイナス10.5度');
   assert.equal(items[2], '2026年9月28日(月) 15時、気温欠測');
   assert.equal(items[3], '2026年9月28日(月) 18時、気温 約8度');
 
+  const grid = {
+    intervalColumns: [
+      { key: 'c0', at: '2026-09-28T00:00:00Z', label: '9時' },
+      { key: 'c1', at: '2026-09-28T03:00:00Z', label: '12時' },
+    ],
+    boundaryPoints: points.slice(0, 3),
+    boundaryMoments: moments.slice(0, 3),
+    endBoundaryAt: moments[2]!.at,
+    endBoundaryLabel: moments[2]!.label,
+    droppedLastColumn: true,
+  };
+
   const chartHtml = renderToStaticMarkup(
     createElement(TemperatureChart, {
-      points,
-      columns,
-      columnWidths: ['4rem', '4rem', '4rem', '4rem'],
+      grid,
+      columnWidths: ['1.25rem', '4rem', '4rem', '2.5rem'],
     }),
   );
   assert.match(chartHtml, /<svg[^>]*aria-hidden="true"/);
   assert.match(chartHtml, /<ul class="af-visually-hidden">/);
 
-  const headerHtml = renderToStaticMarkup(
-    createElement(TemperatureChartHeader, { range: { low: 10, high: 20 } }),
-  );
-  assert.match(headerHtml, /aria-hidden="true"/);
+  const headerHtml = renderToStaticMarkup(createElement(TemperatureChartHeader));
   assert.match(headerHtml, /気温（℃）/);
 });
 
-test('Issue #58 §3 & §5: 列幅が 4rem 以外を含む場合の代替表示', () => {
-  const columns: AreaForecastColumn[] = [
-    { key: 'c0', at: '2026-09-28T00:00:00Z', label: '9時' },
-    { key: 'c1', at: '2026-09-28T03:00:00Z', label: '12時' },
-  ];
-  const points: PointCell[] = [
-    {
-      kind: 'value',
-      index: 0,
-      at: '2026-09-28T00:00:00Z',
-      temperature: { kind: 'value', text: '15℃', value: 15 },
-    },
-    {
-      kind: 'value',
-      index: 1,
-      at: '2026-09-28T03:00:00Z',
-      temperature: { kind: 'value', text: '18℃', value: 18 },
-    },
-  ];
+test('Issue #58 §4.3 & §5: 列幅が不正な場合の代替表示', () => {
+  const grid = {
+    intervalColumns: [
+      { key: 'c0', at: '2026-09-28T00:00:00Z', label: '9時' },
+      { key: 'c1', at: '2026-09-28T03:00:00Z', label: '12時' },
+    ],
+    boundaryPoints: [
+      {
+        kind: 'value' as const,
+        index: 0,
+        at: '2026-09-28T00:00:00Z',
+        temperature: { kind: 'value' as const, text: '15℃', value: 15 },
+      },
+      {
+        kind: 'value' as const,
+        index: 1,
+        at: '2026-09-28T03:00:00Z',
+        temperature: { kind: 'value' as const, text: '18℃', value: 18 },
+      },
+      {
+        kind: 'value' as const,
+        index: 2,
+        at: '2026-09-28T06:00:00Z',
+        temperature: { kind: 'value' as const, text: '20℃', value: 20 },
+      },
+    ],
+    boundaryMoments: [
+      { at: '2026-09-28T00:00:00Z', label: '9時' },
+      { at: '2026-09-28T03:00:00Z', label: '12時' },
+      { at: '2026-09-28T06:00:00Z', label: '15時' },
+    ],
+    endBoundaryAt: '2026-09-28T06:00:00Z',
+    endBoundaryLabel: '15時',
+    droppedLastColumn: true,
+  };
 
-  // 1列でも '5rem' がある場合
+  // isTemperatureChartWidthValid 単体検証
+  assert.equal(isTemperatureChartWidthValid(['1.25rem', '4rem', '4rem', '2.5rem'], 4), true);
+  assert.equal(isTemperatureChartWidthValid(['4rem', '4rem', '4rem', '2.5rem'], 4), false);
+  assert.equal(isTemperatureChartWidthValid(['1.25rem', '4rem', '5rem', '2.5rem'], 4), false);
+  assert.equal(isTemperatureChartWidthValid(['1.25rem', '4rem', '4rem', '4rem'], 4), false);
+
+  // 1列でも不正な幅がある場合
   const html = renderToStaticMarkup(
     createElement(TemperatureChart, {
-      points,
-      columns,
-      columnWidths: ['4rem', '5rem'],
+      grid,
+      columnWidths: ['1.25rem', '4rem', '5rem', '2.5rem'],
     }),
   );
 
@@ -417,6 +546,7 @@ test('Issue #58 §3 & §5: 列幅が 4rem 以外を含む場合の代替表示',
   assert.match(html, /class="af-temp-chart af-temp-chart-fallback"/);
   assert.match(html, /9時 15℃/);
   assert.match(html, /12時 18℃/);
+  assert.match(html, /15時 20℃/);
   // 読み上げリストは維持される
   assert.match(html, /<ul class="af-visually-hidden">/);
 });
