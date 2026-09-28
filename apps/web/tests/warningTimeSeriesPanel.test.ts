@@ -45,6 +45,7 @@ import {
   buildThreeHourRows,
 } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesDetail.tsx';
 import { Switch } from '../src/components/md/Switch.tsx';
+import { renderNarrowSwitchAction } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesContent.tsx';
 import { buildWarningTimeseriesFixtureResponse } from '../src/map/panels/panelFixtures.ts';
 
 const el = React.createElement;
@@ -621,7 +622,7 @@ test('AC-10: 詳細ダイアログの3時間表・別欄・凡例', () => {
   ];
   const data: WarningTimeseriesData = { timeDefines, values, additions: null };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
 
   assert.match(html, /１時間最大雨量/);
   assert.match(html, /mm/);
@@ -733,7 +734,7 @@ test('AC-19/21: §6合成応答(block2の雨Note)は、雨Noteだけのadditions
   const data = response.data;
   assert.ok(data);
   const table = buildRiskTable(data, Date.parse(response.metadata.issuedAt as string));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   assert.doesNotMatch(html, /合成データ: 対応行なし確認用/);
 
   // 雨Noteだけのadditionsに絞っても出ない(block2の雨Noteはblock1の雨行と照合されない)
@@ -747,7 +748,7 @@ test('AC-19/21: §6合成応答(block2の雨Note)は、雨Noteだけのadditions
     Date.parse(response.metadata.issuedAt as string),
   );
   const rainOnlyHtml = renderToStaticMarkup(
-    el(WarningTimeSeriesDetail, { data: rainOnlyData, table: rainOnlyTable }),
+    el(WarningTimeSeriesDetail, { data: rainOnlyData, table: rainOnlyTable, narrowed: false }),
   );
   assert.doesNotMatch(rainOnlyHtml, /合成データ: 対応行なし確認用/);
 });
@@ -785,7 +786,7 @@ test('AC-20: 3時間表の各行のセル数は常に時間列数+1(備考)。�
   ];
   const data: WarningTimeseriesData = { timeDefines, values, additions };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   assert.match(html, /竜巻注意/);
   // 別欄・パネルには出ない(パネル本体は本テストでは描画していないため、別欄側だけ確認する)
   const separateOnly = html.slice(html.indexOf('wts-detail-separate'));
@@ -817,6 +818,7 @@ test('AC-25: formatColumnLabelは「時」を含まない形式で、aria-label�
         additions: null,
       },
       table,
+      narrowed: false,
     }),
   );
   // 読み上げ用aria-labelには「時」が付く
@@ -954,7 +956,7 @@ test('AC-26: 風向だけの区分は統合されず単独行のまま矢印が�
   };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
   assert.equal(buildWindRows(data, table?.baseBlockId ?? '').length, 0);
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   assert.match(html, />風向\(陸上\) ８方位漢字</); // 単独の行見出しが残る(unit付き)
   assert.match(html, /wts-wind-arrow/); // 矢印が付く
 });
@@ -974,7 +976,7 @@ test('AC-27: 統合行は同じ区分の風危険度行の直下に、複数区�
   ];
   const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
 
   const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
   // 直下に置けた統合行は区分名を省く(§2.1-30、直上の危険度行で区分が分かるため)
@@ -990,7 +992,7 @@ test('AC-27: 対応する危険度行が無い統合行は、風の最初の出�
   ];
   const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
   assert.deepEqual(headings, ['雷', '風向・風速(陸上) m/s', '大雨浸水']);
 });
@@ -1025,7 +1027,7 @@ test('AC-29: 雨の行は大雨浸水・土砂災害の行のうち後ろのも�
   ];
   const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
   assert.deepEqual(headings, ['大雨浸水', '雷', '土砂災害', '１時間最大雨量 mm', '風(陸上)']);
 });
@@ -1038,7 +1040,7 @@ test('AC-29: 雨→大雨浸水→土砂災害の出現順でも、雨の行は�
   ];
   const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
   assert.deepEqual(headings, ['大雨浸水', '土砂災害', '１時間最大雨量 mm']);
 });
@@ -1051,7 +1053,7 @@ test('AC-29: 大雨浸水・土砂災害の行が無い入力では、雨の行�
   ];
   const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
   assert.deepEqual(headings, ['雷', '１時間最大雨量 mm', '風(陸上)']);
 });
@@ -1064,7 +1066,7 @@ test('AC-29: 雪・波の量的予想の行は出現順から動かない', () =
   ];
   const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   const headings = [...html.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
   assert.deepEqual(headings, ['大雨浸水', '最大降雪量 cm', '土砂災害']);
 });
@@ -1141,7 +1143,7 @@ test('AC-30: 量的予想・統合行・危険度いずれも延長列は空白�
     additions: null,
   };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   assert.match(html, /aria-label="対象期間外"/);
   assert.doesNotMatch(html, /対象期間外<\/span><span[^>]*>\?/); // 空白であり「?」ではない
 });
@@ -1162,7 +1164,7 @@ test('AC-30: 危険度値がある延長列セルのaria-labelはformatIntervalH
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
   const expectedTimePhrase = formatIntervalHeader(extFrom, extTo);
   assert.notEqual(expectedTimePhrase, ''); // 空文字のまま使っていないことの前提確認
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   // 「時 注意報級相当」のように空の時刻ラベルのままではなく、formatIntervalHeaderの結果で始まる
   assert.match(html, new RegExp(`aria-label="${expectedTimePhrase} 注意報級相当"`));
   assert.doesNotMatch(html, /aria-label="時 /);
@@ -1246,7 +1248,7 @@ test('AC-33: 全行が消える入力では「該当する行はありません�
   const values: WarningTimeseriesValue[] = [riskValue('block1', 't0', '濃霧危険度', '01')];
   const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
   // 初期状態(全表示)では濃霧行がある(non-narrowed)。絞り込み後の0件描画はbuildThreeHourRowsで直接確認する。
   assert.ok(table);
   const narrowed = buildThreeHourRows(data, table as NonNullable<typeof table>, true);
@@ -1254,19 +1256,56 @@ test('AC-33: 全行が消える入力では「該当する行はありません�
   void html;
 });
 
-// AC-34: 詳細を開くと凡例の横にmd-switchがあり、ラベル・aria-labelが同じ文言になる(SSR)。
-test('AC-34: 詳細ダイアログに凡例の横のmd-switchとラベルが配線されている', () => {
+// AC-34: 詳細ダイアログのメタ行右端にmd-switchがあり、ラベル(左)・aria-labelが改訂文言になる(SSR)。
+// スイッチ自体はDetailDialogのmetaAction側(WarningTimeSeriesContent側)に配線されるため、
+// DetailDialogInnerにrenderNarrowSwitchActionの出力をmetaActionとして載せて検証する。
+test('AC-34: 詳細ダイアログのメタ行右端にmd-switchとラベルが配線されている(新文言・新配置)', () => {
+  const switchRef = { current: null };
+  const metaAction = renderNarrowSwitchAction(false, () => {}, switchRef);
+  const html = renderToStaticMarkup(
+    el(
+      DetailDialogInner,
+      {
+        open: true,
+        meta: {
+          title: '警報等時系列',
+          target: '江東区',
+          time: { kind: 'issued', value: '2026-09-24T05:00:00+09:00' },
+          isTraining: false,
+        },
+        onClose: () => {},
+        metaAction,
+      },
+      el('p', null, '本文'),
+    ),
+  );
+  // 凡例の横ではなく、メタ行(detail-dialog-meta-row)の右端(detail-dialog-meta-action)に配置される
+  assert.match(html, /<div class="detail-dialog-meta-row">/);
+  const actionMatch = html.match(
+    /<div class="detail-dialog-meta-action">(.*?)<\/div>\s*<\/div>\s*<\/header>/s,
+  );
+  assert.ok(actionMatch, 'detail-dialog-meta-action が見つからない');
+  const actionHtml = (actionMatch as RegExpMatchArray)[1];
+  assert.match(actionHtml, /<md-switch/);
+  assert.match(actionHtml, /要注意のみ表示/);
+  assert.match(actionHtml, /aria-label="注意報級以上の危険度と量的予想のみ表示"/);
+  // ラベルはスイッチの左(label for が先、md-switchが後)
+  const forMatch = actionHtml.match(/<label for="([^"]+)">要注意のみ表示<\/label>/);
+  assert.ok(forMatch, 'labelのfor属性が見つからない');
+  const labelIndex = actionHtml.indexOf('<label');
+  const switchIndex = actionHtml.indexOf('<md-switch');
+  assert.ok(labelIndex < switchIndex, 'ラベルはスイッチより左に置く');
+  assert.match(actionHtml, new RegExp(`<md-switch[^>]*id="${forMatch?.[1]}"`));
+});
+
+// AC-34: WarningTimeSeriesDetail自体には(移設後)絞り込みスイッチが含まれない(回帰防止)
+test('AC-34: WarningTimeSeriesDetailの出力にはmd-switchが含まれない(スイッチはDetailDialog側)', () => {
   const values: WarningTimeseriesValue[] = [riskValue('block1', 't0', '大雨浸水危険度', '30')];
   const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
   const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
-  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table }));
-  assert.match(html, /<md-switch/);
-  assert.match(html, /注意報級以上と量的予想のみ/);
-  assert.match(html, /aria-label="注意報級以上と量的予想のみ"/);
-  // labelがfor属性でスイッチのidに結び付いている
-  const forMatch = html.match(/<label for="([^"]+)">注意報級以上と量的予想のみ<\/label>/);
-  assert.ok(forMatch, 'labelのfor属性が見つからない');
-  assert.match(html, new RegExp(`<md-switch[^>]*id="${forMatch?.[1]}"`));
+  const html = renderToStaticMarkup(el(WarningTimeSeriesDetail, { data, table, narrowed: false }));
+  assert.doesNotMatch(html, /<md-switch/);
+  assert.doesNotMatch(html, /要注意のみ表示/);
 });
 
 test('Switchコンポーネントが型どおりに存在する', () => {
@@ -1407,7 +1446,7 @@ test('WarningTimeSeriesDetail を DetailDialogInner に載せてもSSRで描画�
         isTraining: false,
       },
       onClose: () => {},
-      children: el(WarningTimeSeriesDetail, { data, table }),
+      children: el(WarningTimeSeriesDetail, { data, table, narrowed: false }),
     }),
   );
   assert.match(html, /警報等時系列/);

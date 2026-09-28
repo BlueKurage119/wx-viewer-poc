@@ -67,6 +67,23 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+/* metaAction(オプトイン、§4.8)を予報区・発表時刻の行の右端に置く */
+.detail-dialog-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 0;
+}
+
+.detail-dialog-meta-row .detail-dialog-meta {
+  margin: 0;
+}
+
+.detail-dialog-meta-action {
+  flex: 0 0 auto;
+}
+
 .detail-dialog-body {
   flex: 0 1 auto;
   min-block-size: 0;

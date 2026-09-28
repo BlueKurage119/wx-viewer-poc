@@ -6,9 +6,7 @@
  * (2) 別欄: 基準以外のblockの量的予想をblockごとの表で示す(備考は置かない)。
  * 凡例は本文の先頭に置く(パネル本体には置かない)。
  */
-import { useState } from 'react';
 import type { WarningTimeseriesData } from '@wx-viewer-poc/shared';
-import { Switch } from '../../../components/md';
 import {
   DetailTimeSeriesTable,
   type TimeSeriesColumn,
@@ -38,6 +36,8 @@ import {
 export interface WarningTimeSeriesDetailProps {
   readonly data: WarningTimeseriesData;
   readonly table: RiskTable | null;
+  /** 絞り込みスイッチの状態(§4.8)。スイッチ自体はDetailDialogのmetaAction側に配線する。 */
+  readonly narrowed: boolean;
 }
 
 const REMARKS_COLUMN_KEY = 'remarks';
@@ -428,29 +428,13 @@ function WtsLegend() {
   );
 }
 
-const NARROW_SWITCH_LABEL = '注意報級以上と量的予想のみ';
-const NARROW_SWITCH_ID = 'wts-narrow-switch';
-
-export function WarningTimeSeriesDetail({ data, table }: WarningTimeSeriesDetailProps) {
-  // ダイアログを開くたびに全表示(false)になる。保存しない(§4.8)。
-  const [narrowed, setNarrowed] = useState(false);
+export function WarningTimeSeriesDetail({ data, table, narrowed }: WarningTimeSeriesDetailProps) {
   const separateTables = buildSeparateQuantityTables(data, table?.baseBlockId ?? null);
   const threeHour = table !== null ? buildThreeHourRows(data, table, narrowed) : null;
 
   return (
     <div className="wts-detail">
-      <div className="wts-legend-row">
-        <WtsLegend />
-        <div className="wts-narrow-switch">
-          <label htmlFor={NARROW_SWITCH_ID}>{NARROW_SWITCH_LABEL}</label>
-          <Switch
-            id={NARROW_SWITCH_ID}
-            selected={narrowed}
-            onChange={setNarrowed}
-            aria-label={NARROW_SWITCH_LABEL}
-          />
-        </div>
-      </div>
+      <WtsLegend />
       {table !== null && threeHour !== null && (
         <div className="wts-detail-3h">
           {threeHour.rows.length > 0 ? (

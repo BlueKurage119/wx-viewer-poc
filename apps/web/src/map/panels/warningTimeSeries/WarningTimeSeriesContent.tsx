@@ -6,9 +6,9 @@
  * セルの色・文字付与ロジックは model 側で確定済み。ここでは表示区分→クラス名/文字の
  * 対応付けだけを行う(製造裁量の内部関数分割)。
  */
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import type { WarningTimeseriesResponse } from '@wx-viewer-poc/shared';
-import { GbButton } from '../../../components/md';
+import { GbButton, Switch } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import { resolvePanelTarget } from '../panelTargets';
@@ -120,6 +120,33 @@ export function renderWindCellContent(cell: WindCell, columnTimePhrase: string):
   );
 }
 
+const NARROW_SWITCH_LABEL = '要注意のみ表示';
+const NARROW_SWITCH_ARIA_LABEL = '注意報級以上の危険度と量的予想のみ表示';
+const NARROW_SWITCH_ID = 'wts-narrow-switch';
+
+/**
+ * 絞り込みスイッチ+ラベル(§4.8)。`DetailDialog` の `metaAction` へ渡す(単体テスト用にexport)。
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function renderNarrowSwitchAction(
+  narrowed: boolean,
+  onChange: (value: boolean) => void,
+  ref: RefObject<HTMLElement | null>,
+): ReactNode {
+  return (
+    <div className="wts-narrow-switch">
+      <label htmlFor={NARROW_SWITCH_ID}>{NARROW_SWITCH_LABEL}</label>
+      <Switch
+        ref={ref}
+        id={NARROW_SWITCH_ID}
+        selected={narrowed}
+        onChange={onChange}
+        aria-label={NARROW_SWITCH_ARIA_LABEL}
+      />
+    </div>
+  );
+}
+
 export interface WarningTimeSeriesContentProps {
   readonly response: WarningTimeseriesResponse;
   readonly table: RiskTable | null;
@@ -127,6 +154,9 @@ export interface WarningTimeSeriesContentProps {
 
 export function WarningTimeSeriesContent({ response, table }: WarningTimeSeriesContentProps) {
   const [open, setOpen] = useState(false);
+  // ダイアログを開くたびに全表示(false)になる。保存しない(§4.8)。
+  const [narrowed, setNarrowed] = useState(false);
+  const switchRef = useRef<HTMLElement>(null);
   const scrollContainer = useDetailDialogScrollContainer();
   const data = response.data;
   const message = resolveWarningTimeSeriesPanelMessage(table);
@@ -162,7 +192,14 @@ export function WarningTimeSeriesContent({ response, table }: WarningTimeSeriesC
           </tbody>
         </table>
       )}
-      <GbButton color="text" size="sm" onClick={() => setOpen(true)}>
+      <GbButton
+        color="text"
+        size="sm"
+        onClick={() => {
+          setNarrowed(false);
+          setOpen(true);
+        }}
+      >
         詳細
       </GbButton>
       {data !== null && (
@@ -176,8 +213,10 @@ export function WarningTimeSeriesContent({ response, table }: WarningTimeSeriesC
           }}
           onClose={() => setOpen(false)}
           scrollContainer={scrollContainer}
+          initialFocusRef={switchRef}
+          metaAction={renderNarrowSwitchAction(narrowed, setNarrowed, switchRef)}
         >
-          <WarningTimeSeriesDetail data={data} table={table} />
+          <WarningTimeSeriesDetail data={data} table={table} narrowed={narrowed} />
         </DetailDialog>
       )}
     </div>
