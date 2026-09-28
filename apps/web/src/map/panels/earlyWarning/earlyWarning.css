@@ -66,3 +66,14 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+.ew-panel-table {
+  overflow-x: visible;
+}
+.ew-panel-table .ew-table {
+  min-inline-size: 0;
+  inline-size: 100%;
+}
+.ew-panel-table .ew-table th,
+.ew-panel-table .ew-table td {
+  white-space: normal;
+}

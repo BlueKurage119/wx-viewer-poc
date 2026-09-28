@@ -123,6 +123,30 @@ export function buildTable(
   }));
   return { columns, rows, rainJoined };
 }
+/** パネルは現在コマ（無ければ未来の先頭）から最大3コマだけ使う。 */
+export function selectPanelColumns(
+  columns: readonly WarningColumn[],
+  now: number,
+): readonly WarningColumn[] {
+  const current = columns.findIndex(
+    (column) => Date.parse(column.timeFrom) <= now && now < Date.parse(column.timeTo),
+  );
+  const firstFuture = columns.findIndex((column) => Date.parse(column.timeFrom) > now);
+  const start = current >= 0 ? current : firstFuture;
+  return start < 0 ? [] : columns.slice(start, start + 3);
+}
+
+export function buildPanelTable(response: EarlyWarningResponse, now: number): WarningTable {
+  const columns = selectPanelColumns(columnsFor(response, 'near'), now);
+  const table = buildTable(response, 'near', columns);
+  return {
+    ...table,
+    rows: table.rows.filter((row) =>
+      row.cells.some((cell) => cell === 'high' || cell === 'medium'),
+    ),
+  };
+}
+
 export function buildDetailTable(response: EarlyWarningResponse): WarningTable {
   const near = columnsFor(response, 'near');
   const occupied = new Set(near.map((column) => `${column.timeFrom}/${column.timeTo}`));

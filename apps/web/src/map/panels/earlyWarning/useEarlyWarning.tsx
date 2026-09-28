@@ -11,7 +11,7 @@ function time(response: EarlyWarningResponse, segment: 'near' | 'far'): IssuedTi
   const issued = response[segment].metadata.issuedAt;
   return issued === null ? { kind: 'unknown' } : { kind: 'issued', value: issued };
 }
-function card(response: EarlyWarningResponse): InfoPanelCardInput {
+function card(response: EarlyWarningResponse, now: number): InfoPanelCardInput {
   const issuedTimes: IssuedTimes = { near: time(response, 'near'), far: time(response, 'far') };
   const near = available(response, 'near');
   const far = available(response, 'far');
@@ -26,12 +26,12 @@ function card(response: EarlyWarningResponse): InfoPanelCardInput {
               response.far.metadata.availability === 'stale'
                 ? 'stale'
                 : 'available',
-            time: response.near.metadata.issuedAt ?? response.far.metadata.issuedAt ?? '',
+            time: response.near.metadata.issuedAt ?? '',
             timeKind: 'issued',
           }
         : { kind: 'failed' },
     issuedTimes,
-    content: <EarlyWarningContent response={response} issuedTimes={issuedTimes} />,
+    content: <EarlyWarningContent response={response} issuedTimes={issuedTimes} now={now} />,
   };
 }
 export function useEarlyWarning(params: {
@@ -49,7 +49,8 @@ export function useEarlyWarning(params: {
     enabled: true,
   });
   return useMemo(() => {
-    if (state.status === 'ready' || state.status === 'stale') return card(state.catalog);
+    if (state.status === 'ready' || state.status === 'stale')
+      return card(state.catalog, Date.now());
     const kind = state.status === 'failed' ? 'unavailable' : 'loading';
     return {
       key: 'earlyWarning',

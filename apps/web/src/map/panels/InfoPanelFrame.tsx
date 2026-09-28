@@ -8,7 +8,11 @@ import type { ReactNode, WheelEvent } from 'react';
 import type { InfoPanelDefinition, InfoPanelStatus } from './panelDefinitions';
 import { resolveInfoPanelDisplay } from './panelDisplayState';
 import { formatPanelTime } from './panelTime';
-import { formatIssuedTimes, type IssuedTimes } from './earlyWarning/issuedTimes';
+import {
+  formatIssuedTimes,
+  formatNearIssuedTime,
+  type IssuedTimes,
+} from './earlyWarning/issuedTimes';
 
 export interface InfoPanelFrameProps {
   readonly definition: InfoPanelDefinition;
@@ -41,7 +45,9 @@ export function InfoPanelFrame({
   const headingText = heading ?? definition.title;
   const timeText =
     issuedTimes !== undefined
-      ? formatIssuedTimes(issuedTimes)
+      ? definition.id === 'earlyWarning'
+        ? formatNearIssuedTime(issuedTimes.near)
+        : formatIssuedTimes(issuedTimes)
       : display.mode === 'content'
         ? formatPanelTime(display.time, display.timeKind)
         : undefined;

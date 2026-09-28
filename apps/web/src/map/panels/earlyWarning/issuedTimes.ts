@@ -13,6 +13,9 @@ function text(time: IssuedTime): string {
   if (time.kind !== 'issued') return '未取得';
   return formatPanelTime(time.value, 'issued');
 }
+export function formatNearIssuedTime(time: IssuedTime): string {
+  return `明後日まで: ${text(time)}`;
+}
 export function formatIssuedTimes(times: IssuedTimes): string {
   return `明後日まで: ${text(times.near)} · 明々後日以降: ${text(times.far)}`;
 }

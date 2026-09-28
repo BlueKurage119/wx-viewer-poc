@@ -5,8 +5,7 @@ import { DetailDialog } from '../../detail/DetailDialog';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import {
   buildDetailTable,
-  buildTable,
-  type Segment,
+  buildPanelTable,
   type WarningCellKind,
   type WarningTable,
 } from './earlyWarningModel';
@@ -39,18 +38,25 @@ function WarningTableView({
   table,
   title,
   detail = false,
+  emptyMessage = '発表された値はありません',
 }: {
   readonly table: WarningTable;
   readonly title: string;
   readonly detail?: boolean;
+  readonly emptyMessage?: string;
 }) {
   if (table.columns.length === 0 || table.rows.length === 0)
-    return <p className="ew-message">発表された値はありません</p>;
+    return <p className="ew-message">{emptyMessage}</p>;
   const rainIndex = table.rows.findIndex((row) => row.key === '大雨');
   const soilIndex = table.rows.findIndex((row) => row.key === '土砂災害');
   const joined = table.rainJoined && rainIndex >= 0 && soilIndex === rainIndex + 1;
   return (
-    <div className="ew-scroll" role="region" aria-label={title} tabIndex={0}>
+    <div
+      className={detail ? 'ew-scroll' : 'ew-scroll ew-panel-table'}
+      role="region"
+      aria-label={title}
+      tabIndex={0}
+    >
       <table className="ew-table">
         <caption className="ew-visually-hidden">{title}</caption>
         <thead>
@@ -85,39 +91,36 @@ function WarningTableView({
     </div>
   );
 }
-function SegmentTable({
+export function NearPanel({
   response,
-  segment,
+  now,
 }: {
   readonly response: EarlyWarningResponse;
-  readonly segment: Segment;
+  readonly now: number;
 }) {
-  const title = segment === 'near' ? '明後日まで' : '明々後日以降';
-  const entry = response[segment];
-  return (
-    <section className="ew-section">
-      <h3>{title}</h3>
-      {entry.data === null || entry.metadata.availability === 'unavailable' ? (
-        <p className="ew-message">取得できませんでした</p>
-      ) : (
-        <WarningTableView table={buildTable(response, segment)} title={title} />
-      )}
-    </section>
-  );
+  const entry = response.near;
+  if (entry.data === null || entry.metadata.availability === 'unavailable') {
+    return <p className="ew-message">取得できませんでした</p>;
+  }
+  const table = buildPanelTable(response, now);
+  const emptyMessage =
+    table.columns.length === 0 ? '表示できる時間帯はありません' : '警報級の可能性はありません';
+  return <WarningTableView table={table} title="明後日まで" emptyMessage={emptyMessage} />;
 }
 export function EarlyWarningContent({
   response,
   issuedTimes,
+  now,
 }: {
   readonly response: EarlyWarningResponse;
   readonly issuedTimes: IssuedTimes;
+  readonly now: number;
 }) {
   const [open, setOpen] = useState(false);
   const scrollContainer = useDetailDialogScrollContainer();
   return (
     <div className="ew-panel">
-      <SegmentTable response={response} segment="near" />
-      <SegmentTable response={response} segment="far" />
+      <NearPanel response={response} now={now} />
       <GbButton color="text" size="sm" onClick={() => setOpen(true)}>
         詳細
       </GbButton>
