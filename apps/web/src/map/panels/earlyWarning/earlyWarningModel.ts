@@ -45,7 +45,8 @@ function label(from: string, to: string): string {
   const b = new Date(Date.parse(to) + 9 * 3600000);
   const date = `${a.getUTCMonth() + 1}/${a.getUTCDate()}`;
   if (Date.parse(to) - Date.parse(from) >= DAY) return date;
-  return `${date} ${a.getUTCHours()}-${b.getUTCHours()}`;
+  const endHour = jstDay(to) > jstDay(from) && b.getUTCHours() === 0 ? 24 : b.getUTCHours();
+  return `${date} ${a.getUTCHours()}-${endHour}`;
 }
 function dataset(
   response: EarlyWarningResponse,

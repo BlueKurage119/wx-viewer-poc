@@ -60,10 +60,12 @@ function WarningTableView({
         <caption className="ew-visually-hidden">{title}</caption>
         <thead>
           <tr>
-            <th scope="col">現象</th>
+            <th scope="col" aria-label="現象" />
             {table.columns.map((column) => (
               <th scope="col" key={column.key}>
-                {column.label}
+                {column.label.includes(' ')
+                  ? column.label.split(' ').slice(1).join(' ')
+                  : column.label}
               </th>
             ))}
           </tr>
@@ -183,7 +185,7 @@ export function EarlyWarningContent({
           <div className="wts-legend">
             <span className="wts-legend-item">{cellContent('high', '凡例')} 高</span>
             <span className="wts-legend-item">{cellContent('medium', '凡例')} 中</span>
-            <span className="wts-legend-item">{cellContent('none', '凡例')} 高・中の表示なし</span>
+            <span className="wts-legend-item">{cellContent('none', '凡例')} なし</span>
             <span className="wts-legend-item">{cellContent('missing', '凡例')} 欠測・未取得</span>
           </div>
           <EarlyWarningDetail table={buildDetailTable(response)} now={now} />

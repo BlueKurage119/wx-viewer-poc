@@ -44,7 +44,7 @@ export function InfoPanelFrame({
 
   const headingText = heading ?? definition.title;
   const timeText =
-    issuedTimes !== undefined
+    issuedTimes !== undefined && display.mode !== 'skeleton'
       ? definition.id === 'earlyWarning'
         ? formatNearIssuedTime(issuedTimes.near)
         : formatIssuedTimes(issuedTimes)

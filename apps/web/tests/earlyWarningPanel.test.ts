@@ -361,6 +361,18 @@ test('遠距離だけ取得できてもパネルは近距離の未取得を示�
   assert.match(formatIssuedTimes(issuedTimes), /明々後日以降:/);
 });
 
+test('初回取得中は警報級カードのヘッダーに取得中を表示しない', () => {
+  const html = renderToStaticMarkup(
+    createElement(InfoPanelFrame, {
+      definition: { id: 'earlyWarning', title: '警報級の可能性', presence: 'always' },
+      status: { kind: 'loading' },
+      issuedTimes: { near: { kind: 'loading' }, far: { kind: 'loading' } },
+    }),
+  );
+  assert.doesNotMatch(html, /明後日まで: 取得中/);
+  assert.match(html, /info-panel-card-skeleton/);
+});
+
 test('詳細は共通二段見出しで近距離・遠距離を表示し、雨の列だけ縦結合する', () => {
   const near = segment(
     'near',
@@ -415,22 +427,36 @@ test('区間見出しは時なし、なし・値なしは同じ表示で欠測�
   );
   assert.deepEqual(
     columnsFor(data, 'near').map((column) => column.label),
-    ['9/28 12-18', '9/28 18-0', '9/29 0-6', '9/29 6-12'],
+    ['9/28 12-18', '9/28 18-24', '9/29 0-6', '9/29 6-12'],
   );
+  const noonToMidnight = response(
+    segment(
+      'near',
+      '2026-09-28T00:00:00Z',
+      [['m', '2026-09-28T03:00:00Z', '2026-09-28T15:00:00Z']],
+      [rain('m', '大雨の警報級の可能性', '高')],
+    ),
+    segment('far', null, [], []),
+  );
+  assert.equal(columnsFor(noonToMidnight, 'near')[0]?.label, '9/28 12-24');
   const panel = renderToStaticMarkup(
     createElement(NearPanel, { response: data, now: Date.parse('2026-09-28T04:00:00Z') }),
   );
+  assert.match(panel, /<th scope="col" aria-label="現象"><\/th>/);
+  assert.match(panel, /<th scope="col">12-18<\/th>/);
+  assert.match(panel, /<th scope="col">18-24<\/th>/);
+  assert.doesNotMatch(panel, /<th scope="col">9\/28/);
   assert.match(
     panel,
     /class="ew-cell ew-cell-quiet" aria-label="大雨、9\/28 12-18、高・中の表示なし"><\/span>/,
   );
   assert.match(
     panel,
-    /class="ew-cell ew-cell-quiet" aria-label="大雨、9\/28 18-0、高・中の表示なし"><\/span>/,
+    /class="ew-cell ew-cell-quiet" aria-label="大雨、9\/28 18-24、高・中の表示なし"><\/span>/,
   );
   assert.match(
     panel,
-    /class="wts-cell wts-cell-missing" aria-label="大雪、9\/28 18-0、欠測">\?<\/span>/,
+    /class="wts-cell wts-cell-missing" aria-label="大雪、9\/28 18-24、欠測">\?<\/span>/,
   );
   assert.doesNotMatch(panel, /12-18時|18-0時/);
   const detail = renderToStaticMarkup(
@@ -442,7 +468,7 @@ test('区間見出しは時なし、なし・値なしは同じ表示で欠測�
   assert.match(detail, /9\/28\(月\)/);
   assert.match(detail, />12-18<\/th>/);
   assert.doesNotMatch(detail, />12-18時<\/th>/);
-  assert.match(detail, /aria-label="大雪、9\/28 18-0、欠測"/);
+  assert.match(detail, /aria-label="大雪、9\/28 18-24、欠測"/);
   assert.match(detail, /aria-label="土砂災害、9\/28 12-18、対象外"><\/span>/);
   assert.doesNotMatch(detail, /<th scope="row">波浪<\/th>/);
   const css = readFileSync(
@@ -451,6 +477,8 @@ test('区間見出しは時なし、なし・値なしは同じ表示で欠測�
   );
   assert.match(css, /\.ew-cell\s*\{[^}]*inline-size:\s*3rem;/);
   assert.match(css, /\.ew-cell-quiet\s*\{[^}]*background:\s*var\(--md-sys-color-scrim\);/);
+  assert.match(css, /\.ew-detail \.detail-ts-table td\s*\{[^}]*padding-inline:\s*0\.5rem;/);
+  assert.match(css, /\.ew-cell\s*\{[^}]*vertical-align:\s*middle;/);
   assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/);
 });
 
@@ -460,7 +488,7 @@ test('開発フィクスチャはJSTの日界をまたぐ現在3コマとD+3以�
   assert.deepEqual(
     columnsFor(response, 'near').map((column) => [column.timeId, column.label]),
     [
-      ['near-1', '9/28 18-0'],
+      ['near-1', '9/28 18-24'],
       ['near-2', '9/29 0-6'],
       ['near-3', '9/29 6-12'],
     ],
@@ -501,7 +529,7 @@ test('開発フィクスチャはJSTの日界をまたぐ現在3コマとD+3以�
   assert.equal(content.props.now, now);
   const html = renderToStaticMarkup(createElement(EarlyWarningDetail, { table: detail, now }));
   assert.equal((html.match(/rowSpan="2"/g) ?? []).length, 3);
-  assert.match(html, /aria-label="波浪、9\/28 18-0、対象外"/);
+  assert.match(html, /aria-label="波浪、9\/28 18-24、対象外"/);
   assert.doesNotMatch(html, /<th scope="row">高潮<\/th>/);
 });
 

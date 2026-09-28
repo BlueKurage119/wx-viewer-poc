@@ -16,6 +16,7 @@
   padding: 4px 6px;
   border-block-end: 1px solid var(--md-sys-color-outline-variant);
   text-align: center;
+  vertical-align: middle;
 }
 .ew-table th[scope='row'] {
   position: sticky;
@@ -29,9 +30,10 @@
   display: inline-flex;
   inline-size: 3rem;
   box-sizing: border-box;
-  min-block-size: 1.5rem;
+  block-size: 1.75rem;
   justify-content: center;
   align-items: center;
+  vertical-align: middle;
   border-radius: 3px;
 }
 .ew-cell-high {
@@ -44,6 +46,19 @@
 }
 .ew-cell-quiet {
   background: var(--md-sys-color-scrim);
+}
+.ew-panel .wts-cell-missing,
+.ew-detail .wts-cell-missing {
+  vertical-align: middle;
+}
+.ew-detail .detail-ts-table td {
+  padding-inline: 0.5rem;
+  text-align: center;
+  vertical-align: middle;
+}
+.ew-detail .detail-ts-table td .ew-cell,
+.ew-detail .detail-ts-table td .wts-cell-missing {
+  vertical-align: middle;
 }
 .ew-message {
   margin: 4px 0 8px;
