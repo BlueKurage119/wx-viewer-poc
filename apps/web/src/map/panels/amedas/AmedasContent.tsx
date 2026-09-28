@@ -11,6 +11,8 @@ import {
   AMEDAS_FIELDS,
   AMEDAS_TABLE_FIELDS,
   hourlyPrecipitationRows,
+  amedasPlotRange,
+  amedasTimeTicks,
   amedasDisplayValue,
   nextAmedasWindowCount,
   visibleAmedasRows,
@@ -33,10 +35,10 @@ function Plot({
   now: number;
 }) {
   const field = AMEDAS_FIELDS.find((item) => item.key === keyName)!;
-  if (response.capabilities.unsupportedElements.includes(keyName))
-    return <p>{field.label}：非提供</p>;
-  const plotRows =
-    keyName === 'precipitation1h'
+  const unsupported = response.capabilities.unsupportedElements.includes(keyName);
+  const plotRows = unsupported
+    ? []
+    : keyName === 'precipitation1h'
       ? hourlyPrecipitationRows(rows, new Date(now).toISOString())
       : rows;
   const samples = plotRows.map((row) => ({
@@ -47,12 +49,16 @@ function Plot({
     (sample): sample is { at: number; value: number } =>
       typeof sample.value === 'number' && Number.isFinite(sample.value),
   );
-  if (finite.length === 0) return <p>{field.label}：観測値なし（欠測または未取得）</p>;
+  const emptyMessage = unsupported ? '非提供' : '観測値なし（欠測または未取得）';
   const start = now - 24 * 60 * 60 * 1000;
-  const low = Math.min(0, ...finite.map((sample) => sample.value));
-  const high = Math.max(...finite.map((sample) => sample.value), low + 1);
+  const range = amedasPlotRange(
+    finite.map((sample) => sample.value),
+    keyName === 'temp',
+  );
+  const ticks = amedasTimeTicks(now);
   const x = (at: number) => 32 + ((at - start) / (now - start)) * 560;
-  const y = (value: number) => 148 - ((value - low) / (high - low)) * 116;
+  const y = (value: number) =>
+    range ? 148 - ((value - range.low) / (range.high - range.low)) * 116 : 148;
   const paths: string[] = [];
   let path = '';
   for (const sample of samples) {
@@ -69,32 +75,47 @@ function Plot({
       <h3>
         {field.label}（{field.unit}）
       </h3>
+      {finite.length === 0 && <p>{emptyMessage}</p>}
       <div className="amedas-plot-scroll">
         <svg
           viewBox="0 0 620 190"
           role="img"
-          aria-label={`${field.label}の直近24時間。詳しい値は下の観測表を参照`}
+          aria-label={`${field.label}の直近24時間、${ticks.map((tick) => tick.label).join('、')}。${keyName === 'precipitation1h' ? '各棒は観測時刻直前1時間の積算値。' : ''}${finite.length === 0 ? emptyMessage : '観測値：'}${finite.map((sample) => `${formatAmedasTime(new Date(sample.at).toISOString())} ${sample.value} ${field.unit}`).join('、')}`}
+          tabIndex={0}
         >
           <line x1="32" y1="148" x2="592" y2="148" className="amedas-axis" />
-          <text x="32" y="174">
-            24時間前
-          </text>
-          <text x="552" y="174">
-            最終観測
-          </text>
-          <text x="0" y="25">
-            {high}
-          </text>
-          <text x="0" y="150">
-            {low}
-          </text>
+          {ticks.map((tick, index) => {
+            const tickX = x(tick.at);
+            return (
+              <g key={tick.at}>
+                <line x1={tickX} y1="148" x2={tickX} y2="154" className="amedas-axis" />
+                <text
+                  x={tickX}
+                  y="178"
+                  textAnchor={index === 0 ? 'start' : index === 4 ? 'end' : 'middle'}
+                >
+                  {tick.label}
+                </text>
+              </g>
+            );
+          })}
+          {range && (
+            <>
+              <text x="0" y="25">
+                {Number(range.high.toFixed(1))}
+              </text>
+              <text x="0" y="150">
+                {Number(range.low.toFixed(1))}
+              </text>
+            </>
+          )}
           {keyName === 'precipitation1h'
             ? finite.map((sample) => (
                 <rect
                   key={sample.at}
-                  x={x(sample.at) - 3}
+                  x={x(sample.at) - 8}
                   y={y(sample.value)}
-                  width="6"
+                  width="16"
                   height={148 - y(sample.value)}
                   className="amedas-graph-mark"
                 />
@@ -139,15 +160,11 @@ function Detail({
           {staleMessage}
         </p>
       )}
-      <p className="amedas-time-summary">
-        <span>
-          直近24時間 {formatAmedasTime(new Date(start).toISOString())}〜
-          {formatAmedasTime(new Date(now).toISOString())}
-        </span>
-        {startMissing && (
-          <span> · 開始側 未取得{earliest ? `〜${formatAmedasTime(earliest)}` : ' 全期間'}</span>
-        )}
-      </p>
+      {startMissing && (
+        <p className="amedas-time-summary">
+          開始側 未取得{earliest ? `〜${formatAmedasTime(earliest)}` : ' 全期間'}
+        </p>
+      )}
       {rows.length === 0 ? (
         <p>この期間の観測値は取得できません</p>
       ) : (
@@ -157,7 +174,6 @@ function Detail({
               <Plot key={key} response={response} rows={rows} keyName={key} now={now} />
             ))}
           </div>
-          <p className="amedas-rain-note">時雨量の各棒は観測時刻直前1時間の積算値</p>
           <div
             className="amedas-table-scroll"
             role="region"

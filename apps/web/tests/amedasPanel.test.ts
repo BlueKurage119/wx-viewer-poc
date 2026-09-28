@@ -6,6 +6,8 @@ import {
   AMEDAS_FIELDS,
   AMEDAS_TABLE_FIELDS,
   hourlyPrecipitationRows,
+  amedasPlotRange,
+  amedasTimeTicks,
   amedasDisplayValue,
   amedasValue,
   nextAmedasWindowCount,
@@ -184,4 +186,35 @@ test('時雨量の棒候補は最終観測時刻の分と一致する毎時行�
     ).length,
     rows.length,
   );
+});
+
+test('24時間前の左端時刻は時雨量の棒に含めず、最大24本にする', () => {
+  const latest = '2026-09-28T13:50:00.000Z';
+  const end = Date.parse(latest);
+  const rows = Array.from({ length: 25 }, (_, index) => ({
+    observedAt: new Date(end - (24 - index) * 60 * 60 * 1000).toISOString(),
+    values: { precipitation1h: index },
+  }));
+  const selected = hourlyPrecipitationRows(rows, latest);
+  assert.equal(selected.length, 24);
+  assert.equal(selected[0]?.observedAt, rows[1]?.observedAt);
+  assert.equal(selected[23]?.observedAt, latest);
+});
+
+test('気温の動的縦軸と日付をまたぐ6時間目盛り', () => {
+  const negative = amedasPlotRange([-4, -3, -2], true)!;
+  assert.ok(negative.low < -4 && negative.high > -2);
+  assert.ok(negative.high < 0);
+  const steady = amedasPlotRange([12, 12], true)!;
+  assert.ok(steady.low < 12 && steady.high > 12);
+  const single = amedasPlotRange([7], true)!;
+  assert.ok(single.low < 7 && single.high > 7);
+  assert.equal(amedasPlotRange([NaN], true), null);
+  const ticks = amedasTimeTicks(Date.parse('2026-09-28T13:50:00.000Z'));
+  assert.equal(ticks.length, 5);
+  assert.deepEqual(
+    ticks.slice(1).map((tick, index) => tick.at - ticks[index]!.at),
+    Array(4).fill(6 * 60 * 60 * 1000),
+  );
+  assert.notEqual(ticks[0]!.label, ticks[4]!.label);
 });

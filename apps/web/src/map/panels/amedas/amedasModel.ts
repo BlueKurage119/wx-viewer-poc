@@ -134,6 +134,34 @@ export function hourlyPrecipitationRows(
   const hour = 60 * 60 * 1000;
   return rows.filter((row) => {
     const time = Date.parse(row.observedAt);
-    return Number.isFinite(time) && time <= latest && (latest - time) % hour === 0;
+    return (
+      Number.isFinite(time) &&
+      time <= latest &&
+      latest - time < 24 * hour &&
+      (latest - time) % hour === 0
+    );
   });
+}
+
+export function amedasTimeTicks(latest: number): readonly { at: number; label: string }[] {
+  return [24, 18, 12, 6, 0].map((hoursAgo) => {
+    const at = latest - hoursAgo * 60 * 60 * 1000;
+    return { at, label: formatAmedasTime(new Date(at).toISOString()) };
+  });
+}
+
+/** 気温だけは0℃を固定下限とせず、実測値の変化幅を優先する。 */
+export function amedasPlotRange(
+  values: readonly number[],
+  temperature: boolean,
+): { low: number; high: number } | null {
+  const finite = values.filter(Number.isFinite);
+  if (finite.length === 0) return null;
+  const minimum = Math.min(...finite);
+  const maximum = Math.max(...finite);
+  if (temperature) {
+    const padding = Math.max((maximum - minimum) * 0.15, 0.5);
+    return { low: minimum - padding, high: maximum + padding };
+  }
+  return { low: Math.min(0, minimum), high: Math.max(maximum, 1) };
 }
