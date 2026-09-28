@@ -27,7 +27,8 @@
 }
 .ew-cell {
   display: inline-flex;
-  min-inline-size: 2rem;
+  inline-size: 3rem;
+  box-sizing: border-box;
   min-block-size: 1.5rem;
   justify-content: center;
   align-items: center;
@@ -41,8 +42,10 @@
   background: var(--wx-alert-level-2-container);
   color: var(--wx-alert-level-2-on-container);
 }
-.ew-cell-missing {
-  border: 1px dashed var(--md-sys-color-outline);
+.ew-cell-none,
+.ew-cell-noValue {
+  background: var(--md-sys-color-scrim);
+  color: var(--wx-jma-hue-white);
 }
 .ew-message {
   margin: 4px 0 8px;

@@ -30,8 +30,10 @@ const CONTENT: Readonly<Record<WarningCellKind, string>> = {
   outOfRange: '',
 };
 function cellContent(kind: WarningCellKind, label: string) {
+  if (kind === 'outOfRange') return <span aria-label={`${label}、対象外`} />;
+  const className = kind === 'missing' ? 'wts-cell wts-cell-missing' : `ew-cell ew-cell-${kind}`;
   return (
-    <span className={`ew-cell ew-cell-${kind}`} aria-label={`${label}、${DESCRIPTION[kind]}`}>
+    <span className={className} aria-label={`${label}、${DESCRIPTION[kind]}`}>
       {CONTENT[kind]}
     </span>
   );
@@ -176,9 +178,9 @@ export function EarlyWarningContent({
           <div className="wts-legend">
             <span className="wts-legend-item">{cellContent('high', '凡例')} 高</span>
             <span className="wts-legend-item">{cellContent('medium', '凡例')} 中</span>
-            <span className="wts-legend-item">－（なし）</span>
-            <span className="wts-legend-item">空白（値なし）</span>
-            <span className="wts-legend-item">?（欠測）</span>
+            <span className="wts-legend-item">{cellContent('none', '凡例')} なし</span>
+            <span className="wts-legend-item">{cellContent('noValue', '凡例')} 値なし</span>
+            <span className="wts-legend-item">{cellContent('missing', '凡例')} 欠測・未取得</span>
           </div>
           <EarlyWarningDetail table={buildDetailTable(response)} now={now} />
         </div>

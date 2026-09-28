@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { EarlyWarningResponse, EarlyWarningData, WeatherDataset } from '@wx-viewer-poc/shared';
@@ -386,4 +387,64 @@ test('詳細は共通二段見出しで近距離・遠距離を表示し、雨�
   assert.match(html, /detail-ts-date-boundary/);
   assert.match(html, /role="region" aria-label="警報級の可能性の全期間"/);
   assert.doesNotMatch(html, /class="ew-table"/);
+});
+
+test('区間見出しは時なし、なし・値なし・欠測・項目不在はDOMと色で区別する', () => {
+  const dates = [
+    ['a', '2026-09-28T03:00:00Z', '2026-09-28T09:00:00Z'],
+    ['b', '2026-09-28T09:00:00Z', '2026-09-28T15:00:00Z'],
+    ['c', '2026-09-28T15:00:00Z', '2026-09-28T21:00:00Z'],
+    ['d', '2026-09-28T21:00:00Z', '2026-09-29T03:00:00Z'],
+  ] as const;
+  const data = response(
+    segment('near', '2026-09-28T00:00:00Z', dates, [
+      rain('a', '大雨の警報級の可能性', 'なし'),
+      rain('b', '大雨の警報級の可能性', null, '値なし'),
+      rain('c', '大雨の警報級の可能性', '高'),
+      rain('a', '雪の警報級の可能性', '中'),
+    ]),
+    segment('far', '2026-09-28T00:00:00Z', [farNew], [rain('2', '雨の警報級の可能性', '高')]),
+  );
+  assert.deepEqual(
+    columnsFor(data, 'near').map((column) => column.label),
+    ['9/28 12-18', '9/28 18-0', '9/29 0-6', '9/29 6-12'],
+  );
+  const panel = renderToStaticMarkup(
+    createElement(NearPanel, { response: data, now: Date.parse('2026-09-28T04:00:00Z') }),
+  );
+  assert.match(
+    panel,
+    /class="ew-cell ew-cell-none" aria-label="大雨、9\/28 12-18、なし">－<\/span>/,
+  );
+  assert.match(
+    panel,
+    /class="ew-cell ew-cell-noValue" aria-label="大雨、9\/28 18-0、値なし"><\/span>/,
+  );
+  assert.match(
+    panel,
+    /class="wts-cell wts-cell-missing" aria-label="大雪、9\/28 18-0、欠測">\?<\/span>/,
+  );
+  assert.doesNotMatch(panel, /12-18時|18-0時/);
+  const detail = renderToStaticMarkup(
+    createElement(EarlyWarningDetail, {
+      table: buildDetailTable(data),
+      now: Date.parse('2026-09-28T04:00:00Z'),
+    }),
+  );
+  assert.match(detail, /9\/28\(月\)/);
+  assert.match(detail, />12-18<\/th>/);
+  assert.doesNotMatch(detail, />12-18時<\/th>/);
+  assert.match(detail, /aria-label="大雪、9\/28 18-0、欠測"/);
+  assert.match(detail, /aria-label="土砂災害、9\/28 12-18、対象外"><\/span>/);
+  assert.doesNotMatch(detail, /<th scope="row">波浪<\/th>/);
+  const css = readFileSync(
+    new URL('../src/map/panels/earlyWarning/earlyWarning.css', import.meta.url),
+    'utf8',
+  );
+  assert.match(css, /\.ew-cell\s*\{[^}]*inline-size:\s*3rem;/);
+  assert.match(
+    css,
+    /\.ew-cell-none,\s*\.ew-cell-noValue\s*\{[^}]*background:\s*var\(--md-sys-color-scrim\);[^}]*color:\s*var\(--wx-jma-hue-white\);/,
+  );
+  assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/);
 });
