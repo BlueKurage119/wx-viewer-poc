@@ -141,3 +141,41 @@ test('値なし、なし、欠測、対象外を区別し、未知現象も保�
     '明後日まで: 発表時刻不明 · 明々後日以降: 未取得',
   );
 });
+
+test('雪の「なし」は値として残し、Kind不在は行を省き、既存Kindの参照欠落だけ欠測にする', () => {
+  const first: [string, string, string] = [
+    'snow-1',
+    '2026-09-28T15:00:00Z',
+    '2026-09-29T15:00:00Z',
+  ];
+  const second: [string, string, string] = [
+    'snow-2',
+    '2026-09-29T15:00:00Z',
+    '2026-09-30T15:00:00Z',
+  ];
+  const data = response(
+    segment(
+      'near',
+      '2026-09-28T00:00:00Z',
+      [first, second],
+      [
+        rain('snow-1', '雪の警報級の可能性', 'なし'),
+        rain('snow-2', '雪の警報級の可能性', '中'),
+        rain('snow-1', '大雨の警報級の可能性', '高'),
+      ],
+    ),
+    segment('far', '2026-09-28T00:00:00Z', [], []),
+  );
+  const rows = buildTable(data, 'near').rows;
+  assert.deepEqual(
+    rows.map((row) => [row.label, ...row.cells]),
+    [
+      ['大雨', 'high', 'missing'],
+      ['大雪', 'none', 'medium'],
+    ],
+  );
+  assert.deepEqual(
+    buildDetailTable(data).rows.map((row) => row.label),
+    ['大雨', '大雪'],
+  );
+});
