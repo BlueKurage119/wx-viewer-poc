@@ -144,3 +144,85 @@ test('DetailTimeSeriesTable: stickyHeader指定時はcolgroupが見出し・本�
   assert.match(scrollTableMatch?.[1] ?? '', /<tbody>/);
   assert.doesNotMatch(scrollTableMatch?.[1] ?? '', /<thead>/);
 });
+
+// AC-24拡張: bodyDateBoundariesを指定しない場合、tbodyには detail-ts-date-boundary が無い(既存と同じ)。
+test('DetailTimeSeriesTable: bodyDateBoundaries省略時はtbodyにdetail-ts-date-boundaryが無い', () => {
+  const html = renderToStaticMarkup(
+    el(DetailTimeSeriesTable, { caption: 'サンプル', columns, rows }),
+  );
+  const tbodyHtml = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>'));
+  assert.doesNotMatch(tbodyHtml, /detail-ts-date-boundary/);
+});
+
+// AC-31: bodyDateBoundaries=true で、境界列(先頭列を除く)のtdだけにdetail-ts-date-boundaryが付く。
+test('DetailTimeSeriesTable: bodyDateBoundaries=trueで境界列(先頭列を除く)のtdに縦線クラスが付く', () => {
+  const html = renderToStaticMarkup(
+    el(DetailTimeSeriesTable, { caption: 'サンプル', columns, rows, bodyDateBoundaries: true }),
+  );
+  const tbodyHtml = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>'));
+  const tds = [...tbodyHtml.matchAll(/<td[^>]*>/g)].map((m) => m[0]);
+  assert.equal(tds.length, 3);
+  // c0(先頭列、境界だが除外)・c1(境界でない)には付かず、c2(境界)にだけ付く
+  assert.doesNotMatch(tds[0] ?? '', /detail-ts-date-boundary/);
+  assert.doesNotMatch(tds[1] ?? '', /detail-ts-date-boundary/);
+  assert.match(tds[2] ?? '', /detail-ts-date-boundary/);
+  // 行見出し・角セルには付かない
+  assert.doesNotMatch(tbodyHtml.match(/<th[^>]*>/)?.[0] ?? '', /detail-ts-date-boundary/);
+});
+
+// AC-31: stickyHeader併用時も本文の表(tbody)で同じ挙動になる。
+test('DetailTimeSeriesTable: stickyHeader併用時もbodyDateBoundariesが本文のtdに付く', () => {
+  const html = renderToStaticMarkup(
+    el(DetailTimeSeriesTable, {
+      caption: 'サンプル',
+      columns,
+      rows,
+      stickyHeader: true,
+      bodyDateBoundaries: true,
+    }),
+  );
+  const scrollTableMatch = html.match(
+    /<div class="detail-ts-scroll"[^>]*>([\s\S]*?)<\/div>\s*<\/div>$/,
+  );
+  assert.ok(scrollTableMatch);
+  const bodyHtml = scrollTableMatch?.[1] ?? '';
+  const tds = [...bodyHtml.matchAll(/<td[^>]*>/g)].map((m) => m[0]);
+  assert.equal(tds.length, 3);
+  assert.doesNotMatch(tds[0] ?? '', /detail-ts-date-boundary/);
+  assert.doesNotMatch(tds[1] ?? '', /detail-ts-date-boundary/);
+  assert.match(tds[2] ?? '', /detail-ts-date-boundary/);
+});
+
+// AC-31: colSpanのあるセル(区間結合)でも、そのセルが覆う列範囲の先頭が境界列のときだけ付く。
+test('DetailTimeSeriesTable: colSpanセルは覆う範囲の先頭列が境界のときだけ縦線が付く', () => {
+  const spanColumns: readonly TimeSeriesColumn[] = [
+    { key: 's0', at: '2026-09-24T00:00:00+09:00', timeLabel: '0時' },
+    { key: 's1', at: '2026-09-24T03:00:00+09:00', timeLabel: '3時' },
+    { key: 's2', at: '2026-09-25T00:00:00+09:00', timeLabel: '0時' },
+    { key: 's3', at: '2026-09-25T03:00:00+09:00', timeLabel: '3時' },
+  ];
+  // 1つ目のセルがs0-s1(境界なし)、2つ目がs2-s3(先頭s2が境界)をcolSpan=2で覆う
+  const spanRows: readonly TimeSeriesRow[] = [
+    {
+      key: 'row1',
+      header: '天気',
+      cells: [
+        { key: 'a', span: 2, content: '晴れ' },
+        { key: 'b', span: 2, content: 'くもり' },
+      ],
+    },
+  ];
+  const html = renderToStaticMarkup(
+    el(DetailTimeSeriesTable, {
+      caption: 'サンプル',
+      columns: spanColumns,
+      rows: spanRows,
+      bodyDateBoundaries: true,
+    }),
+  );
+  const tbodyHtml = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>'));
+  const tds = [...tbodyHtml.matchAll(/<td[^>]*>/g)].map((m) => m[0]);
+  assert.equal(tds.length, 2);
+  assert.doesNotMatch(tds[0] ?? '', /detail-ts-date-boundary/); // s0(先頭)-s1: 境界なし
+  assert.match(tds[1] ?? '', /detail-ts-date-boundary/); // s2(境界)-s3
+});

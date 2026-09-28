@@ -19,6 +19,7 @@ import {
   buildWindRowLabel,
   buildWindRows,
   formatIntervalHeader,
+  isLevelUpDisplay,
   type DetailCell,
   type RiskCell,
   type RiskTable,
@@ -80,6 +81,35 @@ interface ThreeHourEntry {
   readonly riskCells?: readonly RiskCell[];
   readonly quantityCells?: readonly DetailCell[];
   readonly windCells?: WindRowEntry['cells'];
+  /** wind種別のときだけ設定する。絞り込みで直上の風危険度行が消えた場合の見出し再計算に使う(§4.8)。 */
+  readonly windAreaDivision?: string | null;
+  readonly windUnit?: string | null;
+}
+
+/**
+ * 統合行の見出しを、直上のエントリが同じ区分の風危険度行かどうかで決め直す(§2.1-30・§4.8)。
+ * 絞り込みで直上の危険度行が消えた場合は区分名を付ける。全表示・絞り込みの両方で呼ぶ。
+ */
+function applyWindLabels(entries: readonly ThreeHourEntry[]): readonly ThreeHourEntry[] {
+  return entries.map((entry, index) => {
+    if (entry.kind !== 'wind') {
+      return entry;
+    }
+    const previous = entries[index - 1];
+    const matchedAbove =
+      previous !== undefined &&
+      previous.kind === 'risk' &&
+      parseRowSubject(previous.key).propertyType === '風危険度' &&
+      parseRowSubject(previous.key).areaDivision === (entry.windAreaDivision ?? null);
+    return {
+      ...entry,
+      label: buildWindRowLabel(
+        entry.windAreaDivision ?? null,
+        entry.windUnit ?? null,
+        !matchedAbove,
+      ),
+    };
+  });
 }
 
 /** 雨に関わる危険度(大雨浸水・土砂災害・洪水)の行の直後に、雨の量的予想の行を置く(§4.6.1)。 */
@@ -93,9 +123,11 @@ const RAIN_ANCHOR_PROPERTY_TYPES = new Set(['大雨浸水危険度', '土砂災�
  * 対応する危険度行が無い統合行は、風の値の初出位置に置く(groupKey='風')。
  * 雨の量的予想の行は、雨に関わる危険度の行のまとまりの直後に置く(§4.6.1)。
  */
-function buildThreeHourRows(
+// eslint-disable-next-line react-refresh/only-export-components
+export function buildThreeHourRows(
   data: WarningTimeseriesData,
   table: RiskTable,
+  narrowed: boolean,
 ): { readonly rows: readonly TimeSeriesRow[]; readonly remarksUnavailable: boolean } {
   const windRows = buildWindRows(data, table.baseBlockId, table.extensionColumns);
   const windDivisionKeys = new Set(windRows.map((row) => row.areaDivision ?? ''));
@@ -173,20 +205,22 @@ function buildThreeHourRows(
   );
   const matchedWindRows = windRows.filter((row) => riskDivisionKeys.has(row.areaDivision ?? ''));
   const unmatchedWindRows = windRows.filter((row) => !riskDivisionKeys.has(row.areaDivision ?? ''));
-  // 直下に置けた統合行は区分名を省く。置けなかった統合行(先頭位置)は区分名を付ける(§2.1-30)。
-  const windEntry = (row: WindRowEntry, includeDivision: boolean): ThreeHourEntry => ({
+  // 見出し(区分名の有無)は、直上のエントリを見てapplyWindLabelsが決める(§2.1-30・§4.8)。
+  const windEntry = (row: WindRowEntry): ThreeHourEntry => ({
     kind: 'wind',
     key: row.key,
-    label: buildWindRowLabel(row.areaDivision, row.unit, includeDivision),
+    label: buildWindRowLabel(row.areaDivision, row.unit, true),
     groupKey: '風',
     order: row.firstIndex,
     windCells: row.cells,
+    windAreaDivision: row.areaDivision,
+    windUnit: row.unit,
   });
 
   const combined: ThreeHourEntry[] = [
     ...riskEntries,
     ...quantityEntries,
-    ...unmatchedWindRows.map((row) => windEntry(row, true)),
+    ...unmatchedWindRows.map((row) => windEntry(row)),
   ];
   const groupFirstOrder = new Map<string, number>();
   for (const entry of combined) {
@@ -212,13 +246,13 @@ function buildThreeHourRows(
       const areaDivision = parseRowSubject(entry.key).areaDivision;
       const match = matchedWindRows.find((row) => (row.areaDivision ?? null) === areaDivision);
       if (match) {
-        withWind.push(windEntry(match, false));
+        withWind.push(windEntry(match));
       }
     }
   }
 
   // 雨の行を、雨に関わる危険度の行のうち最後のものの直後にまとめて挿入する(§4.6.1)。
-  let final = withWind;
+  let final: readonly ThreeHourEntry[] = withWind;
   if (hasRainAnchor && rainEntries.length > 0) {
     let rainAnchorIndex = -1;
     withWind.forEach((entry, index) => {
@@ -238,7 +272,11 @@ function buildThreeHourRows(
     }
   }
 
+  // 統合行の見出し(区分名の有無)を全表示の並びで確定する(§2.1-30)。
+  final = applyWindLabels(final);
+
   // 量的予想・統合行(3時間表=基準block)はblockIdで照合する。危険度の行はblockIdを照合しない(§4.4)。
+  // 備考の有無の判定は絞り込みに関わらず全表示と同じ入力で行う(§4.8、列の出現が絞り込みで変わらないため)。
   const subjectRows = final.map((entry) => ({
     key: entry.key,
     ...parseRowSubject(entry.key),
@@ -251,7 +289,22 @@ function buildThreeHourRows(
   );
   const remarksUnavailable = remarks === null;
 
-  const rows = final.map((entry) => {
+  // 絞り込み(§4.8): 危険度は全期間(基準列+延長列)にlevel2以上を含む行だけ残す。量的予想・統合行は全て残す。
+  // 並びは全表示のままで、統合行の見出しは残った直上のエントリを見て決め直す。
+  const displayEntries = narrowed
+    ? applyWindLabels(
+        final.filter((entry) => {
+          if (entry.kind !== 'risk') {
+            return true;
+          }
+          return (entry.riskCells as readonly RiskCell[]).some((cell) =>
+            isLevelUpDisplay(cell.display),
+          );
+        }),
+      )
+    : final;
+
+  const rows = displayEntries.map((entry) => {
     const remarkText = remarks?.byRow.get(entry.key) ?? '';
     const remarkCell = { key: `${entry.key}-${REMARKS_COLUMN_KEY}`, content: remarkText };
     if (entry.kind === 'risk') {
@@ -373,26 +426,50 @@ function WtsLegend() {
   );
 }
 
+const NARROW_SWITCH_LABEL = '注意報級以上と量的予想のみ';
+const NARROW_SWITCH_ID = 'wts-narrow-switch';
+
 export function WarningTimeSeriesDetail({ data, table }: WarningTimeSeriesDetailProps) {
+  // 絞り込みスイッチの配線は保留中(下記コメント参照)。既定は全表示(§4.8)。
+  const narrowed = false;
   const separateTables = buildSeparateQuantityTables(data, table?.baseBlockId ?? null);
-  const threeHour = table !== null ? buildThreeHourRows(data, table) : null;
+  const threeHour = table !== null ? buildThreeHourRows(data, table, narrowed) : null;
 
   return (
     <div className="wts-detail">
-      <WtsLegend />
+      <div className="wts-legend-row">
+        <WtsLegend />
+        <div className="wts-narrow-switch">
+          <label htmlFor={NARROW_SWITCH_ID}>{NARROW_SWITCH_LABEL}</label>
+          {/*
+            製造メモ: `md-gb-switch`(@material/web/labs)をここへ配線すると、vite build が
+            Rollupエラーで失敗する(switch-element.js の `import ... with { type: 'css' }` を
+            解決できない)。button用に vite.config.ts へ既にある専用プラグイン
+            (materialWebLabsCssResult)と同種の対応が switch にも必要だが、vite.config.ts は
+            設定ファイルで変更禁止のため、ここでは配線を止めて統括へ報告する(設計書§4.8の
+            指示どおり、無理に回避しない)。GbSwitch.tsx・exportは用意済みで、
+            vite.config.ts側の対応後にこのコメントを外して有効化できる。
+          */}
+        </div>
+      </div>
       {table !== null && threeHour !== null && (
         <div className="wts-detail-3h">
-          <DetailTimeSeriesTable
-            caption="警報等時系列(3時間表)"
-            rowHeaderLabel="要素"
-            columns={[
-              ...toTimeSeriesColumns(table.detailColumns),
-              buildRemarksColumn(table, threeHour.remarksUnavailable),
-            ]}
-            rows={threeHour.rows}
-            initialColumnKey={table.currentColumnKey ?? undefined}
-            stickyHeader
-          />
+          {threeHour.rows.length > 0 ? (
+            <DetailTimeSeriesTable
+              caption="警報等時系列(3時間表)"
+              rowHeaderLabel="要素"
+              columns={[
+                ...toTimeSeriesColumns(table.detailColumns),
+                buildRemarksColumn(table, threeHour.remarksUnavailable),
+              ]}
+              rows={threeHour.rows}
+              initialColumnKey={table.currentColumnKey ?? undefined}
+              stickyHeader
+              bodyDateBoundaries
+            />
+          ) : (
+            <p className="wts-panel-message">該当する行はありません</p>
+          )}
           {threeHour.remarksUnavailable && (
             <p className="wts-remarks-unavailable">付加事項は取得できていません</p>
           )}

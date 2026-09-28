@@ -42,6 +42,11 @@ export interface DetailTimeSeriesTableProps {
   readonly initialColumnKey?: string; // 初期表示でこの列を行見出しの直右に置く
   /** true: 見出しをダイアログ本文の上端に吸着させる(§4.6)。既定false(既存の挙動を維持)。 */
   readonly stickyHeader?: boolean;
+  /**
+   * true: 日付境界(先頭列を除く)にあたる列のtbody側のtdにも`detail-ts-date-boundary`を付け、
+   * 見出しから本文まで縦線を通す(§4.6.2)。既定false(既存の挙動を維持、AC-24)。
+   */
+  readonly bodyDateBoundaries?: boolean;
 }
 
 const ROW_HEADER_WIDTH = 'var(--detail-ts-row-header-width, 7rem)';
@@ -108,19 +113,39 @@ function HeaderRows({
   );
 }
 
-function BodyRows({ rows }: { readonly rows: readonly TimeSeriesRow[] }) {
+function BodyRows({
+  rows,
+  dateBoundaryColumnIndices,
+}: {
+  readonly rows: readonly TimeSeriesRow[];
+  /** 日付境界にあたる列のインデックス(0始まり、先頭列は含まない)。undefinedなら付けない(既定挙動、AC-24) */
+  readonly dateBoundaryColumnIndices?: ReadonlySet<number>;
+}) {
   return (
     <tbody>
-      {rows.map((row) => (
-        <tr key={row.key}>
-          <th scope="row">{row.header}</th>
-          {row.cells.map((cell) => (
-            <td key={cell.key} colSpan={cell.span ?? 1}>
-              {cell.content}
-            </td>
-          ))}
-        </tr>
-      ))}
+      {rows.map((row) => {
+        let columnIndex = 0;
+        return (
+          <tr key={row.key}>
+            <th scope="row">{row.header}</th>
+            {row.cells.map((cell) => {
+              const span = cell.span ?? 1;
+              const isBoundary = dateBoundaryColumnIndices?.has(columnIndex) ?? false;
+              const td = (
+                <td
+                  key={cell.key}
+                  colSpan={span}
+                  className={isBoundary ? 'detail-ts-date-boundary' : undefined}
+                >
+                  {cell.content}
+                </td>
+              );
+              columnIndex += span;
+              return td;
+            })}
+          </tr>
+        );
+      })}
     </tbody>
   );
 }
@@ -132,10 +157,19 @@ export function DetailTimeSeriesTable({
   rows,
   initialColumnKey,
   stickyHeader = false,
+  bodyDateBoundaries = false,
 }: DetailTimeSeriesTableProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
   const dateLabels = buildDateHeaderLabels(columns);
+  // 先頭列は行見出し列の右境界と二重になるため除く(§4.6.2)。
+  const dateBoundaryColumnIndices = bodyDateBoundaries
+    ? new Set(
+        dateLabels
+          .map((label, index) => (index > 0 && label !== null ? index : -1))
+          .filter((index) => index !== -1),
+      )
+    : undefined;
 
   if (import.meta.env?.DEV) {
     for (const key of validateRowSpans(columns, rows)) {
@@ -176,7 +210,7 @@ export function DetailTimeSeriesTable({
         <table className="detail-ts-table">
           <caption className="detail-ts-caption">{caption}</caption>
           <HeaderRows columns={columns} rowHeaderLabel={rowHeaderLabel} dateLabels={dateLabels} />
-          <BodyRows rows={rows} />
+          <BodyRows rows={rows} dateBoundaryColumnIndices={dateBoundaryColumnIndices} />
         </table>
       </div>
     );
@@ -205,7 +239,7 @@ export function DetailTimeSeriesTable({
         <table className="detail-ts-table" style={{ width: stickyTableWidth(columns) }}>
           <caption className="detail-ts-caption">{caption}</caption>
           <ColGroup columns={columns} />
-          <BodyRows rows={rows} />
+          <BodyRows rows={rows} dateBoundaryColumnIndices={dateBoundaryColumnIndices} />
         </table>
       </div>
     </div>

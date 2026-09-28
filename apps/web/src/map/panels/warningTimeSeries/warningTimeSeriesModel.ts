@@ -44,6 +44,13 @@ export const RISK_CODE_TABLE: Readonly<
   '00': Object.freeze({ name: '値なし', display: 'noValue' as const }),
 });
 
+/** level2〜level5(注意報級以上)かどうか(§4.2・§4.8で行の表示条件に使う)。 */
+export function isLevelUpDisplay(display: RiskDisplay): boolean {
+  return (
+    display === 'level2' || display === 'level3' || display === 'level4' || display === 'level5'
+  );
+}
+
 /** ref欠落(undefined)・valueCode null・表外コードは missing (§4.3・AC-5) */
 export function classifyRiskValue(value: WarningTimeseriesValue | undefined): RiskDisplay {
   if (value === undefined) {
@@ -486,9 +493,6 @@ export function buildRiskTable(data: WarningTimeseriesData, now: number): RiskTa
   );
   const panelInitialIndexInFull =
     panelColumnIndices.length > 0 ? (panelColumnIndices[0] as number) : null;
-
-  const isLevelUpDisplay = (display: RiskDisplay): boolean =>
-    display === 'level2' || display === 'level3' || display === 'level4' || display === 'level5';
 
   const allRows: WtsRow<RiskCell>[] = [];
   const visibleRows: WtsRow<RiskCell>[] = [];
