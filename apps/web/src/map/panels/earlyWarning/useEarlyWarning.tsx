@@ -19,6 +19,7 @@ export function buildEarlyWarningCard(
   response: EarlyWarningResponse,
   now: number,
   heading?: string,
+  pollingAvailability: 'available' | 'stale' = 'available',
 ): InfoPanelCardInput {
   const issuedTimes: IssuedTimes = { near: time(response, 'near'), far: time(response, 'far') };
   const near = available(response, 'near');
@@ -31,6 +32,7 @@ export function buildEarlyWarningCard(
         ? {
             kind: 'data',
             availability:
+              pollingAvailability === 'stale' ||
               response.near.metadata.availability === 'stale' ||
               response.far.metadata.availability === 'stale'
                 ? 'stale'
@@ -59,8 +61,9 @@ export function useEarlyWarning(params: {
     enabled: !isEarlyWarningFixtureActive(fixtureEnvironment),
   });
   return useMemo(() => {
-    if (state.status === 'ready' || state.status === 'stale')
-      return buildEarlyWarningCard(state.catalog, Date.now());
+    if (state.status === 'ready') return buildEarlyWarningCard(state.catalog, Date.now());
+    if (state.status === 'stale')
+      return buildEarlyWarningCard(state.catalog, Date.now(), undefined, 'stale');
     const kind = state.status === 'failed' ? 'unavailable' : 'loading';
     return {
       key: 'earlyWarning',

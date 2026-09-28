@@ -17,7 +17,10 @@ async function flushEffects(): Promise<void> {
   await Promise.resolve();
 }
 
-async function mountEarlyWarning(environment: EarlyWarningFixtureEnvironment) {
+async function mountEarlyWarning(
+  environment: EarlyWarningFixtureEnvironment,
+  options: { readonly initialFailure?: boolean; readonly metadataStale?: boolean } = {},
+) {
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
   const originalLocation = globalThis.window.location;
@@ -66,11 +69,22 @@ async function mountEarlyWarning(environment: EarlyWarningFixtureEnvironment) {
 
   const fetches: { url: string; signal: AbortSignal }[] = [];
   const response = buildEarlyWarningFixtureResponse(Date.parse('2026-09-28T03:00:00Z'));
+  const body = options.metadataStale
+    ? {
+        ...response,
+        near: {
+          ...response.near,
+          metadata: { ...response.near.metadata, availability: 'stale' as const },
+        },
+      }
+    : response;
+  let failFetch = options.initialFailure ?? false;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     fetches.push({ url: String(input), signal: init?.signal as AbortSignal });
+    if (failFetch) throw new Error('通信失敗');
     return {
       ok: true,
-      json: async () => ({ ...response, terminalId: 'test-terminal' }),
+      json: async () => ({ ...body, terminalId: 'test-terminal' }),
     } as Response;
   }) as typeof fetch;
 
@@ -91,6 +105,9 @@ async function mountEarlyWarning(environment: EarlyWarningFixtureEnvironment) {
     timers,
     get card() {
       return card;
+    },
+    setFetchFailure(value: boolean) {
+      failFetch = value;
     },
     async advanceOnePeriod() {
       const timer = timers.find((item) => !item.cleared);
@@ -122,6 +139,55 @@ test('Issue #56 AC-16: 開発用 early-warning fixture は実 hook effect と1�
     assert.equal(harness.fetches.length, 0);
   } finally {
     harness.cleanup();
+  }
+});
+
+test('Issue #56: 成功後の通信失敗で前回値を保持し、カードを stale にする', async () => {
+  const harness = await mountEarlyWarning({ isDev: true, search: '' });
+  try {
+    assert.equal(harness.card?.status.kind, 'loading');
+    await flushEffects();
+    assert.equal(harness.card?.status.kind, 'data');
+    assert.equal(harness.card.status.availability, 'available');
+    const ready = harness.card;
+    const retainedResponse = (ready.content as React.ReactElement).props.response;
+    harness.setFetchFailure(true);
+    await harness.advanceOnePeriod();
+    assert.equal(harness.fetches.length, 2);
+    assert.equal(harness.card?.status.kind, 'data');
+    assert.equal(harness.card.status.availability, 'stale');
+    assert.equal(harness.card.status.time, ready.status.time);
+    assert.deepEqual(harness.card.issuedTimes, ready.issuedTimes);
+    assert.equal((harness.card.content as React.ReactElement).props.response, retainedResponse);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('Issue #56: metadata stale、初回失敗、loading のカード状態を維持する', async () => {
+  const metadataHarness = await mountEarlyWarning(
+    { isDev: true, search: '' },
+    { metadataStale: true },
+  );
+  try {
+    assert.equal(metadataHarness.card?.status.kind, 'loading');
+    await flushEffects();
+    assert.equal(metadataHarness.card?.status.kind, 'data');
+    assert.equal(metadataHarness.card.status.availability, 'stale');
+  } finally {
+    metadataHarness.cleanup();
+  }
+  const failedHarness = await mountEarlyWarning(
+    { isDev: true, search: '' },
+    { initialFailure: true },
+  );
+  try {
+    assert.equal(failedHarness.card?.status.kind, 'loading');
+    await flushEffects();
+    assert.equal(failedHarness.card?.status.kind, 'failed');
+    assert.equal(failedHarness.card.content, undefined);
+  } finally {
+    failedHarness.cleanup();
   }
 });
 
