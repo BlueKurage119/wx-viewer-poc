@@ -4,6 +4,8 @@ import type { AmedasResponse } from '@wx-viewer-poc/shared';
 import { parseAmedasResponse } from '../src/api/amedas';
 import {
   AMEDAS_FIELDS,
+  AMEDAS_TABLE_FIELDS,
+  hourlyPrecipitationRows,
   amedasDisplayValue,
   amedasValue,
   nextAmedasWindowCount,
@@ -33,13 +35,23 @@ const response: AmedasResponse = {
     sourceVersion: null,
   },
   capabilities: {
-    publicElements: ['temp', 'humidity', 'windDirection', 'wind', 'precipitation1h'],
+    publicElements: [
+      'temp',
+      'humidity',
+      'windDirection',
+      'wind',
+      'precipitation1h',
+      'precipitation10m',
+    ],
     unsupportedElements: ['humidity'],
   },
   data: {
     latestObservedAt: at,
     observations: [
-      { observedAt: at, values: { temp: -2, windDirection: 0, wind: 0, precipitation1h: null } },
+      {
+        observedAt: at,
+        values: { temp: -2, windDirection: 0, wind: 0, precipitation1h: null, precipitation10m: 0 },
+      },
     ],
   },
 };
@@ -94,6 +106,7 @@ test('24時間の境界と会場・端末の応答整合を検証する', () => 
 
 test('時雨量と羽田湿度の視覚・読み上げ表示を区別する', () => {
   assert.equal(AMEDAS_FIELDS[4]?.label, '時雨量');
+  assert.equal(AMEDAS_TABLE_FIELDS[4]?.label, '降水量(10分)');
   const row = latestAmedasRow(response)!;
   assert.deepEqual(amedasDisplayValue(response, row, 'humidity'), {
     text: '—',
@@ -101,6 +114,10 @@ test('時雨量と羽田湿度の視覚・読み上げ表示を区別する', ()
   });
   assert.deepEqual(amedasDisplayValue(response, row, 'precipitation1h'), {
     text: '欠測',
+    accessibleLabel: null,
+  });
+  assert.deepEqual(amedasDisplayValue(response, row, 'precipitation10m'), {
+    text: '0 mm',
     accessibleLabel: null,
   });
   assert.deepEqual(amedasDisplayValue(response, row, 'wind'), {
@@ -133,4 +150,38 @@ test('観測表は新しい順、3時間境界は重複せず、空の時間帯�
     rows.map((value) => value.observedAt).reverse(),
   );
   assert.equal(visibleAmedasRows(rows, now, 8).hasMore, false);
+});
+
+test('時雨量の棒候補は最終観測時刻の分と一致する毎時行だけを選ぶ', () => {
+  const latest = '2026-09-28T13:50:00.000Z';
+  const row = (iso: string, value: number | null) => ({
+    observedAt: iso,
+    values: { precipitation1h: value, precipitation10m: 0 },
+  });
+  const rows = [
+    row('2026-09-28T11:50:00.000Z', 3),
+    row('2026-09-28T12:40:00.000Z', 5),
+    row('2026-09-28T12:50:00.000Z', null),
+    row('2026-09-28T13:40:00.000Z', 9),
+    row(latest, 7),
+  ];
+  assert.deepEqual(
+    hourlyPrecipitationRows(rows, latest).map((value) => value.observedAt),
+    [rows[0]?.observedAt, rows[2]?.observedAt, latest],
+  );
+  assert.equal(hourlyPrecipitationRows(rows, latest)[1]?.values.precipitation1h, null);
+  assert.equal(
+    recentAmedasRows(
+      { ...response, data: { latestObservedAt: latest, observations: rows } },
+      Date.parse(latest) + 25 * 60 * 60 * 1000,
+    ).length,
+    0,
+  );
+  assert.equal(
+    recentAmedasRows(
+      { ...response, data: { latestObservedAt: latest, observations: rows } },
+      Date.parse(latest),
+    ).length,
+    rows.length,
+  );
 });

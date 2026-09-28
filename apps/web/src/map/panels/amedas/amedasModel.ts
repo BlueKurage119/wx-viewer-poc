@@ -30,6 +30,14 @@ export const AMEDAS_FIELDS: readonly { key: AmedasPublicElement; label: string; 
   { key: 'wind', label: '風速', unit: 'm/s' },
   { key: 'precipitation1h', label: '時雨量', unit: 'mm' },
 ];
+export const AMEDAS_TABLE_FIELDS: readonly {
+  key: AmedasPublicElement;
+  label: string;
+  unit: string;
+}[] = [
+  ...AMEDAS_FIELDS.slice(0, 4),
+  { key: 'precipitation10m', label: '降水量(10分)', unit: 'mm' },
+];
 export function windDirectionName(value: number): string {
   return Number.isInteger(value) && value >= 0 && value < DIRECTIONS.length
     ? DIRECTIONS[value]!
@@ -44,7 +52,7 @@ export function amedasValue(
   const value = row.values[key];
   if (value === null || value === undefined || !Number.isFinite(value)) return '欠測';
   if (key === 'windDirection') return windDirectionName(value);
-  const unit = AMEDAS_FIELDS.find((field) => field.key === key)!.unit;
+  const unit = [...AMEDAS_FIELDS, ...AMEDAS_TABLE_FIELDS].find((field) => field.key === key)!.unit;
   return `${value} ${unit}`;
 }
 export function latestAmedasRow(response: AmedasResponse): AmedasObservationDto | null {
@@ -80,7 +88,9 @@ export function amedasDisplayValue(
   row: AmedasObservationDto,
   key: AmedasPublicElement,
 ): { text: string; accessibleLabel: string | null } {
-  const label = AMEDAS_FIELDS.find((field) => field.key === key)!.label;
+  const label = [...AMEDAS_FIELDS, ...AMEDAS_TABLE_FIELDS].find(
+    (field) => field.key === key,
+  )!.label;
   if (response.capabilities.unsupportedElements.includes(key)) {
     return { text: '—', accessibleLabel: `${label} 非提供` };
   }
@@ -112,4 +122,18 @@ export function nextAmedasWindowCount(
     if (visibleAmedasRows(rows, now, window).rows.length > previousLength) return window;
   }
   return 8;
+}
+
+/** 最終観測と1時間間隔で一致する行のみを時雨量の棒候補にする。 */
+export function hourlyPrecipitationRows(
+  rows: readonly AmedasObservationDto[],
+  latestObservedAt: string,
+): readonly AmedasObservationDto[] {
+  const latest = Date.parse(latestObservedAt);
+  if (!Number.isFinite(latest)) return [];
+  const hour = 60 * 60 * 1000;
+  return rows.filter((row) => {
+    const time = Date.parse(row.observedAt);
+    return Number.isFinite(time) && time <= latest && (latest - time) % hour === 0;
+  });
 }

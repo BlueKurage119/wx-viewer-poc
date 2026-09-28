@@ -9,6 +9,8 @@ import { DetailDialog } from '../../detail/DetailDialog';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import {
   AMEDAS_FIELDS,
+  AMEDAS_TABLE_FIELDS,
+  hourlyPrecipitationRows,
   amedasDisplayValue,
   nextAmedasWindowCount,
   visibleAmedasRows,
@@ -33,7 +35,11 @@ function Plot({
   const field = AMEDAS_FIELDS.find((item) => item.key === keyName)!;
   if (response.capabilities.unsupportedElements.includes(keyName))
     return <p>{field.label}：非提供</p>;
-  const samples = rows.map((row) => ({
+  const plotRows =
+    keyName === 'precipitation1h'
+      ? hourlyPrecipitationRows(rows, new Date(now).toISOString())
+      : rows;
+  const samples = plotRows.map((row) => ({
     at: Date.parse(row.observedAt),
     value: row.values[keyName],
   }));
@@ -74,7 +80,7 @@ function Plot({
             24時間前
           </text>
           <text x="552" y="174">
-            現在
+            最終観測
           </text>
           <text x="0" y="25">
             {high}
@@ -125,9 +131,7 @@ function Detail({
   const [tableWindows, setTableWindows] = useState(1);
   const table = visibleAmedasRows(rows, now, tableWindows);
   const earliest = rows[0]?.observedAt;
-  const latest = rows[rows.length - 1]?.observedAt;
   const startMissing = earliest === undefined || Date.parse(earliest) > start;
-  const endMissing = latest === undefined || Date.parse(latest) < now;
   return (
     <div className="amedas-detail">
       {staleMessage && (
@@ -140,36 +144,20 @@ function Detail({
           直近24時間 {formatAmedasTime(new Date(start).toISOString())}〜
           {formatAmedasTime(new Date(now).toISOString())}
         </span>
-        {(startMissing || endMissing) && (
-          <span>
-            {' '}
-            · 未取得：
-            {startMissing && (
-              <span
-                aria-label={`開始側 ${earliest ? formatAmedasTime(earliest) + 'まで' : '全期間'}`}
-              >
-                開始側{earliest ? `〜${formatAmedasTime(earliest)}` : ' 全期間'}
-              </span>
-            )}
-            {startMissing && endMissing ? '、' : ''}
-            {endMissing && (
-              <span aria-label={`現在側 ${latest ? formatAmedasTime(latest) + 'から' : '全期間'}`}>
-                現在側{latest ? ` ${formatAmedasTime(latest)}〜` : ' 全期間'}
-              </span>
-            )}
-          </span>
+        {startMissing && (
+          <span> · 開始側 未取得{earliest ? `〜${formatAmedasTime(earliest)}` : ' 全期間'}</span>
         )}
       </p>
       {rows.length === 0 ? (
         <p>この期間の観測値は取得できません</p>
       ) : (
         <>
-          <p className="amedas-rain-note">時雨量は各観測時刻を終点とする直前1時間の積算値</p>
           <div className="amedas-plot-grid">
             {METRICS.map((key) => (
               <Plot key={key} response={response} rows={rows} keyName={key} now={now} />
             ))}
           </div>
+          <p className="amedas-rain-note">時雨量の各棒は観測時刻直前1時間の積算値</p>
           <div
             className="amedas-table-scroll"
             role="region"
@@ -181,7 +169,7 @@ function Detail({
               <thead>
                 <tr>
                   <th scope="col">観測時刻</th>
-                  {AMEDAS_FIELDS.map((field) => (
+                  {AMEDAS_TABLE_FIELDS.map((field) => (
                     <th key={field.key} scope="col">
                       {field.label}
                     </th>
@@ -192,7 +180,7 @@ function Detail({
                 {table.rows.map((row) => (
                   <tr key={row.observedAt}>
                     <th scope="row">{formatAmedasTime(row.observedAt)}</th>
-                    {AMEDAS_FIELDS.map((field) => (
+                    {AMEDAS_TABLE_FIELDS.map((field) => (
                       <td key={field.key}>
                         {(() => {
                           const display = amedasDisplayValue(response, row, field.key);
@@ -239,6 +227,7 @@ export function AmedasContent({
   const [open, setOpen] = useState(false);
   const scrollContainer = useDetailDialogScrollContainer();
   const row = latestAmedasRow(response);
+  const detailEnd = row ? Date.parse(row.observedAt) : now;
   return (
     <div className="amedas-panel">
       {staleMessage && (
@@ -285,7 +274,7 @@ export function AmedasContent({
         onClose={() => setOpen(false)}
         scrollContainer={scrollContainer}
       >
-        <Detail response={response} now={now} staleMessage={staleMessage} />
+        <Detail response={response} now={detailEnd} staleMessage={staleMessage} />
       </DetailDialog>
     </div>
   );
