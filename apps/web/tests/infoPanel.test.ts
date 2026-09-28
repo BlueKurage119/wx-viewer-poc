@@ -23,7 +23,7 @@ test('panelTargets: east の対象名が §3.3 表と一致する', () => {
   assert.equal(resolvePanelTarget('east', 'warningTimeSeries'), '江東区');
   assert.equal(resolvePanelTarget('east', 'earlyWarning'), '東京地方');
   assert.equal(resolvePanelTarget('east', 'amedas'), '江戸川臨海');
-  assert.equal(resolvePanelTarget('east', 'areaForecast'), '東京地方');
+  assert.equal(resolvePanelTarget('east', 'areaForecast'), '東京地方／東京（北の丸公園）');
 });
 
 test('panelTargets: trc の対象名が §3.3 表と一致する', () => {
@@ -32,7 +32,7 @@ test('panelTargets: trc の対象名が §3.3 表と一致する', () => {
   assert.equal(resolvePanelTarget('trc', 'warningTimeSeries'), '大田区');
   assert.equal(resolvePanelTarget('trc', 'earlyWarning'), '東京地方');
   assert.equal(resolvePanelTarget('trc', 'amedas'), '羽田');
-  assert.equal(resolvePanelTarget('trc', 'areaForecast'), '東京地方');
+  assert.equal(resolvePanelTarget('trc', 'areaForecast'), '東京地方／東京（北の丸公園）');
 });
 
 // AC-2: resolveInfoPanelDisplay が §5 の表の全セルを網羅する

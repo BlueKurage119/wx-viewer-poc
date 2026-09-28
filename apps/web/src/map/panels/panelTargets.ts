@@ -28,7 +28,8 @@ export function resolvePanelTarget(venueId: VenueId, panelId: InfoPanelId): stri
     case 'amedas':
       return targets.amedas.displayName;
     case 'areaForecast':
-      return targets.broadForecast.displayName;
+      // パネル見出しを1行「東京地方／東京（北の丸公園）」に揃える (確定事項11)
+      return `${targets.broadForecast.displayName}／${targets.temperatureForecast.displayName}`;
     default:
       return panelId satisfies never;
   }

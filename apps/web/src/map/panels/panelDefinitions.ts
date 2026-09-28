@@ -60,6 +60,11 @@ export interface InfoPanelCardInput {
   readonly status: InfoPanelStatus;
   readonly content?: ReactNode;
   readonly issuedTimes?: IssuedTimes;
+  /**
+   * 対象表記の上書き(任意)。省略時は `resolvePanelTarget` の固定表記を使う。
+   * areaForecast の API 応答コードが会場定義と一致しない場合の上書きに使う (Issue #58 §4.2)。
+   */
+  readonly target?: string;
 }
 
 /** 種別ごとの入力。always 種別は常に1件、occasional 種別は0件以上 */

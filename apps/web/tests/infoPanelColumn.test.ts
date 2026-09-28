@@ -124,3 +124,21 @@ test('InfoPanelColumn: mixed 相当の入力で状態別表示が仕様どおり
   // 予報は本文
   assert.ok(html.includes('forecast-content'));
 });
+
+// Issue #58 §4.2: カード入力の任意 target がある場合は resolvePanelTarget の固定表記より優先される
+test('InfoPanelColumn: カード入力の target が resolvePanelTarget の固定表記を上書きする', () => {
+  const input: InfoPanelColumnInput = {
+    bosaiBulletin: [],
+    warning: [],
+    warningTimeSeries: [],
+    earlyWarning: [],
+    amedas: [],
+    areaForecast: [{ ...dataCard('f', '2026-09-24T05:00:00.000Z'), target: '千葉県北西部／千葉' }],
+  };
+
+  const html = renderToStaticMarkup(el(InfoPanelColumn, { venueId: 'east', input }));
+
+  // カードの target が使われ、resolvePanelTarget の固定表記「東京地方／東京（北の丸公園）」ではない
+  assert.ok(html.includes('千葉県北西部／千葉'));
+  assert.equal(html.includes('東京地方／東京（北の丸公園）'), false);
+});
