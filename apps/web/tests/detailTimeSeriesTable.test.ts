@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { DetailTimeSeriesTable } from '../src/map/detail/DetailTimeSeriesTable.tsx';
 import type { TimeSeriesColumn, TimeSeriesRow } from '../src/map/detail/DetailTimeSeriesTable.tsx';
+import { validateRowSpans } from '../src/map/detail/timeSeriesHeader.ts';
 
 const el = React.createElement;
 
@@ -225,4 +226,100 @@ test('DetailTimeSeriesTable: colSpanセルは覆う範囲の先頭列が境界�
   assert.equal(tds.length, 2);
   assert.doesNotMatch(tds[0] ?? '', /detail-ts-date-boundary/); // s0(先頭)-s1: 境界なし
   assert.match(tds[1] ?? '', /detail-ts-date-boundary/); // s2(境界)-s3
+});
+
+test('rowSpan: 縦結合・横結合を配置し、日付境界と既定DOMを維持する', () => {
+  const mergedRows: readonly TimeSeriesRow[] = [
+    {
+      key: 'rain',
+      header: '大雨',
+      cells: [
+        { key: 'r0', content: '高', rowSpan: 2 },
+        { key: 'r1', content: '中', span: 2 },
+      ],
+    },
+    {
+      key: 'soil',
+      header: '土砂災害',
+      cells: [
+        { key: 's1', content: '－' },
+        { key: 's2', content: '?' },
+      ],
+    },
+  ];
+  assert.deepEqual(validateRowSpans(columns, mergedRows), []);
+  const html = renderToStaticMarkup(
+    el(DetailTimeSeriesTable, {
+      caption: '結合',
+      columns,
+      rows: mergedRows,
+      stickyHeader: true,
+      bodyDateBoundaries: true,
+    }),
+  );
+  assert.match(html, /class="detail-ts-sticky"/);
+  assert.match(html, /rowSpan="2"/);
+  assert.match(html, /colSpan="2"/);
+  assert.match(html, /class="detail-ts-date-boundary"[^>]*>\?<\/td>/);
+  assert.equal((html.match(/<thead>/g) ?? []).length, 1);
+  assert.equal((html.match(/<tr>/g) ?? []).length, 4);
+});
+
+test('rowSpan: 行末超過・列不足・重なり・無効な結合値を検出する', () => {
+  const make = (
+    cells: TimeSeriesRow['cells'],
+    last: TimeSeriesRow['cells'],
+  ): readonly TimeSeriesRow[] => [
+    { key: 'first', header: '大雨', cells },
+    { key: 'last', header: '土砂災害', cells: last },
+  ];
+  assert.deepEqual(
+    validateRowSpans(
+      columns,
+      make(
+        [
+          { key: 'x', content: '高', rowSpan: 3 },
+          { key: 'y', content: '中', span: 2 },
+        ],
+        [{ key: 'z', content: '－', span: 3 }],
+      ),
+    ),
+    ['first'],
+  );
+  assert.deepEqual(
+    validateRowSpans(
+      columns,
+      make(
+        [
+          { key: 'x', content: '高', rowSpan: 2 },
+          { key: 'y', content: '中', span: 2 },
+        ],
+        [{ key: 'z', content: '－' }],
+      ),
+    ),
+    ['last'],
+  );
+  assert.deepEqual(
+    validateRowSpans(
+      columns,
+      make(
+        [
+          { key: 'x', content: '高', rowSpan: 2 },
+          { key: 'y', content: '中', span: 2 },
+        ],
+        [
+          { key: 'z', content: '－', span: 2 },
+          { key: 'overlap', content: '?' },
+        ],
+      ),
+    ),
+    ['last'],
+  );
+  assert.deepEqual(
+    validateRowSpans(
+      columns,
+      make([{ key: 'bad', content: '高', span: 0 }], [{ key: 'z', content: '－', span: 3 }]),
+    ),
+    ['first'],
+  );
 });

@@ -25,9 +25,6 @@
   text-align: start;
   white-space: nowrap;
 }
-.ew-detail .ew-table th[scope='row'] {
-  background: var(--md-sys-color-surface);
-}
 .ew-cell {
   display: inline-flex;
   min-inline-size: 2rem;
@@ -50,13 +47,6 @@
 .ew-message {
   margin: 4px 0 8px;
   color: var(--md-sys-color-on-surface-variant);
-}
-.ew-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-block-end: 12px;
-  font-size: 13px;
 }
 .ew-visually-hidden {
   position: absolute;

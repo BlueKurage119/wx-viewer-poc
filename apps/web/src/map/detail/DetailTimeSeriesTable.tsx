@@ -12,7 +12,7 @@
  * 失われる。呼び出し側はセルの `aria-label` に時間帯を含めること。
  */
 import { useEffect, useRef, type ReactNode } from 'react';
-import { buildDateHeaderLabels, validateRowSpans } from './timeSeriesHeader';
+import { buildDateHeaderLabels, layoutTimeSeriesRows, validateRowSpans } from './timeSeriesHeader';
 
 export interface TimeSeriesColumn {
   readonly key: string;
@@ -25,6 +25,7 @@ export interface TimeSeriesColumn {
 export interface TimeSeriesCell {
   readonly key: string;
   readonly span?: number; // 区間結合。既定1
+  readonly rowSpan?: number; // 行方向の結合。既定1、未指定時は従来のDOMを維持
   readonly content: ReactNode; // 空欄・「－」・「—」等の区別は呼び出し側の責務
 }
 
@@ -116,36 +117,33 @@ function HeaderRows({
 function BodyRows({
   rows,
   dateBoundaryColumnIndices,
+  columns,
 }: {
+  readonly columns: readonly TimeSeriesColumn[];
   readonly rows: readonly TimeSeriesRow[];
   /** 日付境界にあたる列のインデックス(0始まり、先頭列は含まない)。undefinedなら付けない(既定挙動、AC-24) */
   readonly dateBoundaryColumnIndices?: ReadonlySet<number>;
 }) {
+  const layout = layoutTimeSeriesRows(columns, rows);
   return (
     <tbody>
-      {rows.map((row) => {
-        let columnIndex = 0;
-        return (
-          <tr key={row.key}>
-            <th scope="row">{row.header}</th>
-            {row.cells.map((cell) => {
-              const span = cell.span ?? 1;
-              const isBoundary = dateBoundaryColumnIndices?.has(columnIndex) ?? false;
-              const td = (
-                <td
-                  key={cell.key}
-                  colSpan={span}
-                  className={isBoundary ? 'detail-ts-date-boundary' : undefined}
-                >
-                  {cell.content}
-                </td>
-              );
-              columnIndex += span;
-              return td;
-            })}
-          </tr>
-        );
-      })}
+      {rows.map((row, rowIndex) => (
+        <tr key={row.key}>
+          <th scope="row">{row.header}</th>
+          {layout.rows[rowIndex]?.map(({ cell, columnIndex }) => (
+            <td
+              key={cell.key}
+              colSpan={cell.span ?? 1}
+              rowSpan={cell.rowSpan}
+              className={
+                dateBoundaryColumnIndices?.has(columnIndex) ? 'detail-ts-date-boundary' : undefined
+              }
+            >
+              {cell.content}
+            </td>
+          ))}
+        </tr>
+      ))}
     </tbody>
   );
 }
@@ -210,7 +208,11 @@ export function DetailTimeSeriesTable({
         <table className="detail-ts-table">
           <caption className="detail-ts-caption">{caption}</caption>
           <HeaderRows columns={columns} rowHeaderLabel={rowHeaderLabel} dateLabels={dateLabels} />
-          <BodyRows rows={rows} dateBoundaryColumnIndices={dateBoundaryColumnIndices} />
+          <BodyRows
+            columns={columns}
+            rows={rows}
+            dateBoundaryColumnIndices={dateBoundaryColumnIndices}
+          />
         </table>
       </div>
     );
@@ -239,7 +241,11 @@ export function DetailTimeSeriesTable({
         <table className="detail-ts-table" style={{ width: stickyTableWidth(columns) }}>
           <caption className="detail-ts-caption">{caption}</caption>
           <ColGroup columns={columns} />
-          <BodyRows rows={rows} dateBoundaryColumnIndices={dateBoundaryColumnIndices} />
+          <BodyRows
+            columns={columns}
+            rows={rows}
+            dateBoundaryColumnIndices={dateBoundaryColumnIndices}
+          />
         </table>
       </div>
     </div>

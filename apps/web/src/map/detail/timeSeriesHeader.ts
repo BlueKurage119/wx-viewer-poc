@@ -38,15 +38,61 @@ export function buildDateHeaderLabels(
   });
 }
 
-/**
- * 各行の cells の span 合計が列数と一致するか検証する（純粋関数）。
- * 一致しない行の key を返す。表示側（呼び出し元）が開発ビルドで console.error する。
- */
+/** 縦結合・横結合を考慮したデータ列配置。行見出し列は含めない。 */
+export interface PlacedTimeSeriesCell {
+  readonly cell: TimeSeriesRow['cells'][number];
+  readonly columnIndex: number;
+}
+export interface TimeSeriesLayout {
+  readonly rows: readonly (readonly PlacedTimeSeriesCell[])[];
+  readonly invalidRowKeys: readonly string[];
+}
+export function layoutTimeSeriesRows(
+  columns: readonly TimeSeriesColumn[],
+  rows: readonly TimeSeriesRow[],
+): TimeSeriesLayout {
+  const occupiedUntil = Array<number>(columns.length).fill(0);
+  const invalidRowKeys: string[] = [];
+  const placedRows = rows.map((row, rowIndex) => {
+    const used = occupiedUntil.map((until) => until > rowIndex);
+    const placed: PlacedTimeSeriesCell[] = [];
+    let cursor = 0;
+    let invalid = false;
+    for (const cell of row.cells) {
+      const span = cell.span ?? 1;
+      const rowSpan = cell.rowSpan ?? 1;
+      if (
+        !Number.isInteger(span) ||
+        span < 1 ||
+        !Number.isInteger(rowSpan) ||
+        rowSpan < 1 ||
+        rowIndex + rowSpan > rows.length
+      ) {
+        invalid = true;
+        continue;
+      }
+      while (cursor < columns.length && used[cursor]) cursor += 1;
+      if (cursor + span > columns.length || used.slice(cursor, cursor + span).some(Boolean)) {
+        invalid = true;
+        continue;
+      }
+      placed.push({ cell, columnIndex: cursor });
+      for (let index = cursor; index < cursor + span; index += 1) {
+        used[index] = true;
+        occupiedUntil[index] = rowIndex + rowSpan;
+      }
+      cursor += span;
+    }
+    if (invalid || used.some((value) => !value)) invalidRowKeys.push(row.key);
+    return placed;
+  });
+  return { rows: placedRows, invalidRowKeys };
+}
+
+/** 占有列の重複・不足、最終行を越す結合を持つ行の key を返す。 */
 export function validateRowSpans(
   columns: readonly TimeSeriesColumn[],
   rows: readonly TimeSeriesRow[],
 ): readonly string[] {
-  return rows
-    .filter((row) => row.cells.reduce((sum, cell) => sum + (cell.span ?? 1), 0) !== columns.length)
-    .map((row) => row.key);
+  return layoutTimeSeriesRows(columns, rows).invalidRowKeys;
 }

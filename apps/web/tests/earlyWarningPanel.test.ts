@@ -11,7 +11,10 @@ import {
   classify,
   columnsFor,
 } from '../src/map/panels/earlyWarning/earlyWarningModel.ts';
-import { NearPanel } from '../src/map/panels/earlyWarning/EarlyWarningContent.tsx';
+import {
+  EarlyWarningDetail,
+  NearPanel,
+} from '../src/map/panels/earlyWarning/EarlyWarningContent.tsx';
 import { InfoPanelFrame } from '../src/map/panels/InfoPanelFrame.tsx';
 import { formatIssuedTimes } from '../src/map/panels/earlyWarning/issuedTimes.ts';
 
@@ -347,4 +350,40 @@ test('遠距離だけ取得できてもパネルは近距離の未取得を示�
   assert.match(heading, /明後日まで: 未取得/);
   assert.doesNotMatch(heading, /明々後日以降/);
   assert.match(formatIssuedTimes(issuedTimes), /明々後日以降:/);
+});
+
+test('詳細は共通二段見出しで近距離・遠距離を表示し、雨の列だけ縦結合する', () => {
+  const near = segment(
+    'near',
+    '2026-09-28T00:00:00Z',
+    [nearDate],
+    [rain('1', '大雨の警報級の可能性', '高'), rain('1', '土砂災害の警報級の可能性', '中')],
+  );
+  const far1: [string, string, string] = ['2', '2026-09-30T15:00:00Z', '2026-10-01T15:00:00Z'];
+  const far2: [string, string, string] = ['3', '2026-10-01T15:00:00Z', '2026-10-02T15:00:00Z'];
+  const far = segment(
+    'far',
+    '2026-09-28T00:00:00Z',
+    [far1, far2],
+    [
+      rain('2', '雨の警報級の可能性', null, '値なし'),
+      rain('3', '雨の警報級の可能性', null, '欠測'),
+    ],
+  );
+  const html = renderToStaticMarkup(
+    createElement(EarlyWarningDetail, {
+      table: buildDetailTable(response(near, far)),
+      now: Date.parse('2026-09-30T16:00:00Z'),
+    }),
+  );
+  assert.match(html, /class="detail-ts-sticky"/);
+  assert.match(html, /class="detail-ts-head"/);
+  assert.match(html, /data-column-key="far:2:0"/);
+  assert.equal((html.match(/rowSpan="2"/g) ?? []).length, 2);
+  assert.equal((html.match(/<thead>/g) ?? []).length, 1);
+  assert.match(html, /aria-label="大雨・土砂災害、雨の警報級の可能性、10\/1、値なし"/);
+  assert.match(html, /aria-label="大雨・土砂災害、雨の警報級の可能性、10\/2、欠測"/);
+  assert.match(html, /detail-ts-date-boundary/);
+  assert.match(html, /role="region" aria-label="警報級の可能性の全期間"/);
+  assert.doesNotMatch(html, /class="ew-table"/);
 });
