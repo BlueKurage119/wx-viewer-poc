@@ -14,7 +14,7 @@ export function buildAmedasCard(
   const row = latestAmedasRow(response);
   const stale = pollingFailure !== null || response.metadata.availability === 'stale';
   const staleMessage = stale
-    ? `${pollingFailure ? '通信異常' : '更新できていません'}${row ? ` · 前回値：${formatAmedasTime(row.observedAt)}観測` : ''}`
+    ? `${pollingFailure === 'http' ? '通信異常' : '更新できていません'}${row ? ` · 前回値：${formatAmedasTime(row.observedAt)}観測` : ''}`
     : null;
   return {
     key: 'amedas',
@@ -29,11 +29,11 @@ export function buildAmedasCard(
     content: <AmedasContent response={response} now={now} staleMessage={staleMessage} />,
   };
 }
-export function buildAmedasFailedCard(): InfoPanelCardInput {
+export function buildAmedasFailedCard(failureKind: 'network' | 'http'): InfoPanelCardInput {
   return {
     key: 'amedas',
     status: { kind: 'failed' },
-    content: <p role="alert">通信異常</p>,
+    content: <p role="alert">{failureKind === 'http' ? '通信異常' : '取得できません'}</p>,
   };
 }
 export function useAmedas(params: {
@@ -48,7 +48,7 @@ export function useAmedas(params: {
       if (result.ok && result.value.venueId !== venueId)
         return {
           ok: false as const,
-          failure: { kind: 'http' as const, httpStatus: 200, code: null },
+          failure: { kind: 'network' as const },
         };
       return result;
     },
@@ -71,7 +71,7 @@ export function useAmedas(params: {
       return buildAmedasCard(state.catalog, Date.parse(state.catalog.evaluatedAt));
     if (state.status === 'stale')
       return buildAmedasCard(state.catalog, Date.now(), state.failure.kind);
-    if (state.status === 'failed') return buildAmedasFailedCard();
+    if (state.status === 'failed') return buildAmedasFailedCard(state.failure.kind);
     return { key: 'amedas', status: { kind: 'loading' } } satisfies InfoPanelCardInput;
   }, [state, venueId, terminalId, controlStatus]);
 }

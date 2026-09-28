@@ -5,7 +5,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { AmedasResponse } from '@wx-viewer-poc/shared';
 import { parseAmedasResponse } from '../src/api/amedas';
-import { buildAmedasFailedCard } from '../src/map/panels/amedas/useAmedas';
+import { buildAmedasCard, buildAmedasFailedCard } from '../src/map/panels/amedas/useAmedas';
 import {
   AMEDAS_FIELDS,
   AMEDAS_TABLE_FIELDS,
@@ -112,10 +112,35 @@ test('24時間の境界と会場・端末の応答整合を検証する', () => 
   assert.equal(parseAmedasResponse(response, 'htrcph01', 'training'), null);
 });
 
-test('保持値のない通信失敗は失敗状態と通信異常を表示する', () => {
-  const card = buildAmedasFailedCard();
-  assert.deepEqual(card.status, { kind: 'failed' });
-  assert.equal(renderToStaticMarkup(card.content), '<p role="alert">通信異常</p>');
+test('保持値なしのHTTP失敗だけ通信異常とし、network失敗は取得不能を表示する', () => {
+  const http = buildAmedasFailedCard('http');
+  const network = buildAmedasFailedCard('network');
+  assert.deepEqual(http.status, { kind: 'failed' });
+  assert.deepEqual(network.status, { kind: 'failed' });
+  assert.equal(renderToStaticMarkup(http.content), '<p role="alert">通信異常</p>');
+  assert.equal(renderToStaticMarkup(network.content), '<p role="alert">取得できません</p>');
+});
+
+test('保持値ありのHTTP失敗だけ通信異常とし、network失敗は更新不能と前回観測時刻を表示する', () => {
+  const http = buildAmedasCard(response, Date.parse(at), 'http');
+  const network = buildAmedasCard(response, Date.parse(at), 'network');
+  assert.deepEqual(http.status, {
+    kind: 'data',
+    availability: 'stale',
+    time: at,
+    timeKind: 'observed',
+  });
+  assert.deepEqual(network.status, http.status);
+  assert.ok(React.isValidElement(http.content));
+  assert.ok(React.isValidElement(network.content));
+  assert.equal(
+    (http.content.props as { staleMessage: string }).staleMessage,
+    '通信異常 · 前回値：9/28 09:00観測',
+  );
+  assert.equal(
+    (network.content.props as { staleMessage: string }).staleMessage,
+    '更新できていません · 前回値：9/28 09:00観測',
+  );
 });
 
 test('時雨量と羽田湿度の視覚・読み上げ表示を区別する', () => {
