@@ -458,7 +458,7 @@ export function buildWarningTimeSeriesCard(
 ### 4.8 表示の絞り込みスイッチ(§2.1-36)
 
 - **位置**: 詳細ダイアログの凡例の横(同じ行、凡例の右端)。
-- **部品**: Material Web の Labs `md-gb-switch` を、`GbButton` と同じ方式で型付きラッパー `GbSwitch` にしてバレルから使う(`apps/web/src/components/md/GbSwitch.tsx`。§06-ui-md3-protocol の「生タグを直書きしない」に従う)。
+- **部品**: Material Web の安定版 `md-switch`(`@material/web/switch/switch.js`)を型付きラッパー `Switch` にしてバレルから使う(`apps/web/src/components/md/Switch.tsx`。§06-ui-md3-protocol の「生タグを直書きしない」に従う)。Labs の `md-gb-switch` は CSS import attributes のため本番ビルドが失敗し、回避には `vite.config.ts` の変更が要るため採らない(f4ea462 の製造報告、2026-09-28 ユーザー決定)。f4ea462 で作成した `GbSwitch.tsx` は削除する。バンドル増分を記録する(G-09 参照)。
   - props は `selected`、`onChange`、`aria-label`、`id` を想定する。
   - React 19 での `selected` プロパティの反映と、`change` イベントの受け取りは実挙動を確認していない。必要なら ref で `addEventListener('change')` し、`selected` を読む(製造裁量)。
 - **ラベル**: 表示文言は「注意報級以上と量的予想のみ」とし、スイッチの右に `<label for>` で置く。スイッチにも同じ文言の `aria-label` を付ける(ラベルとの関連付けが Labs 部品で効かない場合に備える)。
@@ -580,7 +580,7 @@ export function buildWarningTimeSeriesCard(
 
 - 新規: §3.1 の新規ファイル
 - 変更: `apps/web/src/index.css`(`@import` 1行のみ)、`apps/web/src/map/WeatherMapView.tsx`(フック呼び出しと `infoPanelInput` の1項目のみ)、`apps/web/src/map/panels/panelFixtures.ts`(§6 の範囲のみ)、`apps/web/src/map/panels/detailDialogFixtures.tsx`(警報等時系列の仮入口・サンプルの削除のみ)
-- 変更許可(§4.6 の吸着見出しと §4.6.2 の本体縦線に限る。後者は 2026-09-28 ユーザー許可): `apps/web/src/map/detail/DetailTimeSeriesTable.tsx`(オプトインの prop と分岐の追加)、`apps/web/src/map/detail/detail.css`(新しいクラスの追加と、`.detail-dialog-body` の上余白の変数化(値は16pxのまま。5fc1593)だけ)、`apps/web/tests/detailTimeSeriesTable.test.ts`(ケースの追加だけ。既存ケースは変えない)。`apps/web/src/components/md/GbSwitch.tsx`(新規)と `apps/web/src/components/md/index.ts`(export 1行の追加)。§4.8 のスイッチのため。
+- 変更許可(§4.6 の吸着見出しと §4.6.2 の本体縦線に限る。後者は 2026-09-28 ユーザー許可): `apps/web/src/map/detail/DetailTimeSeriesTable.tsx`(オプトインの prop と分岐の追加)、`apps/web/src/map/detail/detail.css`(新しいクラスの追加と、`.detail-dialog-body` の上余白の変数化(値は16pxのまま。5fc1593)だけ)、`apps/web/tests/detailTimeSeriesTable.test.ts`(ケースの追加だけ。既存ケースは変えない)。`apps/web/src/components/md/Switch.tsx`(新規)と `apps/web/src/components/md/index.ts`(export 1行の追加と、f4ea462 で入れた GbSwitch に関するコメントの削除)。`GbSwitch.tsx` の削除。`vite.config.ts` は変更しない。§4.8 のスイッチのため。
 - 変更禁止: `apps/api/**`、`packages/**`、`apps/web/src/map/detail/` の上記以外(`DetailDialog.tsx`・`timeSeriesHeader.ts`・`DetailDialogScrollContainerContext.tsx` 等)、`apps/web/src/map/panels/` の他の既存ファイル、`apps/web/src/theme/**`、既存テスト(仮入口削除に伴い警報等時系列サンプル前提のテストが壊れる場合は、統括へ報告してから最小修正)、設定ファイル
 - 注意: #61 の AC-7/AC-8 は警報等時系列サンプル(32列・長い本文)を寸法検証に使っていた。削除後、地域時系列予報サンプルだけで既存テストが通るかを製造時に確認し、通らなければ実装を止めて統括へ報告する。
 
@@ -769,9 +769,9 @@ export function buildWarningTimeSeriesCard(
   - 直上の風危険度の行が消えた統合行の見出しは「風向・風速(陸上) m/s」、消えていない統合行は「風向・風速 m/s」である。
   - 別欄の表は on/off で変わらない。備考列の有無も変わらない。
   - 全行が消える入力で「該当する行はありません」が出る。
-  - `warningTimeSeries/` 配下と `GbSwitch.tsx` に `localStorage`・`sessionStorage` が無い。
+  - `warningTimeSeries/` 配下と `Switch.tsx` に `localStorage`・`sessionStorage` が無い。
 - [ ] AC-34 絞り込み(画面):
-  - 詳細を開き、凡例の横に `md-gb-switch` があり、「注意報級以上と量的予想のみ」のラベルが見える。スイッチの `aria-label` も同じ文言である。
+  - 詳細を開き、凡例の横に `md-switch` があり、「注意報級以上と量的予想のみ」のラベルが見える。スイッチの `aria-label` も同じ文言である。
   - スイッチを on にすると行が減る。閉じて開き直すと off に戻り、全行が出る。
   - キーボード(Tab で移動、Space で切替)でも操作できる。
   - ラベルをクリックして切り替わるかを記録する(切り替わらなければ記録のみで、合否は統括の判断)。
