@@ -227,20 +227,6 @@
   padding: 0;
 }
 
-/* 行見出し「気温（℃）」の文字サイズ (§4.5: 18px, 500, line-height 1.3) */
-.af-detail .detail-ts-table th:has(> .af-temp-chart-header) {
-  font-size: 18px;
-  font-weight: 500;
-  line-height: 1.3;
-}
-
-.af-temp-chart-header,
-.af-temp-chart-title {
-  font-size: 18px;
-  font-weight: 500;
-  line-height: 1.3;
-}
-
 .af-temp-chart {
   display: block;
   inline-size: 100%;

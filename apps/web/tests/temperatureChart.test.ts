@@ -267,13 +267,16 @@ test('Issue #58 AC-1 & AC-2: 詳細ダイアログの3行構成と気温グラ�
   // 目盛りが存在しないこと
   assert.doesNotMatch(detailHtml, /class="af-temp-chart-tick"/);
 
-  // 行見出し「気温（℃）」の文字サイズが CSS で 18px に指定されていること
+  // 行見出し「気温（℃）」は他の行見出しと同じ文字サイズ(UI監修 2026-09-29)。専用の拡大指定が無いこと
   const cssContent = readFileSync(
     new URL('../src/map/panels/areaForecast/areaForecast.css', import.meta.url),
     'utf-8',
   );
-  assert.match(cssContent, /font-size:\s*18px;/);
-  assert.match(cssContent, /font-weight:\s*500;/);
+  assert.doesNotMatch(cssContent, /af-temp-chart-header[^}]*font-size/);
+  assert.doesNotMatch(cssContent, /th:has\(> \.af-temp-chart-header\)/);
+
+  // 詳細の時刻見出しは「時」を省き、右端の境目(翌日0時)だけの日付見出しは出さない(UI監修 2026-09-29)
+  assert.doesNotMatch(detailHtml, /<th[^>]*>\s*\d{1,2}時\s*<\/th>/);
 
   // パネルの表（気温数値行を含む）は変更前と DOM が同じ
   const panelHtml = renderToStaticMarkup(

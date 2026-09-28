@@ -269,6 +269,10 @@ function AreaForecastPanelTable({
   );
 }
 
+function stripHourSuffix(label: string): string {
+  return label.replace(/時$/, '');
+}
+
 /** 詳細ダイアログ (全区間・全時点を横スクロール、日付＋時点の2段見出し) */
 export function AreaForecastDetail({
   table,
@@ -301,16 +305,19 @@ export function AreaForecastDetail({
     const intervalCols: TimeSeriesColumn[] = grid.intervalColumns.map((col) => ({
       key: col.key,
       at: col.at,
-      timeLabel: col.label,
+      // 詳細の時刻見出しは「時」を省く(読み上げは「9時」のまま)
+      timeLabel: stripHourSuffix(col.label),
       ariaTimeLabel: col.label,
       width: '4rem',
     }));
 
     const padEnd: TimeSeriesColumn = {
       key: 'af-pad-end',
-      at: grid.endBoundaryAt,
-      timeLabel: grid.endBoundaryLabel,
-      ariaTimeLabel: grid.endBoundaryLabel,
+      // 右端の境目(翌日0時)だけのために日付見出しが出ないよう、直前の日に属する時刻とする。
+      // 読み上げは直前の日付に続けて「24時」と読ませる
+      at: new Date(Date.parse(grid.endBoundaryAt) - 1).toISOString(),
+      timeLabel: stripHourSuffix(grid.endBoundaryLabel),
+      ariaTimeLabel: grid.endBoundaryLabel === '0時' ? '24時' : grid.endBoundaryLabel,
       width: '2.5rem',
     };
 
