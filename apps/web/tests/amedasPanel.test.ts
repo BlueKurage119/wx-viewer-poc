@@ -201,7 +201,7 @@ test('24時間前の左端時刻は時雨量の棒に含めず、最大24本に�
   assert.equal(selected[23]?.observedAt, latest);
 });
 
-test('気温の動的縦軸と日付をまたぐ6時間目盛り', () => {
+test('気温の動的縦軸と時刻のみの6時間目盛り', () => {
   const negative = amedasPlotRange([-4, -3, -2], true)!;
   assert.ok(negative.low < -4 && negative.high > -2);
   assert.ok(negative.high < 0);
@@ -216,5 +216,11 @@ test('気温の動的縦軸と日付をまたぐ6時間目盛り', () => {
     ticks.slice(1).map((tick, index) => tick.at - ticks[index]!.at),
     Array(4).fill(6 * 60 * 60 * 1000),
   );
-  assert.notEqual(ticks[0]!.label, ticks[4]!.label);
+  assert.deepEqual(
+    ticks.map((tick) => tick.label),
+    ['22:50', '04:50', '10:50', '16:50', '22:50'],
+  );
+  assert.notEqual(ticks[0]!.accessibleLabel, ticks[4]!.accessibleLabel);
+  assert.match(ticks[0]!.accessibleLabel, /9\/27/);
+  assert.match(ticks[4]!.accessibleLabel, /9\/28/);
 });

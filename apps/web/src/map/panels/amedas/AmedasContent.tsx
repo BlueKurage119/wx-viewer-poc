@@ -24,21 +24,17 @@ import {
 type Metric = 'temp' | 'humidity' | 'wind' | 'precipitation1h';
 const METRICS: readonly Metric[] = ['temp', 'humidity', 'wind', 'precipitation1h'];
 function Plot({
-  response,
   rows,
   keyName,
   now,
 }: {
-  response: AmedasResponse;
   rows: readonly AmedasObservationDto[];
   keyName: Metric;
   now: number;
 }) {
   const field = AMEDAS_FIELDS.find((item) => item.key === keyName)!;
-  const unsupported = response.capabilities.unsupportedElements.includes(keyName);
-  const plotRows = unsupported
-    ? []
-    : keyName === 'precipitation1h'
+  const plotRows =
+    keyName === 'precipitation1h'
       ? hourlyPrecipitationRows(rows, new Date(now).toISOString())
       : rows;
   const samples = plotRows.map((row) => ({
@@ -49,7 +45,7 @@ function Plot({
     (sample): sample is { at: number; value: number } =>
       typeof sample.value === 'number' && Number.isFinite(sample.value),
   );
-  const emptyMessage = unsupported ? '非提供' : '観測値なし（欠測または未取得）';
+  const emptyMessage = '観測値なし（欠測または未取得）';
   const start = now - 24 * 60 * 60 * 1000;
   const range = amedasPlotRange(
     finite.map((sample) => sample.value),
@@ -80,7 +76,7 @@ function Plot({
         <svg
           viewBox="0 0 620 190"
           role="img"
-          aria-label={`${field.label}の直近24時間、${ticks.map((tick) => tick.label).join('、')}。${keyName === 'precipitation1h' ? '各棒は観測時刻直前1時間の積算値。' : ''}${finite.length === 0 ? emptyMessage : '観測値：'}${finite.map((sample) => `${formatAmedasTime(new Date(sample.at).toISOString())} ${sample.value} ${field.unit}`).join('、')}`}
+          aria-label={`${field.label}の直近24時間、${ticks.map((tick) => tick.accessibleLabel).join('、')}。${keyName === 'precipitation1h' ? '各棒は観測時刻直前1時間の積算値。' : ''}${finite.length === 0 ? emptyMessage : '観測値：'}${finite.map((sample) => `${formatAmedasTime(new Date(sample.at).toISOString())} ${sample.value} ${field.unit}`).join('、')}`}
           tabIndex={0}
         >
           <line x1="32" y1="148" x2="592" y2="148" className="amedas-axis" />
@@ -170,9 +166,11 @@ function Detail({
       ) : (
         <>
           <div className="amedas-plot-grid">
-            {METRICS.map((key) => (
-              <Plot key={key} response={response} rows={rows} keyName={key} now={now} />
-            ))}
+            {METRICS.filter((key) => !response.capabilities.unsupportedElements.includes(key)).map(
+              (key) => (
+                <Plot key={key} rows={rows} keyName={key} now={now} />
+              ),
+            )}
           </div>
           <div
             className="amedas-table-scroll"

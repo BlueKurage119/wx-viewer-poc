@@ -143,10 +143,20 @@ export function hourlyPrecipitationRows(
   });
 }
 
-export function amedasTimeTicks(latest: number): readonly { at: number; label: string }[] {
+export function amedasTimeTicks(
+  latest: number,
+): readonly { at: number; label: string; accessibleLabel: string }[] {
   return [24, 18, 12, 6, 0].map((hoursAgo) => {
     const at = latest - hoursAgo * 60 * 60 * 1000;
-    return { at, label: formatAmedasTime(new Date(at).toISOString()) };
+    return {
+      at,
+      label: new Intl.DateTimeFormat('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(at)),
+      accessibleLabel: formatAmedasTime(new Date(at).toISOString()),
+    };
   });
 }
 
