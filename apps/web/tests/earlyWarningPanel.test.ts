@@ -583,3 +583,177 @@ test('専用フィクスチャは他パネルの入力を保持して警報級�
   assert.equal(fixture.earlyWarning[0]?.heading, '警報級の可能性（確認用データ）');
   assert.notEqual(fixture.earlyWarning[0], originalCard);
 });
+
+const overlapDay: [string, string, string] = [
+  '1',
+  '2026-10-01T00:00:00+09:00',
+  '2026-10-02T00:00:00+09:00',
+];
+const overlapHalves: [string, string, string][] = [
+  ['1', '2026-10-01T00:00:00+09:00', '2026-10-01T12:00:00+09:00'],
+  ['2', '2026-10-01T12:00:00+09:00', '2026-10-02T00:00:00+09:00'],
+];
+function overlapResponse(dates = overlapHalves) {
+  return response(
+    segment('near', '2026-09-29T09:00:00+09:00', dates, [
+      rain('1', '大雨の警報級の可能性', '高'),
+      rain('2', '大雨の警報級の可能性', null, '欠測'),
+      rain('1', '土砂災害の警報級の可能性', '中'),
+      rain('2', '土砂災害の警報級の可能性', 'なし'),
+    ]),
+    segment(
+      'far',
+      '2026-09-28T09:00:00+09:00',
+      [overlapDay],
+      [rain('1', '雨の警報級の可能性', '中')],
+    ),
+  );
+}
+const columnIds = (data: EarlyWarningResponse) =>
+  buildDetailTable(data).columns.map((column) => `${column.segment}:${column.timeId}`);
+
+test('全被覆: 異なる発表日の12時間二列が一日列を除き、近距離の値と欠測を保つ', () => {
+  const table = buildDetailTable(overlapResponse());
+  assert.deepEqual(
+    table.columns.map((column) => `${column.segment}:${column.timeId}`),
+    ['near:1', 'near:2'],
+  );
+  assert.deepEqual(
+    table.rows.map((row) => [row.label, ...row.cells]),
+    [
+      ['大雨', 'high', 'missing'],
+      ['土砂災害', 'medium', 'none'],
+    ],
+  );
+});
+
+test('全被覆: 6時間四列・包含・完全一致・重なりを実時刻で判定する', () => {
+  const cases: [string, string, string][][] = [
+    [
+      ['1', '2026-09-30T15:00:00Z', '2026-09-30T21:00:00Z'],
+      ['2', '2026-09-30T21:00:00Z', '2026-10-01T03:00:00Z'],
+      ['3', '2026-10-01T03:00:00Z', '2026-10-01T09:00:00Z'],
+      ['4', '2026-10-01T09:00:00Z', '2026-10-01T15:00:00Z'],
+    ],
+    [['1', '2026-09-30T12:00:00Z', '2026-10-01T18:00:00Z']],
+    [['1', '2026-09-30T15:00:00Z', '2026-10-01T15:00:00Z']],
+    [overlapDay],
+    [
+      ['1', '2026-09-30T15:00:00Z', '2026-10-01T09:00:00Z'],
+      ['2', '2026-10-01T03:00:00Z', '2026-10-01T15:00:00Z'],
+    ],
+  ];
+  const expected = [
+    ['near:1', 'near:2', 'near:3', 'near:4'],
+    ['near:1'],
+    ['near:1'],
+    ['near:1'],
+    ['near:1', 'near:2'],
+  ];
+  cases.forEach((dates, index) =>
+    assert.deepEqual(columnIds(overlapResponse(dates)), expected[index]),
+  );
+});
+
+test('全被覆: 逆順入力でも隣接・過去・未来の遠距離を時刻順に残し、同一IDの値を分離する', () => {
+  const base = overlapResponse([...overlapHalves].reverse());
+  const data = {
+    ...base,
+    far: segment(
+      'far',
+      '2026-09-27T09:00:00+09:00',
+      [
+        ['2', '2026-10-02T00:00:00+09:00', '2026-10-03T00:00:00+09:00'],
+        overlapDay,
+        ['1', '2026-09-30T00:00:00+09:00', '2026-10-01T00:00:00+09:00'],
+      ],
+      [rain('1', '雨の警報級の可能性', 'なし'), rain('2', '雨の警報級の可能性', '中')],
+    ),
+  };
+  assert.deepEqual(columnIds(data), ['far:1', 'near:1', 'near:2', 'far:2']);
+  assert.deepEqual(
+    buildDetailTable(data).rows.map((row) => [row.label, ...row.cells]),
+    [
+      ['大雨', 'none', 'high', 'missing', 'medium'],
+      ['土砂災害', 'none', 'medium', 'none', 'medium'],
+    ],
+  );
+});
+
+test('全被覆: staleの近距離は使い、unavailable・データなしは遠距離を隠さない', () => {
+  const base = overlapResponse();
+  const stale = {
+    ...base,
+    near: { ...base.near, metadata: { ...base.near.metadata, availability: 'stale' as const } },
+  };
+  assert.deepEqual(columnIds(stale), ['near:1', 'near:2']);
+  const unavailable = {
+    ...base,
+    near: {
+      ...base.near,
+      metadata: { ...base.near.metadata, availability: 'unavailable' as const },
+    },
+  };
+  assert.deepEqual(columnIds(unavailable), ['far:1']);
+  assert.deepEqual(columnIds({ ...base, near: { ...base.near, data: null } }), ['far:1']);
+});
+
+test('全被覆: 穴がある場合と部分交差では遠距離の元の期間を残す', () => {
+  const cases: [string, string, string][][] = [
+    [['1', '2026-10-01T00:00:00+09:00', '2026-10-01T06:00:00+09:00'], overlapHalves[1]!],
+    [overlapHalves[1]!],
+  ];
+  for (const dates of cases) {
+    assert.deepEqual(
+      buildDetailTable(overlapResponse(dates))
+        .columns.filter((c) => c.segment === 'far')
+        .map((c) => [c.timeId, c.timeFrom, c.timeTo]),
+      [overlapDay],
+    );
+  }
+});
+
+test('全被覆: 詳細の見出しとセル位置を揃え、遠距離の雨だけ縦結合する', () => {
+  const base = overlapResponse();
+  const data = {
+    ...base,
+    far: segment(
+      'far',
+      base.far.metadata.issuedAt,
+      [overlapDay, ['2', '2026-10-02T00:00:00+09:00', '2026-10-03T00:00:00+09:00']],
+      [rain('1', '雨の警報級の可能性', '高'), rain('2', '雨の警報級の可能性', '中')],
+    ),
+  };
+  const html = renderToStaticMarkup(
+    createElement(EarlyWarningDetail, {
+      table: buildDetailTable(data),
+      now: Date.parse('2026-10-01T00:00:00+09:00'),
+    }),
+  );
+  const head = html.match(/<thead>(.*?)<\/thead>/)?.[1] ?? '';
+  assert.deepEqual(
+    [...head.matchAll(/data-column-key="([^"]+)"/g)].map((m) => m[1]),
+    ['near:1:0', 'near:2:1', 'far:2:1'],
+  );
+  const body = html.match(/<tbody>(.*?)<\/tbody>/)?.[1] ?? '';
+  const rows = [...body.matchAll(/<tr[^>]*>(.*?)<\/tr>/g)].map((m) => m[1]!);
+  assert.deepEqual(
+    rows.map((row) =>
+      [...row.matchAll(/<td([^>]*)>(.*?)<\/td>/g)].map((m) => [
+        m[1]?.includes('rowSpan="2"') ? 2 : 1,
+        m[2]?.match(/aria-label="([^"]+)"/)?.[1],
+      ]),
+    ),
+    [
+      [
+        [1, '大雨、2026年10月1日(木) 0-12時、高'],
+        [1, '大雨、2026年10月1日(木) 12-24時、欠測'],
+        [2, '大雨・土砂災害、雨の警報級の可能性、2026年10月2日(金) 0-24時、中'],
+      ],
+      [
+        [1, '土砂災害、2026年10月1日(木) 0-12時、中'],
+        [1, '土砂災害、2026年10月1日(木) 12-24時、高・中の表示なし'],
+      ],
+    ],
+  );
+});
