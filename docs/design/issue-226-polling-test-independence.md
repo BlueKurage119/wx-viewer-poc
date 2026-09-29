@@ -118,3 +118,5 @@ mainの設定注入口は存在しないため、B18をstartServerテストへ�
 4.3初回XMLログとAC17/18復旧後初期取得の有効`startServer`は、`schedulerOptions.now`だけを渡していたため、既定のnowcast・kikikuru・amedasアダプターが起動時に実行され得た。両方のJST 12:00・22:00ケースへ対象外3アダプターの`runScheduled`・`runManual`空実装を明示し、XML側の既存`pollingService`または`pollingServiceOptions.fetchFn`は維持した。テスト単位で`globalThis.fetch`を通信禁止スタブへ差し替え、正常close後まで対象外のHTTP取得が0回であることをアサートする。各テストのfinallyまたは起動前に登録したafterで、close失敗時も元のfetchを復元する。
 
 隔離コピーの対照では2ファイル31件が成功した。続けてadapter配列だけを一時的に外すと、4.3昼夜各ケースで5回、AC17/18昼夜各ケースで2回の通信企図を検出し、4件が期待どおり失敗した。最終差分にこの変異は含めない。
+
+P1のcleanupはNodeのafter登録順に従い、起動前に登録したcleanupの先頭で復旧gateを解放してから起動Promiseのcloseを待つ。これにより、gate解放前のアサーション失敗でも待機した起動Promiseと循環しない。隔離コピーでこの期待値を昼夜とも意図的に失敗させると、2件失敗・16件成功で約5.6秒以内に終了し、後続の`globalThis.fetch`復元確認も成功した。

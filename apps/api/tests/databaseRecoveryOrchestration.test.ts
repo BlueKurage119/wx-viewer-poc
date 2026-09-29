@@ -670,6 +670,7 @@ for (const [jstTime, fixedNow] of [
     const startup: { promise?: ReturnType<typeof startServer> } = {};
     t.after(async () => {
       try {
+        release();
         await startup.promise?.then((server) => server.close()).catch(() => undefined);
       } finally {
         globalThis.fetch = originalFetch;
@@ -707,7 +708,6 @@ for (const [jstTime, fixedNow] of [
       },
     });
     startup.promise = starting;
-    t.after(() => release());
     t.after(() => rmSync(directory, { recursive: true, force: true }));
     // server.ts の起動時復旧は VENUE_IDS を for...of で逐次 await するため、
     // 会場は同時にではなく1つずつ recover を呼び出す(2会場が同時にゲート待機することはない)。
