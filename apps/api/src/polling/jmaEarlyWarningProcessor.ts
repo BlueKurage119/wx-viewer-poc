@@ -1,4 +1,4 @@
-import { getVenueRegistry, type UtcIso8601String, type VenueId } from '@wx-viewer-poc/shared';
+import type { UtcIso8601String, VenueId, VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   upsertTelegramReceptionAdoption,
@@ -92,16 +92,17 @@ export function processEarlyWarningReceptionForVenues(
   connection: DatabaseConnection,
   reception: TelegramReception,
   processedAt: UtcIso8601String,
+  registry: VenueRegistry,
 ): readonly { readonly venueId: VenueId; readonly result: EarlyWarningParseResult }[] {
   const groups = new Map<string, VenueId[]>();
-  for (const venue of getVenueRegistry().listVenues()) {
+  for (const venue of registry.listVenues()) {
     const key = venue.broadForecast.areaCode;
     groups.set(key, [...(groups.get(key) ?? []), venue.venueId]);
   }
   const outcomes: { venueId: VenueId; result: EarlyWarningParseResult }[] = [];
   const tx = connection.transaction(() => {
     for (const venueIds of groups.values()) {
-      const venue = getVenueRegistry().getVenue(venueIds[0]!);
+      const venue = registry.getVenue(venueIds[0]!);
       const target = {
         forecastAreaCode: venue.broadForecast.areaCode,
         displayName: venue.broadForecast.displayName,

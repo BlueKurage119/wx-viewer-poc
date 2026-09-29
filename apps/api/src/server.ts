@@ -559,7 +559,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             });
 
           if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection);
-          reprocessPendingVenueForecastReceptions(database.connection, clock() as UtcIso8601String);
+          reprocessPendingVenueForecastReceptions(
+            database.connection,
+            clock() as UtcIso8601String,
+            venueConfig.registry,
+          );
           for (const venueId of hasWarningRecoveryTables(database.connection) ? VENUE_IDS : []) {
             const venue = resolveVenueWarningContext(venueId);
             await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
@@ -588,6 +592,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             options.pollingService ??
             new JmaXmlPollingService(database.connection, {
               freshnessPolicy: schedule.freshness.xml,
+              venueRegistry: venueConfig.registry,
               warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
               bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
               ...options.pollingServiceOptions,

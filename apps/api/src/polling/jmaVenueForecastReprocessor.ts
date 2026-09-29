@@ -1,4 +1,4 @@
-import { getVenueRegistry, type UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { UtcIso8601String, VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   findTelegramReceptionById,
@@ -16,8 +16,8 @@ import { processVpfd51ReceptionForVenues } from './jmaVpfd51Processor.js';
 export function reprocessPendingVenueForecastReceptions(
   connection: DatabaseConnection,
   processedAt: UtcIso8601String,
+  registry: VenueRegistry,
 ): number {
-  const registry = getVenueRegistry();
   let offset = 0;
   let processed = 0;
   for (;;) {
@@ -38,8 +38,8 @@ export function reprocessPendingVenueForecastReceptions(
       const reception = findTelegramReceptionById(connection, summary.id);
       if (!reception) continue;
       if (reception.telegramType === VPFD51_TELEGRAM_TYPE)
-        processVpfd51ReceptionForVenues(connection, reception, processedAt);
-      else processEarlyWarningReceptionForVenues(connection, reception, processedAt);
+        processVpfd51ReceptionForVenues(connection, reception, processedAt, registry);
+      else processEarlyWarningReceptionForVenues(connection, reception, processedAt, registry);
       processed += 1;
     }
     if (page.length < 1000) return processed;

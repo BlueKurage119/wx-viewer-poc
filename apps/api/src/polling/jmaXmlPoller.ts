@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { VENUE_IDS, type UtcIso8601String } from '@wx-viewer-poc/shared';
+import { VENUE_IDS, type UtcIso8601String, type VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import { recordFetchAttempt } from '../repositories/fetchAttemptRepository.js';
 import {
@@ -49,6 +49,7 @@ import type { WarningNotificationEmitDeps } from '../notifications/warningNotifi
 import type { BosaiNotificationEmitDeps } from '../notifications/bosaiBulletinNotificationEmitter.js';
 
 export interface PollerContextOptions extends ParseAtomFeedOptions {
+  readonly venueRegistry?: VenueRegistry;
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
   readonly timeoutMs?: number;
@@ -335,9 +336,16 @@ export async function pollSingleFeed(
       reception.telegramType === VPFD61_TELEGRAM_TYPE ||
       reception.telegramType === VPFW60_TELEGRAM_TYPE
     ) {
-      processEarlyWarningReceptionForVenues(connection, reception, docFinishedAt);
+      if (!options?.venueRegistry) throw new Error('C5/C6 には会場レジストリが必要です');
+      processEarlyWarningReceptionForVenues(
+        connection,
+        reception,
+        docFinishedAt,
+        options.venueRegistry,
+      );
     } else if (reception.telegramType === VPFD51_TELEGRAM_TYPE) {
-      processVpfd51ReceptionForVenues(connection, reception, docFinishedAt);
+      if (!options?.venueRegistry) throw new Error('C5/C6 には会場レジストリが必要です');
+      processVpfd51ReceptionForVenues(connection, reception, docFinishedAt, options.venueRegistry);
     } else if (reception.telegramType === VPBS50_TELEGRAM_TYPE) {
       processVpbs50Reception(
         connection,
