@@ -656,6 +656,25 @@ for (const [jstTime, fixedNow] of [
       release = resolve;
     });
     let fetchCount = 0;
+    const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
+      source,
+      runScheduled: async () => {},
+      runManual: async () => {},
+    });
+    const originalFetch = globalThis.fetch;
+    let unintendedFetchCount = 0;
+    globalThis.fetch = async () => {
+      unintendedFetchCount += 1;
+      throw new Error('AC17/18の対象外アダプターはHTTP取得してはならない');
+    };
+    const startup: { promise?: ReturnType<typeof startServer> } = {};
+    t.after(async () => {
+      try {
+        await startup.promise?.then((server) => server.close()).catch(() => undefined);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
     const waitingVenues = new Set<string>();
     const alwaysOnSchedule = createAlwaysOnTestPollingSchedule();
     const starting = startServer({
@@ -672,7 +691,10 @@ for (const [jstTime, fixedNow] of [
           );
         },
       },
-      schedulerOptions: { now: () => new Date(fixedNow) },
+      schedulerOptions: {
+        now: () => new Date(fixedNow),
+        adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+      },
       recoveryInternals: {
         recover: async (
           _connection: Parameters<typeof recoverWarningCurrent>[0],
@@ -684,10 +706,8 @@ for (const [jstTime, fixedNow] of [
         },
       },
     });
-    t.after(async () => {
-      release();
-      await starting.then((server) => server.close()).catch(() => undefined);
-    });
+    startup.promise = starting;
+    t.after(() => release());
     t.after(() => rmSync(directory, { recursive: true, force: true }));
     // server.ts の起動時復旧は VENUE_IDS を for...of で逐次 await するため、
     // 会場は同時にではなく1つずつ recover を呼び出す(2会場が同時にゲート待機することはない)。
@@ -702,6 +722,7 @@ for (const [jstTime, fixedNow] of [
     const server = await starting;
     await waitUntil(() => fetchCount > 0, 5000, '全会場復旧完了後に上流取得が開始する');
     await server.close();
+    assert.equal(unintendedFetchCount, 0, '対象外アダプターがHTTP取得を試みないこと');
 
     const disabledDb = join(directory, 'disabled.sqlite3');
     const apiDirectory = join(fileURLToPath(import.meta.url), '../..');

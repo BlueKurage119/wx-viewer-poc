@@ -292,6 +292,17 @@ for (const [jstTime, fixedNow] of [
       const originalError = console.error;
       const consoleLogs: string[] = [];
       const consoleErrors: string[] = [];
+      const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
+        source,
+        runScheduled: async () => {},
+        runManual: async () => {},
+      });
+      const originalFetch = globalThis.fetch;
+      let unintendedFetchCount = 0;
+      globalThis.fetch = async () => {
+        unintendedFetchCount += 1;
+        throw new Error('4.3の対象外アダプターはHTTP取得してはならない');
+      };
 
       console.log = (...args: unknown[]) => {
         consoleLogs.push(args.map(String).join(' '));
@@ -309,7 +320,10 @@ for (const [jstTime, fixedNow] of [
           pollingSchedule: createAlwaysOnTestPollingSchedule(),
           pollingService: fakePollingService,
           pollingServiceOptions: { clock: () => fixedNow },
-          schedulerOptions: { now: () => new Date(fixedNow) },
+          schedulerOptions: {
+            now: () => new Date(fixedNow),
+            adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+          },
         });
 
         assert.ok(capturedPhaseListener, 'onInitialFetchPhaseChange リスナーが登録されていること');
@@ -337,8 +351,13 @@ for (const [jstTime, fixedNow] of [
       } finally {
         console.log = originalLog;
         console.error = originalError;
-        if (server) {
-          await server.close();
+        try {
+          if (server) {
+            await server.close();
+          }
+          assert.equal(unintendedFetchCount, 0, '対象外アダプターがHTTP取得を試みないこと');
+        } finally {
+          globalThis.fetch = originalFetch;
         }
       }
     } finally {

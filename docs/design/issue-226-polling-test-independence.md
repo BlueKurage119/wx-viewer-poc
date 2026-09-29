@@ -112,3 +112,9 @@ mainの設定注入口は存在しないため、B18をstartServerテストへ�
 次の既存アサーションを、JST 12:00（UTC 03:00）と22:00（UTC 13:00）の両方で実行するようにした。`serverFetchHealthStartup`の異常監視検知、`serverGracefulShutdownTiming`の初期取得中シグナル2件、`reprocessProgressLogs`の4.3初回XMLログと4.4監視API、`issue178ManualRefreshWhileStopped`のR3停止後手動サイクル、`databaseRecoveryOrchestration`のAC17/18復旧後初期取得である。時刻は各テスト名に含め、起動・DBを伴うケースは時刻ごとに一時DBを作成して相互に状態を共有しない。
 
 再検収指摘の対象6ファイルは、時刻識別名への整理後に`node --import tsx --test`で61件成功、0件失敗、正常終了した。最終の`npm run test -w apps/api`は760件成功、0件失敗、正常終了した。直前の同コマンドの初回試行では、非変更の`jmaXmlPolling.test.ts` 23-3bが1件失敗した。`ManualTimerScheduler.advanceTime`がcallback後に`setImmediate`と固定20msだけを待って戻り、HTTP完了がそれを超えると件数アサーションが早過ぎる既存構造であることを確認した。本Issueの変更との因果は断定せず、設計で先送りした一般的な待機改善は行わず、重い検証を並走させない再試行で上記の最終結果を得た。
+
+### PR #235 P1への製造追記
+
+4.3初回XMLログとAC17/18復旧後初期取得の有効`startServer`は、`schedulerOptions.now`だけを渡していたため、既定のnowcast・kikikuru・amedasアダプターが起動時に実行され得た。両方のJST 12:00・22:00ケースへ対象外3アダプターの`runScheduled`・`runManual`空実装を明示し、XML側の既存`pollingService`または`pollingServiceOptions.fetchFn`は維持した。テスト単位で`globalThis.fetch`を通信禁止スタブへ差し替え、正常close後まで対象外のHTTP取得が0回であることをアサートする。各テストのfinallyまたは起動前に登録したafterで、close失敗時も元のfetchを復元する。
+
+隔離コピーの対照では2ファイル31件が成功した。続けてadapter配列だけを一時的に外すと、4.3昼夜各ケースで5回、AC17/18昼夜各ケースで2回の通信企図を検出し、4件が期待どおり失敗した。最終差分にこの変異は含めない。
