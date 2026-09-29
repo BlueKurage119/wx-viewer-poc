@@ -20,13 +20,13 @@ if (process.env.WX_TEST_UPSTREAM_MARKER) {
 
 fs.readFileSync = function readFileSyncForPollingFixture(path, ...options) {
   const requested = path instanceof URL ? path.href : String(path);
-  if (requested === localConfigUrl && process.env.WX_TEST_LOCAL_POLLING_ABSENT === 'true') {
+  if (requested === localConfigUrl) {
+    if (process.env.WX_TEST_LOCAL_POLLING_YAML !== undefined) {
+      return process.env.WX_TEST_LOCAL_POLLING_YAML;
+    }
     const error = new Error('テスト用ローカルファイル不在');
     error.code = 'ENOENT';
     throw error;
-  }
-  if (requested === localConfigUrl && process.env.WX_TEST_LOCAL_POLLING_YAML !== undefined) {
-    return process.env.WX_TEST_LOCAL_POLLING_YAML;
   }
   if (requested === defaultConfigPath || requested === defaultConfigUrl) {
     return originalReadFileSync.call(fs, fixturePath, ...options);

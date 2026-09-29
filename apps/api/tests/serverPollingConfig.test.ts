@@ -177,7 +177,6 @@ test('実プロセスも同じ形式の成功ログを一度表示する', async
         NODE_ENV: 'development',
         DISABLE_POLLING: 'true',
         WX_VIEWER_DB_PATH: path.join(directory, 'test.sqlite3'),
-        WX_TEST_LOCAL_POLLING_ABSENT: 'true',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -212,5 +211,31 @@ test('実プロセスも同じ形式の成功ログを一度表示する', async
     child.kill('SIGTERM');
     await new Promise((resolve) => child.once('close', resolve));
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('共有fixtureのプリロードは利用者のローカル設定を隔離する', async () => {
+  const originalLocalYaml = process.env.WX_TEST_LOCAL_POLLING_YAML;
+  delete process.env.WX_TEST_LOCAL_POLLING_YAML;
+  fs.readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
+    if (file instanceof URL && file.href === LOCAL_CONFIG_URL.href) {
+      return 'tileDeliveryProfile: jma-direct';
+    }
+    return originalRead(file, ...(args as [BufferEncoding]));
+  }) as typeof fs.readFileSync;
+  syncBuiltinESMExports();
+  try {
+    await import(
+      new URL('./helpers/pollingConfigPreload.mjs?issue234-isolation', import.meta.url).href
+    );
+    assert.throws(
+      () => fs.readFileSync(LOCAL_CONFIG_URL, 'utf-8'),
+      (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+    );
+  } finally {
+    fs.readFileSync = originalRead;
+    syncBuiltinESMExports();
+    if (originalLocalYaml === undefined) delete process.env.WX_TEST_LOCAL_POLLING_YAML;
+    else process.env.WX_TEST_LOCAL_POLLING_YAML = originalLocalYaml;
   }
 });
