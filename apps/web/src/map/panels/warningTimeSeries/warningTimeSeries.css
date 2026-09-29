@@ -191,12 +191,18 @@
   white-space: normal;
 }
 
-/*
- * 3時間表: 右端の「備考」列を固定する(§4.4、既存 detail.css は変更しない)。
- * 左の縦線(§2.1-35・§4.6.2)は border-inline-start ではなく box-shadow で描く。
- * detail.css の .detail-ts-table は border-collapse: collapse のため、固定(sticky)列の
- * border-inline-start はスクロール時に隣のセル側へ描かれて消えることがある(§4.6.2)。
- */
+/* 絞り込みで行が減っても固定セルの罫線が欠けないよう、罫線を各セルで描く。 */
+.wts-detail-3h .detail-ts-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* 先頭の日付境界は行見出しの右罫線と重なるため、二重線にしない。 */
+.wts-detail-3h .detail-ts-table tr > :nth-child(2) {
+  border-inline-start: 0;
+}
+
+/* 3時間表: 右端の「備考」列を固定し、左の区切り線はセル内に描く(§4.4・§4.6.2)。 */
 .wts-detail-3h .detail-ts-table tr > :last-child {
   position: sticky;
   inset-inline-end: 0;
