@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
@@ -12,6 +12,50 @@ import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const originalRead = fs.readFileSync;
 const shared = originalRead(DEFAULT_CONFIG_URL, 'utf-8');
+
+async function readChildPollingLog(
+  child: ChildProcess,
+  directory: string,
+  timeoutMs = 10000,
+): Promise<string> {
+  let output = '';
+  let spawnError: Error | undefined;
+  child.once('error', (error) => {
+    spawnError = error;
+  });
+  const closed = new Promise<number | null>((resolve) => {
+    child.once('close', resolve);
+  });
+  let onLog!: () => void;
+  const logged = new Promise<void>((resolve) => {
+    onLog = resolve;
+  });
+  const capture = (chunk: string) => {
+    output += chunk;
+    if (output.includes('ポーリング設定:')) onLog();
+  };
+  child.stdout?.setEncoding('utf-8').on('data', capture);
+  child.stderr?.setEncoding('utf-8').on('data', capture);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`起動ログ待機タイムアウト: ${output}`)), timeoutMs);
+  });
+  try {
+    await Promise.race([
+      logged,
+      closed.then((code) => {
+        throw spawnError ?? new Error(`起動前に終了しました (${code}): ${output}`);
+      }),
+      timedOut,
+    ]);
+    return output;
+  } finally {
+    if (timer) clearTimeout(timer);
+    child.kill('SIGTERM');
+    await closed;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
 
 function mockLocal(content: string | null): () => void {
   fs.readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
@@ -181,37 +225,22 @@ test('実プロセスも同じ形式の成功ログを一度表示する', async
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
-  let output = '';
-  child.stdout.setEncoding('utf-8').on('data', (chunk: string) => (output += chunk));
-  child.stderr.setEncoding('utf-8').on('data', (chunk: string) => (output += chunk));
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`起動ログ待機タイムアウト: ${output}`)),
-        10000,
-      );
-      const inspect = () => {
-        if (output.includes('ポーリング設定:')) {
-          clearTimeout(timer);
-          resolve();
-        }
-      };
-      child.stdout.on('data', inspect);
-      child.stderr.on('data', inspect);
-      child.once('error', reject);
-      child.once('close', (code) => reject(new Error(`起動前に終了しました (${code}): ${output}`)));
-    });
-    assert.equal(
-      output.match(
-        /ポーリング設定: 読み込み元=config\/polling.yaml; ローカル上書き=なし（ファイルなし）/g,
-      )?.length,
-      1,
-    );
-  } finally {
-    child.kill('SIGTERM');
-    await new Promise((resolve) => child.once('close', resolve));
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
+  const output = await readChildPollingLog(child, directory);
+  assert.equal(
+    output.match(
+      /ポーリング設定: 読み込み元=config\/polling.yaml; ローカル上書き=なし（ファイルなし）/g,
+    )?.length,
+    1,
+  );
+});
+
+test('子プロセスが起動ログ前に終了しても後始末が完了する', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'polling-child-early-exit-'));
+  const child = spawn(process.execPath, ['-e', 'process.exit(17)'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  await assert.rejects(readChildPollingLog(child, directory, 1000), /起動前に終了しました \(17\)/);
+  assert.equal(fs.existsSync(directory), false);
 });
 
 test('共有fixtureのプリロードは利用者のローカル設定を隔離する', async () => {
