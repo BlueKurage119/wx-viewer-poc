@@ -758,6 +758,8 @@ export interface ListTelegramReceptionsOptions {
   /** 指定した値の行だけを返す。NULL（不明）の行は返さない（§3.6）。 */
   readonly controlStatus?: ControlStatus;
   readonly telegramType?: string;
+  /** 受信順。省略時は監視履歴向けの新しい順。 */
+  readonly receivedAtOrder?: 'asc' | 'desc';
   readonly infoType?: string;
   readonly areaCode?: string;
   readonly documentUrl?: string;

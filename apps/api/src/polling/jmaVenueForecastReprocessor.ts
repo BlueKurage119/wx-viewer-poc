@@ -12,7 +12,12 @@ import {
 import { processEarlyWarningReceptionForVenues } from './jmaEarlyWarningProcessor.js';
 import { processVpfd51ReceptionForVenues } from './jmaVpfd51Processor.js';
 
-/** 新会場に採用行がない既存 C5/C6 原文だけを起動前に再処理する。 */
+/**
+ * 新会場に採用行がない既存 C5/C6 原文だけを起動前に再処理する。
+ *
+ * snapshot は各対象キーで上書き保存されるため、受信時刻の古い順に再生する。同時刻は
+ * telegram_reception.id の小さい順（登録順）とし、ページ境界でもこの全順序を維持する。
+ */
 export function reprocessPendingVenueForecastReceptions(
   connection: DatabaseConnection,
   processedAt: UtcIso8601String,
@@ -21,7 +26,11 @@ export function reprocessPendingVenueForecastReceptions(
   let offset = 0;
   let processed = 0;
   for (;;) {
-    const page = listTelegramReceptions(connection, { limit: 1000, offset });
+    const page = listTelegramReceptions(connection, {
+      limit: 1000,
+      offset,
+      receivedAtOrder: 'asc',
+    });
     for (const summary of page) {
       if (
         summary.telegramType !== VPFD61_TELEGRAM_TYPE &&

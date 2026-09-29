@@ -411,6 +411,11 @@ export function listTelegramReceptions(
   }
 
   const { whereClause, params } = buildTelegramReceptionsFilter(options);
+  const receivedAtOrder = options?.receivedAtOrder ?? 'desc';
+  if (receivedAtOrder !== 'asc' && receivedAtOrder !== 'desc') {
+    throw new Error(`receivedAtOrder must be asc or desc: ${String(receivedAtOrder)}`);
+  }
+  const orderDirection = receivedAtOrder === 'asc' ? 'ASC' : 'DESC';
   const sql = `
     SELECT
       t.id, t.fetch_attempt_id, t.feed_kind, t.feed_entry_id, t.document_url,
@@ -421,7 +426,7 @@ export function listTelegramReceptions(
       t.body_bytes, t.content_hash
     FROM telegram_reception t
     ${whereClause}
-    ORDER BY t.received_at DESC, t.id DESC
+    ORDER BY t.received_at ${orderDirection}, t.id ${orderDirection}
     LIMIT ? OFFSET ?
   `;
 

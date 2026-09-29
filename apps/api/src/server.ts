@@ -134,6 +134,16 @@ function hasTelegramReceptionTable(
   );
 }
 
+function reprocessVenueForecastBeforeWarningRecovery(
+  connection: ReturnType<typeof initializeDatabase>['connection'],
+  processedAt: UtcIso8601String,
+  registry: VenueRegistry,
+): void {
+  if (hasTelegramReceptionTable(connection)) {
+    reprocessPendingVenueForecastReceptions(connection, processedAt, registry);
+  }
+}
+
 export function createStartupNotificationRuntime(
   connection: ReturnType<typeof initializeDatabase>['connection'],
   clock: () => string,
@@ -584,13 +594,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
           if (enablePolling)
             recoverLegacyVphwBulletinAreas(database.connection, venueConfig.registry);
-          if (hasTelegramReceptionTable(database.connection)) {
-            reprocessPendingVenueForecastReceptions(
-              database.connection,
-              clock() as UtcIso8601String,
-              venueConfig.registry,
-            );
-          }
+          reprocessVenueForecastBeforeWarningRecovery(
+            database.connection,
+            clock() as UtcIso8601String,
+            venueConfig.registry,
+          );
           for (const venueId of hasWarningRecoveryTables(database.connection)
             ? venueConfig.registry.listVenueIds()
             : []) {
@@ -983,6 +991,11 @@ async function main(): Promise<void> {
     });
 
     if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection, venueConfig.registry);
+    reprocessVenueForecastBeforeWarningRecovery(
+      database.connection,
+      clock() as UtcIso8601String,
+      venueConfig.registry,
+    );
     for (const venueId of hasWarningRecoveryTables(database.connection)
       ? venueConfig.registry.listVenueIds()
       : []) {
