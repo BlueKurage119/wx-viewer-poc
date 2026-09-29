@@ -1,8 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AreaTimeseriesResponse } from '@wx-viewer-poc/shared';
 import { GbButton } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
-import { DetailTimeSeriesTable, type TimeSeriesRow } from '../../detail/DetailTimeSeriesTable';
+import {
+  DetailTimeSeriesTable,
+  type TimeSeriesCell,
+  type TimeSeriesColumn,
+  type TimeSeriesRow,
+} from '../../detail/DetailTimeSeriesTable';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import {
   buildAreaForecastModel,
@@ -20,6 +25,8 @@ import {
 } from './areaForecastModel';
 import type { LevelView } from './windSpeedLevel';
 import { useFontLoading, type FontLoadingStatus } from './useFontLoading';
+import { TemperatureChart, TemperatureChartHeader } from './TemperatureChart';
+import { buildTemperatureChartGrid } from './temperatureChartModel';
 
 /** 風向の矢羽根枠(24×24px固定)。矢羽根(塗り1層)／漢字代替／「ー」／「?」のいずれか1つだけを枠内に表示する
  * (§4.1a、§7、確定事項13: 風向の漢字は画面から消し aria-label にのみ残す)。 */
@@ -262,6 +269,13 @@ function AreaForecastPanelTable({
   );
 }
 
+/** 初期スクロールで左へ戻す幅: 先頭余白列(1.25rem)と同じく、時刻見出し(最大2桁)の左半分が収まる幅 */
+const INITIAL_SCROLL_LABEL_MARGIN_PX = 20;
+
+function stripHourSuffix(label: string): string {
+  return label.replace(/時$/, '');
+}
+
 /** 詳細ダイアログ (全区間・全時点を横スクロール、日付＋時点の2段見出し) */
 export function AreaForecastDetail({
   table,
@@ -272,71 +286,147 @@ export function AreaForecastDetail({
   readonly now: number;
   readonly fontStatus: FontLoadingStatus;
 }) {
-  // 共用部品は columns の変化で初期列へスクロールし直すため、毎秒の再描画で配列を作り直さない
-  const columns = useMemo(
-    () =>
-      table.columns.map((col) => ({
-        key: col.key,
-        at: col.at,
-        timeLabel: col.label,
-        ariaTimeLabel: col.label,
-        width: '4rem',
-      })),
-    [table.columns],
+  const grid = useMemo(
+    () => buildTemperatureChartGrid(table.columns, table.intervals, table.points),
+    [table.columns, table.intervals, table.points],
   );
 
-  if (table.columns.length === 0) {
+  // 共用部品は columns の変化で初期列へスクロールし直すため、毎秒の再描画で配列を作り直さない
+  // 先頭余白列(1.25rem) + 区間列(4rem) + 末尾余白列(2.5rem)
+  const columns = useMemo<TimeSeriesColumn[]>(() => {
+    if (grid.intervalColumns.length === 0) return [];
+
+    const firstCol = grid.intervalColumns[0]!;
+    const padStart: TimeSeriesColumn = {
+      key: 'af-pad-start',
+      at: firstCol.at,
+      timeLabel: '',
+      ariaTimeLabel: '',
+      width: '1.25rem',
+    };
+
+    const intervalCols: TimeSeriesColumn[] = grid.intervalColumns.map((col) => ({
+      key: col.key,
+      at: col.at,
+      // 詳細の時刻見出しは「時」を省く(読み上げは「9時」のまま)
+      timeLabel: stripHourSuffix(col.label),
+      ariaTimeLabel: col.label,
+      width: '4rem',
+    }));
+
+    const padEnd: TimeSeriesColumn = {
+      key: 'af-pad-end',
+      // 右端の境目(翌日0時)だけのために日付見出しが出ないよう、直前の日に属する時刻とする。
+      // 読み上げは直前の日付に続けて「24時」と読ませる
+      at: new Date(Date.parse(grid.endBoundaryAt) - 1).toISOString(),
+      timeLabel: stripHourSuffix(grid.endBoundaryLabel),
+      ariaTimeLabel: grid.endBoundaryLabel === '0時' ? '24時' : grid.endBoundaryLabel,
+      width: '2.5rem',
+    };
+
+    return [padStart, ...intervalCols, padEnd];
+  }, [grid]);
+
+  const panelCols = selectPanelColumns(table.columns, table.intervals, now);
+  const initialColumnKey = panelCols[0]?.key ?? grid.intervalColumns[0]?.key;
+
+  // 共用部品は初期列の左端(境目)を行見出しの右端に合わせる。境目に中心を置いた時刻見出しの
+  // 左半分が隠れるため、時刻の数字の分だけ左へ戻す(UI監修 2026-09-29)。
+  // 子(共用部品)の effect の後に実行され、scroll イベントで見出し側も同期される
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const body = wrapRef.current?.querySelector<HTMLElement>('.detail-ts-scroll');
+    if (!body || !initialColumnKey) return;
+    body.scrollLeft = Math.max(0, body.scrollLeft - INITIAL_SCROLL_LABEL_MARGIN_PX);
+    const head = wrapRef.current?.querySelector<HTMLElement>('.detail-ts-head');
+    if (head) head.scrollLeft = body.scrollLeft;
+  }, [initialColumnKey, columns]);
+
+  if (table.columns.length === 0 || grid.intervalColumns.length === 0) {
     return <p className="af-message">発表された値はありません</p>;
   }
 
-  const weatherRowCells = table.intervals.map((int, i) => {
-    const col = table.columns[int.startIndex]!;
-    return {
-      key: `weather-int-${i}`,
-      span: int.span,
-      content: <WeatherCellView interval={int} column={col} fontStatus={fontStatus} />,
-    };
-  });
+  // 詳細では最終の気温だけの列を除くため、その列から始まる区間(kind none)も除いて列数と span を合わせる
+  const detailIntervals = table.intervals.filter(
+    (int) => int.startIndex + int.span <= grid.intervalColumns.length,
+  );
 
-  const windRowCells = table.intervals.map((int, i) => {
-    const col = table.columns[int.startIndex]!;
-    return {
-      key: `wind-int-${i}`,
-      span: int.span,
-      content: <WindCellView interval={int} column={col} fontStatus={fontStatus} />,
-    };
-  });
-
-  const tempRowCells = table.points.map((pt, i) => {
-    const col = table.columns[i]!;
-    return {
-      key: `temp-pt-${i}`,
+  const weatherRowCells: TimeSeriesCell[] = [
+    {
+      key: 'weather-pad-start',
       span: 1,
-      content: <TemperatureCellView point={pt} column={col} />,
-    };
-  });
+      content: <div className="af-cell-weather af-cell-none" />,
+    },
+    ...detailIntervals.map((int, i) => {
+      const col = table.columns[int.startIndex]!;
+      return {
+        key: `weather-int-${i}`,
+        span: int.span,
+        content: <WeatherCellView interval={int} column={col} fontStatus={fontStatus} />,
+      };
+    }),
+    {
+      key: 'weather-pad-end',
+      span: 1,
+      content: <div className="af-cell-weather af-cell-none" />,
+    },
+  ];
+
+  const windRowCells: TimeSeriesCell[] = [
+    {
+      key: 'wind-pad-start',
+      span: 1,
+      content: <div className="af-cell-wind af-cell-none" />,
+    },
+    ...detailIntervals.map((int, i) => {
+      const col = table.columns[int.startIndex]!;
+      return {
+        key: `wind-int-${i}`,
+        span: int.span,
+        content: <WindCellView interval={int} column={col} fontStatus={fontStatus} />,
+      };
+    }),
+    {
+      key: 'wind-pad-end',
+      span: 1,
+      content: <div className="af-cell-wind af-cell-none" />,
+    },
+  ];
+
+  const tempRowCells: TimeSeriesCell[] = [
+    {
+      key: 'temp-chart-cell',
+      span: columns.length,
+      content: (
+        <TemperatureChart grid={grid} columnWidths={columns.map((c) => c.width ?? '4rem')} />
+      ),
+    },
+  ];
 
   const rows: readonly TimeSeriesRow[] = [
     { key: 'weather', header: '天気', cells: weatherRowCells },
     { key: 'wind', header: '風（m/s）', cells: windRowCells },
-    { key: 'temperature', header: '気温', cells: tempRowCells },
+    {
+      key: 'temperature',
+      header: <TemperatureChartHeader />,
+      cells: tempRowCells,
+    },
   ];
 
-  const panelCols = selectPanelColumns(table.columns, table.intervals, now);
-  const initialColumnKey = panelCols[0]?.key ?? table.columns[0]?.key;
-
   return (
-    <DetailTimeSeriesTable
-      caption="地域時系列予報の全期間"
-      rowHeaderLabel="日（曜日）"
-      dateHeaderMode="day-weekday-on-change"
-      cornerLabels={{ date: '日（曜日）', time: '時刻' }}
-      columns={columns}
-      rows={rows}
-      initialColumnKey={initialColumnKey}
-      stickyHeader
-      bodyDateBoundaries
-    />
+    <div ref={wrapRef}>
+      <DetailTimeSeriesTable
+        caption="地域時系列予報の全期間"
+        rowHeaderLabel="日（曜日）"
+        dateHeaderMode="day-weekday-on-change"
+        cornerLabels={{ date: '日（曜日）', time: '時刻' }}
+        columns={columns}
+        rows={rows}
+        initialColumnKey={initialColumnKey}
+        stickyHeader
+        bodyDateBoundaries
+      />
+    </div>
   );
 }
 

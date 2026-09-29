@@ -30,7 +30,8 @@ export type WindView = {
 };
 
 export type TemperatureView =
-  { readonly kind: 'missing' } | { readonly kind: 'value'; readonly text: string }; // 例 "12℃", "-3℃"
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'value'; readonly text: string; readonly value: number | null }; // 例 "12℃", "-3℃"
 
 export type IntervalCell =
   | {
@@ -91,10 +92,10 @@ export function buildTemperatureView(
 ): TemperatureView {
   if (typeof valueNumber === 'number' && Number.isFinite(valueNumber)) {
     const u = unit === '度' ? '℃' : (unit ?? '℃');
-    return { kind: 'value', text: `${valueNumber}${u}` };
+    return { kind: 'value', text: `${valueNumber}${u}`, value: valueNumber };
   }
   if (valueText !== null && valueText !== '') {
-    return { kind: 'value', text: valueText };
+    return { kind: 'value', text: valueText, value: null };
   }
   return { kind: 'missing' };
 }

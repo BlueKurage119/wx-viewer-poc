@@ -204,3 +204,68 @@
 .af-detail .detail-ts-table td .af-cell-temperature {
   margin: 0 auto;
 }
+
+/* 詳細見出しのスタイリング (Issue #58 §3.2, §4.8) */
+/* 見出し表のセル(左上角を除く)ははみ出して見えるよう overflow: visible にする */
+.af-detail .detail-ts-head th:not(.detail-ts-corner) {
+  overflow: visible;
+}
+
+/* 時刻行の見出しセル(左上角を除く)を半列左へずらし、境目に中心を合わせる */
+.af-detail .detail-ts-head tr:last-child th:not(.detail-ts-corner) {
+  transform: translateX(-50%);
+  border-block-end: none;
+}
+
+/* 時刻行セルから消した下罫線を見出し表の下端に付け替える */
+.af-detail .detail-ts-head table {
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* 気温折れ線グラフ行 (Issue #58 §4.5, §4.8) */
+.af-detail .detail-ts-table td:has(> .af-temp-chart) {
+  padding: 0;
+}
+
+.af-temp-chart {
+  display: block;
+  inline-size: 100%;
+  block-size: 8rem;
+  overflow: visible;
+}
+
+.af-temp-chart-svg {
+  display: block;
+}
+
+.af-temp-chart-label {
+  paint-order: stroke;
+  stroke: var(--md-sys-color-surface-container-high);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-temp-chart-question,
+.af-temp-chart-empty {
+  font-variant-numeric: tabular-nums;
+}
+
+.af-temp-chart-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  block-size: 8rem;
+  padding-inline: 8px;
+  overflow-x: auto;
+  box-sizing: border-box;
+}
+
+.af-temp-chart-fallback-text {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface);
+  white-space: nowrap;
+}
