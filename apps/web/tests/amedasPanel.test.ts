@@ -3,8 +3,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { AmedasResponse } from '@wx-viewer-poc/shared';
+import {
+  createVenueRegistry,
+  type AmedasResponse,
+  type VenueForecastTargets,
+  type VenueId,
+} from '@wx-viewer-poc/shared';
 import { parseAmedasResponse } from '../src/api/amedas';
+import { testVenueRegistry } from './venueConfigPreload.ts';
 import { buildAmedasCard, buildAmedasFailedCard } from '../src/map/panels/amedas/useAmedas';
 import {
   AMEDAS_FIELDS,
@@ -23,6 +29,16 @@ import {
 } from '../src/map/panels/amedas/amedasModel';
 
 const at = '2026-09-28T00:00:00.000Z';
+const thirdVenueRegistry = createVenueRegistry(
+  [
+    ...testVenueRegistry.listVenues(),
+    {
+      ...testVenueRegistry.getVenue(testVenueRegistry.resolveVenueId('east')!),
+      venueId: 'third-venue' as VenueId,
+    } satisfies VenueForecastTargets,
+  ],
+  'third-venue-test',
+);
 (globalThis as unknown as { React: typeof React }).React = React;
 const response: AmedasResponse = {
   terminalId: 'htrcph01',
@@ -107,9 +123,29 @@ test('最新の同一観測行で負値・0・欠測・非提供を区別する'
 test('24時間の境界と会場・端末の応答整合を検証する', () => {
   assert.equal(recentAmedasRows(response, Date.parse(at)).length, 1);
   assert.equal(recentAmedasRows(response, Date.parse(at) + 25 * 60 * 60 * 1000).length, 0);
-  assert.equal(parseAmedasResponse(response, 'htrcph01', 'normal')?.venueId, 'trc');
-  assert.equal(parseAmedasResponse(response, 'hkeagh01', 'normal'), null);
-  assert.equal(parseAmedasResponse(response, 'htrcph01', 'training'), null);
+  assert.equal(
+    parseAmedasResponse(response, 'htrcph01', 'normal', testVenueRegistry)?.venueId,
+    'trc',
+  );
+  assert.equal(parseAmedasResponse(response, 'hkeagh01', 'normal', testVenueRegistry), null);
+  assert.equal(parseAmedasResponse(response, 'htrcph01', 'training', testVenueRegistry), null);
+});
+
+test('Issue #236: レジストリ登録済みの第3会場のアメダス応答を受理し、未知会場は拒否する', () => {
+  const thirdVenueResponse = { ...response, venueId: 'third-venue' };
+  assert.equal(
+    parseAmedasResponse(thirdVenueResponse, 'htrcph01', 'normal', thirdVenueRegistry)?.venueId,
+    'third-venue',
+  );
+  assert.equal(
+    parseAmedasResponse(
+      { ...thirdVenueResponse, venueId: 'unknown-venue' },
+      'htrcph01',
+      'normal',
+      thirdVenueRegistry,
+    ),
+    null,
+  );
 });
 
 test('保持値なしのHTTP失敗だけ通信異常とし、network失敗は取得不能を表示する', () => {

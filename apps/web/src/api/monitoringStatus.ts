@@ -1,7 +1,9 @@
-import type { MonitoringStatusResponse } from '@wx-viewer-poc/shared';
+import type { MonitoringStatusResponse, VenueRegistry } from '@wx-viewer-poc/shared';
+import { getCurrentVenueRegistry } from '../venueRegistryContext';
 
 export interface MonitoringStatusClientDependencies {
   readonly fetch: typeof fetch;
+  readonly registry: VenueRegistry;
 }
 
 export interface MonitoringStatusClient {
@@ -93,10 +95,10 @@ const KNOWN_INFORMATION_KINDS = new Set([
 
 const KNOWN_AVAILABILITY = new Set(['available', 'stale', 'unavailable']);
 
-function isInformationSection(value: unknown): boolean {
+function isInformationSection(value: unknown, registry: VenueRegistry): boolean {
   if (!isRecord(value)) return false;
   if (typeof value.kind !== 'string' || !KNOWN_INFORMATION_KINDS.has(value.kind)) return false;
-  if (value.venueId !== 'east' && value.venueId !== 'trc') return false;
+  if (!registry.resolveVenueId(value.venueId)) return false;
   if (typeof value.availability !== 'string' || !KNOWN_AVAILABILITY.has(value.availability))
     return false;
   if (!isNullableIsoDate(value.issuedAt)) return false;
@@ -130,11 +132,14 @@ function isTilesSection(value: unknown): boolean {
   return true;
 }
 
-function isMonitoringResponse(value: unknown): value is MonitoringStatusResponse {
+function isMonitoringResponse(
+  value: unknown,
+  registry: VenueRegistry,
+): value is MonitoringStatusResponse {
   if (!isRecord(value) || value.status !== 'ready' || typeof value.terminalId !== 'string')
     return false;
   if (
-    (value.requestedVenueId !== 'east' && value.requestedVenueId !== 'trc') ||
+    !registry.resolveVenueId(value.requestedVenueId) ||
     typeof value.serverGenerationId !== 'string' ||
     !isIsoDate(value.serverStartedAt) ||
     !isIsoDate(value.generatedAt)
@@ -177,14 +182,14 @@ function isMonitoringResponse(value: unknown): value is MonitoringStatusResponse
   if (
     !Array.isArray(value.venues) ||
     !Array.isArray(value.information) ||
-    !value.information.every(isInformationSection) ||
+    !value.information.every((information) => isInformationSection(information, registry)) ||
     !isTilesSection(value.tiles)
   )
     return false;
   return value.venues.every(
     (venue) =>
       isRecord(venue) &&
-      (venue.venueId === 'east' || venue.venueId === 'trc') &&
+      registry.resolveVenueId(venue.venueId) !== null &&
       typeof venue.startupEvaluated === 'boolean' &&
       isRecord(venue.reprocessing) &&
       ['idle', 'running', 'completed'].includes(String(venue.reprocessing.status)) &&
@@ -213,7 +218,7 @@ export function createMonitoringStatusClient(
       } catch {
         throw new Error('監視情報の応答JSONが不正です');
       }
-      if (!isMonitoringResponse(body) || body.terminalId !== terminalId) {
+      if (!isMonitoringResponse(body, dependencies.registry) || body.terminalId !== terminalId) {
         throw new Error('監視情報の応答形式が不正です');
       }
       return body;
@@ -228,7 +233,10 @@ export function fetchMonitoringStatus(
   signal?: AbortSignal,
 ): Promise<MonitoringStatusResponse> {
   if (defaultClient === null) {
-    defaultClient = createMonitoringStatusClient({ fetch: window.fetch.bind(window) });
+    defaultClient = createMonitoringStatusClient({
+      fetch: window.fetch.bind(window),
+      registry: getCurrentVenueRegistry(),
+    });
   }
   return defaultClient.fetchMonitoringStatus(terminalId, signal);
 }

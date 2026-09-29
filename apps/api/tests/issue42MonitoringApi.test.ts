@@ -1209,6 +1209,87 @@ test('AC8 一覧に原文を含めないこと（確定事項3）', async () => 
   }
 });
 
+test('削除済み会場 ID は現行レジストリへ解決せず、履歴検索だけで照会できる', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const removedVenueId = 'removed-venue';
+    assert.equal(testVenueRegistry.resolveVenueId(removedVenueId), null);
+
+    const reception = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'regular',
+      feedEntryId: 'removed-venue-history',
+      documentUrl: 'https://example.test/removed-venue-history',
+      telegramType: 'VPWS50',
+      title: null,
+      controlStatus: 'normal',
+      infoType: null,
+      eventId: null,
+      serial: null,
+      controlDateTime: null,
+      reportDateTime: null,
+      targetDateTime: null,
+      receivedAt: FIXED_NOW,
+      rawBody: null,
+      bodyBytes: null,
+      contentHash: null,
+      areas: [],
+      adoptions: [],
+    });
+    context.connection
+      .prepare(
+        `INSERT INTO telegram_reception_adoption
+          (reception_id, venue_id, adoption_result, adoption_reason, adoption_decided_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(reception.id, removedVenueId, '採用', null, FIXED_NOW);
+
+    const result = createMonitoringHistoryService({
+      connection: context.connection,
+      now: () => FIXED_NOW,
+    }).listReceptions({ adoptionVenueId: removedVenueId, limit: 100, offset: 0 });
+    assert.deepEqual(result, {
+      status: 'ready',
+      generatedAt: FIXED_NOW,
+      totalCount: 1,
+      limit: 100,
+      offset: 0,
+      items: [
+        {
+          id: reception.id,
+          fetchAttemptId: null,
+          feedKind: 'regular',
+          documentUrl: 'https://example.test/removed-venue-history',
+          telegramType: 'VPWS50',
+          title: null,
+          controlStatus: 'normal',
+          infoType: null,
+          eventId: null,
+          serial: null,
+          controlDateTime: null,
+          reportDateTime: null,
+          targetDateTime: null,
+          receivedAt: FIXED_NOW,
+          hasRawBody: false,
+          bodyBytes: null,
+          contentHash: null,
+          areas: [],
+          adoptions: [
+            {
+              venueId: removedVenueId,
+              adoptionResult: '採用',
+              adoptionReason: null,
+              adoptionDecidedAt: FIXED_NOW,
+            },
+          ],
+        },
+      ],
+    });
+  } finally {
+    cleanup();
+  }
+});
+
 test('AC9 検索上限（確定事項3）', async () => {
   const { context, cleanup } = createDb();
   try {

@@ -24,6 +24,14 @@ export interface LoadedVenueConfig {
   readonly localOverride: 'applied' | 'absent' | 'disabled-production' | 'not-applicable';
 }
 type Mapping = Record<string, unknown>;
+class VenueConfigReadError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | undefined,
+  ) {
+    super(message);
+  }
+}
 const venueKeys = [
   'id',
   'name',
@@ -76,22 +84,35 @@ function read(url: URL): unknown {
   try {
     content = fs.readFileSync(url, 'utf8');
   } catch (error) {
-    throw new Error(
-      `${relative(url)} の読み込みに失敗しました: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+    throw new VenueConfigReadError(`${relative(url)} の読み込みに失敗しました`, code);
   }
   try {
     return yaml.load(content, { schema: yaml.CORE_SCHEMA, json: false });
   } catch (error) {
-    throw new Error(
-      `${relative(url)} のYAML解析に失敗しました: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    const mark = error instanceof yaml.YAMLException ? error.mark : undefined;
+    const location =
+      mark === undefined ? '位置を特定できません' : `${mark.line + 1}行${mark.column + 1}列`;
+    throw new Error(`${relative(url)} のYAML解析に失敗しました: ${location}`);
   }
 }
 function relative(url: URL): string {
   if (url.href === DEFAULT_VENUES_CONFIG_URL.href) return 'config/venues.yaml';
   if (url.href === LOCAL_VENUES_CONFIG_URL.href) return 'config/venues.local.yaml';
-  return url.pathname;
+  return url.pathname.split('/').filter(Boolean).at(-1) ?? 'venues.yaml';
+}
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+function validateLoadedVenueConfig(url: URL, value: unknown): readonly VenueForecastTargets[] {
+  try {
+    return validateVenueConfig(value);
+  } catch (error) {
+    throw new Error(`${relative(url)}: ${errorMessage(error)}`);
+  }
+}
+function isNotFound(error: unknown): boolean {
+  return error instanceof VenueConfigReadError && error.code === 'ENOENT';
 }
 function clone(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(clone);
@@ -249,34 +270,44 @@ export function loadVenueConfig(
 ): LoadedVenueConfig {
   const baseUrl = options.baseUrl ?? DEFAULT_VENUES_CONFIG_URL;
   const localUrl = options.localUrl ?? LOCAL_VENUES_CONFIG_URL;
-  const applicable = baseUrl.href === DEFAULT_VENUES_CONFIG_URL.href;
+  const applicable =
+    baseUrl.href === DEFAULT_VENUES_CONFIG_URL.href ||
+    (options.baseUrl !== undefined && options.localUrl !== undefined);
   const environment = options.environment ?? process.env.NODE_ENV;
   const base = read(baseUrl);
+  const baseVenues = validateLoadedVenueConfig(baseUrl, base);
   let localOverride: LoadedVenueConfig['localOverride'] = applicable ? 'absent' : 'not-applicable';
   const combined = clone(base) as Mapping;
   const sources: URL[] = [baseUrl];
+  let venues = baseVenues;
   if (applicable && environment === 'production') localOverride = 'disabled-production';
   else if (applicable) {
     try {
-      const local = validateLocal(read(localUrl));
+      let local: Mapping[];
+      try {
+        local = validateLocal(read(localUrl));
+      } catch (error) {
+        if (isNotFound(error)) throw error;
+        throw new Error(`${relative(localUrl)}: ${errorMessage(error)}`);
+      }
       const root = mapping(combined, 'root');
-      const baseVenues = Array.isArray(root.venues)
+      const configuredVenues = Array.isArray(root.venues)
         ? root.venues.map((item) => mapping(item, 'venues'))
         : [];
-      const byId = new Map(baseVenues.map((venue) => [venue.id, venue]));
+      const byId = new Map(configuredVenues.map((venue) => [venue.id, venue]));
       for (const venue of local) {
         const previous = byId.get(venue.id);
         if (previous) Object.assign(previous, mergeVenue(previous, venue));
-        else baseVenues.push(venue);
+        else configuredVenues.push(venue);
       }
-      root.venues = baseVenues;
+      root.venues = configuredVenues;
+      venues = validateLoadedVenueConfig(localUrl, combined);
       localOverride = 'applied';
       sources.push(localUrl);
     } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes('ENOENT')) throw error;
+      if (!isNotFound(error)) throw error;
     }
   }
-  const venues = validateVenueConfig(combined);
   const canonical = JSON.stringify(venues);
   const generation = crypto.createHash('sha256').update(canonical).digest('hex');
   const registry = createVenueRegistry(venues, generation);

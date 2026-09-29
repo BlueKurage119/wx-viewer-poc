@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {
+  createVenueRegistry,
+  type VenueForecastTargets,
+  type VenueId,
+} from '@wx-viewer-poc/shared';
 import { createMonitoringStatusClient } from '../src/api/monitoringStatus.ts';
+import { testVenueRegistry } from './venueConfigPreload.ts';
 import { monitoringResponseFixture } from './monitoringFixture.ts';
+
+const thirdVenueRegistry = createVenueRegistry(
+  [
+    ...testVenueRegistry.listVenues(),
+    {
+      ...testVenueRegistry.getVenue(testVenueRegistry.resolveVenueId('east')!),
+      venueId: 'third-venue' as VenueId,
+    } satisfies VenueForecastTargets,
+  ],
+  'third-venue-test',
+);
 
 test('K1: 監視状態APIは端末IDをエンコードして読み取り、端末不一致を受理しない', async () => {
   const requests: { readonly url: string; readonly signal: AbortSignal | null | undefined }[] = [];
@@ -10,6 +27,7 @@ test('K1: 監視状態APIは端末IDをエンコードして読み取り、端�
       requests.push({ url: String(url), signal: init?.signal });
       return new Response(JSON.stringify(monitoringResponseFixture));
     },
+    registry: testVenueRegistry,
   });
   const controller = new AbortController();
 
@@ -24,8 +42,44 @@ test('K1: 監視状態APIは端末IDをエンコードして読み取り、端�
   const mismatched = createMonitoringStatusClient({
     fetch: async () =>
       new Response(JSON.stringify({ ...monitoringResponseFixture, terminalId: 'hkeagh01' })),
+    registry: testVenueRegistry,
   });
   await assert.rejects(mismatched.fetchMonitoringStatus('kkeagh01'), {
+    message: '監視情報の応答形式が不正です',
+  });
+});
+
+test('Issue #236: レジストリ登録済みの第3会場の監視応答を受理し、未知会場は拒否する', async () => {
+  const response = {
+    ...monitoringResponseFixture,
+    requestedVenueId: 'third-venue',
+    venues: [{ ...monitoringResponseFixture.venues[0], venueId: 'third-venue' }],
+    information: [
+      {
+        kind: 'amedas',
+        venueId: 'third-venue',
+        availability: 'available',
+        issuedAt: null,
+        validAt: null,
+        fetchedAt: '2026-09-20T05:25:00.000Z',
+        lastSuccessAt: '2026-09-20T05:25:00.000Z',
+        summaryCount: 1,
+      },
+    ],
+  };
+  const client = createMonitoringStatusClient({
+    fetch: async () => new Response(JSON.stringify(response)),
+    registry: thirdVenueRegistry,
+  });
+
+  assert.equal((await client.fetchMonitoringStatus('kkeagh01')).requestedVenueId, 'third-venue');
+
+  const unknownVenueClient = createMonitoringStatusClient({
+    fetch: async () =>
+      new Response(JSON.stringify({ ...response, requestedVenueId: 'unknown-venue' })),
+    registry: thirdVenueRegistry,
+  });
+  await assert.rejects(unknownVenueClient.fetchMonitoringStatus('kkeagh01'), {
     message: '監視情報の応答形式が不正です',
   });
 });
@@ -71,6 +125,7 @@ test('K6: 稼働状態APIは health.sources の要素と lastDurationMs を検�
   // 1. lastDurationMs が数値でも null でも受理する
   const clientWithNumber = createMonitoringStatusClient({
     fetch: async () => new Response(JSON.stringify(validResponse)),
+    registry: testVenueRegistry,
   });
   const resNumber = await clientWithNumber.fetchMonitoringStatus('kkeagh01');
   assert.equal(resNumber.health.sources[0]?.lastDurationMs, 250);
@@ -86,6 +141,7 @@ test('K6: 稼働状態APIは health.sources の要素と lastDurationMs を検�
           },
         }),
       ),
+    registry: testVenueRegistry,
   });
   const resNull = await clientWithNull.fetchMonitoringStatus('kkeagh01');
   assert.equal(resNull.health.sources[0]?.lastDurationMs, null);
@@ -165,6 +221,7 @@ test('K6: 稼働状態APIは health.sources の要素と lastDurationMs を検�
   for (const { label, mutate } of invalidCases) {
     const invalidClient = createMonitoringStatusClient({
       fetch: async () => new Response(JSON.stringify(mutate(validResponse))),
+      registry: testVenueRegistry,
     });
     await assert.rejects(
       invalidClient.fetchMonitoringStatus('kkeagh01'),
@@ -220,6 +277,7 @@ test('Issue #187: 境界バリデーションは information と tiles の全フ
   // 正当な構造を受理できること
   const validClient = createMonitoringStatusClient({
     fetch: async () => new Response(JSON.stringify(validResponse)),
+    registry: testVenueRegistry,
   });
   const accepted = await validClient.fetchMonitoringStatus('kkeagh01');
   assert.equal(accepted.information[0]?.kind, 'warning');
@@ -353,6 +411,7 @@ test('Issue #187: 境界バリデーションは information と tiles の全フ
   for (const { label, mutate } of invalidCases) {
     const invalidClient = createMonitoringStatusClient({
       fetch: async () => new Response(JSON.stringify(mutate(validResponse))),
+      registry: testVenueRegistry,
     });
     await assert.rejects(
       invalidClient.fetchMonitoringStatus('kkeagh01'),

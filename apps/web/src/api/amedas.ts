@@ -1,10 +1,12 @@
-import type { AmedasResponse, WeatherControlStatus } from '@wx-viewer-poc/shared';
+import type { AmedasResponse, VenueRegistry, WeatherControlStatus } from '@wx-viewer-poc/shared';
+import { getCurrentVenueRegistry } from '../venueRegistryContext';
 import { fetchTileCatalog, type TileCatalogResult } from './tileCatalogClient';
 
 export function parseAmedasResponse(
   body: unknown,
   terminalId: string,
   controlStatus: WeatherControlStatus,
+  registry: VenueRegistry,
 ): AmedasResponse | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
   const record = body as Record<string, unknown>;
@@ -12,7 +14,7 @@ export function parseAmedasResponse(
     record.terminalId !== terminalId ||
     record.controlStatus !== controlStatus ||
     record.isTraining !== (controlStatus === 'training') ||
-    !['east', 'trc'].includes(String(record.venueId))
+    !registry.resolveVenueId(record.venueId)
   )
     return null;
   const station = record.station as Record<string, unknown> | null;
@@ -63,7 +65,8 @@ export function fetchAmedas(params: {
     terminalId: params.terminalId,
     controlStatus: params.controlStatus,
     signal: params.signal,
-    parse: (body) => parseAmedasResponse(body, params.terminalId, params.controlStatus),
+    parse: (body) =>
+      parseAmedasResponse(body, params.terminalId, params.controlStatus, getCurrentVenueRegistry()),
     fetchImpl: params.fetchImpl,
   });
 }

@@ -9,6 +9,7 @@ import { App } from './App';
 import { createTerminals } from './shell/config';
 import { ThemeProvider } from './theme';
 import { VenueRegistryProvider } from './venueConfig';
+import { setCurrentVenueRegistry } from './venueRegistryContext';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -107,6 +108,7 @@ async function bootstrap() {
     render('会場設定の応答が不正です');
     return;
   }
+  setCurrentVenueRegistry(registry);
   createRoot(appRoot).render(
     <StrictMode>
       <ThemeProvider fixedMode="dark">
