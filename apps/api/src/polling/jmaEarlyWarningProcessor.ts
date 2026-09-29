@@ -1,6 +1,9 @@
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import { getVenueRegistry, type UtcIso8601String, type VenueId } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
-import { upsertTelegramReceptionAdoptionForAllVenues } from '../repositories/telegramReceptionRepository.js';
+import {
+  upsertTelegramReceptionAdoption,
+  upsertTelegramReceptionAdoptionForAllVenues,
+} from '../repositories/telegramReceptionRepository.js';
 import { saveEarlyWarningSnapshot } from '../repositories/earlyWarningRepository.js';
 import type {
   EarlyWarningParseResult,
@@ -82,4 +85,70 @@ export function processEarlyWarningReception(
 
   tx();
   return parseResult;
+}
+
+/** C5 を対象区域単位で一度だけ解析し、採用結果だけを会場別に記録する。 */
+export function processEarlyWarningReceptionForVenues(
+  connection: DatabaseConnection,
+  reception: TelegramReception,
+  processedAt: UtcIso8601String,
+): readonly { readonly venueId: VenueId; readonly result: EarlyWarningParseResult }[] {
+  const groups = new Map<string, VenueId[]>();
+  for (const venue of getVenueRegistry().listVenues()) {
+    const key = venue.broadForecast.areaCode;
+    groups.set(key, [...(groups.get(key) ?? []), venue.venueId]);
+  }
+  const outcomes: { venueId: VenueId; result: EarlyWarningParseResult }[] = [];
+  const tx = connection.transaction(() => {
+    for (const venueIds of groups.values()) {
+      const venue = getVenueRegistry().getVenue(venueIds[0]!);
+      const target = {
+        forecastAreaCode: venue.broadForecast.areaCode,
+        displayName: venue.broadForecast.displayName,
+      };
+      const result: EarlyWarningParseResult = reception.rawBody
+        ? parseEarlyWarning(reception.rawBody, reception, target)
+        : { ok: false, disposition: '未対応構造', reason: '原文（raw_body）がありません' };
+      if (result.ok) {
+        const parsed = result.value;
+        saveEarlyWarningSnapshot(connection, {
+          areaCode: parsed.area.code,
+          areaName: parsed.area.name,
+          segment: parsed.segment,
+          telegramType: parsed.telegramType,
+          metadata: {
+            source: reception.documentUrl,
+            issuedAt: parsed.reportDateTime,
+            validAt: null,
+            validFrom: null,
+            validTo: null,
+            fetchedAt: reception.receivedAt,
+            lastSuccessAt: processedAt,
+            availability: 'available',
+            sourceVersion: parsed.infoKindVersion,
+          },
+          telegram: {
+            controlStatus: parsed.controlStatus,
+            infoType: parsed.infoType,
+            eventId: parsed.eventId,
+            reportDateTime: parsed.reportDateTime,
+            controlDateTime: parsed.controlDateTime,
+          },
+          timeDefines: parsed.timeDefines,
+          cells: parsed.cells,
+        });
+      }
+      for (const venueId of venueIds) {
+        upsertTelegramReceptionAdoption(connection, reception.id, {
+          venueId,
+          adoptionResult: result.ok ? '早期注意情報として解析済み' : result.disposition,
+          adoptionReason: result.ok ? null : result.reason,
+          adoptionDecidedAt: processedAt,
+        });
+        outcomes.push({ venueId, result });
+      }
+    }
+  });
+  tx();
+  return outcomes;
 }

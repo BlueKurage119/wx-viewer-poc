@@ -26,12 +26,8 @@ import {
 } from './jmaXmlFeedParser.js';
 import { processWarningTelegramReceptionForAllVenues } from './jmaWarningTelegramProcessor.js';
 import { processVpwp50ReceptionForAllVenues } from './jmaVpwp50Processor.js';
-import { processEarlyWarningReception } from './jmaEarlyWarningProcessor.js';
-import { processVpfd51Reception } from './jmaVpfd51Processor.js';
-import {
-  resolveSharedAreaTimeseriesForecastTarget,
-  resolveSharedEarlyWarningTargetArea,
-} from '../venueForecastTargets.js';
+import { processEarlyWarningReceptionForVenues } from './jmaEarlyWarningProcessor.js';
+import { processVpfd51ReceptionForVenues } from './jmaVpfd51Processor.js';
 import { DEFAULT_BOSAI_BULLETIN_TARGET } from './jmaVpbs50Parser.js';
 import { processVpbs50Reception } from './jmaVpbs50Processor.js';
 import { processVphwReception } from './jmaVphwProcessor.js';
@@ -339,19 +335,9 @@ export async function pollSingleFeed(
       reception.telegramType === VPFD61_TELEGRAM_TYPE ||
       reception.telegramType === VPFW60_TELEGRAM_TYPE
     ) {
-      processEarlyWarningReception(
-        connection,
-        reception,
-        docFinishedAt,
-        options?.earlyWarningTargetArea ?? resolveSharedEarlyWarningTargetArea(),
-      );
+      processEarlyWarningReceptionForVenues(connection, reception, docFinishedAt);
     } else if (reception.telegramType === VPFD51_TELEGRAM_TYPE) {
-      processVpfd51Reception(
-        connection,
-        reception,
-        docFinishedAt,
-        options?.areaTimeseriesForecastTarget ?? resolveSharedAreaTimeseriesForecastTarget(),
-      );
+      processVpfd51ReceptionForVenues(connection, reception, docFinishedAt);
     } else if (reception.telegramType === VPBS50_TELEGRAM_TYPE) {
       processVpbs50Reception(
         connection,

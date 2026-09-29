@@ -1,5 +1,5 @@
 import {
-  VENUE_IDS,
+  getVenueRegistry,
   resolveVenueForecastTargets,
   type AmedasTarget,
   type VenueId,
@@ -75,7 +75,9 @@ export function assertSharedAcrossVenues<T>(
   keyOf: (value: T) => unknown,
   errorContext: string,
 ): T {
-  const values = VENUE_IDS.map((venueId) => resolveForVenue(venueId));
+  const values = getVenueRegistry()
+    .listVenueIds()
+    .map((venueId) => resolveForVenue(venueId));
   const first = values[0]!;
   const firstKey = keyOf(first);
   for (const value of values.slice(1)) {
@@ -127,9 +129,10 @@ export function resolveSharedAreaTimeseriesForecastTarget(): AreaTimeseriesForec
 
 /** C7 用の気象防災速報判定対象（両会場の includedAreaCodes の和集合。順序は east → trc の出現順、重複除去済み）を解決する。 */
 export function resolveBosaiBulletinTarget(): BosaiBulletinTarget {
-  const eastCodes = resolveVenueForecastTargets('east').bosaiBulletin.includedAreaCodes;
-  const trcCodes = resolveVenueForecastTargets('trc').bosaiBulletin.includedAreaCodes;
-  const combined = new Set<string>([...eastCodes, ...trcCodes]);
+  const combined = new Set<string>();
+  for (const venue of getVenueRegistry().listVenues()) {
+    for (const code of venue.bosaiBulletin.includedAreaCodes) combined.add(code);
+  }
   return { includedAreaCodes: Array.from(combined) };
 }
 
