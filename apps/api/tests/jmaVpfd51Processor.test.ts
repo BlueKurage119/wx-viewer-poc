@@ -37,6 +37,7 @@ function buildSampleVpfd51Xml(
     areaCode?: string;
     stationCode?: string;
     isInvalidStructure?: boolean;
+    windDirection?: { readonly text: string; readonly condition?: string };
   } = {},
 ): string {
   if (options.isInvalidStructure) {
@@ -52,6 +53,7 @@ function buildSampleVpfd51Xml(
 
   const areaCode = options.areaCode ?? '130010';
   const stationCode = options.stationCode ?? '44132';
+  const windDirection = options.windDirection ?? { text: '北' };
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
@@ -96,7 +98,7 @@ function buildSampleVpfd51Xml(
             <Property>
               <Type>３時間内代表風</Type>
               <WindDirectionPart>
-                <jmx_eb:WindDirection refID="1" type="風向" unit="８方位漢字">北</jmx_eb:WindDirection>
+                <jmx_eb:WindDirection refID="1" type="風向" unit="８方位漢字"${windDirection.condition ? ` condition="${windDirection.condition}"` : ''}>${windDirection.text}</jmx_eb:WindDirection>
               </WindDirectionPart>
               <WindSpeedPart>
                 <WindSpeedLevel refID="1" type="風速階級">3</WindSpeedLevel>
@@ -235,6 +237,30 @@ test('processVpfd51Reception: 正常パース時に snapshot 保存と adoption 
         adoptionDecidedAt: processedAt,
       },
     ]);
+  } finally {
+    db.cleanup();
+  }
+});
+
+test('processVpfd51Reception: 空風向とconditionを地域時系列予報として保存する', () => {
+  const db = setupTestDb();
+  try {
+    const reception = createReceptionRecord(db.context, {
+      rawBody: buildSampleVpfd51Xml({ windDirection: { text: '', condition: '風弱く' } }),
+    });
+    const result = processVpfd51Reception(
+      db.context.connection,
+      reception,
+      '2026-09-10T08:00:05.000Z',
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const snapshot = findAreaTimeseriesSnapshot(db.context.connection, '130010', '44132', 'normal');
+    const direction = snapshot?.values.find((value) => value.element === 'wind_direction');
+    assert.equal(direction?.valueText, '');
+    assert.equal(direction?.condition, '風弱く');
+    assert.equal(snapshot?.values.length, 4);
   } finally {
     db.cleanup();
   }
@@ -428,7 +454,10 @@ test('processVpfd51Reception: normal と training は別 snapshot として保�
     const receptionTraining = createReceptionRecord(db.context, {
       documentUrl: 'https://example.com/training.xml',
       controlStatus: 'training',
-      rawBody: buildSampleVpfd51Xml({ controlStatus: 'training' }),
+      rawBody: buildSampleVpfd51Xml({
+        controlStatus: 'training',
+        windDirection: { text: '', condition: '風弱く' },
+      }),
     });
     processVpfd51Reception(db.context.connection, receptionTraining, '2026-09-10T08:05:05.000Z');
 
@@ -440,6 +469,10 @@ test('processVpfd51Reception: normal と training は別 snapshot として保�
     );
     assert.ok(trainingSnapshot);
     assert.equal(trainingSnapshot.telegram.controlStatus, 'training');
+    assert.equal(
+      trainingSnapshot.values.find((value) => value.element === 'wind_direction')?.condition,
+      '風弱く',
+    );
 
     // normal snapshot が変更されていないこと
     const normalAfter = findAreaTimeseriesSnapshot(

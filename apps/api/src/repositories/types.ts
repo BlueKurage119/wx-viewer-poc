@@ -308,6 +308,7 @@ export interface AreaTimeseriesValueInput {
   readonly valueText: string | null;
   readonly valueNumber: number | null;
   readonly unit: string | null;
+  readonly condition: string | null;
   readonly sequence: number;
 }
 

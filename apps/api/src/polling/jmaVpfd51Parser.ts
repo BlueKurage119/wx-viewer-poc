@@ -656,6 +656,7 @@ export function parseVpfd51(
       valueText: text,
       valueNumber: null,
       unit: null,
+      condition: null,
       sequence: valSequence,
     });
   }
@@ -702,8 +703,10 @@ export function parseVpfd51(
         reason: `WindDirection@refID ("${refId}") が同一ブロックの TimeDefine に解決できません`,
       };
     }
-    const text = wdElem.textContent?.trim();
-    if (!text) {
+    const text = wdElem.textContent?.trim() ?? '';
+    // WindDirection のconditionは方向とは別の原文情報として保持する。
+    const condition = wdElem.getAttribute('condition')?.trim() || null;
+    if (!text && !condition) {
       return {
         ok: false,
         disposition: '未対応構造',
@@ -730,6 +733,7 @@ export function parseVpfd51(
       valueText: text,
       valueNumber: null,
       unit,
+      condition,
       sequence: valSequence,
     });
   }
@@ -783,6 +787,7 @@ export function parseVpfd51(
       valueText: null,
       valueNumber: null,
       unit: null,
+      condition: null,
       sequence: valSequence,
     });
   }
@@ -864,6 +869,7 @@ export function parseVpfd51(
       valueText: text,
       valueNumber: num,
       unit,
+      condition: null,
       sequence: valSequence,
     });
   }
