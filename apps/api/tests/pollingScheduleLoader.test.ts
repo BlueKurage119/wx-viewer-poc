@@ -38,6 +38,57 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     assert.ok(config.periods.length > 0);
   });
 
+  test('テスト用スケジュールfixtureは運用値の完全一致を維持すること', () => {
+    const config = createTestPollingSchedule();
+    assert.equal(config.timezone, 'Asia/Tokyo');
+    assert.equal(config.tileDeliveryProfile, 'proxy');
+    assert.equal(config.amedasPointRecheckSeconds, 600);
+    assert.deepEqual(config.freshness, {
+      xml: { staleAfterSeconds: 300 },
+      imageCatalog: { staleAfterSeconds: 300 },
+    });
+    assert.deepEqual(config.fetchHealth, validFetchHealth);
+    assert.deepEqual(config.startupRecovery, validStartupRecovery);
+    assert.deepEqual(config.periods, [
+      {
+        start: '04:00',
+        end: '05:00',
+        xmlSeconds: 120,
+        imageCatalogSeconds: 120,
+        amedasSeconds: 300,
+        nowcastEnabled: true,
+        kikikuruEnabled: true,
+      },
+      {
+        start: '05:00',
+        end: '18:00',
+        xmlSeconds: 60,
+        imageCatalogSeconds: 60,
+        amedasSeconds: 60,
+        nowcastEnabled: true,
+        kikikuruEnabled: true,
+      },
+      {
+        start: '18:00',
+        end: '20:00',
+        xmlSeconds: 120,
+        imageCatalogSeconds: 120,
+        amedasSeconds: 300,
+        nowcastEnabled: true,
+        kikikuruEnabled: true,
+      },
+      {
+        start: '20:00',
+        end: '04:00',
+        xmlSeconds: null,
+        imageCatalogSeconds: null,
+        amedasSeconds: null,
+        nowcastEnabled: false,
+        kikikuruEnabled: false,
+      },
+    ]);
+  });
+
   test('起動時復旧設定は正の安全整数と上限を厳密に検証すること (Issue #193 AC13)', () => {
     const baseConfig = createTestPollingSchedule();
     assert.deepEqual(

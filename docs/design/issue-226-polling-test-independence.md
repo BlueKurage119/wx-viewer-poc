@@ -102,3 +102,13 @@ mainの設定注入口は存在しないため、B18をstartServerテストへ�
 - preloadの対照実験として、隔離コピーのフィクスチャへ意味を変えないコメントを加え、スケジューラテスト13件が成功することを確認した。続けて04:00のXML周期を120秒から121秒へ一時改変すると、完全一致アサーション2件が失敗した。加えて、昼夜固定時計の新規テストは対照実験で成功し、隔離コピーの`startServer`でポーリングを常に無効にする変異を加えると初期取得完了アサーションが失敗した。隔離コピーだけの改変であり、最終差分には含めない。
 - main子プロセスのB18は、空きポートの予約直後に`address()`を読んだときの固定ポートフォールバックで失敗した。予約用サーバーの`listen`完了を待ち、実ポートを取得できることを確認してから閉じる限定修正を行った。子プロセスはその実ポートで起動し、HTTP結線も成功する。
 - `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build`は全て成功した。対象18ファイルは230件全て成功した。B18を含む`nowcastApi.test.ts`全件も成功した。API全件は`apps/api`で`node --import tsx --test --test-concurrency=1 tests/*.test.ts`を実行し、752件全て成功、0件失敗、正常終了した。標準の`npm run test -w apps/api`も752件全て成功、0件失敗、約30秒で正常終了した。待受ポートの取得不備は解消済みである。
+
+### 初回検収指摘への製造追記
+
+`pollingScheduleLoader.test.ts`では、既定URLの検査を形式・値域にとどめつつ、テストfixture読込の検査で従来の具体値を完全一致で復元した。対象は`tileDeliveryProfile: proxy`、アメダス再確認600秒、XML・画像カタログの鮮度各300秒、`fetchHealth`全体、`startupRecovery`全体、4期間すべての開始・終了・周期・画像有効値である。隔離コピーでfixtureの`proxy`を`jma-direct`へ一時変異すると、この完全一致検査だけが期待どおり失敗することを確認した。
+
+時刻注入は、判定対象と経過時間・ID用途を分離して再確認した。`reprocessProgressLogs.test.ts`の有効`startServer`、停止状態の`buildStoppedPollingStatus`、`issue178ManualRefreshWhileStopped.test.ts`の直接`TimeBasedPollingScheduler` 2箇所と有効`startServer`、`databaseRecoveryOrchestration.test.ts`の有効`startServer`へ、`pollingServiceOptions.clock`および必要な`schedulerOptions.now`を明示した。`serverFetchHealthStartup.test.ts`のseed生成に残る`new Date`は、注入済み固定時計を基準とする履歴日時の組立てである。`reprocessProgressLogs.test.ts`の`Date.now`は電文IDと受信日時の一意化、待機用タイマーは終了・非同期完了を待つ経過時間用途であり、スケジュール判定へは使わない。
+
+次の既存アサーションを、JST 12:00（UTC 03:00）と22:00（UTC 13:00）の両方で実行するようにした。`serverFetchHealthStartup`の異常監視検知、`serverGracefulShutdownTiming`の初期取得中シグナル2件、`reprocessProgressLogs`の4.3初回XMLログと4.4監視API、`issue178ManualRefreshWhileStopped`のR3停止後手動サイクル、`databaseRecoveryOrchestration`のAC17/18復旧後初期取得である。時刻は各テスト名に含め、起動・DBを伴うケースは時刻ごとに一時DBを作成して相互に状態を共有しない。
+
+再検収指摘の対象6ファイルは、時刻識別名への整理後に`node --import tsx --test`で61件成功、0件失敗、正常終了した。最終の`npm run test -w apps/api`は760件成功、0件失敗、正常終了した。直前の同コマンドの初回試行では、非変更の`jmaXmlPolling.test.ts` 23-3bが1件失敗した。`ManualTimerScheduler.advanceTime`がcallback後に`setImmediate`と固定20msだけを待って戻り、HTTP完了がそれを超えると件数アサーションが早過ぎる既存構造であることを確認した。本Issueの変更との因果は断定せず、設計で先送りした一般的な待機改善は行わず、重い検証を並走させない再試行で上記の最終結果を得た。

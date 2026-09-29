@@ -644,100 +644,107 @@ test('差し戻し1: 開始通知の記録失敗でもfailed化し、失敗通�
   }
 });
 
-test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポーリング無効でも復旧通知を記録する', async (t) => {
-  const { directory, databasePath, context } = setup();
-  context.close();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let fetchCount = 0;
-  const waitingVenues = new Set<string>();
-  const alwaysOnSchedule = createAlwaysOnTestPollingSchedule();
-  const starting = startServer({
-    config: { databasePath, migrationsDirectory },
-    port: 0,
-    enablePolling: true,
-    pollingSchedule: alwaysOnSchedule,
-    pollingServiceOptions: {
-      fetchFn: async () => {
-        fetchCount += 1;
-        return new Response(
-          '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>',
-        );
+for (const [jstTime, fixedNow] of [
+  ['12:00', '2026-09-22T03:00:00.000Z'],
+  ['22:00', '2026-09-22T13:00:00.000Z'],
+] as const) {
+  test(`AC17/18: 全会場復旧完了まで上流取得を開始せず、ポーリング無効でも復旧通知を記録する（JST ${jstTime}）`, async (t) => {
+    const { directory, databasePath, context } = setup();
+    context.close();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let fetchCount = 0;
+    const waitingVenues = new Set<string>();
+    const alwaysOnSchedule = createAlwaysOnTestPollingSchedule();
+    const starting = startServer({
+      config: { databasePath, migrationsDirectory },
+      port: 0,
+      enablePolling: true,
+      pollingSchedule: alwaysOnSchedule,
+      pollingServiceOptions: {
+        clock: () => fixedNow,
+        fetchFn: async () => {
+          fetchCount += 1;
+          return new Response(
+            '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>',
+          );
+        },
       },
-    },
-    recoveryInternals: {
-      recover: async (
-        _connection: Parameters<typeof recoverWarningCurrent>[0],
-        venue: Parameters<typeof recoverWarningCurrent>[1],
-      ) => {
-        waitingVenues.add(venue.venueId);
-        await gate;
-        return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 1 };
+      schedulerOptions: { now: () => new Date(fixedNow) },
+      recoveryInternals: {
+        recover: async (
+          _connection: Parameters<typeof recoverWarningCurrent>[0],
+          venue: Parameters<typeof recoverWarningCurrent>[1],
+        ) => {
+          waitingVenues.add(venue.venueId);
+          await gate;
+          return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 1 };
+        },
       },
-    },
-  });
-  t.after(async () => {
+    });
+    t.after(async () => {
+      release();
+      await starting.then((server) => server.close()).catch(() => undefined);
+    });
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    // server.ts の起動時復旧は VENUE_IDS を for...of で逐次 await するため、
+    // 会場は同時にではなく1つずつ recover を呼び出す(2会場が同時にゲート待機することはない)。
+    // 先頭会場が recover ゲートで待機した時点で、ループは次の会場へ進めず、
+    // 全会場のrecoverVenue完了を待つ evaluateVenues / 初期取得開始にも到達できないため、
+    // 「全会場復旧完了まで上流取得を開始しない」検証としてはこれで十分である。
+    await waitUntil(() => waitingVenues.size >= 1, 5000, '会場がrecoverゲートで待機する');
+    assert.equal(fetchCount, 0);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(fetchCount, 0);
     release();
-    await starting.then((server) => server.close()).catch(() => undefined);
-  });
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  // server.ts の起動時復旧は VENUE_IDS を for...of で逐次 await するため、
-  // 会場は同時にではなく1つずつ recover を呼び出す(2会場が同時にゲート待機することはない)。
-  // 先頭会場が recover ゲートで待機した時点で、ループは次の会場へ進めず、
-  // 全会場のrecoverVenue完了を待つ evaluateVenues / 初期取得開始にも到達できないため、
-  // 「全会場復旧完了まで上流取得を開始しない」検証としてはこれで十分である。
-  await waitUntil(() => waitingVenues.size >= 1, 5000, '会場がrecoverゲートで待機する');
-  assert.equal(fetchCount, 0);
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.equal(fetchCount, 0);
-  release();
-  const server = await starting;
-  await waitUntil(() => fetchCount > 0, 5000, '全会場復旧完了後に上流取得が開始する');
-  await server.close();
+    const server = await starting;
+    await waitUntil(() => fetchCount > 0, 5000, '全会場復旧完了後に上流取得が開始する');
+    await server.close();
 
-  const disabledDb = join(directory, 'disabled.sqlite3');
-  const apiDirectory = join(fileURLToPath(import.meta.url), '../..');
-  const disabledResult = await execFileAsync(
-    process.execPath,
-    [
-      '--import',
-      'tsx',
-      '--input-type=module',
-      '--eval',
-      `import { startServer } from './src/server.ts';
+    const disabledDb = join(directory, 'disabled.sqlite3');
+    const apiDirectory = join(fileURLToPath(import.meta.url), '../..');
+    const disabledResult = await execFileAsync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        '--input-type=module',
+        '--eval',
+        `import { startServer } from './src/server.ts';
        import { createTestPollingSchedule } from './tests/helpers/pollingSchedule.ts';
        const server = await startServer({ config: ${JSON.stringify({ databasePath: disabledDb, migrationsDirectory })}, port: 0, pollingSchedule: createTestPollingSchedule() });
        const status = await (await fetch('http://127.0.0.1:' + server.port + '/api/monitoring/status?terminalId=hkeagh01')).json();
        console.log('RECOVERY_STATUS:' + JSON.stringify(status.venues.map((venue) => [venue.venueId, venue.recovery.status])));
        await server.close();`,
-    ],
-    { cwd: apiDirectory, env: { ...process.env, DISABLE_POLLING: 'true' } },
-  );
-  const statusLine = disabledResult.stdout
-    .split('\n')
-    .find((line) => line.startsWith('RECOVERY_STATUS:'));
-  assert.ok(statusLine);
-  assert.deepEqual(JSON.parse(statusLine.slice('RECOVERY_STATUS:'.length)), [
-    ['east', 'completed'],
-    ['trc', 'completed'],
-  ]);
-  const reopened = initializeDatabase({ databasePath: disabledDb, migrationsDirectory });
-  try {
-    assert.deepEqual(
-      recoveryRows(reopened.connection).map((row) => row.change_type),
-      [
-        'database_recovery_started',
-        'database_recovery_completed',
-        'database_recovery_started',
-        'database_recovery_completed',
       ],
+      { cwd: apiDirectory, env: { ...process.env, DISABLE_POLLING: 'true' } },
     );
-  } finally {
-    reopened.close();
-  }
-});
+    const statusLine = disabledResult.stdout
+      .split('\n')
+      .find((line) => line.startsWith('RECOVERY_STATUS:'));
+    assert.ok(statusLine);
+    assert.deepEqual(JSON.parse(statusLine.slice('RECOVERY_STATUS:'.length)), [
+      ['east', 'completed'],
+      ['trc', 'completed'],
+    ]);
+    const reopened = initializeDatabase({ databasePath: disabledDb, migrationsDirectory });
+    try {
+      assert.deepEqual(
+        recoveryRows(reopened.connection).map((row) => row.change_type),
+        [
+          'database_recovery_started',
+          'database_recovery_completed',
+          'database_recovery_started',
+          'database_recovery_completed',
+        ],
+      );
+    } finally {
+      reopened.close();
+    }
+  });
+}
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   test(`AC18: ${signal}を復旧中に受けてもfailed状態・失敗通知を作らずtimerをclearする`, async () => {
