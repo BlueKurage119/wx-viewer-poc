@@ -40,7 +40,12 @@ interface BuildVpfd51XmlOptions {
       areaCode: string;
       areaName: string;
       weatherList?: Array<{ refId: string; text: string }>;
-      windDirectionList?: Array<{ refId: string; text: string; unit?: string }>;
+      windDirectionList?: Array<{
+        refId: string;
+        text: string;
+        unit?: string;
+        condition?: string;
+      }>;
       windSpeedList?: Array<{ refId: string; text: string }>;
       omitWeather?: boolean;
       omitWind?: boolean;
@@ -85,8 +90,8 @@ function buildVpfd51Xml(options: BuildVpfd51XmlOptions = {}): string {
             { refId: '2', text: '雨' },
           ],
           windDirectionList: [
-            { refId: '1', text: '北', unit: '８方位漢字' },
-            { refId: '2', text: '北東', unit: '８方位漢字' },
+            { refId: '1', text: '北', unit: '８方位漢字', condition: undefined },
+            { refId: '2', text: '北東', unit: '８方位漢字', condition: undefined },
           ],
           windSpeedList: [
             { refId: '1', text: '3' },
@@ -165,7 +170,7 @@ function buildVpfd51Xml(options: BuildVpfd51XmlOptions = {}): string {
                   ${(item.windDirectionList ?? [])
                     .map(
                       (wd) =>
-                        `<jmx_eb:WindDirection refID="${wd.refId}" type="風向"${wd.unit ? ` unit="${wd.unit}"` : ''}>${wd.text}</jmx_eb:WindDirection>`,
+                        `<jmx_eb:WindDirection refID="${wd.refId}" type="風向"${wd.unit ? ` unit="${wd.unit}"` : ''}${wd.condition !== undefined ? ` condition="${wd.condition}"` : ''}>${wd.text}</jmx_eb:WindDirection>`,
                     )
                     .join('')}
                 </WindDirectionPart>
@@ -306,6 +311,7 @@ test('parseVpfd51: 公式サンプルファイルの正常パース検証', () =
   if (!result.ok) return;
 
   const parsed = result.value;
+  assert.ok(parsed.values.every((value) => value.condition === null));
   assert.equal(parsed.area.code, '130010');
   assert.equal(parsed.area.name, '東京地方');
   assert.equal(parsed.station.code, '44132');
@@ -390,6 +396,88 @@ test('parseVpfd51: 合成XMLでの正常系（件数・時刻が異なるブロ�
   assert.equal(parsed.station.code, '44132');
   assert.equal(parsed.timeDefines.length, 5); // 区域2 + 地点3
   assert.equal(parsed.values.length, 9); // 区域(2*3) + 地点3 = 9
+});
+
+test('parseVpfd51: 空の風向は非空conditionを保持して地域時系列全体を解析する', () => {
+  const xml = buildVpfd51Xml({
+    regionTimeSeriesInfoList: [
+      {
+        timeDefines: [
+          { timeId: '1', dateTime: '2026-09-10T18:00:00+09:00', duration: 'PT3H' },
+          { timeId: '2', dateTime: '2026-09-10T21:00:00+09:00', duration: 'PT3H' },
+        ],
+        items: [
+          {
+            areaCode: '130010',
+            areaName: '東京地方',
+            weatherList: [
+              { refId: '1', text: 'くもり' },
+              { refId: '2', text: '雨' },
+            ],
+            windDirectionList: [
+              { refId: '1', text: '', unit: '８方位漢字', condition: ' 風弱く ' },
+              { refId: '2', text: ' 北 ', unit: '８方位漢字', condition: ' やや強く ' },
+            ],
+            windSpeedList: [
+              { refId: '1', text: '3' },
+              { refId: '2', text: '4' },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  const result = parseVpfd51(xml, defaultExpectedVpfd51);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const emptyDirection = result.value.values.find(
+    (value) => value.element === 'wind_direction' && value.refId === '1',
+  );
+  assert.deepEqual(emptyDirection, {
+    blockId: 'region-3hour',
+    refId: '1',
+    element: 'wind_direction',
+    valueCode: null,
+    valueText: '',
+    valueNumber: null,
+    unit: '８方位漢字',
+    condition: '風弱く',
+    sequence: 3,
+  });
+  const directional = result.value.values.find(
+    (value) => value.element === 'wind_direction' && value.refId === '2',
+  );
+  assert.equal(directional?.valueText, '北');
+  assert.equal(directional?.condition, 'やや強く');
+  assert.equal(result.value.values.filter((value) => value.element === 'weather').length, 2);
+  assert.equal(
+    result.value.values.filter((value) => value.element === 'wind_speed_rank').length,
+    2,
+  );
+  assert.equal(result.value.values.filter((value) => value.element === 'temperature').length, 3);
+  assert.equal(result.value.timeDefines.length, 5);
+});
+
+test('parseVpfd51: 非空・未知・空白conditionを区別する', () => {
+  for (const [condition, expected] of [
+    [' 強く ', '強く'],
+    [' 任意の未知語 ', '任意の未知語'],
+    ['   ', null],
+  ] as const) {
+    const xml = buildVpfd51Xml().replace(
+      'unit="８方位漢字">北</jmx_eb:WindDirection>',
+      `unit="８方位漢字" condition="${condition}">北</jmx_eb:WindDirection>`,
+    );
+    const result = parseVpfd51(xml, defaultExpectedVpfd51);
+    assert.equal(result.ok, true);
+    if (!result.ok) continue;
+    const direction = result.value.values.find(
+      (value) => value.element === 'wind_direction' && value.refId === '1',
+    );
+    assert.equal(direction?.valueText, '北');
+    assert.equal(direction?.condition, expected);
+  }
 });
 
 test('parseVpfd51: telegramType不一致は「対象外」', () => {
@@ -785,4 +873,73 @@ test('parseVpfd51: 天気または風 Property の欠落は「未対応構造」
   assert.equal(result2.ok, false);
   if (result2.ok) return;
   assert.equal(result2.disposition, '未対応構造');
+});
+
+// condition 付き3時間電文は実提供例ではなく、受容契約を検証する合成データ。
+test('Issue #229: 自己終了・空白・未知conditionでも他要素と時間定義を維持する', () => {
+  const baseline = parseVpfd51(buildVpfd51Xml(), defaultExpectedVpfd51);
+  assert.ok(baseline.ok);
+  for (const replacement of [
+    '<jmx_eb:WindDirection refID="1" type="風向" unit="８方位漢字" condition="風弱く"/>',
+    '<jmx_eb:WindDirection refID="1" type="風向" unit="８方位漢字" condition="風弱く">  </jmx_eb:WindDirection>',
+    '<jmx_eb:WindDirection refID="1" type="風向" unit="８方位漢字" condition=" 未知語 "/>',
+  ]) {
+    const result = parseVpfd51(
+      buildVpfd51Xml().replace(
+        /<jmx_eb:WindDirection[^>]*>北<\/jmx_eb:WindDirection>/,
+        replacement,
+      ),
+      defaultExpectedVpfd51,
+    );
+    assert.ok(result.ok);
+    assert.deepEqual(result.value.timeDefines, baseline.value.timeDefines);
+    assert.deepEqual(
+      result.value.values,
+      baseline.value.values.map((value) =>
+        value.element === 'wind_direction' && value.refId === '1'
+          ? {
+              ...value,
+              valueText: '',
+              condition: replacement.includes('未知語') ? '未知語' : '風弱く',
+            }
+          : value,
+      ),
+    );
+  }
+});
+
+test('Issue #229: 空値拒否と非空方位の既存契約を維持する', () => {
+  for (const condition of ['', ' condition="   "']) {
+    const xml = buildVpfd51Xml().replace(
+      /(<jmx_eb:WindDirection[^>]*)(>北<\/jmx_eb:WindDirection>)/,
+      '$1' + condition + '> </jmx_eb:WindDirection>',
+    );
+    const result = parseVpfd51(xml, defaultExpectedVpfd51);
+    assert.ok(!result.ok);
+    assert.equal(result.disposition, '未対応構造');
+  }
+  for (const tag of ['jmx_eb:Weather', 'WindSpeedLevel', 'jmx_eb:Temperature']) {
+    const xml = buildVpfd51Xml().replace(
+      new RegExp('(<' + tag + '[^>]*>)[^<]*(</' + tag + '>)'),
+      '$1 $2',
+    );
+    const result = parseVpfd51(xml, defaultExpectedVpfd51);
+    assert.ok(!result.ok);
+    assert.equal(result.disposition, '未対応構造');
+  }
+  for (const text of ['北北東', '未知の方位']) {
+    const result = parseVpfd51(
+      buildVpfd51Xml().replace(
+        '>北</jmx_eb:WindDirection>',
+        '>' + text + '</jmx_eb:WindDirection>',
+      ),
+      defaultExpectedVpfd51,
+    );
+    assert.ok(result.ok);
+    const direction = result.value.values.find(
+      (value) => value.element === 'wind_direction' && value.refId === '1',
+    );
+    assert.equal(direction?.valueText, text);
+    assert.ok(result.value.values.every((value) => value.condition === null));
+  }
 });

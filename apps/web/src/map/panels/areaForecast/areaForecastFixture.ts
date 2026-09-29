@@ -189,6 +189,7 @@ export function buildAreaForecastFixtureResponse(
       valueText: weather,
       valueNumber: null,
       unit: null,
+      condition: null,
       sequence: seq++,
     });
 
@@ -201,6 +202,7 @@ export function buildAreaForecastFixtureResponse(
       valueText: wind.dir,
       valueNumber: null,
       unit: wind.unit,
+      condition: null,
       sequence: seq++,
     });
 
@@ -212,6 +214,7 @@ export function buildAreaForecastFixtureResponse(
       valueText: null,
       valueNumber: null,
       unit: null,
+      condition: null,
       sequence: seq++,
     });
   }
@@ -228,6 +231,7 @@ export function buildAreaForecastFixtureResponse(
       valueText: temp.text,
       valueNumber: temp.num,
       unit: temp.unit,
+      condition: null,
       sequence: seq++,
     });
   }

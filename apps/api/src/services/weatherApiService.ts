@@ -698,6 +698,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
           valueText: v.valueText,
           valueNumber: v.valueNumber,
           unit: v.unit,
+          condition: v.condition,
           sequence: v.sequence,
         }));
 

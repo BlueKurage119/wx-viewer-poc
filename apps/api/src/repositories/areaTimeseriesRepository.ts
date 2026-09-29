@@ -47,6 +47,7 @@ interface AreaTimeseriesValueRow {
   readonly value_text: string | null;
   readonly value_number: number | null;
   readonly unit: string | null;
+  readonly condition: string | null;
   readonly sequence: number;
 }
 
@@ -162,6 +163,7 @@ export function saveAreaTimeseriesSnapshot(
         valueText: vRow.value_text,
         valueNumber: vRow.value_number,
         unit: vRow.unit,
+        condition: vRow.condition,
         sequence: vRow.sequence,
       }));
     } else {
@@ -196,8 +198,8 @@ export function saveAreaTimeseriesSnapshot(
 
       const insertValueStmt = connection.prepare(`
         INSERT INTO area_timeseries_value (
-          snapshot_id, block_id, ref_id, element, value_code, value_text, value_number, unit, sequence
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          snapshot_id, block_id, ref_id, element, value_code, value_text, value_number, unit, condition, sequence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
       `);
 
@@ -211,6 +213,7 @@ export function saveAreaTimeseriesSnapshot(
           v.valueText,
           v.valueNumber,
           v.unit,
+          v.condition,
           v.sequence,
         ) as { id: number };
 
@@ -297,6 +300,7 @@ export function findAreaTimeseriesSnapshot(
     valueText: row.value_text,
     valueNumber: row.value_number,
     unit: row.unit,
+    condition: row.condition,
     sequence: row.sequence,
   }));
 

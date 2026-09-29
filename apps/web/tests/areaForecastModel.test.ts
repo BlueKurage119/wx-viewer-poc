@@ -580,6 +580,7 @@ test('Issue #58 §4.1a: buildDirView - missing/none/矢羽根可/漢字代替の
 
   // 方向なし (方位文字以外) -> none
   assert.deepEqual(buildDirView('静穏', '８方位漢字'), { kind: 'none', raw: '静穏' });
+  assert.deepEqual(buildDirView('', '８方位漢字'), { kind: 'none', raw: '' });
 
   // 16方位表にあり矢羽根可 (unitがどちらでも)
   assert.deepEqual(buildDirView('北北西', '１６方位漢字'), {
@@ -606,4 +607,26 @@ test('Issue #58 §4.1a: buildDirView - missing/none/矢羽根可/漢字代替の
     text: '北',
     rotation: null,
   });
+});
+
+test('Issue #229: condition付き空風向は地域時系列DTOから方向なしとして扱う', () => {
+  const base = sampleDto();
+  const data: AreaTimeseriesData = {
+    ...base,
+    values: base.values.map((value) =>
+      value.element === 'wind_direction'
+        ? { ...value, valueText: '', condition: '風弱く' }
+        : { ...value, condition: null },
+    ),
+  };
+  const model = buildAreaForecastModel(data);
+  assert.equal(model.kind, 'table');
+  if (model.kind !== 'table') return;
+  assert.deepEqual(
+    model.intervals[0]?.kind === 'value' ? model.intervals[0].wind.direction : null,
+    {
+      kind: 'none',
+      raw: '',
+    },
+  );
 });
