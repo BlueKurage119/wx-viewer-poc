@@ -11,17 +11,7 @@ import {
   type TelegramReception,
   type Vpbs50ParseResult,
 } from '../repositories/types.js';
-import {
-  DEFAULT_BOSAI_BULLETIN_TARGET,
-  resolveBosaiBulletinTarget,
-} from '../venueForecastTargets.js';
-
-export {
-  DEFAULT_BOSAI_BULLETIN_TARGET,
-  resolveBosaiBulletinTarget,
-  type ParsedVpbs50,
-  type Vpbs50ParseResult,
-};
+export { type ParsedVpbs50, type Vpbs50ParseResult };
 
 export interface ParseVpbs50Options {
   readonly allowEmptyAreasForCancellation?: boolean;
@@ -120,7 +110,7 @@ export function parseVpbs50(
     TelegramReception,
     'telegramType' | 'controlStatus' | 'reportDateTime' | 'controlDateTime'
   >,
-  target: BosaiBulletinTarget = DEFAULT_BOSAI_BULLETIN_TARGET,
+  target: BosaiBulletinTarget,
   options?: ParseVpbs50Options,
 ): Vpbs50ParseResult {
   // 1. 電文種別チェック

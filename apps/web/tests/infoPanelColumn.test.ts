@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { InfoPanelColumn } from '../src/map/panels/InfoPanelColumn.tsx';
 import type { InfoPanelColumnInput } from '../src/map/panels/panelDefinitions.ts';
+import { eastVenue } from './venueConfigPreload.ts';
 
 const el = React.createElement;
 
@@ -40,7 +41,7 @@ test('InfoPanelColumn: all-content 相当の入力でDOM順が §5.2 順＋速�
     areaForecast: [dataCard('f', '2026-09-24T05:00:00.000Z')],
   };
 
-  const html = renderToStaticMarkup(el(InfoPanelColumn, { venueId: 'east', input }));
+  const html = renderToStaticMarkup(el(InfoPanelColumn, { venue: eastVenue, input }));
 
   const idxTornado = html.indexOf('東京都気象防災速報（竜巻注意）');
   const idxHeavyRain = html.indexOf('東京都気象防災速報（記録的短時間大雨）');
@@ -109,7 +110,7 @@ test('InfoPanelColumn: mixed 相当の入力で状態別表示が仕様どおり
     ],
   };
 
-  const html = renderToStaticMarkup(el(InfoPanelColumn, { venueId: 'east', input }));
+  const html = renderToStaticMarkup(el(InfoPanelColumn, { venue: eastVenue, input }));
 
   // 速報カードは存在しない（empty は occasional で hidden）
   assert.equal(html.includes('data-panel-id="bosaiBulletin"'), false);
@@ -136,7 +137,7 @@ test('InfoPanelColumn: カード入力の target が resolvePanelTarget の固�
     areaForecast: [{ ...dataCard('f', '2026-09-24T05:00:00.000Z'), target: '千葉県北西部／千葉' }],
   };
 
-  const html = renderToStaticMarkup(el(InfoPanelColumn, { venueId: 'east', input }));
+  const html = renderToStaticMarkup(el(InfoPanelColumn, { venue: eastVenue, input }));
 
   // カードの target が使われ、resolvePanelTarget の固定表記「東京地方／東京（北の丸公園）」ではない
   assert.ok(html.includes('千葉県北西部／千葉'));

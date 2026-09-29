@@ -1,3 +1,4 @@
+import { testVenueRegistry, eastVenueId, trcVenueId } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -131,8 +132,8 @@ function saveEastBulletin(
 function readyInitialization() {
   const initialization = new StartupNotificationInitialization();
   initialization.setInitialFetchPhase('completed');
-  initialization.markVenueEvaluated('east');
-  initialization.markVenueEvaluated('trc');
+  initialization.markVenueEvaluated(eastVenueId);
+  initialization.markVenueEvaluated(trcVenueId);
   return initialization;
 }
 
@@ -164,13 +165,14 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
     const service = createStartupNotificationService({
       connection: context.connection,
       initialization: readyInitialization(),
+      venueRegistry: testVenueRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
       outputIdFactory: () => `00000000-0000-4000-8000-${String(++id).padStart(12, '0')}`,
     });
     const request = {
       terminalId: 'hkeagh01',
-      venueId: 'east' as const,
+      venueId: eastVenueId,
       sessionId: '00000000-0000-4000-8000-000000000001',
       inquiredAt: now,
     };
@@ -200,7 +202,7 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
     );
     const trc = service.inquire({
       terminalId: 'htrcph01',
-      venueId: 'trc',
+      venueId: trcVenueId,
       sessionId: '00000000-0000-4000-8000-000000000003',
       inquiredAt: now,
     });
@@ -210,6 +212,7 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
     const restarted = createStartupNotificationService({
       connection: context.connection,
       initialization: readyInitialization(),
+      venueRegistry: testVenueRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000bb',
       now: () => now,
       outputIdFactory: () => `00000000-0000-4000-8000-${String(++id).padStart(12, '0')}`,
@@ -254,17 +257,18 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     const unavailable = createStartupNotificationService({
       connection: context.connection,
       initialization,
+      venueRegistry: testVenueRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
     });
     assert.deepEqual(
       unavailable.inquire({
         terminalId: 'hkeagh01',
-        venueId: 'east',
+        venueId: eastVenueId,
         sessionId: '00000000-0000-4000-8000-000000000010',
         inquiredAt: now,
       }),
-      { status: 'initializing', venueId: 'east' },
+      { status: 'initializing', venueId: eastVenueId },
     );
     assert.equal(
       (
@@ -277,6 +281,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     const rollback = createStartupNotificationService({
       connection: context.connection,
       initialization: readyInitialization(),
+      venueRegistry: testVenueRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
       projector: () => {
@@ -286,7 +291,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     assert.throws(() =>
       rollback.inquire({
         terminalId: 'hkeagh01',
-        venueId: 'east',
+        venueId: eastVenueId,
         sessionId: '00000000-0000-4000-8000-000000000011',
         inquiredAt: now,
       }),
@@ -308,6 +313,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     const auditRollback = createStartupNotificationService({
       connection: context.connection,
       initialization: readyInitialization(),
+      venueRegistry: testVenueRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
       recordInquiry: () => {
@@ -317,7 +323,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     assert.throws(() =>
       auditRollback.inquire({
         terminalId: 'hkeagh01',
-        venueId: 'east',
+        venueId: eastVenueId,
         sessionId: '00000000-0000-4000-8000-000000000012',
         inquiredAt: now,
       }),
@@ -340,7 +346,8 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     saveEastBulletin(context.connection, '2026-09-13T09:00:00.001Z');
     saveEastBulletin(context.connection, '2026-09-13T12:00:00.000Z');
     const projection = projectStartupCurrentNotifications(context.connection, {
-      venueId: 'east',
+      venueRegistry: testVenueRegistry,
+      venueId: eastVenueId,
       now,
       includeWarningCategory: true,
     });
@@ -351,7 +358,8 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     saveEastBulletin(context.connection, '2026-09-13T11:59:00.000Z', 'training');
     saveEastBulletin(context.connection, '2026-09-13T11:58:00.000Z', 'test');
     const trainingProjection = projectStartupCurrentNotifications(context.connection, {
-      venueId: 'east',
+      venueRegistry: testVenueRegistry,
+      venueId: eastVenueId,
       now,
       includeWarningCategory: true,
     });
@@ -379,41 +387,48 @@ test('AC1/13: HTTP endpoint は JSON 契約・入力エラー・初期化中を�
     const service = createStartupNotificationService({
       connection: context.connection,
       initialization: new StartupNotificationInitialization(),
+      venueRegistry: testVenueRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
     });
-    await withServer(createApp({ startupNotifications: service }), async (baseUrl) => {
-      const health = await fetch(`${baseUrl}/api/health`);
-      assert.equal(health.status, 200);
-      assert.deepEqual(await health.json(), { status: 'ok' });
-      const initializing = await fetch(`${baseUrl}/api/notifications/startup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          terminalId: 'hkeagh01',
-          sessionId: '00000000-0000-4000-8000-000000000020',
-        }),
-      });
-      assert.equal(initializing.status, 202);
-      assert.deepEqual(await initializing.json(), { status: 'initializing', venueId: 'east' });
-      const invalid = await fetch(`${baseUrl}/api/notifications/startup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ terminalId: 'hkeagh01', sessionId: 'bad', extra: true }),
-      });
-      assert.equal(invalid.status, 400);
-      assert.deepEqual(await invalid.json(), { status: 'error', code: 'invalid_request' });
-      const unknown = await fetch(`${baseUrl}/api/notifications/startup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          terminalId: 'unknown',
-          sessionId: '00000000-0000-4000-8000-000000000021',
-        }),
-      });
-      assert.equal(unknown.status, 404);
-      assert.deepEqual(await unknown.json(), { status: 'error', code: 'terminal_not_found' });
-    });
+    await withServer(
+      createApp({ startupNotifications: service, venueRegistry: testVenueRegistry }),
+      async (baseUrl) => {
+        const health = await fetch(`${baseUrl}/api/health`);
+        assert.equal(health.status, 200);
+        assert.deepEqual(await health.json(), { status: 'ok' });
+        const initializing = await fetch(`${baseUrl}/api/notifications/startup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            terminalId: 'hkeagh01',
+            sessionId: '00000000-0000-4000-8000-000000000020',
+          }),
+        });
+        assert.equal(initializing.status, 202);
+        assert.deepEqual(await initializing.json(), {
+          status: 'initializing',
+          venueId: eastVenueId,
+        });
+        const invalid = await fetch(`${baseUrl}/api/notifications/startup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ terminalId: 'hkeagh01', sessionId: 'bad', extra: true }),
+        });
+        assert.equal(invalid.status, 400);
+        assert.deepEqual(await invalid.json(), { status: 'error', code: 'invalid_request' });
+        const unknown = await fetch(`${baseUrl}/api/notifications/startup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            terminalId: 'unknown',
+            sessionId: '00000000-0000-4000-8000-000000000021',
+          }),
+        });
+        assert.equal(unknown.status, 404);
+        assert.deepEqual(await unknown.json(), { status: 'error', code: 'terminal_not_found' });
+      },
+    );
     for (const table of [
       'terminal_session',
       'startup_warning_claim',

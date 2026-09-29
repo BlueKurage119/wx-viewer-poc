@@ -4,13 +4,23 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  parseVpwp50,
+  parseVpwp50 as parseVpwp50Impl,
   addIso8601Duration,
-  DEFAULT_VPWP50_TARGET_AREA,
 } from '../src/polling/jmaVpwp50Parser.js';
+import { testVenueRegistry, eastVenueId } from './helpers/venueConfigPreload.js';
+import { resolveWarningTimeseriesTargetArea } from '../src/venueForecastTargets.js';
 import type { TelegramReception } from '../src/repositories/types.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
+const DEFAULT_VPWP50_TARGET_AREA = resolveWarningTimeseriesTargetArea(
+  testVenueRegistry,
+  eastVenueId,
+);
+const parseVpwp50 = (
+  raw: string,
+  expected: Parameters<typeof parseVpwp50Impl>[1],
+  target: Parameters<typeof parseVpwp50Impl>[2] = DEFAULT_VPWP50_TARGET_AREA,
+) => parseVpwp50Impl(raw, expected, target);
 const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 const defaultExpected: Pick<

@@ -1,4 +1,4 @@
-import { VENUE_IDS, isVenueId, type VenueId } from '@wx-viewer-poc/shared';
+import type { VenueId, VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   validateControlStatus,
@@ -59,14 +59,23 @@ interface TelegramReceptionAdoptionRow {
   readonly adoption_decided_at: string | null;
 }
 
-function validateTelegramReceptionAdoptionInput(input: TelegramReceptionAdoptionInput): void {
-  if (!isVenueId(input.venueId)) {
+function validateTelegramReceptionAdoptionInput(
+  input: TelegramReceptionAdoptionInput,
+  registry?: VenueRegistry,
+): void {
+  if (
+    registry ? registry.resolveVenueId(input.venueId) === null : typeof input.venueId !== 'string'
+  ) {
     throw new Error(`venueId must be a known VenueId: ${String(input.venueId)}`);
   }
   validateUtcIso8601StringOrNull(input.adoptionDecidedAt, 'adoptionDecidedAt');
   if (input.adoptionResult !== null && input.adoptionResult.trim().length === 0) {
     throw new Error('adoptionResult must be a non-empty string or null');
   }
+}
+
+function isPersistedVenueId(value: unknown): value is VenueId {
+  return typeof value === 'string';
 }
 
 function validateTelegramReceptionInput(input: TelegramReceptionInput): void {
@@ -123,13 +132,17 @@ function mapAreaRow(row: TelegramReceptionAreaRow): TelegramReceptionArea {
   };
 }
 
-function mapAdoptionRow(row: TelegramReceptionAdoptionRow): TelegramReceptionAdoption {
-  if (!isVenueId(row.venue_id)) {
+function mapAdoptionRow(
+  row: TelegramReceptionAdoptionRow,
+  registry?: VenueRegistry,
+): TelegramReceptionAdoption {
+  const venueId = registry?.resolveVenueId(row.venue_id);
+  if (registry && venueId === null) {
     throw new Error(`telegram_reception_adoption.venue_id が未知の値です: ${row.venue_id}`);
   }
   return {
     receptionId: row.reception_id,
-    venueId: row.venue_id,
+    venueId: venueId ?? (row.venue_id as VenueId),
     adoptionResult: row.adoption_result,
     adoptionReason: row.adoption_reason,
     adoptionDecidedAt: row.adoption_decided_at,
@@ -218,7 +231,7 @@ function fetchAdoptions(
       'SELECT * FROM telegram_reception_adoption WHERE reception_id = ? ORDER BY venue_id ASC',
     )
     .all(receptionId) as TelegramReceptionAdoptionRow[];
-  return rows.map(mapAdoptionRow);
+  return rows.map((row) => mapAdoptionRow(row));
 }
 
 export function recordTelegramReception(
@@ -476,7 +489,7 @@ export function countPendingWarningTelegramReceptions(
   connection: DatabaseConnection,
   venueId: VenueId,
 ): number {
-  if (!isVenueId(venueId)) {
+  if (!isPersistedVenueId(venueId)) {
     throw new Error(`venueId must be a known VenueId: ${String(venueId)}`);
   }
   const typePlaceholders = WARNING_TELEGRAM_TYPES.map(() => '?').join(', ');
@@ -502,7 +515,7 @@ export function listPendingWarningTelegramReceptions(
     readonly limit?: number;
   },
 ): PendingWarningTelegramPage {
-  if (!isVenueId(venueId)) {
+  if (!isPersistedVenueId(venueId)) {
     throw new Error(`venueId must be a known VenueId: ${String(venueId)}`);
   }
   const limit = options?.limit ?? 100;
@@ -616,8 +629,9 @@ export function upsertTelegramReceptionAdoption(
   connection: DatabaseConnection,
   receptionId: number,
   input: TelegramReceptionAdoptionInput,
+  registry?: VenueRegistry,
 ): TelegramReceptionAdoption {
-  validateTelegramReceptionAdoptionInput(input);
+  validateTelegramReceptionAdoptionInput(input, registry);
 
   const row = connection
     .prepare(
@@ -640,7 +654,7 @@ export function upsertTelegramReceptionAdoption(
       input.adoptionDecidedAt,
     ) as TelegramReceptionAdoptionRow;
 
-  return mapAdoptionRow(row);
+  return mapAdoptionRow(row, registry);
 }
 
 /** 会場によって対象が変わらない判定を、全 VenueId の行として複製して記録する（§3.3.1）。 */
@@ -648,11 +662,14 @@ export function upsertTelegramReceptionAdoptionForAllVenues(
   connection: DatabaseConnection,
   receptionId: number,
   input: Omit<TelegramReceptionAdoptionInput, 'venueId'>,
+  registry: VenueRegistry,
 ): readonly TelegramReceptionAdoption[] {
   const tx = connection.transaction(() => {
-    return VENUE_IDS.map((venueId) =>
-      upsertTelegramReceptionAdoption(connection, receptionId, { ...input, venueId }),
-    );
+    return registry
+      .listVenueIds()
+      .map((venueId) =>
+        upsertTelegramReceptionAdoption(connection, receptionId, { ...input, venueId }, registry),
+      );
   });
   return tx();
 }
@@ -662,7 +679,7 @@ export function findTelegramReceptionAdoption(
   receptionId: number,
   venueId: VenueId,
 ): TelegramReceptionAdoption | null {
-  if (!isVenueId(venueId)) {
+  if (!isPersistedVenueId(venueId)) {
     throw new Error(`venueId must be a known VenueId: ${String(venueId)}`);
   }
   const row = connection
@@ -724,7 +741,7 @@ export function summarizeAdoptionResults(
 
   return rows
     .filter((row): row is AdoptionSummaryRow & { adoption_result: string } => {
-      return row.adoption_result !== null && isVenueId(row.venue_id);
+      return row.adoption_result !== null && isPersistedVenueId(row.venue_id);
     })
     .map((row) => ({
       venueId: row.venue_id as VenueId,
@@ -796,7 +813,7 @@ export function listRecentAdoptionFailures(
     .all(sinceIso, ...ADOPTION_FAILURE_RESULTS, limit) as RecentAdoptionFailureRow[];
 
   return rows
-    .filter((row) => isVenueId(row.venue_id))
+    .filter((row) => isPersistedVenueId(row.venue_id))
     .map((row) => ({
       receptionId: row.reception_id,
       venueId: row.venue_id as VenueId,

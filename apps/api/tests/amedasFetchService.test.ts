@@ -1,11 +1,21 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { initializeDatabase } from '../src/database/index.js';
-import { AmedasFetchState, runAmedasFetchCycle } from '../src/polling/amedasFetchService.js';
+import {
+  AmedasFetchState,
+  runAmedasFetchCycle as runAmedasFetchCycleImpl,
+} from '../src/polling/amedasFetchService.js';
 import { findAmedasSnapshot } from '../src/repositories/amedasRepository.js';
+
+const runAmedasFetchCycle = (
+  connection: Parameters<typeof runAmedasFetchCycleImpl>[0],
+  state: AmedasFetchState,
+  options?: Parameters<typeof runAmedasFetchCycleImpl>[2],
+) => runAmedasFetchCycleImpl(connection, state, { ...options, venueRegistry: testVenueRegistry });
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -29,7 +39,7 @@ function setupDb() {
 test('1. 正常系: east の取得・保存・availability', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
     const calls: string[] = [];
 
     const mockFetch: typeof fetch = async (url) => {
@@ -80,7 +90,7 @@ test('1. 正常系: east の取得・保存・availability', async () => {
 test('2. 地点だけ失敗: 前回正常値の保持と stale availability', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
 
     // 1回目: 成功
     await runAmedasFetchCycle(connection, state, {
@@ -130,7 +140,7 @@ test('2. 地点だけ失敗: 前回正常値の保持と stale availability', as
 test('3. 時刻だけ失敗: 地点ブロックを要求せず stale 保持', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
 
     // 1回目: 成功
     await runAmedasFetchCycle(connection, state, {
@@ -180,7 +190,7 @@ test('3. 時刻だけ失敗: 地点ブロックを要求せず stale 保持', as
 test('4. 初回から両方失敗: unavailable となり例外を投げない', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
 
     const result = await runAmedasFetchCycle(connection, state, {
       fetchFn: async () => {
@@ -203,7 +213,7 @@ test('4. 初回から両方失敗: unavailable となり例外を投げない', 
 test('5. unavailable でデータを消さない: 正常後に両方失敗しても stale にとどまる', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
 
     // 1回目: 正常
     await runAmedasFetchCycle(connection, state, {
@@ -242,7 +252,7 @@ test('5. unavailable でデータを消さない: 正常後に両方失敗して
 test('6. stale の期限: staleAfterSeconds を超えると stale へ落ち fetched_at が更新される', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
 
     // 1回目: 正常 (12:00:00)
     await runAmedasFetchCycle(connection, state, {
@@ -278,7 +288,7 @@ test('6. stale の期限: staleAfterSeconds を超えると stale へ落ち fetc
 test('7. 構造異常の検出: invalid_structure と outcome failure', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
 
     const result = await runAmedasFetchCycle(connection, state, {
       fetchFn: async (url) => {
@@ -305,7 +315,7 @@ test('7. 構造異常の検出: invalid_structure と outcome failure', async ()
 test('8. 蓄積とマージ: 重複排除、上書き、保持期間超過の prune', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
 
     // 1回目
     await runAmedasFetchCycle(connection, state, {
@@ -375,7 +385,7 @@ test('8. 蓄積とマージ: 重複排除、上書き、保持期間超過の pr
 test('9. trc（羽田）のサイクル: 44136 へのリクエストが一切なく、44166 のみ保存される', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('trc');
+    const state = new AmedasFetchState(trcVenueId);
     const requestedUrls: string[] = [];
 
     const mockFetch: typeof fetch = async (url) => {
@@ -428,7 +438,7 @@ test('9. trc（羽田）のサイクル: 44136 へのリクエストが一切な
 test('10. pointFetchPolicy: onLatestTimeChange によるスキップ', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
     let pointFetchCount = 0;
 
     const mockFetch: typeof fetch = async (url) => {
@@ -461,7 +471,7 @@ test('10. pointFetchPolicy: onLatestTimeChange によるスキップ', async () 
 test('11. 連続する2ブロックの蓄積と valid_at / valid_from / valid_to の検証', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
 
     // _15 ブロック相当のデータを作成（キーを 20260911150000 〜 20260911175000 にしたデータ）
     const parsed18 = JSON.parse(point44136Json) as Record<string, unknown>;
@@ -525,7 +535,7 @@ test('11. 連続する2ブロックの蓄積と valid_at / valid_from / valid_to
 test('12. 推計フラグ保存結果のDBクエリ検証', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const stateEast = new AmedasFetchState('east');
+    const stateEast = new AmedasFetchState(eastVenueId);
     await runAmedasFetchCycle(connection, stateEast, {
       fetchFn: async (url) => {
         if (String(url).includes('latest_time.txt')) {
@@ -547,7 +557,7 @@ test('12. 推計フラグ保存結果のDBクエリ検証', async () => {
     assert.deepEqual(eastEstimatedElements, ['sun10m', 'sun1h']);
 
     // trc のサイクルを実行
-    const stateTrc = new AmedasFetchState('trc');
+    const stateTrc = new AmedasFetchState(trcVenueId);
     await runAmedasFetchCycle(connection, stateTrc, {
       fetchFn: async (url) => {
         if (String(url).includes('latest_time.txt')) {
@@ -577,7 +587,7 @@ test('12. 推計フラグ保存結果のDBクエリ検証', async () => {
 test('13. backfillBlocks: 最新を含む過去ブロックを古い順に取得・マージし、各試行を記録する', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
     const requestedBlockKeys: string[] = [];
     const shiftBlockHours = (hours: number): string => {
       const original = JSON.parse(point44136Json) as Record<string, unknown>;
@@ -652,7 +662,7 @@ test('13. backfillBlocks: 最新を含む過去ブロックを古い順に取得
 test('14. backfillBlocks: 過去ブロックの失敗でも他の成功ブロックを保存する', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
     const result = await runAmedasFetchCycle(connection, state, {
       fetchFn: async (url) => {
         const stringUrl = String(url);
@@ -684,7 +694,7 @@ test('15. backfillBlocks: 8 を超える値は取得前に拒否する', async (
   const { connection, cleanup } = setupDb();
   try {
     await assert.rejects(
-      runAmedasFetchCycle(connection, new AmedasFetchState('east'), {
+      runAmedasFetchCycle(connection, new AmedasFetchState(eastVenueId), {
         backfillBlocks: 9,
       }),
       /backfillBlocks must be an integer between 0 and 8/,
@@ -701,7 +711,7 @@ test('15. backfillBlocks: 8 を超える値は取得前に拒否する', async (
 test('16. 観測行 0 件の最新ブロック: 正常取得として試行を記録する', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
     const emptyObservationBlock = JSON.stringify({
       '20260911204000': { prefNumber: 44, observationNumber: 136 },
     });
@@ -737,7 +747,7 @@ test('16. 観測行 0 件の最新ブロック: 正常取得として試行を�
 test('17. 観測行 0 件の backfill ブロック: 正常取得として試行を記録する', async () => {
   const { connection, cleanup } = setupDb();
   try {
-    const state = new AmedasFetchState('east');
+    const state = new AmedasFetchState(eastVenueId);
     const emptyObservationBlock = JSON.stringify({
       '20260911174000': { prefNumber: 44, observationNumber: 136 },
     });
@@ -799,7 +809,7 @@ test('18. 最新時刻取得履歴の地点帰属: 成功・失敗ともに targ
   const { connection, cleanup } = setupDb();
   try {
     // east 成功
-    const stateEast = new AmedasFetchState('east');
+    const stateEast = new AmedasFetchState(eastVenueId);
     await runAmedasFetchCycle(connection, stateEast, {
       fetchFn: async (url) => {
         if (String(url).includes('latest_time.txt')) {
@@ -810,7 +820,7 @@ test('18. 最新時刻取得履歴の地点帰属: 成功・失敗ともに targ
     });
 
     // trc 成功
-    const stateTrc = new AmedasFetchState('trc');
+    const stateTrc = new AmedasFetchState(trcVenueId);
     await runAmedasFetchCycle(connection, stateTrc, {
       fetchFn: async (url) => {
         if (String(url).includes('latest_time.txt')) {

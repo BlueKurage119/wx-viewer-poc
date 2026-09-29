@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -21,7 +22,7 @@ import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
-const venue = resolveVenueWarningContext('east');
+const venue = resolveVenueWarningContext(testVenueRegistry, eastVenueId);
 
 function createTempDb() {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-recovery-'));
@@ -249,9 +250,13 @@ test('AC2: 別会場の復旧はeastの3 statusのdumpを変更しない', async
       });
     }
     const eastBefore = recoveryDump(connection);
-    const result = await recoverWarningCurrent(connection, resolveVenueWarningContext('trc'), {
-      yieldEveryParsedReceptions: 25,
-    });
+    const result = await recoverWarningCurrent(
+      connection,
+      resolveVenueWarningContext(testVenueRegistry, trcVenueId),
+      {
+        yieldEveryParsedReceptions: 25,
+      },
+    );
     assert.deepEqual(
       result.statuses.map(({ controlStatus, outcome }) => ({ controlStatus, outcome })),
       (['normal', 'training', 'test'] as const).map((controlStatus) => ({

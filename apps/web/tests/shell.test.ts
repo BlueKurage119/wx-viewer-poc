@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { resolveTerminal, terminals, views, type ViewId } from '../src/shell/config.ts';
+import { resolveTerminal, views, type ViewId } from '../src/shell/config.ts';
+import { testTerminals as terminals } from './venueConfigPreload.ts';
 import { operationGuideMessage, visibleNotices } from '../src/shell/notifications.ts';
 import { previewNotices } from '../src/shell/fixtures.ts';
 import { isUnknownTerminalDocument } from '../src/shell/terminalRouting.ts';
@@ -23,8 +24,8 @@ const el = React.createElement;
 
 test('登録端末のみを解決し、H/Kで同じ会場を共有する', () => {
   for (const terminal of terminals) {
-    assert.equal(resolveTerminal(`/${terminal.id}`), terminal);
-    assert.equal(resolveTerminal(`/${terminal.id}/`), terminal);
+    assert.equal(resolveTerminal(`/${terminal.id}`, terminals), terminal);
+    assert.equal(resolveTerminal(`/${terminal.id}/`, terminals), terminal);
   }
   for (const path of [
     '/',
@@ -35,7 +36,7 @@ test('登録端末のみを解決し、H/Kで同じ会場を共有する', () =>
     '/constructor',
     '/toString',
   ])
-    assert.equal(resolveTerminal(path), undefined);
+    assert.equal(resolveTerminal(path, terminals), undefined);
   assert.equal(terminals[0]!.venue, terminals[1]!.venue);
   assert.equal(terminals[2]!.venue, terminals[3]!.venue);
   assert.notEqual(terminals[0]!.venue, terminals[2]!.venue);

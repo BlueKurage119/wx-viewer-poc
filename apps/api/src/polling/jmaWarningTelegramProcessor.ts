@@ -1,4 +1,4 @@
-import { VENUE_IDS, type UtcIso8601String, type VenueId } from '@wx-viewer-poc/shared';
+import { type UtcIso8601String, type VenueId, type VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   countPendingWarningTelegramReceptions,
@@ -112,16 +112,17 @@ export function processWarningTelegramReception(
   return parseResult;
 }
 
-/** VENUE_IDS を毎回ループする。ポーリング本線はこちらを呼ぶ（確定事項3）。 */
+/** 起動時に確定した会場レジストリを毎回列挙する。ポーリング本線はこちらを呼ぶ。 */
 export function processWarningTelegramReceptionForAllVenues(
   connection: DatabaseConnection,
   reception: TelegramReception,
   decidedAt: UtcIso8601String,
+  registry: VenueRegistry,
   emitDeps?: WarningNotificationEmitDeps,
 ): ReadonlyMap<VenueId, WarningTelegramParseResult> {
   const results = new Map<VenueId, WarningTelegramParseResult>();
-  for (const venueId of VENUE_IDS) {
-    const venue = resolveVenueWarningContext(venueId);
+  for (const venueId of registry.listVenueIds()) {
+    const venue = resolveVenueWarningContext(registry, venueId);
     results.set(
       venueId,
       processWarningTelegramReception(connection, reception, decidedAt, venue, emitDeps),

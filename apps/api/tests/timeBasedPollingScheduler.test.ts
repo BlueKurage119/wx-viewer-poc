@@ -1,3 +1,5 @@
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
+import { eastVenueId } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -1012,6 +1014,7 @@ test('8. #23 XML 単一タイマーとの統合・周期供給 (受け入れ条�
     const requestedKinds: string[] = [];
 
     const xmlService = new JmaXmlPollingService(database.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       clock: timerScheduler.clock,
       timerScheduler: {
@@ -1109,9 +1112,9 @@ test('9. アメダス 10分再確認と時刻更新時の地点データ取得 (
       return new Response('Not found', { status: 404 });
     };
 
-    const amedasState = new AmedasFetchState('east');
+    const amedasState = new AmedasFetchState(eastVenueId);
     const adapter = new AmedasScheduledAdapter(database.connection, amedasState, 600, {
-      fetchOptions: { fetchFn: customFetch },
+      fetchOptions: { fetchFn: customFetch, venueRegistry: testVenueRegistry },
       now: nowFn,
     });
 
@@ -1188,9 +1191,9 @@ test('10. アメダス地点失敗時の次周期再試行と回復後のスキ�
       return new Response('Not found', { status: 404 });
     };
 
-    const amedasState = new AmedasFetchState('east');
+    const amedasState = new AmedasFetchState(eastVenueId);
     const adapter = new AmedasScheduledAdapter(database.connection, amedasState, 600, {
-      fetchOptions: { fetchFn: customFetch },
+      fetchOptions: { fetchFn: customFetch, venueRegistry: testVenueRegistry },
       now: nowFn,
     });
 

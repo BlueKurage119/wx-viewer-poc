@@ -1,13 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  configureVenueRegistry,
   createVenueRegistry,
   type VenueConfigResponse,
   type VenueForecastTargets,
 } from '@wx-viewer-poc/shared';
 import { App } from './App';
+import { createTerminals } from './shell/config';
 import { ThemeProvider } from './theme';
+import { VenueRegistryProvider } from './venueConfig';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -30,14 +31,48 @@ function isVenueConfigResponse(value: unknown): value is VenueConfigResponse {
   return (
     typeof config.generation === 'string' &&
     Array.isArray(config.venues) &&
-    config.venues.every(
-      (venue) =>
-        venue !== null &&
-        typeof venue === 'object' &&
-        typeof (venue as { venueId?: unknown }).venueId === 'string' &&
-        typeof (venue as { venueName?: unknown }).venueName === 'string' &&
-        typeof (venue as { experimental?: unknown }).experimental === 'boolean',
-    )
+    config.venues.every(isVenueConfig)
+  );
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+function isVenueConfig(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const mapReference = value.mapReference;
+  const warning = value.warning;
+  const warningTimeseries = value.warningTimeseries;
+  const broadForecast = value.broadForecast;
+  const temperatureForecast = value.temperatureForecast;
+  const amedas = value.amedas;
+  const bosaiBulletin = value.bosaiBulletin;
+  return (
+    typeof value.venueId === 'string' &&
+    typeof value.venueName === 'string' &&
+    typeof value.experimental === 'boolean' &&
+    isRecord(mapReference) &&
+    typeof mapReference.latitude === 'number' &&
+    typeof mapReference.longitude === 'number' &&
+    isRecord(warning) &&
+    typeof warning.municipalCode === 'string' &&
+    typeof warning.displayName === 'string' &&
+    typeof warning.prefectureCode === 'string' &&
+    isRecord(warningTimeseries) &&
+    typeof warningTimeseries.municipalCode === 'string' &&
+    typeof warningTimeseries.displayName === 'string' &&
+    isRecord(broadForecast) &&
+    typeof broadForecast.areaCode === 'string' &&
+    typeof broadForecast.displayName === 'string' &&
+    isRecord(temperatureForecast) &&
+    typeof temperatureForecast.stationCode === 'string' &&
+    typeof temperatureForecast.displayName === 'string' &&
+    isRecord(amedas) &&
+    typeof amedas.stationCode === 'string' &&
+    typeof amedas.displayName === 'string' &&
+    typeof amedas.elements === 'string' &&
+    isRecord(bosaiBulletin) &&
+    Array.isArray(bosaiBulletin.includedAreaCodes) &&
+    bosaiBulletin.includedAreaCodes.every((code) => typeof code === 'string')
   );
 }
 async function bootstrap() {
@@ -64,13 +99,20 @@ async function bootstrap() {
     render('会場設定の応答が不正です');
     return;
   }
-  configureVenueRegistry(
-    createVenueRegistry(body.venues as readonly VenueForecastTargets[], body.generation),
-  );
+  let registry: ReturnType<typeof createVenueRegistry>;
+  try {
+    registry = createVenueRegistry(body.venues as readonly VenueForecastTargets[], body.generation);
+    createTerminals(registry);
+  } catch {
+    render('会場設定の応答が不正です');
+    return;
+  }
   createRoot(appRoot).render(
     <StrictMode>
       <ThemeProvider fixedMode="dark">
-        <App />
+        <VenueRegistryProvider value={registry}>
+          <App />
+        </VenueRegistryProvider>
       </ThemeProvider>
     </StrictMode>,
   );

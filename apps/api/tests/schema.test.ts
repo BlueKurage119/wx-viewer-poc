@@ -395,6 +395,7 @@ test('10. migration 0025 適用前の地域時系列値は保持され、conditi
   const temporaryMigrations = join(directory, 'migrations');
   const databasePath = join(directory, 'test.sqlite3');
   cpSync(migrationsDirectory, temporaryMigrations, { recursive: true });
+  rmSync(join(temporaryMigrations, '0026_relax_telegram_reception_adoption_venue_id.sql'));
   const migrationPath = join(temporaryMigrations, '0025_add_area_timeseries_condition.sql');
   const migrationSql = readFileSync(migrationPath, 'utf8');
   rmSync(migrationPath);

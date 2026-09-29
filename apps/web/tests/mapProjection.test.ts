@@ -7,10 +7,10 @@ import {
   projectWebMercator,
   unprojectWebMercator,
 } from '../src/map/projection.ts';
-import { resolveVenueForecastTargets } from '@wx-viewer-poc/shared';
+import { eastVenueTargets, trcVenueTargets } from './venueConfigPreload.ts';
 
-const eastVenue = resolveVenueForecastTargets('east').mapReference;
-const trcVenue = resolveVenueForecastTargets('trc').mapReference;
+const eastVenue = eastVenueTargets.mapReference;
+const trcVenue = trcVenueTargets.mapReference;
 
 test('可視矩形の中心計算が幅・高さから右列幅・下部カード高を差し引いた中央座標と完全一致する', () => {
   // W=1920, H=1080, R=400, B=200

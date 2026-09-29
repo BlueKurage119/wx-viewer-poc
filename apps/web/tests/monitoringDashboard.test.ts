@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { VenueForecastTargets } from '@wx-viewer-poc/shared';
 import {
   MonitoringDashboard,
   MonitoringDashboardView,
@@ -20,8 +21,14 @@ import {
   suspendedMonitoringResponseFixture,
   unevaluatedMonitoringResponseFixture,
 } from './monitoringFixture.ts';
+import { VenueRegistryProvider } from '../src/venueConfig.tsx';
+import { testVenueRegistry } from './venueConfigPreload.ts';
 
 const el = React.createElement;
+const resolveTargets = (venueId: string): VenueForecastTargets | undefined => {
+  const resolved = testVenueRegistry.resolveVenueId(venueId);
+  return resolved ? testVenueRegistry.getVenue(resolved) : undefined;
+};
 
 test('K1: 更新中もカードを保持し、監視情報行は最終表示更新だけを表示する', () => {
   const html = renderToStaticMarkup(
@@ -172,6 +179,7 @@ test('K6: 取得元別の稼働状況表のレンダリング（th scope、8列�
   const html = renderToStaticMarkup(
     el(MonitoringDashboardView, {
       state: { phase: 'ready', data: normalMonitoringResponseFixture },
+      resolveTargets,
     }),
   );
 
@@ -246,6 +254,7 @@ test('K7: 情報別の反映状況表のレンダリング（th scope、6列見�
   const html = renderToStaticMarkup(
     el(MonitoringDashboardView, {
       state: { phase: 'ready', data: normalMonitoringResponseFixture },
+      resolveTargets,
     }),
   );
 
@@ -341,6 +350,7 @@ test('K7: state.phase: "failed" かつ前回値ありのとき、前回値の行
   const html = renderToStaticMarkup(
     el(MonitoringDashboardView, {
       state: { phase: 'failed', data: normalMonitoringResponseFixture },
+      resolveTargets,
     }),
   );
 
@@ -399,12 +409,16 @@ test('Issue #187: state.phase: "failed" かつ前回値ありのとき、遅延�
 test('Issue #187: MonitoringDashboard は onLoadStateChange prop を受け取り安全にレンダリングされる', () => {
   let callbackState: unknown = null;
   const html = renderToStaticMarkup(
-    el(MonitoringDashboard, {
-      terminalId: 'kkeagh01',
-      onLoadStateChange: (state) => {
-        callbackState = state;
-      },
-    }),
+    el(
+      VenueRegistryProvider,
+      { value: testVenueRegistry },
+      el(MonitoringDashboard, {
+        terminalId: 'kkeagh01',
+        onLoadStateChange: (state) => {
+          callbackState = state;
+        },
+      }),
+    ),
   );
   assert.ok(html.includes('monitoring-dashboard'));
   // SSR (renderToStaticMarkup) では useEffect は実行されないため、レンダリングが例外なく完了することを確認

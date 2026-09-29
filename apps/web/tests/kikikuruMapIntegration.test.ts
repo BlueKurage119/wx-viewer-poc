@@ -5,7 +5,7 @@ import React from 'react';
 import { flushSync } from 'react-dom';
 import { renderToStaticMarkup } from 'react-dom/server';
 import L from 'leaflet';
-import { terminals } from '../src/shell/config';
+import { testTerminals as terminals } from './venueConfigPreload.ts';
 import { sampleKikikuruTimeline } from '../src/map/fixtures';
 import { mapViewportConfiguration } from '../src/map/MapViewport';
 import {

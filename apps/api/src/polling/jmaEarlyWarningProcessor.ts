@@ -10,15 +10,14 @@ import type {
   EarlyWarningTargetArea,
   TelegramReception,
 } from '../repositories/types.js';
-import { DEFAULT_EARLY_WARNING_TARGET_AREA, parseEarlyWarning } from './jmaEarlyWarningParser.js';
-
-export { DEFAULT_EARLY_WARNING_TARGET_AREA };
+import { parseEarlyWarning } from './jmaEarlyWarningParser.js';
 
 export function processEarlyWarningReception(
   connection: DatabaseConnection,
   reception: TelegramReception,
   processedAt: UtcIso8601String,
-  targetArea: EarlyWarningTargetArea = DEFAULT_EARLY_WARNING_TARGET_AREA,
+  targetArea: EarlyWarningTargetArea,
+  registry: VenueRegistry,
 ): EarlyWarningParseResult {
   if (!reception.rawBody) {
     const errorResult: EarlyWarningParseResult = {
@@ -27,11 +26,16 @@ export function processEarlyWarningReception(
       reason: '原文（raw_body）がありません',
     };
     const tx = connection.transaction(() => {
-      upsertTelegramReceptionAdoptionForAllVenues(connection, reception.id, {
-        adoptionResult: errorResult.disposition,
-        adoptionReason: errorResult.reason,
-        adoptionDecidedAt: processedAt,
-      });
+      upsertTelegramReceptionAdoptionForAllVenues(
+        connection,
+        reception.id,
+        {
+          adoptionResult: errorResult.disposition,
+          adoptionReason: errorResult.reason,
+          adoptionDecidedAt: processedAt,
+        },
+        registry,
+      );
     });
     tx();
     return errorResult;
@@ -69,17 +73,27 @@ export function processEarlyWarningReception(
         cells: parsed.cells,
       });
 
-      upsertTelegramReceptionAdoptionForAllVenues(connection, reception.id, {
-        adoptionResult: '早期注意情報として解析済み',
-        adoptionReason: null,
-        adoptionDecidedAt: processedAt,
-      });
+      upsertTelegramReceptionAdoptionForAllVenues(
+        connection,
+        reception.id,
+        {
+          adoptionResult: '早期注意情報として解析済み',
+          adoptionReason: null,
+          adoptionDecidedAt: processedAt,
+        },
+        registry,
+      );
     } else {
-      upsertTelegramReceptionAdoptionForAllVenues(connection, reception.id, {
-        adoptionResult: parseResult.disposition,
-        adoptionReason: parseResult.reason,
-        adoptionDecidedAt: processedAt,
-      });
+      upsertTelegramReceptionAdoptionForAllVenues(
+        connection,
+        reception.id,
+        {
+          adoptionResult: parseResult.disposition,
+          adoptionReason: parseResult.reason,
+          adoptionDecidedAt: processedAt,
+        },
+        registry,
+      );
     }
   });
 
@@ -140,12 +154,17 @@ export function processEarlyWarningReceptionForVenues(
         });
       }
       for (const venueId of venueIds) {
-        upsertTelegramReceptionAdoption(connection, reception.id, {
-          venueId,
-          adoptionResult: result.ok ? '早期注意情報として解析済み' : result.disposition,
-          adoptionReason: result.ok ? null : result.reason,
-          adoptionDecidedAt: processedAt,
-        });
+        upsertTelegramReceptionAdoption(
+          connection,
+          reception.id,
+          {
+            venueId,
+            adoptionResult: result.ok ? '早期注意情報として解析済み' : result.disposition,
+            adoptionReason: result.ok ? null : result.reason,
+            adoptionDecidedAt: processedAt,
+          },
+          registry,
+        );
         outcomes.push({ venueId, result });
       }
     }

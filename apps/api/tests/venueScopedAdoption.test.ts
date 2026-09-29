@@ -1,10 +1,10 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { VENUE_IDS } from '@wx-viewer-poc/shared';
 
 import { initializeDatabase, type DatabaseConnection } from '../src/database/index.js';
 import {
@@ -24,11 +24,13 @@ import {
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 
+const VENUE_IDS = testVenueRegistry.listVenueIds();
+
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 
-const EAST_VENUE = resolveVenueWarningContext('east');
-const TRC_VENUE = resolveVenueWarningContext('trc');
+const EAST_VENUE = resolveVenueWarningContext(testVenueRegistry, eastVenueId);
+const TRC_VENUE = resolveVenueWarningContext(testVenueRegistry, trcVenueId);
 
 function setupDb(): { connection: DatabaseConnection; cleanup: () => void } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-venue-adoption-'));
@@ -153,8 +155,8 @@ test('§7-2 同一電文の会場独立: east→trc と trc→east の処理順�
   assert.deepEqual(
     adoptionsOrderA?.map((a) => ({ venueId: a.venueId, adoptionResult: a.adoptionResult })),
     [
-      { venueId: 'east', adoptionResult: '警報・注意報として解析済み' },
-      { venueId: 'trc', adoptionResult: '警報・注意報として解析済み' },
+      { venueId: eastVenueId, adoptionResult: '警報・注意報として解析済み' },
+      { venueId: trcVenueId, adoptionResult: '警報・注意報として解析済み' },
     ],
   );
   // 処理順序を入れ替えても venueId 昇順で内容が完全一致する（decidedAt はそれぞれ自分の呼び出し時刻のため個別に比較）
@@ -196,8 +198,8 @@ test('§7-3 対象地域外の独立: 単一区域のみの電文は対象会場
     assert.deepEqual(
       kotoAdoptions?.map((a) => ({ venueId: a.venueId, adoptionResult: a.adoptionResult })),
       [
-        { venueId: 'east', adoptionResult: '警報・注意報として解析済み' },
-        { venueId: 'trc', adoptionResult: '対象地域外' },
+        { venueId: eastVenueId, adoptionResult: '警報・注意報として解析済み' },
+        { venueId: trcVenueId, adoptionResult: '対象地域外' },
       ],
     );
 
@@ -214,8 +216,8 @@ test('§7-3 対象地域外の独立: 単一区域のみの電文は対象会場
     assert.deepEqual(
       otaAdoptions?.map((a) => ({ venueId: a.venueId, adoptionResult: a.adoptionResult })),
       [
-        { venueId: 'east', adoptionResult: '対象地域外' },
-        { venueId: 'trc', adoptionResult: '警報・注意報として解析済み' },
+        { venueId: eastVenueId, adoptionResult: '対象地域外' },
+        { venueId: trcVenueId, adoptionResult: '警報・注意報として解析済み' },
       ],
     );
   } finally {
@@ -274,8 +276,8 @@ test('§7-5 未判定検出の会場別: 片方の会場の判定完了が他方
     // east だけ処理する
     processWarningTelegramReception(db.connection, reception, '2026-09-09T00:01:00Z', EAST_VENUE);
 
-    const eastPending = listPendingWarningTelegramReceptions(db.connection, 'east');
-    const trcPending = listPendingWarningTelegramReceptions(db.connection, 'trc');
+    const eastPending = listPendingWarningTelegramReceptions(db.connection, eastVenueId);
+    const trcPending = listPendingWarningTelegramReceptions(db.connection, trcVenueId);
     assert.equal(eastPending.receptions.length, 0);
     assert.equal(trcPending.receptions.length, 1);
     assert.equal(trcPending.receptions[0]!.id, reception.id);
@@ -315,8 +317,8 @@ test('§7-5b 未対応形式（adoption_decided_at=null）の行は、記録済�
     };
     const reception = recordTelegramReception(db.connection, input);
 
-    const eastPending = listPendingWarningTelegramReceptions(db.connection, 'east');
-    const trcPending = listPendingWarningTelegramReceptions(db.connection, 'trc');
+    const eastPending = listPendingWarningTelegramReceptions(db.connection, eastVenueId);
+    const trcPending = listPendingWarningTelegramReceptions(db.connection, trcVenueId);
     assert.equal(eastPending.receptions.length, 1);
     assert.equal(eastPending.receptions[0]!.id, reception.id);
     assert.equal(trcPending.receptions.length, 1);
@@ -340,7 +342,7 @@ test('§7-6 起動時の冪等性: 再処理＋再構築を2回実行しても�
 
     {
       for (const venueId of VENUE_IDS) {
-        const venue = resolveVenueWarningContext(venueId);
+        const venue = resolveVenueWarningContext(testVenueRegistry, venueId);
         await reprocessPendingWarningTelegramReceptions(
           db.connection,
           venue,
@@ -365,7 +367,7 @@ test('§7-6 起動時の冪等性: 再処理＋再構築を2回実行しても�
       const trcSnapshot1 = findWarningCurrentSnapshot(db.connection, '1311100', 'normal');
 
       for (const venueId of VENUE_IDS) {
-        const venue = resolveVenueWarningContext(venueId);
+        const venue = resolveVenueWarningContext(testVenueRegistry, venueId);
         await reprocessPendingWarningTelegramReceptions(
           db.connection,
           venue,
@@ -431,7 +433,7 @@ test('§7-7 移行後の東地区一致: east 単独処理と両会場処理後�
     eastOnlyAdoption = findTelegramReceptionById(
       dbEastOnly.connection,
       reception.id,
-    )?.adoptions.find((a) => a.venueId === 'east');
+    )?.adoptions.find((a) => a.venueId === eastVenueId);
   } finally {
     dbEastOnly.cleanup();
   }
@@ -459,7 +461,7 @@ test('§7-7 移行後の東地区一致: east 単独処理と両会場処理後�
     );
     bothEastSnapshot = findWarningCurrentSnapshot(dbBoth.connection, '1310800', 'normal');
     bothEastAdoption = findTelegramReceptionById(dbBoth.connection, reception.id)?.adoptions.find(
-      (a) => a.venueId === 'east',
+      (a) => a.venueId === eastVenueId,
     );
   } finally {
     dbBoth.cleanup();
@@ -505,28 +507,20 @@ test('§7-9 端末モードの非混入: migration・venueWeatherService のソ�
 });
 
 // -------------------------------------------------------------------------------------------------
-// §3.3.1: C5/C6 は「全会場で同一に解決される」という前提が崩れたら静かに壊れるため、
-// resolveSharedEarlyWarningTargetArea / resolveSharedAreaTimeseriesForecastTarget を
-// 実際のポーリング経路（jmaXmlPoller.ts）で呼び出すことを保証する。
-// この表明をテストだけが呼び、本番経路が素の DEFAULT_* 定数を直に使う退行を防ぐ。
+// C5/C6 が共通対象を仮定せず、実際のポーリング経路で会場別処理を呼ぶことを保証する。
 // -------------------------------------------------------------------------------------------------
-test('§3.3.1 共有対象の表明が実際のポーリング経路から呼ばれている', () => {
+test('C5/C6 は会場レジストリを渡して対象ごとに処理する', () => {
   const pollerSource = readFileSync(join(apiRoot, 'src', 'polling', 'jmaXmlPoller.ts'), 'utf-8');
 
   assert.match(
     pollerSource,
-    /resolveSharedEarlyWarningTargetArea\(\)/,
-    'jmaXmlPoller.ts は C5 の対象解決に resolveSharedEarlyWarningTargetArea() を使う必要があります',
+    /processEarlyWarningReceptionForVenues\(/,
+    'C5 の会場別処理が必要です',
   );
-  assert.match(
-    pollerSource,
-    /resolveSharedAreaTimeseriesForecastTarget\(\)/,
-    'jmaXmlPoller.ts は C6 の対象解決に resolveSharedAreaTimeseriesForecastTarget() を使う必要があります',
-  );
+  assert.match(pollerSource, /processVpfd51ReceptionForVenues\(/, 'C6 の会場別処理が必要です');
   assert.doesNotMatch(
     pollerSource,
     /DEFAULT_EARLY_WARNING_TARGET_AREA|DEFAULT_AREA_TIMESERIES_FORECAST_TARGET/,
-    'jmaXmlPoller.ts が会場非依存の DEFAULT_* 定数を直接使うと、会場間の対象不一致を検知する ' +
-      'resolveShared* の表明を素通りしてしまいます',
+    '対象の既定値を使わず会場設定から解決します',
   );
 });

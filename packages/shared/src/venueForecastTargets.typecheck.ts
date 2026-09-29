@@ -1,11 +1,12 @@
 import {
-  resolveVenueForecastTargets,
+  createVenueRegistry,
   type AmedasStationCode,
   type RegionalForecastAreaCode,
   type VenueId,
 } from './venueForecastTargets.js';
 
-const targets = resolveVenueForecastTargets('east');
+const registry = createVenueRegistry([], 'test');
+const targets = registry.getVenue(null as unknown as VenueId);
 
 // @ts-expect-error アメダス地点を市町村等警報コードとして渡してはならない。
 const invalidMunicipalCode: typeof targets.warning.municipalCode = targets.amedas.stationCode;

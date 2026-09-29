@@ -10,7 +10,6 @@ import {
   type Vpwp50ParseResult,
   type WarningTimeseriesTargetArea,
 } from '../repositories/types.js';
-import { resolveWarningTimeseriesTargetArea } from '../venueForecastTargets.js';
 
 export const JMA_REPORT_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/';
 export const JMA_INFORMATION_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/informationBasis1/';
@@ -19,13 +18,6 @@ export const JMA_ELEMENT_BASIS_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/elem
 
 export const EXPECTED_METEOROLOGICAL_INFOS_TYPE = '量的予想時系列（市町村等）';
 export const EXPECTED_INFO_KIND = '気象警報・注意報時系列';
-
-export const DEFAULT_VPWP50_TARGET_AREA: WarningTimeseriesTargetArea = new Proxy(
-  {} as WarningTimeseriesTargetArea,
-  {
-    get: (_target, property) => Reflect.get(resolveWarningTimeseriesTargetArea('east'), property),
-  },
-);
 
 function parseDocument(rawXml: string): Element | null {
   try {
@@ -133,7 +125,7 @@ export function parseVpwp50(
     TelegramReception,
     'telegramType' | 'controlStatus' | 'reportDateTime' | 'controlDateTime'
   >,
-  targetArea: WarningTimeseriesTargetArea = DEFAULT_VPWP50_TARGET_AREA,
+  targetArea: WarningTimeseriesTargetArea,
 ): Vpwp50ParseResult {
   if (expected.telegramType !== VPWP50_TELEGRAM_TYPE) {
     return {

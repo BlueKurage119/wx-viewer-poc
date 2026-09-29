@@ -4,6 +4,7 @@ import {
   type Availability,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import { findAmedasSnapshot, saveAmedasSnapshot } from '../repositories/amedasRepository.js';
@@ -57,6 +58,7 @@ export interface AmedasFetchCycleResult {
 }
 
 export interface AmedasFetchOptions {
+  readonly venueRegistry?: VenueRegistry;
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
   readonly timeoutMs?: number; // 既定 10_000（取得方法レポート §6）
@@ -86,8 +88,7 @@ export class AmedasFetchState {
     consecutiveFailures: 0,
   };
 
-  /** 既定 'east'（Issue #109 §3.2 と同じ「east 既定・明示注入」）。 */
-  constructor(venueId: VenueId = 'east') {
+  constructor(venueId: VenueId) {
     this.venueId = venueId;
   }
 
@@ -139,7 +140,8 @@ export async function runAmedasFetchCycle(
     throw new RangeError('backfillBlocks must be an integer between 0 and 8');
   }
 
-  const target = resolveAmedasTarget(state.venueId);
+  if (!options?.venueRegistry) throw new Error('アメダス取得には会場レジストリが必要です');
+  const target = resolveAmedasTarget(options.venueRegistry, state.venueId);
 
   // 1. latest_time.txt を GET
   const latestStartedAt = clock();

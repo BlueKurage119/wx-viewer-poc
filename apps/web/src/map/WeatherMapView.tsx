@@ -376,7 +376,7 @@ export function WeatherMapView({
       <MapInformationColumnSlot ref={setRightColumnRef}>
         {/* 詳細（仮）入口 (G10 §6) が scrollContainer として列要素を参照するための Provider */}
         <DetailDialogScrollContainerProvider value={rightColumnEl}>
-          <InfoPanelColumn venueId={venue.id} input={infoPanelInput} />
+          <InfoPanelColumn venue={venue} input={infoPanelInput} />
         </DetailDialogScrollContainerProvider>
       </MapInformationColumnSlot>
 

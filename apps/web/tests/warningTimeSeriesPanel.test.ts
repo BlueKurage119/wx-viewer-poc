@@ -39,6 +39,7 @@ import {
   type WtsColumn,
 } from '../src/map/panels/warningTimeSeries/warningTimeSeriesModel';
 import { InfoPanelColumn } from '../src/map/panels/InfoPanelColumn.tsx';
+import { eastVenue } from './venueConfigPreload.ts';
 import { DetailDialogInner } from '../src/map/detail/DetailDialog.tsx';
 import {
   WarningTimeSeriesDetail,
@@ -1468,7 +1469,7 @@ test('AC-12: 見出しはissuedAt由来のみ。venueIdでの対象名切替。'
   // (bosaiBulletinPanel.test.ts と同様の既存の慣習)。status(見出し時刻)は実際の値を使う。
   const html = renderToStaticMarkup(
     el(InfoPanelColumn, {
-      venueId: 'east',
+      venue: eastVenue,
       input: {
         bosaiBulletin: [],
         warning: [],

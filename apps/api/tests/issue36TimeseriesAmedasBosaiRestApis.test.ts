@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { type Server } from 'node:http';
 import test from 'node:test';
@@ -138,6 +139,7 @@ function createTestApp(options?: {
   }
   const nowIso = options?.nowIso ?? '2026-09-14T06:30:00.000Z';
   const weatherApi = createWeatherApiService({
+    venueRegistry: testVenueRegistry,
     connection: db.connection,
     getPollingStatus: () => options?.pollingStatus ?? createAvailablePollingStatus(),
     now: () => nowIso,
@@ -2342,6 +2344,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
 
   const appStaleFeed = createApp({
     weatherApi: createWeatherApiService({
+      venueRegistry: testVenueRegistry,
       connection: db.connection,
       getPollingStatus: () => stalePollingStatus,
       now: () => '2026-09-14T06:30:00.000Z',
@@ -2452,7 +2455,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
     areas: [{ areaCode: '1310800', areaName: '江東区', codeType: null, sequence: 1 }],
     adoptions: [
       {
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '未対応構造',
         adoptionReason: 'パース失敗',
         adoptionDecidedAt: '2026-09-14T06:10:00.000Z',
@@ -2489,7 +2492,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
     areas: [{ areaCode: '1310800', areaName: '江東区', codeType: null, sequence: 1 }],
     adoptions: [
       {
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '未対応構造',
         adoptionReason: 'パース失敗',
         adoptionDecidedAt: '2026-09-14T01:00:00.000Z',
@@ -2564,7 +2567,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
     areas: [{ areaCode: '1310800', areaName: '江東区', codeType: null, sequence: 1 }],
     adoptions: [
       {
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '未対応構造',
         adoptionReason: 'パース失敗',
         adoptionDecidedAt: '2026-09-14T06:10:00.000Z',
@@ -2600,7 +2603,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
     areas: [{ areaCode: '150010', areaName: '新潟地方', codeType: null, sequence: 1 }],
     adoptions: [
       {
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '未対応構造',
         adoptionReason: 'パース失敗',
         adoptionDecidedAt: '2026-09-14T06:10:00.000Z',
@@ -2636,7 +2639,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
     areas: [{ areaCode: '1310800', areaName: '江東区', codeType: null, sequence: 1 }],
     adoptions: [
       {
-        venueId: 'trc',
+        venueId: trcVenueId,
         adoptionResult: '未対応構造',
         adoptionReason: 'パース失敗',
         adoptionDecidedAt: '2026-09-14T06:10:00.000Z',
@@ -2672,7 +2675,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
     areas: [{ areaCode: '1310800', areaName: '江東区', codeType: null, sequence: 1 }],
     adoptions: [
       {
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '未対応構造',
         adoptionReason: 'パース失敗',
         adoptionDecidedAt: '2026-09-14T05:00:00.000Z',

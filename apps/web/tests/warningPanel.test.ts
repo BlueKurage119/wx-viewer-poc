@@ -16,6 +16,7 @@ import {
 } from '../src/map/panels/warning/warningBadges';
 import { InfoPanelColumn } from '../src/map/panels/InfoPanelColumn';
 import { DEFAULT_INFO_PANEL_INPUT } from '../src/map/panels/panelFixtures';
+import { eastVenue, trcVenue } from './venueConfigPreload.ts';
 
 const el = React.createElement;
 
@@ -264,7 +265,7 @@ test('buildWarningCards→InfoPanelColumn: 解除された項目は現況から�
   const cardsFirst = buildWarningCards(first, 'available');
   const inputFirst = { ...DEFAULT_INFO_PANEL_INPUT, warning: cardsFirst };
   const htmlFirst = renderToStaticMarkup(
-    el(InfoPanelColumn, { venueId: 'east', input: inputFirst }),
+    el(InfoPanelColumn, { venue: eastVenue, input: inputFirst }),
   );
   assert.match(htmlFirst, /レベル3大雨警報/);
   assert.match(htmlFirst, /雷注意報/);
@@ -275,7 +276,7 @@ test('buildWarningCards→InfoPanelColumn: 解除された項目は現況から�
   const cardsSecond = buildWarningCards(second, 'available');
   const inputSecond = { ...DEFAULT_INFO_PANEL_INPUT, warning: cardsSecond };
   const htmlSecond = renderToStaticMarkup(
-    el(InfoPanelColumn, { venueId: 'east', input: inputSecond }),
+    el(InfoPanelColumn, { venue: eastVenue, input: inputSecond }),
   );
   assert.match(htmlSecond, /レベル3大雨警報/);
   assert.doesNotMatch(htmlSecond, /雷注意報/);
@@ -301,7 +302,7 @@ test('buildWarningCards: items空・data null・表外のみ・issuedAt nullで0
 
 test('省略時: InfoPanelColumnの出力に見出し・「発表なし」が出ない', () => {
   const input = { ...DEFAULT_INFO_PANEL_INPUT, warning: [] };
-  const html = renderToStaticMarkup(el(InfoPanelColumn, { venueId: 'east', input }));
+  const html = renderToStaticMarkup(el(InfoPanelColumn, { venue: eastVenue, input }));
   assert.doesNotMatch(html, /気象警報・注意報/);
   assert.doesNotMatch(html, /発表なし/);
 });
@@ -369,11 +370,11 @@ test('InfoPanelColumn: venueIdで見出し2行目の対象名が切り替わる'
   const cards = buildWarningCards(response({ data: { items: [W1] } }), 'available');
   const input = { ...DEFAULT_INFO_PANEL_INPUT, warning: cards };
 
-  const htmlEast = renderToStaticMarkup(el(InfoPanelColumn, { venueId: 'east', input }));
+  const htmlEast = renderToStaticMarkup(el(InfoPanelColumn, { venue: eastVenue, input }));
   assert.match(htmlEast, /気象警報・注意報/);
   assert.match(htmlEast, /江東区/);
 
-  const htmlTrc = renderToStaticMarkup(el(InfoPanelColumn, { venueId: 'trc', input }));
+  const htmlTrc = renderToStaticMarkup(el(InfoPanelColumn, { venue: trcVenue, input }));
   assert.match(htmlTrc, /気象警報・注意報/);
   assert.match(htmlTrc, /大田区/);
 });

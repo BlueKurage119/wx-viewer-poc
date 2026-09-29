@@ -1,4 +1,4 @@
-import { VENUE_IDS, type UtcIso8601String, type VenueId } from '@wx-viewer-poc/shared';
+import { type UtcIso8601String, type VenueId, type VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import { upsertTelegramReceptionAdoption } from '../repositories/telegramReceptionRepository.js';
 import { saveWarningTimeseriesSnapshot } from '../repositories/warningTimeseriesRepository.js';
@@ -8,8 +8,6 @@ import {
   resolveVenueWarningTimeseriesContext,
   type VenueWarningTimeseriesContext,
 } from '../venueForecastTargets.js';
-
-export { DEFAULT_VPWP50_TARGET_AREA } from './jmaVpwp50Parser.js';
 
 /**
  * 1 会場分の VPWP50（警報等時系列）電文を採用判定する。市町村等コードが会場で異なるため
@@ -91,15 +89,16 @@ export function processVpwp50Reception(
   return parseResult;
 }
 
-/** VENUE_IDS を毎回ループする。ポーリング本線はこちらを呼ぶ（確定事項3）。 */
+/** 起動時に確定した会場レジストリを毎回列挙する。ポーリング本線はこちらを呼ぶ。 */
 export function processVpwp50ReceptionForAllVenues(
   connection: DatabaseConnection,
   reception: TelegramReception,
   processedAt: UtcIso8601String,
+  registry: VenueRegistry,
 ): ReadonlyMap<VenueId, Vpwp50ParseResult> {
   const results = new Map<VenueId, Vpwp50ParseResult>();
-  for (const venueId of VENUE_IDS) {
-    const venue = resolveVenueWarningTimeseriesContext(venueId);
+  for (const venueId of registry.listVenueIds()) {
+    const venue = resolveVenueWarningTimeseriesContext(registry, venueId);
     results.set(venueId, processVpwp50Reception(connection, reception, processedAt, venue));
   }
   return results;

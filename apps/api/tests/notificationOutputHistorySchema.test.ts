@@ -31,8 +31,8 @@ test('1. 本番 migration をすべて適用すると notification_output_histor
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 25);
-    assert.equal(context.migrationSummary.appliedVersions.length, 25);
+    assert.equal(expectedSqlFiles.length, 26);
+    assert.equal(context.migrationSummary.appliedVersions.length, 26);
 
     const tables = (
       context.connection

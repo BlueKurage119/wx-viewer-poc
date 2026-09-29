@@ -1,7 +1,7 @@
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { UtcIso8601String, VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import { findBosaiBulletin, saveBosaiBulletin } from '../repositories/bosaiBulletinRepository.js';
-import { upsertTelegramReceptionAdoptionForAllVenues } from '../repositories/telegramReceptionRepository.js';
+import { upsertTelegramReceptionAdoptionForAllVenues as upsertAll } from '../repositories/telegramReceptionRepository.js';
 import {
   BOSAI_BULLETIN_TARGET_TAGS,
   type BosaiBulletin,
@@ -13,17 +13,22 @@ import {
   emitBosaiBulletinNotificationsForReception,
   type BosaiNotificationEmitDeps,
 } from '../notifications/bosaiBulletinNotificationEmitter.js';
-import { DEFAULT_BOSAI_BULLETIN_TARGET, parseVpbs50 } from './jmaVpbs50Parser.js';
-
-export { DEFAULT_BOSAI_BULLETIN_TARGET };
+import { parseVpbs50 } from './jmaVpbs50Parser.js';
 
 export function processVpbs50Reception(
   connection: DatabaseConnection,
   reception: TelegramReception,
   processedAt: UtcIso8601String,
-  target: BosaiBulletinTarget = DEFAULT_BOSAI_BULLETIN_TARGET,
+  target: BosaiBulletinTarget,
   deps?: BosaiNotificationEmitDeps,
+  registry?: VenueRegistry,
 ): Vpbs50ParseResult {
+  if (!registry) throw new Error('速報処理には会場レジストリが必要です');
+  const upsertTelegramReceptionAdoptionForAllVenues = (
+    db: DatabaseConnection,
+    receptionId: number,
+    input: Parameters<typeof upsertAll>[2],
+  ) => upsertAll(db, receptionId, input, registry);
   if (!reception.rawBody) {
     const errorResult: Vpbs50ParseResult = {
       ok: false,

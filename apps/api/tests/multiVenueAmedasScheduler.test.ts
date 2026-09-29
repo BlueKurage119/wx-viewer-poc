@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -150,6 +151,7 @@ test(
 
       const nowFn = () => new Date('2026-09-11T12:00:00.000Z');
       const adapters = createScheduledAdapters({
+        venueRegistry: testVenueRegistry,
         connection: database.connection,
         nowcastService: dummyNowcastService,
         kikikuruService: dummyKikikuruService,
@@ -574,6 +576,7 @@ test(
       };
 
       const adapters = createScheduledAdapters({
+        venueRegistry: testVenueRegistry,
         connection: database.connection,
         nowcastService: dummyNowcastService,
         kikikuruService: dummyKikikuruService,
@@ -671,11 +674,12 @@ test(
       };
 
       // 内部状態確認のため、テスト側から AmedasFetchState を明示注入した単地点 adapter 2本を作成し集合 adapter で実行
-      const eastState = new AmedasFetchState('east');
-      const trcState = new AmedasFetchState('trc');
+      const eastState = new AmedasFetchState(eastVenueId);
+      const trcState = new AmedasFetchState(trcVenueId);
 
       const eastAdapter = new AmedasScheduledAdapter(database.connection, eastState, 600, {
         fetchOptions: {
+          venueRegistry: testVenueRegistry,
           fetchFn: customFetch,
           clock: () => new Date(currentMockTimeMs).toISOString() as UtcIso8601String,
         },
@@ -683,6 +687,7 @@ test(
       });
       const trcAdapter = new AmedasScheduledAdapter(database.connection, trcState, 600, {
         fetchOptions: {
+          venueRegistry: testVenueRegistry,
           fetchFn: customFetch,
           clock: () => new Date(currentMockTimeMs).toISOString() as UtcIso8601String,
         },
@@ -778,6 +783,7 @@ test(
           migrationsDirectory,
         });
         const failAdapters = createScheduledAdapters({
+          venueRegistry: testVenueRegistry,
           connection: failDb.connection,
           nowcastService: dummyNowcastService,
           kikikuruService: dummyKikikuruService,
@@ -863,11 +869,12 @@ test(
         return new Response('Not found', { status: 404 });
       };
 
-      const eastState = new AmedasFetchState('east');
-      const trcState = new AmedasFetchState('trc');
+      const eastState = new AmedasFetchState(eastVenueId);
+      const trcState = new AmedasFetchState(trcVenueId);
 
       const eastAdapter = new AmedasScheduledAdapter(database.connection, eastState, 600, {
         fetchOptions: {
+          venueRegistry: testVenueRegistry,
           fetchFn: customFetch,
           clock: () => new Date(currentMockTimeMs).toISOString() as UtcIso8601String,
         },
@@ -875,6 +882,7 @@ test(
       });
       const trcAdapter = new AmedasScheduledAdapter(database.connection, trcState, 600, {
         fetchOptions: {
+          venueRegistry: testVenueRegistry,
           fetchFn: customFetch,
           clock: () => new Date(currentMockTimeMs).toISOString() as UtcIso8601String,
         },
@@ -1001,11 +1009,12 @@ test(
           return new Response('Not found', { status: 404 });
         };
 
-        const eastState = new AmedasFetchState('east');
-        const trcState = new AmedasFetchState('trc');
+        const eastState = new AmedasFetchState(eastVenueId);
+        const trcState = new AmedasFetchState(trcVenueId);
 
         const eastAdapter = new AmedasScheduledAdapter(database.connection, eastState, 600, {
           fetchOptions: {
+            venueRegistry: testVenueRegistry,
             fetchFn: async (input) => {
               const urlStr = String(input);
               if (urlStr.includes('latest_time.txt')) {
@@ -1020,6 +1029,7 @@ test(
 
         const trcAdapter = new AmedasScheduledAdapter(database.connection, trcState, 600, {
           fetchOptions: {
+            venueRegistry: testVenueRegistry,
             fetchFn: async (input) => {
               const urlStr = String(input);
               if (urlStr.includes('latest_time.txt')) {
@@ -1113,9 +1123,10 @@ test(
         let latestTime44166Status = 200;
         const currentLatestTime = '2026-09-11T20:30:00+09:00';
 
-        const trcState = new AmedasFetchState('trc');
+        const trcState = new AmedasFetchState(trcVenueId);
         const trcAdapter = new AmedasScheduledAdapter(database.connection, trcState, 600, {
           fetchOptions: {
+            venueRegistry: testVenueRegistry,
             fetchFn: async (input) => {
               const urlStr = String(input);
               if (urlStr.includes('latest_time.txt')) {
@@ -1195,6 +1206,7 @@ test(
         };
 
         const adapters = createScheduledAdapters({
+          venueRegistry: testVenueRegistry,
           connection: database.connection,
           nowcastService: dummyNowcastService,
           kikikuruService: dummyKikikuruService,
@@ -1243,6 +1255,7 @@ test(
         });
         let fPointCount = 0;
         const fAdapters = createScheduledAdapters({
+          venueRegistry: testVenueRegistry,
           connection: fDb.connection,
           nowcastService: dummyNowcastService,
           kikikuruService: dummyKikikuruService,
@@ -1298,14 +1311,14 @@ test(
       };
       const syntheticResolver = (): AmedasTarget => syntheticTarget;
 
-      const uniqueVenues = resolveUniqueAmedasVenues(['east', 'trc'], syntheticResolver);
-      assert.deepEqual(uniqueVenues, ['east'], '初出順の代表会場1個だけが返る');
+      const uniqueVenues = resolveUniqueAmedasVenues([eastVenueId, trcVenueId], syntheticResolver);
+      assert.deepEqual(uniqueVenues, [eastVenueId], '初出順の代表会場1個だけが返る');
 
       // 2. 定義不一致（displayName 不一致）の場合は例外
       assert.throws(
         () =>
-          resolveUniqueAmedasVenues(['east', 'trc'], (venueId) => {
-            if (venueId === 'east') {
+          resolveUniqueAmedasVenues([eastVenueId, trcVenueId], (venueId) => {
+            if (venueId === eastVenueId) {
               return {
                 stationCode: '44136' as AmedasTarget['stationCode'],
                 displayName: '江戸川臨海A',
@@ -1324,8 +1337,8 @@ test(
       // 3. 定義不一致（elements 不一致）の場合も例外
       assert.throws(
         () =>
-          resolveUniqueAmedasVenues(['east', 'trc'], (venueId) => {
-            if (venueId === 'east') {
+          resolveUniqueAmedasVenues([eastVenueId, trcVenueId], (venueId) => {
+            if (venueId === eastVenueId) {
               return {
                 stationCode: '44136' as AmedasTarget['stationCode'],
                 displayName: '江戸川臨海',
@@ -1346,6 +1359,7 @@ test(
       const state = new AmedasFetchState(representativeVenue);
       const singleAdapter = new AmedasScheduledAdapter(database.connection, state, 600, {
         fetchOptions: {
+          venueRegistry: testVenueRegistry,
           fetchFn: async (input) => {
             const urlStr = String(input);
             if (urlStr.includes('latest_time.txt')) {
@@ -1431,6 +1445,7 @@ test(
         };
 
         const adapters = createScheduledAdapters({
+          venueRegistry: testVenueRegistry,
           connection: database.connection,
           nowcastService: dummyNowcastService,
           kikikuruService: dummyKikikuruService,
@@ -1530,6 +1545,7 @@ test(
         };
 
         const retryAdapters = createScheduledAdapters({
+          venueRegistry: testVenueRegistry,
           connection: database.connection,
           nowcastService: dummyNowcastService,
           kikikuruService: dummyKikikuruService,
@@ -1610,6 +1626,7 @@ test(
       const nightTimer = new FakeTimerScheduler('2026-09-12T15:00:00.000Z'); // 00:00 JST
       let nightRequestCount = 0;
       const nightAdapters = createScheduledAdapters({
+        venueRegistry: testVenueRegistry,
         connection: database.connection,
         nowcastService: dummyNowcastService,
         kikikuruService: dummyKikikuruService,
@@ -1680,6 +1697,7 @@ test(
 
         const db1 = initializeDatabase({ databasePath, migrationsDirectory });
         const adapters1 = createScheduledAdapters({
+          venueRegistry: testVenueRegistry,
           connection: db1.connection,
           nowcastService: dummyNowcastService,
           kikikuruService: dummyKikikuruService,
@@ -1696,6 +1714,7 @@ test(
         reqUrls1 = [];
         const db2 = initializeDatabase({ databasePath, migrationsDirectory });
         const adapters2 = createScheduledAdapters({
+          venueRegistry: testVenueRegistry,
           connection: db2.connection,
           nowcastService: dummyNowcastService,
           kikikuruService: dummyKikikuruService,
@@ -1737,6 +1756,7 @@ test(
         // 1. プロセス1: 両地点を保存して閉じる
         const db1 = initializeDatabase({ databasePath, migrationsDirectory });
         const adapters1 = createScheduledAdapters({
+          venueRegistry: testVenueRegistry,
           connection: db1.connection,
           nowcastService: dummyNowcastService,
           kikikuruService: dummyKikikuruService,
@@ -1776,6 +1796,7 @@ test(
 
         const db2 = initializeDatabase({ databasePath, migrationsDirectory });
         const adapters2 = createScheduledAdapters({
+          venueRegistry: testVenueRegistry,
           connection: db2.connection,
           nowcastService: dummyNowcastService,
           kikikuruService: dummyKikikuruService,
@@ -1844,6 +1865,7 @@ test(
       const modified44136Json = JSON.stringify(modified44136Data);
 
       const adapters = createScheduledAdapters({
+        venueRegistry: testVenueRegistry,
         connection: database.connection,
         nowcastService: dummyNowcastService,
         kikikuruService: dummyKikikuruService,
@@ -1986,6 +2008,7 @@ test(
 
       // 1. スケジューラ登録が amedas 1個であり、実スケジューラでも非重複であることを確認
       const baseAdapters = createScheduledAdapters({
+        venueRegistry: testVenueRegistry,
         connection: database.connection,
         nowcastService: dummyNowcastService,
         kikikuruService: dummyKikikuruService,
@@ -2020,6 +2043,7 @@ test(
       let resolve44166: ((res: Response) => void) | null = null;
 
       const slowAdapters = createScheduledAdapters({
+        venueRegistry: testVenueRegistry,
         connection: database.connection,
         nowcastService: dummyNowcastService,
         kikikuruService: dummyKikikuruService,
@@ -2100,10 +2124,11 @@ test(
       let completed44136 = false;
       const normalAdapter = new AmedasScheduledAdapter(
         database.connection,
-        new AmedasFetchState('east'),
+        new AmedasFetchState(eastVenueId),
         600,
         {
           fetchOptions: {
+            venueRegistry: testVenueRegistry,
             fetchFn: async (url) => {
               if (String(url).includes('latest_time.txt')) {
                 return new Response(latestTimeText, { status: 200 });

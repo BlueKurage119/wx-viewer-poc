@@ -1,10 +1,4 @@
-import {
-  isVenueId,
-  VENUE_FORECAST_TARGETS,
-  VENUE_IDS,
-  type NotificationTarget,
-  type VenueId,
-} from '@wx-viewer-poc/shared';
+import { type NotificationTarget, type VenueId, type VenueRegistry } from '@wx-viewer-poc/shared';
 
 export type NotificationVenueScopeResolution =
   | { readonly kind: 'venue'; readonly venueIds: readonly VenueId[] }
@@ -21,6 +15,7 @@ export type NotificationVenueScopeResolution =
  */
 export function resolveNotificationVenueScope(
   targets: readonly NotificationTarget[],
+  registry: VenueRegistry,
 ): NotificationVenueScopeResolution {
   if (!Array.isArray(targets) || targets.length === 0) {
     return { kind: 'unresolved' };
@@ -29,9 +24,10 @@ export function resolveNotificationVenueScope(
   // 1. targets に codeType === 'venue' の要素があり、その code が有効な VenueId である（速報通知 D10）
   const venueCodeMatches: VenueId[] = [];
   for (const target of targets) {
-    if (target.codeType === 'venue' && isVenueId(target.code)) {
-      if (!venueCodeMatches.includes(target.code)) {
-        venueCodeMatches.push(target.code);
+    const venueId = target.codeType === 'venue' ? registry.resolveVenueId(target.code) : null;
+    if (venueId) {
+      if (!venueCodeMatches.includes(venueId)) {
+        venueCodeMatches.push(venueId);
       }
     }
   }
@@ -43,8 +39,8 @@ export function resolveNotificationVenueScope(
   const municipalMatches: VenueId[] = [];
   for (const target of targets) {
     if (target.codeType === 'jma_municipal_warning_area') {
-      for (const venueId of VENUE_IDS) {
-        if (VENUE_FORECAST_TARGETS[venueId]?.warning.municipalCode === target.code) {
+      for (const venueId of registry.listVenueIds()) {
+        if (registry.getVenue(venueId).warning.municipalCode === target.code) {
           if (!municipalMatches.includes(venueId)) {
             municipalMatches.push(venueId);
           }

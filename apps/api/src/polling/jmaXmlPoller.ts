@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { VENUE_IDS, type UtcIso8601String, type VenueRegistry } from '@wx-viewer-poc/shared';
+import { type UtcIso8601String, type VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import { recordFetchAttempt } from '../repositories/fetchAttemptRepository.js';
 import {
@@ -28,7 +28,7 @@ import { processWarningTelegramReceptionForAllVenues } from './jmaWarningTelegra
 import { processVpwp50ReceptionForAllVenues } from './jmaVpwp50Processor.js';
 import { processEarlyWarningReceptionForVenues } from './jmaEarlyWarningProcessor.js';
 import { processVpfd51ReceptionForVenues } from './jmaVpfd51Processor.js';
-import { DEFAULT_BOSAI_BULLETIN_TARGET } from './jmaVpbs50Parser.js';
+import { resolveBosaiBulletinTarget } from '../venueForecastTargets.js';
 import { processVpbs50Reception } from './jmaVpbs50Processor.js';
 import { processVphwReception } from './jmaVphwProcessor.js';
 import {
@@ -73,6 +73,8 @@ export async function pollSingleFeed(
   readonly feedResult: FeedPollResult;
   readonly errorReason: string | null;
 }> {
+  const venueRegistry = options?.venueRegistry;
+  if (!venueRegistry) throw new Error('電文処理には会場レジストリが必要です');
   const nowFn = options?.clock ?? (() => new Date().toISOString());
   const startedAt = nowFn();
   const startTimeMs = Date.now();
@@ -289,7 +291,7 @@ export async function pollSingleFeed(
     const envelopeInvalidAdoptions: readonly TelegramReceptionAdoptionInput[] =
       parsed.isValidEnvelope
         ? []
-        : VENUE_IDS.map((venueId) => ({
+        : venueRegistry.listVenueIds().map((venueId) => ({
             venueId,
             adoptionResult: '未対応形式',
             adoptionReason: parsed.validationErrorReason,
@@ -328,31 +330,26 @@ export async function pollSingleFeed(
         connection,
         reception,
         docFinishedAt,
+        venueRegistry,
         options?.warningNotificationEmitDeps,
       );
     } else if (reception.telegramType === VPWP50_TELEGRAM_TYPE) {
-      processVpwp50ReceptionForAllVenues(connection, reception, docFinishedAt);
+      processVpwp50ReceptionForAllVenues(connection, reception, docFinishedAt, venueRegistry);
     } else if (
       reception.telegramType === VPFD61_TELEGRAM_TYPE ||
       reception.telegramType === VPFW60_TELEGRAM_TYPE
     ) {
-      if (!options?.venueRegistry) throw new Error('C5/C6 には会場レジストリが必要です');
-      processEarlyWarningReceptionForVenues(
-        connection,
-        reception,
-        docFinishedAt,
-        options.venueRegistry,
-      );
+      processEarlyWarningReceptionForVenues(connection, reception, docFinishedAt, venueRegistry);
     } else if (reception.telegramType === VPFD51_TELEGRAM_TYPE) {
-      if (!options?.venueRegistry) throw new Error('C5/C6 には会場レジストリが必要です');
-      processVpfd51ReceptionForVenues(connection, reception, docFinishedAt, options.venueRegistry);
+      processVpfd51ReceptionForVenues(connection, reception, docFinishedAt, venueRegistry);
     } else if (reception.telegramType === VPBS50_TELEGRAM_TYPE) {
       processVpbs50Reception(
         connection,
         reception,
         docFinishedAt,
-        options?.bosaiBulletinTarget ?? DEFAULT_BOSAI_BULLETIN_TARGET,
+        options?.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
         options?.bosaiNotificationEmitDeps,
+        venueRegistry,
       );
     } else if (
       reception.telegramType === VPHW50_TELEGRAM_TYPE ||
@@ -362,8 +359,9 @@ export async function pollSingleFeed(
         connection,
         reception,
         docFinishedAt,
-        options?.bosaiBulletinTarget ?? DEFAULT_BOSAI_BULLETIN_TARGET,
+        options?.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
         options?.bosaiNotificationEmitDeps,
+        venueRegistry,
       );
     }
   }

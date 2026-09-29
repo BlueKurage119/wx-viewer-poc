@@ -3,12 +3,21 @@ import test from 'node:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseVphw } from '../src/polling/jmaVphwParser.js';
+import { parseVphw as parseVphwImpl } from '../src/polling/jmaVphwParser.js';
 import type {
   BosaiBulletinTarget,
   TelegramReception,
   VphwTelegramType,
 } from '../src/repositories/types.js';
+
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
+import { resolveBosaiBulletinTarget } from '../src/venueForecastTargets.js';
+
+const parseVphw = (
+  raw: string,
+  expected: Parameters<typeof parseVphwImpl>[1],
+  target: Parameters<typeof parseVphwImpl>[2] = resolveBosaiBulletinTarget(testVenueRegistry),
+) => parseVphwImpl(raw, expected, target);
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');

@@ -1,10 +1,12 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveVenueForecastTargets } from '@wx-viewer-poc/shared';
+const resolveVenueForecastTargets = (id: Parameters<typeof testVenueRegistry.getVenue>[0]) =>
+  testVenueRegistry.getVenue(id);
 
 import { initializeDatabase, type DatabaseContext } from '../src/database/index.js';
 import {
@@ -1112,7 +1114,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
     // east の区域集合では A と B のみ返り、C は除外される
     const kotoList = listBosaiBulletins(context.connection, {
       controlStatus: 'normal',
-      includedAreaCodes: resolveVenueForecastTargets('east').bosaiBulletin.includedAreaCodes,
+      includedAreaCodes: resolveVenueForecastTargets(eastVenueId).bosaiBulletin.includedAreaCodes,
     });
     assert.equal(kotoList.length, 2, '江東区を含む速報は2件（直接+広域）');
     const eventIds = kotoList.map((b) => b.eventId).sort();
@@ -1120,7 +1122,7 @@ test('8. 気象防災速報 (BosaiBulletin): 複数EventIDの蓄積, 訂正UPSER
 
     const trcList = listBosaiBulletins(context.connection, {
       controlStatus: 'normal',
-      includedAreaCodes: resolveVenueForecastTargets('trc').bosaiBulletin.includedAreaCodes,
+      includedAreaCodes: resolveVenueForecastTargets(trcVenueId).bosaiBulletin.includedAreaCodes,
     });
     assert.deepEqual(trcList.map((bulletin) => bulletin.eventId).sort(), [
       '202609090002',

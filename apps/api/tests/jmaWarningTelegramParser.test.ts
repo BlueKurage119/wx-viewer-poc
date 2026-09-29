@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -23,8 +24,8 @@ import {
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 const reportDateTime = '2026-09-09T00:00:00.000Z';
-const DEFAULT_WARNING_TARGET_AREA = resolveWarningTargetArea('east');
-const EAST_VENUE = resolveVenueWarningContext('east');
+const DEFAULT_WARNING_TARGET_AREA = resolveWarningTargetArea(testVenueRegistry, eastVenueId);
+const EAST_VENUE = resolveVenueWarningContext(testVenueRegistry, eastVenueId);
 
 function telegramXml(
   options: {
@@ -99,7 +100,7 @@ test('VPWW55–61 と VPWS50 は市町村等 Warning だけを完全一致で解
 });
 
 test('TRC adapter を注入すると大田区だけを対象市町村等として解析する', () => {
-  const trcTarget = resolveWarningTargetArea('trc');
+  const trcTarget = resolveWarningTargetArea(testVenueRegistry, trcVenueId);
   const ota = parseWarningTelegram(
     telegramXml({ municipalCode: '1311100', municipalName: '大田区' }),
     expected('VPWW55'),

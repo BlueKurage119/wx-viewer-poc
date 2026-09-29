@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -7,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
 import {
-  VENUE_IDS,
   type WeatherControlStatus as ControlStatus,
   type VenueId,
   type UtcIso8601String,
@@ -25,7 +25,7 @@ import {
   recoverWarningCurrent,
 } from '../src/polling/jmaWarningCurrentProcessor.js';
 import {
-  processWarningTelegramReceptionForAllVenues,
+  processWarningTelegramReceptionForAllVenues as processWarningTelegramReceptionForAllVenuesImpl,
   reprocessPendingWarningTelegramReceptions,
 } from '../src/polling/jmaWarningTelegramProcessor.js';
 import { parseWarningTelegram } from '../src/polling/jmaWarningTelegramParser.js';
@@ -33,11 +33,25 @@ import {
   resolveVenueWarningContext,
   resolveWarningCurrentTargetArea,
 } from '../src/venueForecastTargets.js';
-import { getVenueWarningCurrent } from '../src/services/venueWeatherService.js';
+import { getVenueWarningCurrent as getVenueWarningCurrentImpl } from '../src/services/venueWeatherService.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
-const DEFAULT_WARNING_CURRENT_TARGET_AREA = resolveWarningCurrentTargetArea('east');
+const VENUE_IDS = testVenueRegistry.listVenueIds();
+const processWarningTelegramReceptionForAllVenues = (
+  connection: Parameters<typeof processWarningTelegramReceptionForAllVenuesImpl>[0],
+  reception: Parameters<typeof processWarningTelegramReceptionForAllVenuesImpl>[1],
+  at: Parameters<typeof processWarningTelegramReceptionForAllVenuesImpl>[2],
+) => processWarningTelegramReceptionForAllVenuesImpl(connection, reception, at, testVenueRegistry);
+const getVenueWarningCurrent = (
+  connection: Parameters<typeof getVenueWarningCurrentImpl>[0],
+  venueId: Parameters<typeof getVenueWarningCurrentImpl>[2],
+  status: Parameters<typeof getVenueWarningCurrentImpl>[3],
+) => getVenueWarningCurrentImpl(connection, testVenueRegistry, venueId, status);
+const DEFAULT_WARNING_CURRENT_TARGET_AREA = resolveWarningCurrentTargetArea(
+  testVenueRegistry,
+  eastVenueId,
+);
 
 function createTempDb(): {
   connection: ReturnType<typeof initializeDatabase>['connection'];
@@ -214,7 +228,7 @@ test('1. 初期 DB で個別 VPWW55 だけを処理しても snapshot は 0 件�
 test('TRC adapter は大田区・東京都のストリームキーで現況を構成する', () => {
   const { connection, cleanup } = createTempDb();
   try {
-    const targetArea = resolveWarningCurrentTargetArea('trc');
+    const targetArea = resolveWarningCurrentTargetArea(testVenueRegistry, trcVenueId);
     const { parseResult } = saveAndProcessReception(
       connection,
       'VPWS50',
@@ -612,9 +626,13 @@ test('10. 受信履歴からの復旧が冪等であり、逆順受信でも同�
     assert.equal(liveSnapshot.items[0]!.kindCode, '03');
 
     // 復旧を実行（1回目）
-    await recoverWarningCurrent(connection, resolveVenueWarningContext('east'), {
-      yieldEveryParsedReceptions: 25,
-    });
+    await recoverWarningCurrent(
+      connection,
+      resolveVenueWarningContext(testVenueRegistry, eastVenueId),
+      {
+        yieldEveryParsedReceptions: 25,
+      },
+    );
 
     const snapRebuilt1 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
     assert.equal(snapRebuilt1.metadata.sourceVersion, liveSnapshot.metadata.sourceVersion);
@@ -624,9 +642,13 @@ test('10. 受信履歴からの復旧が冪等であり、逆順受信でも同�
     );
 
     // 復旧を実行（2回目 - 冪等性）
-    await recoverWarningCurrent(connection, resolveVenueWarningContext('east'), {
-      yieldEveryParsedReceptions: 25,
-    });
+    await recoverWarningCurrent(
+      connection,
+      resolveVenueWarningContext(testVenueRegistry, eastVenueId),
+      {
+        yieldEveryParsedReceptions: 25,
+      },
+    );
 
     const snapRebuilt2 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
     assert.equal(snapRebuilt2.metadata.sourceVersion, liveSnapshot.metadata.sourceVersion);
@@ -780,18 +802,26 @@ test('AC8: 復旧と同一版 - 2 回の復旧で最終現況・sourceVersion・
     assert.equal(initialNotificationCount, 0);
 
     // 2. 1 回目の復旧
-    await recoverWarningCurrent(connection, resolveVenueWarningContext('east'), {
-      yieldEveryParsedReceptions: 25,
-    });
+    await recoverWarningCurrent(
+      connection,
+      resolveVenueWarningContext(testVenueRegistry, eastVenueId),
+      {
+        yieldEveryParsedReceptions: 25,
+      },
+    );
     const snap1 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
     assert.ok(snap1);
     assert.equal(getReceptionCount(), initialReceptionCount);
     assert.equal(getNotificationCount(), initialNotificationCount);
 
     // 3. 2 回目の復旧 (同一版・冪等性)
-    await recoverWarningCurrent(connection, resolveVenueWarningContext('east'), {
-      yieldEveryParsedReceptions: 25,
-    });
+    await recoverWarningCurrent(
+      connection,
+      resolveVenueWarningContext(testVenueRegistry, eastVenueId),
+      {
+        yieldEveryParsedReceptions: 25,
+      },
+    );
     const snap2 = findWarningCurrentSnapshot(connection, '1310800', 'normal')!;
     assert.ok(snap2);
 
@@ -853,12 +883,12 @@ test('AC9: #114 統合境界 - 2会場×3 controlStatus の更新・保持・再
   }
 
   const targetCombinations: Array<{ venueId: VenueId; controlStatus: ControlStatus }> = [
-    { venueId: 'east', controlStatus: 'normal' },
-    { venueId: 'east', controlStatus: 'training' },
-    { venueId: 'east', controlStatus: 'test' },
-    { venueId: 'trc', controlStatus: 'normal' },
-    { venueId: 'trc', controlStatus: 'training' },
-    { venueId: 'trc', controlStatus: 'test' },
+    { venueId: eastVenueId, controlStatus: 'normal' },
+    { venueId: eastVenueId, controlStatus: 'training' },
+    { venueId: eastVenueId, controlStatus: 'test' },
+    { venueId: trcVenueId, controlStatus: 'normal' },
+    { venueId: trcVenueId, controlStatus: 'training' },
+    { venueId: trcVenueId, controlStatus: 'test' },
   ];
 
   const verifiedCombinations = new Set<string>();
@@ -925,9 +955,9 @@ test('AC9: #114 統合境界 - 2会場×3 controlStatus の更新・保持・再
       }
 
       // 2. 対象組 (targetVenueId, targetCs) を対象にした公式 Code 10→03 の新しい VPWW55 を作成・適用
-      const targetVenueContext = resolveVenueWarningContext(targetVenueId);
-      const otherVenueId = targetVenueId === 'east' ? 'trc' : 'east';
-      const otherVenueContext = resolveVenueWarningContext(otherVenueId);
+      const targetVenueContext = resolveVenueWarningContext(testVenueRegistry, targetVenueId);
+      const otherVenueId = targetVenueId === eastVenueId ? trcVenueId : eastVenueId;
+      const otherVenueContext = resolveVenueWarningContext(testVenueRegistry, otherVenueId);
 
       const targetAreaCode = targetVenueContext.targetArea.municipalCode;
       const targetAreaName = targetVenueContext.targetArea.displayName;
@@ -1039,7 +1069,7 @@ test('AC9: #114 統合境界 - 2会場×3 controlStatus の更新・保持・再
 
       const runStartupRebuild = async () => {
         for (const vId of VENUE_IDS) {
-          const venue = resolveVenueWarningContext(vId);
+          const venue = resolveVenueWarningContext(testVenueRegistry, vId);
           await reprocessPendingWarningTelegramReceptions(connection, venue, clock);
           await recoverWarningCurrent(connection, venue, { yieldEveryParsedReceptions: 25 });
         }

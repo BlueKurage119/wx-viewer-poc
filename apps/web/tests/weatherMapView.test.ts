@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 (globalThis as unknown as { React: typeof React }).React = React;
 
 import { WeatherMapView } from '../src/map/WeatherMapView.tsx';
-import { terminals } from '../src/shell/config.ts';
+import { testTerminals as terminals } from './venueConfigPreload.ts';
 import { LAYER_PRESENTATIONS, emptyTimeline } from '../src/map/fixtures.ts';
 
 const el = React.createElement;

@@ -1,19 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  VENUE_FORECAST_TARGETS,
-  VENUE_IDS,
-  configureVenueRegistry,
-  isVenueId,
-  resolveVenueForecastTargets,
-} from '../src/index.ts';
+import { createVenueRegistry } from '../src/index.ts';
 import { loadVenueConfig } from '../../../apps/api/src/config/venueConfigLoader.ts';
 
-configureVenueRegistry(loadVenueConfig().registry);
+const registry = loadVenueConfig({ environment: 'production' }).registry;
 
 test('会場別の気象対象を用途ごとに完全一致で解決する', () => {
-  assert.deepEqual(VENUE_FORECAST_TARGETS, {
-    east: {
+  assert.deepEqual(registry.listVenues(), [
+    {
       venueId: 'east',
       venueName: '東京ビッグサイト',
       experimental: false,
@@ -25,7 +19,7 @@ test('会場別の気象対象を用途ごとに完全一致で解決する', ()
       amedas: { stationCode: '44136', displayName: '江戸川臨海', elements: '11112010' },
       bosaiBulletin: { includedAreaCodes: ['1310800', '130012', '130010'] },
     },
-    trc: {
+    {
       venueId: 'trc',
       venueName: '東京流通センター',
       experimental: true,
@@ -37,34 +31,43 @@ test('会場別の気象対象を用途ごとに完全一致で解決する', ()
       amedas: { stationCode: '44166', displayName: '羽田', elements: '11110000' },
       bosaiBulletin: { includedAreaCodes: ['1311100', '130011', '130010'] },
     },
-  });
-  assert.equal(resolveVenueForecastTargets('east'), VENUE_FORECAST_TARGETS.east);
-  assert.equal(resolveVenueForecastTargets('trc'), VENUE_FORECAST_TARGETS.trc);
+  ]);
+  const east = registry.resolveVenueId('east');
+  const trc = registry.resolveVenueId('trc');
+  assert.ok(east);
+  assert.ok(trc);
+  assert.equal(registry.getVenue(east), registry.listVenues()[0]);
+  assert.equal(registry.getVenue(trc), registry.listVenues()[1]);
 });
 
-test('VENUE_IDS は VENUE_FORECAST_TARGETS の全キーと集合として一致する', () => {
-  assert.deepEqual([...VENUE_IDS].sort(), Object.keys(VENUE_FORECAST_TARGETS).sort());
-  assert.deepEqual(VENUE_IDS, ['east', 'trc']);
+test('会場 ID はレジストリで検証してから取得する', () => {
+  assert.deepEqual(registry.listVenueIds(), ['east', 'trc']);
+  assert.equal(registry.resolveVenueId('east'), 'east');
+  assert.equal(registry.resolveVenueId('trc'), 'trc');
+  assert.equal(registry.resolveVenueId('osaka'), null);
+  assert.equal(registry.resolveVenueId(''), null);
+  assert.equal(registry.resolveVenueId(null), null);
+  assert.equal(registry.resolveVenueId(undefined), null);
+  assert.equal(registry.resolveVenueId(1), null);
 });
 
-test('isVenueId は VenueId のリテラルのみを真として判定する', () => {
-  assert.equal(isVenueId('east'), true);
-  assert.equal(isVenueId('trc'), true);
-  assert.equal(isVenueId('osaka'), false);
-  assert.equal(isVenueId(''), false);
-  assert.equal(isVenueId(null), false);
-  assert.equal(isVenueId(undefined), false);
-  assert.equal(isVenueId(1), false);
+test('会場定義と配列は深く凍結され、重複 ID を拒否する', () => {
+  const east = registry.getVenue(registry.resolveVenueId('east')!);
+  assert.ok(Object.isFrozen(registry.listVenueIds()));
+  assert.ok(Object.isFrozen(registry.listVenues()));
+  assert.ok(Object.isFrozen(east));
+  assert.ok(Object.isFrozen(east.mapReference));
+  assert.ok(Object.isFrozen(east.bosaiBulletin.includedAreaCodes));
+  assert.throws(() => createVenueRegistry([east, east], 'test'), /会場 ID が重複しています: east/);
 });
 
 test('会場ごとの市町村等警報コードは相異なる（§3.4 不変条件）', () => {
-  const codes = VENUE_IDS.map((venueId) => VENUE_FORECAST_TARGETS[venueId].warning.municipalCode);
+  const codes = registry.listVenues().map((venue) => venue.warning.municipalCode);
   assert.equal(new Set(codes).size, codes.length);
 });
 
 test('warning と warningTimeseries の市町村等コードは会場内で一致する（C3/C4 のキー整合）', () => {
-  for (const venueId of VENUE_IDS) {
-    const target = VENUE_FORECAST_TARGETS[venueId];
+  for (const target of registry.listVenues()) {
     assert.equal(target.warningTimeseries.municipalCode, target.warning.municipalCode);
   }
 });

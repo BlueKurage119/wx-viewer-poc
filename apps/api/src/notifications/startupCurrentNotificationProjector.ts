@@ -2,13 +2,13 @@ import crypto from 'node:crypto';
 
 import {
   resolveNotificationMessage,
-  resolveVenueForecastTargets,
   type NotificationMessageDefinitionId,
   type NotificationTarget,
   type StartupCurrentNotification,
   type SystemNotification,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
   type WeatherNotification,
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
@@ -24,6 +24,7 @@ import { classifyWarningNotificationCategory } from './warningNotificationCatego
 import { selectIssuedNotificationDefinitionId } from './warningNotificationDefinitionSelector.js';
 
 export interface StartupProjectionInput {
+  readonly venueRegistry: VenueRegistry;
   readonly venueId: VenueId;
   readonly now: UtcIso8601String;
   readonly includeWarningCategory: boolean;
@@ -95,7 +96,7 @@ export function projectStartupCurrentNotifications(
   outputIdFactory: () => string = () => crypto.randomUUID(),
 ): StartupProjectionResult {
   const nowMs = asTime(input.now, 'now');
-  const warningTarget = resolveWarningCurrentTargetArea(input.venueId);
+  const warningTarget = resolveWarningCurrentTargetArea(input.venueRegistry, input.venueId);
   const notifications: StartupCurrentNotification[] = [];
 
   for (const controlStatus of ['normal', 'training'] as const) {
@@ -157,7 +158,7 @@ export function projectStartupCurrentNotifications(
     }
   }
 
-  const venueTargets = resolveVenueForecastTargets(input.venueId);
+  const venueTargets = input.venueRegistry.getVenue(input.venueId);
   const bosaiTarget: readonly [NotificationTarget] = [
     {
       kind: 'area',

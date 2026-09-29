@@ -5,14 +5,19 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseEarlyWarning,
-  DEFAULT_EARLY_WARNING_TARGET_AREA,
   EXPECTED_METEOROLOGICAL_INFOS_TYPE,
   EXPECTED_VPFD61_INFO_KIND,
   EXPECTED_VPFW60_INFO_KIND,
 } from '../src/polling/jmaEarlyWarningParser.js';
+import { testVenueRegistry, eastVenueId } from './helpers/venueConfigPreload.js';
+import { resolveEarlyWarningTargetArea } from '../src/venueForecastTargets.js';
 import type { TelegramReception } from '../src/repositories/types.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
+const DEFAULT_EARLY_WARNING_TARGET_AREA = resolveEarlyWarningTargetArea(
+  testVenueRegistry,
+  eastVenueId,
+);
 const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');
 
 const defaultExpectedVpfd61: Pick<

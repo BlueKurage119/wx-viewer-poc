@@ -1,5 +1,4 @@
 import {
-  resolveVenueForecastTargets,
   type AmedasCapabilities,
   type AmedasData,
   type AmedasObservationDto,
@@ -23,6 +22,7 @@ import {
   type TerminalDefinition,
   type TimeseriesAddition,
   type VenueId,
+  type VenueRegistry,
   type WarningCurrentData,
   type WarningCurrentItem,
   type WarningsResponse,
@@ -60,6 +60,7 @@ import { evaluateWeatherAvailability } from './weatherAvailability.js';
 
 export interface WeatherApiServiceDeps {
   readonly connection: DatabaseConnection;
+  readonly venueRegistry: VenueRegistry;
   readonly getPollingStatus?: () => JmaXmlPollingStatus | undefined;
   readonly now?: () => string;
   readonly resolveAmedasTarget?: (venueId: VenueId) => AmedasTarget;
@@ -145,6 +146,11 @@ function resolveUnsupportedAmedasElements(elements: string): readonly AmedasPubl
 export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApiService {
   const connection = deps.connection;
   const getNow = deps.now ?? (() => new Date().toISOString());
+  const venueId = (terminal: TerminalDefinition): VenueId => {
+    const id = deps.venueRegistry.resolveVenueId(terminal.venueId);
+    if (!id) throw new Error(`端末の会場 ID が設定にありません: ${terminal.venueId}`);
+    return id;
+  };
 
   return {
     getWarnings(
@@ -160,7 +166,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
           }
         : null;
 
-      const targetArea = resolveWarningCurrentTargetArea(terminal.venueId);
+      const targetArea = resolveWarningCurrentTargetArea(deps.venueRegistry, venueId(terminal));
 
       const tx = connection.transaction(() => {
         const snapshot = findWarningCurrentSnapshot(
@@ -171,7 +177,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
 
         const context: WeatherContext = {
           terminalId: terminal.id,
-          venueId: terminal.venueId,
+          venueId: venueId(terminal),
           controlStatus,
           isTraining: controlStatus === 'training',
           evaluatedAt: nowIso,
@@ -217,7 +223,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
 
           if (
             hasNewerWeatherParseFailure(connection, {
-              venueId: terminal.venueId,
+              venueId: venueId(terminal),
               controlStatus,
               telegramType: type,
               areaCode: targetArea.municipalCode,
@@ -288,7 +294,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
           }
         : null;
 
-      const targetArea = resolveWarningTimeseriesTargetArea(terminal.venueId);
+      const targetArea = resolveWarningTimeseriesTargetArea(deps.venueRegistry, venueId(terminal));
 
       const tx = connection.transaction(() => {
         const snapshot = findWarningTimeseriesSnapshot(
@@ -299,7 +305,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
 
         const context: WeatherContext = {
           terminalId: terminal.id,
-          venueId: terminal.venueId,
+          venueId: venueId(terminal),
           controlStatus,
           isTraining: controlStatus === 'training',
           evaluatedAt: nowIso,
@@ -322,7 +328,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
         const maxTimeTo = calculateMaxTimeTo(snapshot.timeDefines);
 
         const hasParseFailure = hasNewerWeatherParseFailure(connection, {
-          venueId: terminal.venueId,
+          venueId: venueId(terminal),
           controlStatus,
           telegramType: 'VPWP50',
           areaCode: targetArea.municipalCode,
@@ -427,7 +433,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
           }
         : null;
 
-      const broadTarget = resolveEarlyWarningTargetArea(terminal.venueId);
+      const broadTarget = resolveEarlyWarningTargetArea(deps.venueRegistry, venueId(terminal));
 
       const tx = connection.transaction(() => {
         const nearSnapshot = findEarlyWarningSnapshot(
@@ -446,7 +452,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
 
         const context: WeatherContext = {
           terminalId: terminal.id,
-          venueId: terminal.venueId,
+          venueId: venueId(terminal),
           controlStatus,
           isTraining: controlStatus === 'training',
           evaluatedAt: nowIso,
@@ -468,7 +474,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
         } else {
           const nearMaxTimeTo = calculateMaxTimeTo(nearSnapshot.timeDefines);
           const nearHasParseFailure = hasNewerWeatherParseFailure(connection, {
-            venueId: terminal.venueId,
+            venueId: venueId(terminal),
             controlStatus,
             telegramType: 'VPFD61',
             areaCode: broadTarget.forecastAreaCode,
@@ -538,7 +544,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
         } else {
           const farMaxTimeTo = calculateMaxTimeTo(farSnapshot.timeDefines);
           const farHasParseFailure = hasNewerWeatherParseFailure(connection, {
-            venueId: terminal.venueId,
+            venueId: venueId(terminal),
             controlStatus,
             telegramType: 'VPFW60',
             areaCode: broadTarget.forecastAreaCode,
@@ -620,7 +626,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
           }
         : null;
 
-      const target = resolveAreaTimeseriesForecastTarget(terminal.venueId);
+      const target = resolveAreaTimeseriesForecastTarget(deps.venueRegistry, venueId(terminal));
 
       const tx = connection.transaction(() => {
         const snapshot = findAreaTimeseriesSnapshot(
@@ -632,7 +638,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
 
         const context: WeatherContext = {
           terminalId: terminal.id,
-          venueId: terminal.venueId,
+          venueId: venueId(terminal),
           controlStatus,
           isTraining: controlStatus === 'training',
           evaluatedAt: nowIso,
@@ -662,7 +668,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
         const maxTimeTo = calculateMaxTimeTo(snapshot.timeDefines);
 
         const hasParseFailure = hasNewerWeatherParseFailure(connection, {
-          venueId: terminal.venueId,
+          venueId: venueId(terminal),
           controlStatus,
           telegramType: 'VPFD51',
           areaCode: target.forecastAreaCode,
@@ -740,12 +746,13 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
 
     getAmedas(terminal: TerminalDefinition, controlStatus: WeatherControlStatus): AmedasResponse {
       const nowIso = getNow();
-      const targetResolver = deps.resolveAmedasTarget ?? resolveAmedasTarget;
-      const target = targetResolver(terminal.venueId);
+      const targetResolver =
+        deps.resolveAmedasTarget ?? ((id: VenueId) => resolveAmedasTarget(deps.venueRegistry, id));
+      const target = targetResolver(venueId(terminal));
 
       const context: WeatherContext = {
         terminalId: terminal.id,
-        venueId: terminal.venueId,
+        venueId: venueId(terminal),
         controlStatus,
         isTraining: controlStatus === 'training',
         evaluatedAt: nowIso,
@@ -876,13 +883,13 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
           }
         : null;
 
-      const venueTargets = resolveVenueForecastTargets(terminal.venueId);
+      const venueTargets = deps.venueRegistry.getVenue(venueId(terminal));
       const includedAreaCodes = venueTargets.bosaiBulletin.includedAreaCodes;
       const municipalCode = venueTargets.warning.municipalCode;
 
       const context: WeatherContext = {
         terminalId: terminal.id,
-        venueId: terminal.venueId,
+        venueId: venueId(terminal),
         controlStatus,
         isTraining: controlStatus === 'training',
         evaluatedAt: nowIso,
@@ -1005,7 +1012,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
           for (const areaCode of includedAreaCodes) {
             if (
               hasNewerWeatherParseFailure(connection, {
-                venueId: terminal.venueId,
+                venueId: venueId(terminal),
                 controlStatus,
                 telegramType: tType,
                 areaCode,

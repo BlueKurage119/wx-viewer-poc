@@ -11,6 +11,7 @@ import {
   type NotificationTarget,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
@@ -36,6 +37,7 @@ export interface NotificationDeltaService {
 
 export interface CreateNotificationDeltaServiceDependencies {
   readonly connection: DatabaseConnection;
+  readonly venueRegistry: VenueRegistry;
   readonly serverGenerationId: string;
   readonly now?: () => UtcIso8601String;
 }
@@ -99,7 +101,7 @@ export function createNotificationDeltaService(
               continue;
             }
 
-            const scope = resolveNotificationVenueScope(targets);
+            const scope = resolveNotificationVenueScope(targets, dependencies.venueRegistry);
             if (scope.kind === 'venue' && !scope.venueIds.includes(input.venueId)) {
               // 会場スコープ外の行は配信しない（skippedCount には含めない）
               continue;

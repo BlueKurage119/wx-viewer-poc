@@ -21,6 +21,7 @@ import {
   PANEL_FIXTURE_NAMES,
   buildBosaiBulletinsFixture,
 } from '../src/map/panels/panelFixtures';
+import { eastVenue } from './venueConfigPreload.ts';
 
 const el = React.createElement;
 
@@ -269,7 +270,7 @@ test('AC-4: 発表時刻の新しい順にカードが並び替わる（3通り�
       ...DEFAULT_INFO_PANEL_INPUT,
       bosaiBulletin: cards,
     };
-    const html = renderToStaticMarkup(el(InfoPanelColumn, { venueId: 'east', input }));
+    const html = renderToStaticMarkup(el(InfoPanelColumn, { venue: eastVenue, input }));
 
     const idx1430 = html.indexOf('東京都気象防災速報（14:30）');
     const idx1405 = html.indexOf('東京都気象防災速報（14:05）');
@@ -345,7 +346,7 @@ test('AC-5: カード中身の検証（目撃情報・改行全文・詳細ボ�
   });
   const columnHtml = renderToStaticMarkup(
     el(InfoPanelColumn, {
-      venueId: 'east',
+      venue: eastVenue,
       input: { ...DEFAULT_INFO_PANEL_INPUT, bosaiBulletin: cardsWithCancelled },
     }),
   );
@@ -443,7 +444,7 @@ test('AC-8: parseBulletinsResponse のバリデーション・unavailable の取
   // renderToStaticMarkup した InfoPanelColumn の出力に除外行のタイトルが含まれず、正常行のタイトルが含まれ、異常文言が含まれない
   const mixedColumnHtml = renderToStaticMarkup(
     el(InfoPanelColumn, {
-      venueId: 'east',
+      venue: eastVenue,
       input: { ...DEFAULT_INFO_PANEL_INPUT, bosaiBulletin: mixedCards },
     }),
   );
@@ -500,7 +501,7 @@ test('AC-9: フィクスチャ bosai-bulletins の検証（F2/F3->F1の3枚の�
     ],
   };
 
-  const html = renderToStaticMarkup(el(InfoPanelColumn, { venueId: 'east', input: ssrSafeInput }));
+  const html = renderToStaticMarkup(el(InfoPanelColumn, { venue: eastVenue, input: ssrSafeInput }));
 
   // F4・F5・F6 のタイトルは DOM に存在しない
   assert.equal(html.includes('東京都気象防災速報（線状降水帯発生）'), false, 'F4は非表示');

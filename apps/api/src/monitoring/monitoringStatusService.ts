@@ -1,6 +1,5 @@
 import {
   TERMINAL_DEFINITIONS,
-  VENUE_IDS,
   type Availability,
   type MonitoringHealthSection,
   type MonitoringHealthSource,
@@ -14,6 +13,7 @@ import {
   type TerminalDefinition,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import type { TimeBasedPollingScheduler } from '../polling/timeBasedPollingScheduler.js';
@@ -47,6 +47,7 @@ export interface XmlPollingStatusProvider {
 
 export interface MonitoringStatusServiceDependencies {
   readonly connection: DatabaseConnection;
+  readonly venueRegistry: VenueRegistry;
   readonly scheduler: Pick<TimeBasedPollingScheduler, 'getStatus' | 'isRunningNow'>;
   readonly xmlPollingService: XmlPollingStatusProvider;
   readonly fetchHealthMonitor: Pick<FetchHealthMonitorService, 'getLastAggregate'>;
@@ -67,12 +68,8 @@ export interface MonitoringStatusService {
   getStatus(terminal: TerminalDefinition): MonitoringStatusResponse;
 }
 
-function resolveRepresentativeTerminal(venueId: VenueId): TerminalDefinition {
-  const found = TERMINAL_DEFINITIONS.find((t) => t.venueId === venueId);
-  if (!found) {
-    throw new Error(`会場 ${venueId} に対応する端末定義が見つかりません`);
-  }
-  return found;
+function resolveRepresentativeTerminal(venueId: VenueId): TerminalDefinition | null {
+  return TERMINAL_DEFINITIONS.find((t) => t.venueId === venueId) ?? null;
 }
 
 const AVAILABILITY_RANK: Readonly<Record<Availability, number>> = {
@@ -229,7 +226,7 @@ export function createMonitoringStatusService(
     const sinceIso = new Date(sinceMs).toISOString() as UtcIso8601String;
     const summary = summarizeAdoptionResults(deps.connection, sinceIso);
 
-    return VENUE_IDS.map((venueId) => {
+    return deps.venueRegistry.listVenueIds().map((venueId) => {
       const startupEvaluated =
         startupStatus.initialFetchPhase === 'completed' &&
         startupStatus.evaluatedVenueIds.has(venueId);
@@ -280,6 +277,29 @@ export function createMonitoringStatusService(
   function buildInformationForVenue(venueId: VenueId): readonly MonitoringInformationSection[] {
     const terminal = resolveRepresentativeTerminal(venueId);
     const sections: MonitoringInformationSection[] = [];
+    if (!terminal) {
+      return (
+        [
+          'warning',
+          'warning_timeseries',
+          'early_warning',
+          'amedas',
+          'area_timeseries',
+          'bosai_bulletin',
+          'nowcast',
+          'kikikuru',
+        ] as const
+      ).map((kind) => ({
+        kind,
+        venueId,
+        availability: 'unavailable',
+        issuedAt: null,
+        validAt: null,
+        fetchedAt: null,
+        lastSuccessAt: null,
+        summaryCount: null,
+      }));
+    }
 
     const warnings = deps.weatherApi.getWarnings(terminal, 'normal');
     sections.push({
@@ -420,7 +440,7 @@ export function createMonitoringStatusService(
 
   function buildTiles(): MonitoringTilesSection {
     // タイルの索引・配信状態はサーバー共通（会場に依存しない）ため、任意の端末で読み出す。
-    const terminal = resolveRepresentativeTerminal('east');
+    const terminal = TERMINAL_DEFINITIONS[0]!;
 
     const nowcast = deps.nowcastApi.getTimes(terminal, 'normal');
     const nowcastAvailability = worseAvailability(
@@ -483,14 +503,14 @@ export function createMonitoringStatusService(
       const aggregate = deps.fetchHealthMonitor.getLastAggregate();
 
       const information: MonitoringInformationSection[] = [];
-      for (const venueId of VENUE_IDS) {
+      for (const venueId of deps.venueRegistry.listVenueIds()) {
         information.push(...buildInformationForVenue(venueId));
       }
 
       return {
         status: 'ready',
         terminalId: terminal.id,
-        requestedVenueId: terminal.venueId,
+        requestedVenueId: deps.venueRegistry.resolveVenueId(terminal.venueId)!,
         serverGenerationId: deps.serverGenerationId,
         serverStartedAt: deps.serverStartedAt,
         generatedAt,

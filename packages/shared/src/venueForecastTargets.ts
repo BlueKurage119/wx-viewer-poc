@@ -1,5 +1,6 @@
 /** 起動時に検証済みの会場 ID。外部入力は VenueRegistry.resolveVenueId を通す。 */
-export type VenueId = string;
+declare const venueIdBrand: unique symbol;
+export type VenueId = string & { readonly [venueIdBrand]: 'VenueId' };
 
 declare const municipalWarningAreaCodeBrand: unique symbol;
 declare const prefectureForecastAreaCodeBrand: unique symbol;
@@ -93,10 +94,17 @@ export function createVenueRegistry(
   generation: string,
 ): VenueRegistry {
   const frozen = Object.freeze(venues.map(freezeVenue));
-  const byId = new Map(frozen.map((venue) => [venue.venueId, venue]));
+  const venueIds = Object.freeze(frozen.map((venue) => venue.venueId));
+  const byId = new Map<VenueId, VenueForecastTargets>();
+  for (const venue of frozen) {
+    if (byId.has(venue.venueId)) {
+      throw new Error(`会場 ID が重複しています: ${venue.venueId}`);
+    }
+    byId.set(venue.venueId, venue);
+  }
   return Object.freeze({
     generation,
-    listVenueIds: (): readonly VenueId[] => frozen.map((venue) => venue.venueId),
+    listVenueIds: (): readonly VenueId[] => venueIds,
     listVenues: (): readonly VenueForecastTargets[] => frozen,
     resolveVenueId: (value: unknown): VenueId | null =>
       typeof value === 'string' && byId.has(value as VenueId) ? (value as VenueId) : null,
@@ -106,31 +114,4 @@ export function createVenueRegistry(
       return venue;
     },
   });
-}
-let activeRegistry: VenueRegistry | null = null;
-/** 後方互換の配列参照。起動時に同じ参照を更新する。 */
-export const VENUE_IDS: VenueId[] = [];
-/** 起動済みレジストリの投影。会場データの正本ではない。 */
-export const VENUE_FORECAST_TARGETS: Record<VenueId, VenueForecastTargets> = {} as Record<
-  VenueId,
-  VenueForecastTargets
->;
-export function configureVenueRegistry(registry: VenueRegistry): void {
-  activeRegistry = registry;
-  VENUE_IDS.splice(0, VENUE_IDS.length, ...registry.listVenueIds());
-  for (const key of Object.keys(VENUE_FORECAST_TARGETS))
-    delete VENUE_FORECAST_TARGETS[key as VenueId];
-  for (const venue of registry.listVenues()) VENUE_FORECAST_TARGETS[venue.venueId] = venue;
-}
-export function getVenueRegistry(): VenueRegistry {
-  if (!activeRegistry) throw new Error('会場レジストリが初期化されていません');
-  return activeRegistry;
-}
-export function resolveVenueForecastTargets(venueId: string): VenueForecastTargets {
-  const resolved = getVenueRegistry().resolveVenueId(venueId);
-  if (!resolved) throw new Error(`会場 ID が設定にありません: ${venueId}`);
-  return getVenueRegistry().getVenue(resolved);
-}
-export function isVenueId(value: unknown): value is VenueId {
-  return getVenueRegistry().resolveVenueId(value) !== null;
 }

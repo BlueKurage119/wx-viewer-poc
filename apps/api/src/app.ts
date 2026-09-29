@@ -14,6 +14,7 @@ import {
   resolveTerminalDefinition,
   type UtcIso8601String,
   type VenueConfigResponse,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type {
   NotificationDeltaService,
@@ -31,6 +32,7 @@ import { isFetchControlRequestId, parseFetchControlRequest } from '@wx-viewer-po
 
 export interface AppDependencies {
   readonly venueConfig?: VenueConfigResponse;
+  readonly venueRegistry?: VenueRegistry;
   readonly startupNotifications?: StartupNotificationService;
   readonly notificationDelta?: NotificationDeltaService;
   readonly weatherApi?: WeatherApiService;
@@ -52,6 +54,13 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   const app = express();
 
   app.use(express.json());
+
+  const resolveConfiguredVenueId = (terminalId: string) => {
+    const terminal = resolveTerminalDefinition(terminalId);
+    const venueId = terminal && dependencies.venueRegistry?.resolveVenueId(terminal.venueId);
+    if (!venueId) throw new Error('端末の会場 ID が設定にありません');
+    return venueId;
+  };
 
   app.get('/api/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
@@ -207,7 +216,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       try {
         const result = startupNotifications.inquire({
           terminalId: parsed.terminalId,
-          venueId: terminal.venueId,
+          venueId: resolveConfiguredVenueId(terminal.id),
           sessionId: parsed.sessionId,
           inquiredAt: new Date().toISOString(),
         });
@@ -234,7 +243,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       try {
         const result = notificationDelta.query({
           terminalId: parsed.terminalId,
-          venueId: terminal.venueId,
+          venueId: resolveConfiguredVenueId(terminal.id),
           cursor: parsed.cursor,
           requestedAt: new Date().toISOString() as UtcIso8601String,
         });

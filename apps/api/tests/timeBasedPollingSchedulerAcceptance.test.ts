@@ -1,3 +1,4 @@
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -323,6 +324,7 @@ test('受け入れ条件 11: 実インスタンスでのXMLおよび索引の鮮
 
     // --- XML 実インスタンス検証 ---
     const xmlService = new JmaXmlPollingService(database.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       clock,
       fetchFn: async () => new Response('Not found', { status: 404 }),

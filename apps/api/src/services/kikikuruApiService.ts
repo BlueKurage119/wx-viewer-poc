@@ -10,6 +10,7 @@ import {
   type UtcIso8601String,
   type WeatherControlStatus,
   type WeatherMetadata,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type { KikikuruService } from '../polling/kikikuruService.js';
 import type { TileDeliveryProfileService } from './tileDeliveryProfileService.js';
@@ -20,6 +21,7 @@ import {
 } from './tileApiSupport.js';
 
 export interface KikikuruApiServiceDependencies {
+  readonly venueRegistry: VenueRegistry;
   readonly getService: () => KikikuruService | null;
   readonly enablePolling: boolean;
   readonly tileDeliveryProfileService: TileDeliveryProfileService;
@@ -55,6 +57,11 @@ export function createKikikuruApiService(
   const clock = dependencies.clock ?? (() => new Date().toISOString() as UtcIso8601String);
   const allowedZooms = dependencies.allowedZooms ?? TILE_API_ALLOWED_ZOOMS;
   const tileDeliveryProfileService = dependencies.tileDeliveryProfileService;
+  const venueId = (terminal: TerminalDefinition) => {
+    const id = dependencies.venueRegistry.resolveVenueId(terminal.venueId);
+    if (!id) throw new Error(`端末の会場 ID が設定にありません: ${terminal.venueId}`);
+    return id;
+  };
 
   return {
     getTimes(
@@ -65,7 +72,7 @@ export function createKikikuruApiService(
         return {
           tileDeliveryProfile: tileDeliveryProfileService.getProfile(terminal),
           terminalId: terminal.id,
-          venueId: terminal.venueId,
+          venueId: venueId(terminal),
           controlStatus,
           isTraining: controlStatus === 'training',
           evaluatedAt: clock(),
@@ -142,7 +149,7 @@ export function createKikikuruApiService(
       return {
         tileDeliveryProfile: tileDeliveryProfileService.getProfile(terminal),
         terminalId: terminal.id,
-        venueId: terminal.venueId,
+        venueId: venueId(terminal),
         controlStatus: 'normal',
         isTraining: false,
         evaluatedAt: catalog.now,

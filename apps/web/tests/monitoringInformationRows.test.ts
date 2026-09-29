@@ -1,17 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { MonitoringStatusResponse, VenueForecastTargets } from '@wx-viewer-poc/shared';
-import { VENUE_FORECAST_TARGETS } from '@wx-viewer-poc/shared';
 import {
-  buildInformationRows,
+  buildInformationRows as buildInformationRowsBase,
   type InformationRow,
 } from '../src/monitoring/monitoringInformationRows.ts';
+import { eastVenueTargets, testVenueRegistry } from './venueConfigPreload.ts';
 import { normalMonitoringResponseFixture } from './monitoringFixture.ts';
 import {
   createDefaultInformation,
   createDefaultVenueInformation,
   createInformationSection,
 } from './monitoringInformationFixture.ts';
+
+const resolveTargets = (venueId: string): VenueForecastTargets | undefined => {
+  const resolved = testVenueRegistry.resolveVenueId(venueId);
+  return resolved ? testVenueRegistry.getVenue(resolved) : undefined;
+};
+
+function buildInformationRows(
+  data: MonitoringStatusResponse | null,
+  resolver: ((venueId: string) => VenueForecastTargets | undefined) | undefined = resolveTargets,
+  isFailed: boolean = false,
+) {
+  return buildInformationRowsBase(data, resolver, isFailed);
+}
 
 test('buildInformationRows: data === null のときは全セル — の固定 8 行を返す (AC-12)', () => {
   const rows = buildInformationRows(null);
@@ -412,7 +425,7 @@ test('buildInformationRows: 気象防災速報の流用条件の例外 (AC-10)',
   // warning.municipalCode が includedAreaCodes に含まれない場合
   const customResolver = (venueId: string): VenueForecastTargets | undefined => {
     if (venueId === 'east') {
-      const base = VENUE_FORECAST_TARGETS.east;
+      const base = eastVenueTargets;
       return {
         ...base,
         bosaiBulletin: {
