@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -5,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initializeDatabase } from '../src/database/index.js';
-import { processVpbs50Reception } from '../src/polling/jmaVpbs50Processor.js';
+import { processVpbs50Reception as processVpbs50ReceptionImpl } from '../src/polling/jmaVpbs50Processor.js';
 import {
   findBosaiBulletin,
   listBosaiBulletins,
@@ -19,7 +20,21 @@ import type {
   TelegramReception,
   TelegramReceptionInput,
 } from '../src/repositories/types.js';
-import { resolveVenueForecastTargets } from '@wx-viewer-poc/shared';
+const resolveVenueForecastTargets = (id: Parameters<typeof testVenueRegistry.getVenue>[0]) =>
+  testVenueRegistry.getVenue(id);
+
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
+import { resolveBosaiBulletinTarget } from '../src/venueForecastTargets.js';
+
+const processVpbs50Reception = (
+  db: Parameters<typeof processVpbs50ReceptionImpl>[0],
+  reception: Parameters<typeof processVpbs50ReceptionImpl>[1],
+  at: Parameters<typeof processVpbs50ReceptionImpl>[2],
+  target: Parameters<typeof processVpbs50ReceptionImpl>[3] = resolveBosaiBulletinTarget(
+    testVenueRegistry,
+  ),
+  deps?: Parameters<typeof processVpbs50ReceptionImpl>[4],
+) => processVpbs50ReceptionImpl(db, reception, at, target, deps, testVenueRegistry);
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -214,14 +229,14 @@ test('受け入れ条件19: 正常系保存とメタデータ (valid_to が null
     assert.deepEqual(updatedReception.adoptions, [
       {
         receptionId: reception.id,
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '気象防災速報として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,
       },
       {
         receptionId: reception.id,
-        venueId: 'trc',
+        venueId: trcVenueId,
         adoptionResult: '気象防災速報として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,
@@ -453,7 +468,7 @@ test('受け入れ条件3: 負例実データ (20260905220832_0_VPBS50_130000.xm
     assert.equal(all.length, 0);
 
     // east 絞り込みでも空
-    const eastTargets = resolveVenueForecastTargets('east').bosaiBulletin.includedAreaCodes;
+    const eastTargets = resolveVenueForecastTargets(eastVenueId).bosaiBulletin.includedAreaCodes;
     const eastList = listBosaiBulletins(context.connection, {
       controlStatus: 'normal',
       includedAreaCodes: eastTargets,
@@ -501,7 +516,7 @@ test('受け入れ条件4: 江東区・大田区・東京地方の各速報が�
     assert.equal(all.length, 3);
 
     // east 絞り込み (江東区 1310800, 23区東部 130012, 東京地方 130010)
-    const eastTargets = resolveVenueForecastTargets('east').bosaiBulletin.includedAreaCodes;
+    const eastTargets = resolveVenueForecastTargets(eastVenueId).bosaiBulletin.includedAreaCodes;
     const eastList = listBosaiBulletins(context.connection, {
       controlStatus: 'normal',
       includedAreaCodes: eastTargets,
@@ -511,7 +526,7 @@ test('受け入れ条件4: 江東区・大田区・東京地方の各速報が�
     assert.deepEqual(eastEventIds, ['EVENT_KOTO', 'EVENT_TOKYO']);
 
     // trc 絞り込み (大田区 1311100, 23区南部 130011, 東京地方 130010)
-    const trcTargets = resolveVenueForecastTargets('trc').bosaiBulletin.includedAreaCodes;
+    const trcTargets = resolveVenueForecastTargets(trcVenueId).bosaiBulletin.includedAreaCodes;
     const trcList = listBosaiBulletins(context.connection, {
       controlStatus: 'normal',
       includedAreaCodes: trcTargets,

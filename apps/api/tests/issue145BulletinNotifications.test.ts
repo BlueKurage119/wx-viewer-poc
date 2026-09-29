@@ -25,6 +25,10 @@ import {
   StartupNotificationInitialization,
 } from '../src/notifications/startupNotificationService.js';
 import { parseVpbs50 } from '../src/polling/jmaVpbs50Parser.js';
+import { resolveBosaiBulletinTarget } from '../src/venueForecastTargets.js';
+import { testVenueRegistry, eastVenueId, trcVenueId } from './helpers/venueConfigPreload.js';
+
+const bulletinTarget = resolveBosaiBulletinTarget(testVenueRegistry);
 import { processVpbs50Reception } from '../src/polling/jmaVpbs50Processor.js';
 import {
   processVphwReception,
@@ -76,14 +80,15 @@ function createNormalEmitDeps(fixedNowIso: string): {
 } {
   const tracker = new InitialBosaiNotificationTracker();
   tracker.setCollecting(false);
-  tracker.markCompleted('east', 'normal');
-  tracker.markCompleted('trc', 'normal');
-  tracker.markCompleted('east', 'training');
-  tracker.markCompleted('trc', 'training');
+  tracker.markCompleted(eastVenueId, 'normal');
+  tracker.markCompleted(trcVenueId, 'normal');
+  tracker.markCompleted(eastVenueId, 'training');
+  tracker.markCompleted(trcVenueId, 'training');
 
   const deps: BosaiNotificationEmitDeps = {
     now: () => fixedNowIso,
     initialState: tracker,
+    venueRegistry: testVenueRegistry,
   };
 
   return { deps, tracker };
@@ -424,7 +429,14 @@ test('AC1: 既存VPBS50の発生・直前・記録雨fixtureを会場に該当�
       xmlBand,
     );
 
-    processVpbs50Reception(context.connection, receptionBand, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionBand,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
 
     // east, trc 両会場で各1件、計2件
     const outputs1 = listNotificationOutputHistory(context.connection, { category: 'question' });
@@ -457,7 +469,14 @@ test('AC1: 既存VPBS50の発生・直前・記録雨fixtureを会場に該当�
       xmlForecast,
     );
 
-    processVpbs50Reception(context.connection, receptionForecast, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionForecast,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
 
     const outputs2 = listNotificationOutputHistory(context.connection, { category: 'question' });
     assert.equal(outputs2.length, 3); // 2 + 1 (east のみ)
@@ -466,7 +485,7 @@ test('AC1: 既存VPBS50の発生・直前・記録雨fixtureを会場に該当�
     );
     assert.ok(forecastOutput);
     const targetArea = JSON.parse(forecastOutput.targetAreaJson!)[0];
-    assert.equal(targetArea.code, 'east');
+    assert.equal(targetArea.code, eastVenueId);
 
     // 3. 記録的短時間大雨 (大田区 1311100: trc のみ該当)
     const xmlRecord = buildVpbs50Xml({
@@ -487,7 +506,14 @@ test('AC1: 既存VPBS50の発生・直前・記録雨fixtureを会場に該当�
       xmlRecord,
     );
 
-    processVpbs50Reception(context.connection, receptionRecord, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionRecord,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
 
     const outputs3 = listNotificationOutputHistory(context.connection, { category: 'question' });
     assert.equal(outputs3.length, 4); // 3 + 1 (trc のみ)
@@ -496,7 +522,7 @@ test('AC1: 既存VPBS50の発生・直前・記録雨fixtureを会場に該当�
     );
     assert.ok(recordOutput);
     const recordTargetArea = JSON.parse(recordOutput.targetAreaJson!)[0];
-    assert.equal(recordTargetArea.code, 'trc');
+    assert.equal(recordTargetArea.code, trcVenueId);
 
     // 4. 非該当会場 (網走 013010) -> 0 件
     const xmlAbashiri = buildVpbs50Xml({
@@ -516,7 +542,14 @@ test('AC1: 既存VPBS50の発生・直前・記録雨fixtureを会場に該当�
       'normal',
       xmlAbashiri,
     );
-    processVpbs50Reception(context.connection, receptionAbashiri, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionAbashiri,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
     assert.equal(
       listNotificationOutputHistory(context.connection, { category: 'question' }).length,
       4,
@@ -540,7 +573,14 @@ test('AC1: 既存VPBS50の発生・直前・記録雨fixtureを会場に該当�
       'normal',
       xmlSnow,
     );
-    processVpbs50Reception(context.connection, receptionSnow, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionSnow,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
     assert.equal(
       listNotificationOutputHistory(context.connection, { category: 'question' }).length,
       4,
@@ -578,12 +618,26 @@ test('AC2: 同じ電文の再処理・同Control/DateTimeの再取得・古い�
     );
 
     // 1回目投入 -> 1件通知 (east)
-    processVpbs50Reception(context.connection, receptionBase, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionBase,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
     assert.equal(listNotificationOutputHistory(context.connection).length, 1);
     const firstOutput = listNotificationOutputHistory(context.connection)[0]!;
 
     // 同じ電文の再処理 -> 0件増加
-    processVpbs50Reception(context.connection, receptionBase, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionBase,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
     assert.equal(listNotificationOutputHistory(context.connection).length, 1);
 
     // 同 Control/DateTime の別 reception -> 0件増加 (processor が同版スキップ)
@@ -595,7 +649,14 @@ test('AC2: 同じ電文の再処理・同Control/DateTimeの再取得・古い�
       'normal',
       xmlBase,
     );
-    processVpbs50Reception(context.connection, receptionSame, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionSame,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
     assert.equal(listNotificationOutputHistory(context.connection).length, 1);
 
     // 古い版 (Control/DateTime が過去) -> 0件増加
@@ -616,7 +677,14 @@ test('AC2: 同じ電文の再処理・同Control/DateTimeの再取得・古い�
       'normal',
       xmlOld,
     );
-    processVpbs50Reception(context.connection, receptionOld, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionOld,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
     assert.equal(listNotificationOutputHistory(context.connection).length, 1);
 
     // 訂正電文: ReportDateTime 維持、Control/DateTime 進行、infoType='訂正'
@@ -643,8 +711,9 @@ test('AC2: 同じ電文の再処理・同Control/DateTimeの再取得・古い�
       context.connection,
       receptionCorrected,
       fixedNowIso,
-      undefined,
+      bulletinTarget,
       emitDeps,
+      testVenueRegistry,
     );
 
     const outputs = listNotificationOutputHistory(context.connection);
@@ -688,7 +757,14 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
       'normal',
       xmlBase,
     );
-    processVpbs50Reception(context.connection, receptionBase, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionBase,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
     assert.equal(listNotificationOutputHistory(context.connection).length, 1);
 
     // 1. 対象特定可能な VPBS50 取消 (Body に江東区 1310800 あり)
@@ -710,7 +786,14 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
       xmlCancel,
     );
 
-    processVpbs50Reception(context.connection, receptionCancel, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionCancel,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
 
     const outputs = listNotificationOutputHistory(context.connection);
     assert.equal(outputs.length, 2);
@@ -722,7 +805,8 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
 
     // 取消現況は起動 API で返されない
     const startupNotifications = projectStartupCurrentNotifications(context.connection, {
-      venueId: 'east',
+      venueRegistry: testVenueRegistry,
+      venueId: eastVenueId,
       now: fixedNowIso,
       includeWarningCategory: true,
       fetchHealth: null,
@@ -746,7 +830,14 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
       'normal',
       xmlVphwCancel,
     );
-    processVphwReception(context.connection, receptionVphwCancel, fixedNowIso, undefined, emitDeps);
+    processVphwReception(
+      context.connection,
+      receptionVphwCancel,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
     assert.equal(listNotificationOutputHistory(context.connection).length, 2); // 増えない
 
     // 3. 対象不明取消および食い違い取消 (§8-3) を processor 経由で投入し、受信ID・EventID・会場・理由のログ追跡性を検証
@@ -792,21 +883,22 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
         context.connection,
         receptionUnknownCancel,
         fixedNowIso,
-        undefined,
+        bulletinTarget,
         emitDeps,
+        testVenueRegistry,
       );
 
       assert.deepEqual(skipLogFields('unknown_cancellation_target'), [
         [
           String(receptionUnknownCancel.id),
           'JPTE202609109999_202609109999',
-          'east',
+          eastVenueId,
           'unknown_cancellation_target',
         ],
         [
           String(receptionUnknownCancel.id),
           'JPTE202609109999_202609109999',
-          'trc',
+          trcVenueId,
           'unknown_cancellation_target',
         ],
       ]);
@@ -835,8 +927,9 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
         context.connection,
         receptionAmbiguousBase,
         fixedNowIso,
-        undefined,
+        bulletinTarget,
         emitDeps,
+        testVenueRegistry,
       );
 
       warnLogs.length = 0;
@@ -862,21 +955,22 @@ test('AC3: 対象特定可能なVPBS50取消fixtureを投入し、該当会場�
         context.connection,
         receptionAmbiguousCancel,
         fixedNowIso,
-        undefined,
+        bulletinTarget,
         emitDeps,
+        testVenueRegistry,
       );
 
       assert.deepEqual(skipLogFields('ambiguous_cancellation_target'), [
         [
           String(receptionAmbiguousCancel.id),
           'JPTE202609100003_202609100003',
-          'east',
+          eastVenueId,
           'ambiguous_cancellation_target',
         ],
         [
           String(receptionAmbiguousCancel.id),
           'JPTE202609100003_202609100003',
-          'trc',
+          trcVenueId,
           'ambiguous_cancellation_target',
         ],
       ]);
@@ -969,6 +1063,7 @@ test('AC4: 初期取得に同一速報の複数版を投入して完了させ、
     const emitDeps1: BosaiNotificationEmitDeps = {
       now: () => fixedNowIso,
       initialState: tracker1,
+      venueRegistry: testVenueRegistry,
     };
 
     // 1. 初期取得 failed では evaluateVenues (emitInitialBosaiBulletinNotifications) を呼ばず未評価のまま (0件)
@@ -976,7 +1071,7 @@ test('AC4: 初期取得に同一速報の複数版を投入して完了させ、
     assert.equal(listNotificationOutputHistory(context.connection).length, 0);
 
     // 2. failed -> completed で 1 回評価
-    emitInitialBosaiBulletinNotifications(context.connection, 'east', emitDeps1);
+    emitInitialBosaiBulletinNotifications(context.connection, eastVenueId, emitDeps1);
     const outputs1 = listNotificationOutputHistory(context.connection);
     assert.equal(outputs1.length, 1);
     assert.equal(outputs1[0]!.detectionContext, 'initial');
@@ -986,7 +1081,7 @@ test('AC4: 初期取得に同一速報の複数版を投入して完了させ、
     );
 
     // 3. 同一 runtime で再実行しても増えない
-    emitInitialBosaiBulletinNotifications(context.connection, 'east', emitDeps1);
+    emitInitialBosaiBulletinNotifications(context.connection, eastVenueId, emitDeps1);
     assert.equal(listNotificationOutputHistory(context.connection).length, 1);
 
     // 4. 再起動 runtime (tracker2) では期限内現況が initial になる
@@ -994,8 +1089,9 @@ test('AC4: 初期取得に同一速報の複数版を投入して完了させ、
     const emitDeps2: BosaiNotificationEmitDeps = {
       now: () => fixedNowIso,
       initialState: tracker2,
+      venueRegistry: testVenueRegistry,
     };
-    emitInitialBosaiBulletinNotifications(context.connection, 'east', emitDeps2);
+    emitInitialBosaiBulletinNotifications(context.connection, eastVenueId, emitDeps2);
     assert.equal(listNotificationOutputHistory(context.connection).length, 2);
   } finally {
     cleanup();
@@ -1148,12 +1244,28 @@ test('AC6: VPHW50/51の注意区域とVPHW51目撃区域を同一会場に交差
     );
 
     // VPHW50 -> VPHW51 の順で投入
-    processVphwReception(context.connection, reception50, fixedNowIso, undefined, emitDeps);
-    processVphwReception(context.connection, reception51, fixedNowIso, undefined, emitDeps);
+    processVphwReception(
+      context.connection,
+      reception50,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
+    processVphwReception(
+      context.connection,
+      reception51,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
 
     // 通常通知は east 会場で 3 件: VPHW50 注意, VPHW51 注意, VPHW51 目撃
     const outputs = listNotificationOutputHistory(context.connection);
-    const eastOutputs = outputs.filter((o) => JSON.parse(o.targetAreaJson!)[0].code === 'east');
+    const eastOutputs = outputs.filter(
+      (o) => JSON.parse(o.targetAreaJson!)[0].code === eastVenueId,
+    );
     assert.equal(eastOutputs.length, 3);
     const defIds = eastOutputs.map((o) => o.messageDefinitionId);
     assert.equal(defIds.filter((id) => id === 'weather-bosai-bulletin-tornado-warning').length, 2);
@@ -1161,7 +1273,8 @@ test('AC6: VPHW50/51の注意区域とVPHW51目撃区域を同一会場に交差
 
     // 起動現況も 3 件
     const startupNotifications = projectStartupCurrentNotifications(context.connection, {
-      venueId: 'east',
+      venueRegistry: testVenueRegistry,
+      venueId: eastVenueId,
       now: fixedNowIso,
       includeWarningCategory: true,
       fetchHealth: null,
@@ -1169,10 +1282,24 @@ test('AC6: VPHW50/51の注意区域とVPHW51目撃区域を同一会場に交差
     assert.equal(startupNotifications.notifications.length, 3);
 
     // 同版再取得 -> 0 件増加
-    processVphwReception(context.connection, reception50, fixedNowIso, undefined, emitDeps);
-    processVphwReception(context.connection, reception51, fixedNowIso, undefined, emitDeps);
+    processVphwReception(
+      context.connection,
+      reception50,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
+    processVphwReception(
+      context.connection,
+      reception51,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
     const eastOutputsAfter = listNotificationOutputHistory(context.connection).filter(
-      (o) => JSON.parse(o.targetAreaJson!)[0].code === 'east',
+      (o) => JSON.parse(o.targetAreaJson!)[0].code === eastVenueId,
     );
     assert.equal(eastOutputsAfter.length, 3);
   } finally {
@@ -1226,7 +1353,7 @@ test('AC7: 目撃有り・無し・VPHW50本文のみ目撃の公式fixtureをpa
       assert.ok(res50.value.areas.every((a) => a.informationType !== null));
     }
 
-    const res51With = parseVphw(xml51With, expected51With);
+    const res51With = parseVphw(xml51With, expected51With, bulletinTarget);
     assert.equal(res51With.ok, true);
     if (res51With.ok) {
       assert.equal(res51With.value.hasSighting, true);
@@ -1236,7 +1363,7 @@ test('AC7: 目撃有り・無し・VPHW50本文のみ目撃の公式fixtureをpa
       assert.ok(sightingAreas.length > 0);
     }
 
-    const res51Without = parseVphw(xml51Without, expected51Without);
+    const res51Without = parseVphw(xml51Without, expected51Without, bulletinTarget);
     assert.equal(res51Without.ok, true);
     if (res51Without.ok) {
       assert.equal(res51Without.value.hasSighting, false);
@@ -1298,7 +1425,7 @@ test('AC7: 目撃有り・無し・VPHW50本文のみ目撃の公式fixtureをpa
     assert.equal(beforeRecovery.areas[0]!.informationType, null);
 
     // 3. recoverLegacyVphwBulletinAreas を実行
-    recoverLegacyVphwBulletinAreas(context.connection);
+    recoverLegacyVphwBulletinAreas(context.connection, testVenueRegistry);
 
     // 4. 再読込: areas に informationType が復元されていること
     const afterRecovery = findBosaiBulletin(context.connection, 'VPHW51:130010', 'normal');
@@ -1316,9 +1443,10 @@ test('AC7: 目撃有り・無し・VPHW50本文のみ目撃の公式fixtureをpa
     // 5. 復元された速報現況から通知が生成されること
     const tracker = new InitialBosaiNotificationTracker();
     tracker.setCollecting(false);
-    emitInitialBosaiBulletinNotifications(context.connection, 'east', {
+    emitInitialBosaiBulletinNotifications(context.connection, eastVenueId, {
       now: () => '2014-02-12T04:30:00.000Z',
       initialState: tracker,
+      venueRegistry: testVenueRegistry,
     });
     const historiesAfterRecovery = listNotificationOutputHistory(context.connection);
     assert.ok(historiesAfterRecovery.length > 0, '復元後に初期通知が生成されること');
@@ -1357,13 +1485,14 @@ test('AC7: 目撃有り・無し・VPHW50本文のみ目撃の公式fixtureをpa
       ],
     });
 
-    recoverLegacyVphwBulletinAreas(context.connection);
+    recoverLegacyVphwBulletinAreas(context.connection, testVenueRegistry);
     const orphanBulletin = findBosaiBulletin(context.connection, 'VPHW50:LEGACY_ORPHAN', 'normal');
     assert.ok(orphanBulletin);
     assert.equal(orphanBulletin.areas[0]!.informationType, null);
 
     const startupNotifications = projectStartupCurrentNotifications(context.connection, {
-      venueId: 'east',
+      venueRegistry: testVenueRegistry,
+      venueId: eastVenueId,
       now: '2026-09-10T17:30:00.000Z',
       includeWarningCategory: true,
       fetchHealth: null,
@@ -1408,7 +1537,14 @@ test('AC8: 同じ速報のnormal/trainingを投入し、別通知・別版識別
       'normal',
       xmlNormal,
     );
-    processVpbs50Reception(context.connection, receptionNormal, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionNormal,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
 
     // 2. training
     const xmlTraining = buildVpbs50Xml({
@@ -1428,7 +1564,14 @@ test('AC8: 同じ速報のnormal/trainingを投入し、別通知・別版識別
       'training',
       xmlTraining,
     );
-    processVpbs50Reception(context.connection, receptionTraining, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionTraining,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
 
     // 3. test
     const xmlTest = buildVpbs50Xml({
@@ -1448,7 +1591,14 @@ test('AC8: 同じ速報のnormal/trainingを投入し、別通知・別版識別
       'test',
       xmlTest,
     );
-    processVpbs50Reception(context.connection, receptionTest, fixedNowIso, undefined, emitDeps);
+    processVpbs50Reception(
+      context.connection,
+      receptionTest,
+      fixedNowIso,
+      bulletinTarget,
+      emitDeps,
+      testVenueRegistry,
+    );
 
     // B4 履歴の検証: normal と training の 2 件 (test は 0 件)
     const outputs = listNotificationOutputHistory(context.connection);
@@ -1461,7 +1611,8 @@ test('AC8: 同じ速報のnormal/trainingを投入し、別通知・別版識別
 
     // 起動応答の検証 (normal と training の2件が返り、isTraining がそれぞれ false / true)
     const startupNormal = projectStartupCurrentNotifications(context.connection, {
-      venueId: 'east',
+      venueRegistry: testVenueRegistry,
+      venueId: eastVenueId,
       now: fixedNowIso,
       includeWarningCategory: true,
       fetchHealth: null,
@@ -1519,7 +1670,8 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
     };
 
     const projectedAbnormal = projectStartupCurrentNotifications(context.connection, {
-      venueId: 'east',
+      venueRegistry: testVenueRegistry,
+      venueId: eastVenueId,
       now: fixedNowIso,
       includeWarningCategory: true,
       fetchHealth: allAbnormal,
@@ -1561,12 +1713,13 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
     const currentHealth = mixedHealth;
     const initialization = new StartupNotificationInitialization();
     initialization.setInitialFetchPhase('completed');
-    initialization.markVenueEvaluated('east');
-    initialization.markVenueEvaluated('trc');
+    initialization.markVenueEvaluated(eastVenueId);
+    initialization.markVenueEvaluated(trcVenueId);
 
     const service = createStartupNotificationService({
       connection: context.connection,
       initialization,
+      venueRegistry: testVenueRegistry,
       serverGenerationId: 'gen-ac9',
       now: () => fixedNowIso,
       getFetchHealth: () => currentHealth,
@@ -1575,7 +1728,7 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
     // 1回目の問い合わせ (初回出力権あり) -> 6件すべて返る
     const res1 = service.inquire({
       terminalId: 'hkeagh01',
-      venueId: 'east',
+      venueId: eastVenueId,
       sessionId: crypto.randomUUID(),
       inquiredAt: fixedNowIso,
     });
@@ -1590,13 +1743,13 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
     const sameSessionId = crypto.randomUUID();
     service.inquire({
       terminalId: 'hkeagh01',
-      venueId: 'east',
+      venueId: eastVenueId,
       sessionId: sameSessionId,
       inquiredAt: fixedNowIso,
     });
     const res2 = service.inquire({
       terminalId: 'hkeagh01',
-      venueId: 'east',
+      venueId: eastVenueId,
       sessionId: sameSessionId,
       inquiredAt: fixedNowIso,
     });
@@ -1642,11 +1795,12 @@ test('AC10: system normal/suspended/未評価・過去に復帰済みの状態�
 
     const initialization = new StartupNotificationInitialization();
     initialization.setInitialFetchPhase('completed');
-    initialization.markVenueEvaluated('east');
+    initialization.markVenueEvaluated(eastVenueId);
 
     const service = createStartupNotificationService({
       connection: context.connection,
       initialization,
+      venueRegistry: testVenueRegistry,
       serverGenerationId: 'gen-ac10',
       now: () => fixedNowIso,
       getFetchHealth: () => normalHealth,
@@ -1661,7 +1815,7 @@ test('AC10: system normal/suspended/未評価・過去に復帰済みの状態�
 
     const res = service.inquire({
       terminalId: 'hkeagh01',
-      venueId: 'east',
+      venueId: eastVenueId,
       sessionId: crypto.randomUUID(),
       inquiredAt: fixedNowIso,
     });
@@ -1731,12 +1885,13 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
 
     const initialization = new StartupNotificationInitialization();
     initialization.setInitialFetchPhase('completed');
-    initialization.markVenueEvaluated('east');
-    initialization.markVenueEvaluated('trc');
+    initialization.markVenueEvaluated(eastVenueId);
+    initialization.markVenueEvaluated(trcVenueId);
 
     let service = createStartupNotificationService({
       connection: context.connection,
       initialization,
+      venueRegistry: testVenueRegistry,
       serverGenerationId: 'gen-ac11-1',
       now: () => fixedNowIso,
       getFetchHealth: () => mixedHealth,
@@ -1746,7 +1901,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
     // 端末 1 (east, session-1, terminal: hkeagh01) -> warning 1件, question 1件
     const res1 = service.inquire({
       terminalId: 'hkeagh01',
-      venueId: 'east',
+      venueId: eastVenueId,
       sessionId: session1,
       inquiredAt: fixedNowIso,
     });
@@ -1758,7 +1913,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
     // 同会場 端末 2 (east, session-2, terminal: kkeagh01) -> warning 出力権消費済みのため question 1件のみ
     const res2 = service.inquire({
       terminalId: 'kkeagh01',
-      venueId: 'east',
+      venueId: eastVenueId,
       sessionId: session2,
       inquiredAt: fixedNowIso,
     });
@@ -1773,7 +1928,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
     // 別会場 端末 3 (trc, session-3, terminal: htrcph01) -> trc 会場として独立に warning 1件, question 1件
     const res3 = service.inquire({
       terminalId: 'htrcph01',
-      venueId: 'trc',
+      venueId: trcVenueId,
       sessionId: session3,
       inquiredAt: fixedNowIso,
     });
@@ -1784,6 +1939,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
     service = createStartupNotificationService({
       connection: context.connection,
       initialization,
+      venueRegistry: testVenueRegistry,
       serverGenerationId: 'gen-ac11-2',
       now: () => fixedNowIso,
       getFetchHealth: () => mixedHealth,
@@ -1791,7 +1947,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
     const session4 = crypto.randomUUID();
     const res4 = service.inquire({
       terminalId: 'hkeagh01',
-      venueId: 'east',
+      venueId: eastVenueId,
       sessionId: session4,
       inquiredAt: fixedNowIso,
     });
@@ -1855,9 +2011,10 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
 
   // 2. 必須識別情報（会場targets、venue関連参照、通知種別関連参照）の完全一致検証
   const planVpbs = planBosaiBulletinNotifications({
+    venueRegistry: testVenueRegistry,
     current: b1,
     previous: null,
-    venueId: 'east',
+    venueId: eastVenueId,
     detectionContext: 'normal',
     detectedAt: '2026-09-10T07:05:00Z',
     notificationIdFactory: () => 'nid-vpbs-test',
@@ -1871,7 +2028,7 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
     {
       kind: 'area',
       codeType: 'venue',
-      code: 'east',
+      code: eastVenueId,
       name: '東京ビッグサイト',
     },
   ]);
@@ -1879,7 +2036,7 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
   // relatedRefs（bosai_bulletin, venue, bosai_notification_kind）の完全一致検証
   assert.deepStrictEqual(plannedVpbs.notification.relatedRefs, [
     { type: 'bosai_bulletin', ref: 'EVENT_1' },
-    { type: 'venue', ref: 'east' },
+    { type: 'venue', ref: eastVenueId },
     { type: 'bosai_notification_kind', ref: 'linear-rainband-observed' },
   ]);
 
@@ -1920,9 +2077,10 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
   };
 
   const planTornado = planBosaiBulletinNotifications({
+    venueRegistry: testVenueRegistry,
     current: bTornado,
     previous: null,
-    venueId: 'east',
+    venueId: eastVenueId,
     detectionContext: 'normal',
     detectedAt: '2026-09-10T07:05:00Z',
     notificationIdFactory: () => 'nid-tornado-test',
@@ -1934,13 +2092,13 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
     {
       kind: 'area',
       codeType: 'venue',
-      code: 'east',
+      code: eastVenueId,
       name: '東京ビッグサイト',
     },
   ]);
   assert.deepStrictEqual(plannedTornado.notification.relatedRefs, [
     { type: 'bosai_bulletin', ref: 'VPHW51:130010' },
-    { type: 'venue', ref: 'east' },
+    { type: 'venue', ref: eastVenueId },
     { type: 'bosai_notification_kind', ref: 'tornado-sighting' },
   ]);
 
@@ -1950,11 +2108,12 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
     const fixedNowIso = '2026-09-13T12:00:00.000Z';
     const initialization = new StartupNotificationInitialization();
     initialization.setInitialFetchPhase('completed');
-    initialization.markVenueEvaluated('east');
+    initialization.markVenueEvaluated(eastVenueId);
 
     const service = createStartupNotificationService({
       connection: context.connection,
       initialization,
+      venueRegistry: testVenueRegistry,
       serverGenerationId: 'gen-ac12',
       now: () => fixedNowIso,
       getFetchHealth: () => {
@@ -1996,7 +2155,7 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
 
     const res = service.inquire({
       terminalId: 'hkeagh01',
-      venueId: 'east',
+      venueId: eastVenueId,
       sessionId: crypto.randomUUID(),
       inquiredAt: fixedNowIso,
     });
@@ -2025,7 +2184,7 @@ test('AC13: 履歴保存失敗を注入し、現況保存は維持され、成�
     // 履歴保存で意図的にエラーをスローする emitDeps
     const faultyTracker = new InitialBosaiNotificationTracker();
     faultyTracker.setCollecting(false);
-    faultyTracker.markCompleted('east', 'normal');
+    faultyTracker.markCompleted(eastVenueId, 'normal');
 
     // notification_output_history に不正なトリガーでエラーを起こす
     context.connection.exec(`
@@ -2038,6 +2197,7 @@ test('AC13: 履歴保存失敗を注入し、現況保存は維持され、成�
     const faultyEmitDeps: BosaiNotificationEmitDeps = {
       now: () => fixedNowIso,
       initialState: faultyTracker,
+      venueRegistry: testVenueRegistry,
     };
 
     const xml = buildVpbs50Xml({
@@ -2060,7 +2220,14 @@ test('AC13: 履歴保存失敗を注入し、現況保存は維持され、成�
 
     // processVpbs50Reception を実行 (通知履歴保存は失敗するが、エラーハンドリングされ現況保存は成功する)
     assert.doesNotThrow(() => {
-      processVpbs50Reception(context.connection, reception, fixedNowIso, undefined, faultyEmitDeps);
+      processVpbs50Reception(
+        context.connection,
+        reception,
+        fixedNowIso,
+        bulletinTarget,
+        faultyEmitDeps,
+        testVenueRegistry,
+      );
     });
 
     // 現況保存 (bosai_bulletin) は正常に行われ維持されていること
@@ -2077,12 +2244,20 @@ test('AC13: 履歴保存失敗を注入し、現況保存は維持され、成�
     // 同版再取得を行っても再送保証（再試行）は行われず、同版スキップされること
     const validTracker = new InitialBosaiNotificationTracker();
     validTracker.setCollecting(false);
-    validTracker.markCompleted('east', 'normal');
+    validTracker.markCompleted(eastVenueId, 'normal');
     const validEmitDeps: BosaiNotificationEmitDeps = {
       now: () => fixedNowIso,
       initialState: validTracker,
+      venueRegistry: testVenueRegistry,
     };
-    processVpbs50Reception(context.connection, reception, fixedNowIso, undefined, validEmitDeps);
+    processVpbs50Reception(
+      context.connection,
+      reception,
+      fixedNowIso,
+      bulletinTarget,
+      validEmitDeps,
+      testVenueRegistry,
+    );
     assert.equal(listNotificationOutputHistory(context.connection).length, 0); // 同版スキップのため 0 件のまま
   } finally {
     cleanup();
@@ -2248,7 +2423,7 @@ test('AC14: startServer起動時、polling開始前に速報の初期通知が�
         assert.equal(normalOutput.category, 'question');
         assert.equal(normalOutput.ackRequired, true);
         const targets = JSON.parse(normalOutput.targetAreaJson!);
-        assert.equal(targets[0].code, 'east');
+        assert.equal(targets[0].code, eastVenueId);
         assert.equal(targets[0].codeType, 'venue');
 
         // 4. 同版を再度ポーリングしても通常通知履歴が増加しないこと (同版抑止)
@@ -2316,8 +2491,9 @@ test('AC15: 合成VPBS50を通常processorに受信させ、対象区域を持�
       context.connection,
       receptionInitial,
       '2026-09-10T07:41:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(parseResultInitial.ok, true);
 
@@ -2371,8 +2547,9 @@ test('AC15: 合成VPBS50を通常processorに受信させ、対象区域を持�
       context.connection,
       receptionCancel,
       '2026-09-10T07:51:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(parseResultCancel.ok, true);
 
@@ -2407,12 +2584,13 @@ test('AC15: 合成VPBS50を通常processorに受信させ、対象区域を持�
     assert.ok(cancelOutput.summary.includes('線状降水帯'));
     const targets = JSON.parse(cancelOutput.targetAreaJson!);
     assert.equal(targets.length, 1);
-    assert.equal(targets[0].code, 'east');
+    assert.equal(targets[0].code, eastVenueId);
     assert.equal(targets[0].codeType, 'venue');
 
     // 5. 起動現況プロジェクタで旧発表も取消も返らないことを完全一致で確認
     const startupEast = projectStartupCurrentNotifications(context.connection, {
-      venueId: 'east',
+      venueRegistry: testVenueRegistry,
+      venueId: eastVenueId,
       now: fixedNowIso,
       includeWarningCategory: true,
       fetchHealth: null,
@@ -2424,7 +2602,8 @@ test('AC15: 合成VPBS50を通常processorに受信させ、対象区域を持�
     );
 
     const startupTrc = projectStartupCurrentNotifications(context.connection, {
-      venueId: 'trc',
+      venueRegistry: testVenueRegistry,
+      venueId: trcVenueId,
       now: fixedNowIso,
       includeWarningCategory: true,
       fetchHealth: null,
@@ -2465,8 +2644,9 @@ test('AC15: 合成VPBS50を通常processorに受信させ、対象区域を持�
       context.connection,
       receptionExpiredInitial,
       '2026-09-10T01:01:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
 
     const countBeforeExpiredCancel = listNotificationOutputHistory(context.connection, {
@@ -2509,8 +2689,9 @@ test('AC15: 合成VPBS50を通常processorに受信させ、対象区域を持�
       context.connection,
       receptionExpiredCancel,
       '2026-09-10T02:01:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(parseResultExpiredCancel.ok, true);
 
@@ -2535,7 +2716,7 @@ test('AC15: 合成VPBS50を通常processorに受信させ、対象区域を持�
         expiredCancelOutput.summary.includes('記録雨'),
     );
     const expiredTargets = JSON.parse(expiredCancelOutput.targetAreaJson!);
-    assert.equal(expiredTargets[0].code, 'trc');
+    assert.equal(expiredTargets[0].code, trcVenueId);
   } finally {
     cleanup();
   }
@@ -2558,12 +2739,16 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       bodyAreas: [],
       omitHeadlineText: true,
     });
-    const directParseResult = parseVpbs50(emptyAreasCancelXml, {
-      telegramType: 'VPBS50',
-      controlStatus: 'normal',
-      reportDateTime: '2026-09-10T07:50:00.000Z',
-      controlDateTime: '2026-09-10T07:50:00.000Z',
-    });
+    const directParseResult = parseVpbs50(
+      emptyAreasCancelXml,
+      {
+        telegramType: 'VPBS50',
+        controlStatus: 'normal',
+        reportDateTime: '2026-09-10T07:50:00.000Z',
+        controlDateTime: '2026-09-10T07:50:00.000Z',
+      },
+      bulletinTarget,
+    );
     assert.equal(directParseResult.ok, false);
     assert.equal(directParseResult.disposition, '対象地域外');
 
@@ -2601,8 +2786,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recBase,
       '2026-09-10T07:01:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
 
     const historyCountBase = listNotificationOutputHistory(context.connection, {
@@ -2645,8 +2831,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recNoTagNoArea,
       '2026-09-10T07:11:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(resNoTagNoArea.ok, false);
     assert.equal(resNoTagNoArea.disposition, '未対応構造');
@@ -2688,8 +2875,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recNoPrev,
       '2026-09-10T07:11:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(resNoPrev.ok, false);
     assert.equal(resNoPrev.disposition, '未対応構造');
@@ -2733,8 +2921,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recDiffEvent,
       '2026-09-10T07:11:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(resDiffEvent.ok, false);
     assert.equal(resDiffEvent.disposition, '未対応構造');
@@ -2777,8 +2966,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recDiffStatus,
       '2026-09-10T07:11:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(resDiffStatus.ok, false);
     assert.equal(resDiffStatus.disposition, '未対応構造');
@@ -2814,7 +3004,14 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       areas: [],
       adoptions: [],
     });
-    processVpbs50Reception(context.connection, recInitialForCancel, '2026-09-10T07:01:00.000Z');
+    processVpbs50Reception(
+      context.connection,
+      recInitialForCancel,
+      '2026-09-10T07:01:00.000Z',
+      bulletinTarget,
+      undefined,
+      testVenueRegistry,
+    );
 
     const xmlFirstCancel = buildVpbs50Xml({
       eventId: alreadyCancelledEventId,
@@ -2846,7 +3043,14 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       areas: [],
       adoptions: [],
     });
-    processVpbs50Reception(context.connection, recFirstCancel, '2026-09-10T07:06:00.000Z');
+    processVpbs50Reception(
+      context.connection,
+      recFirstCancel,
+      '2026-09-10T07:06:00.000Z',
+      bulletinTarget,
+      undefined,
+      testVenueRegistry,
+    );
 
     // 取消済みの行に対して区域0件取消を投入
     const xmlSecondEmptyCancel = buildVpbs50Xml({
@@ -2884,8 +3088,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recSecondEmptyCancel,
       '2026-09-10T07:11:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(resSecondEmptyCancel.ok, false);
     assert.equal(resSecondEmptyCancel.disposition, '未対応構造');
@@ -2952,8 +3157,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recIncompleteCancel,
       '2026-09-10T07:11:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(resIncompleteCancel.ok, false);
     assert.equal(resIncompleteCancel.disposition, '未対応構造');
@@ -2995,8 +3201,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recMismatchTag,
       '2026-09-10T07:21:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(resMismatchTag.ok, false);
     assert.equal(resMismatchTag.disposition, '未対応構造');
@@ -3075,8 +3282,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recOutsideCancel,
       '2026-09-10T07:11:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     assert.equal(resOutsideCancel.ok, false);
     assert.equal(resOutsideCancel.disposition, '対象地域外');
@@ -3119,8 +3327,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recOldCancel,
       '2026-09-10T07:01:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     // 従来動作: 同版・旧版スキップ時も parseResult(ok: true) を返し、adoptionResult は「重複または旧版」
     assert.equal(resOldCancel.ok, true);
@@ -3173,8 +3382,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recWithAreaBase,
       '2026-09-10T07:01:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
 
     // 区域ありだが種別が異なる取消電文（線状降水帯発生に対して記録雨）
@@ -3212,8 +3422,9 @@ test('AC16: 区域0件取消について、タグと区域が双方欠落・prev
       context.connection,
       recMismatchWithArea,
       '2026-09-10T07:11:00.000Z',
-      undefined,
+      bulletinTarget,
       deps,
+      testVenueRegistry,
     );
     // 区域ありなので parser/processor では採用・保存されるが、planner 側で ambiguous_cancellation_target として通知は見送られる
     assert.equal(resMismatchWithArea.ok, true);
@@ -3244,6 +3455,11 @@ test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意
     if (existsSync(mig0024Path)) rmSync(mig0024Path);
     const mig0025Path = join(tempMigrationsDir, '0025_add_area_timeseries_condition.sql');
     if (existsSync(mig0025Path)) rmSync(mig0025Path);
+    const mig0026Path = join(
+      tempMigrationsDir,
+      '0026_relax_telegram_reception_adoption_venue_id.sql',
+    );
+    if (existsSync(mig0026Path)) rmSync(mig0026Path);
 
     const dbPath = join(tmpDir, 'test_migration.sqlite3');
     const context = initializeDatabase({
@@ -3493,6 +3709,11 @@ test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意
         '0025_add_area_timeseries_condition.sql',
       );
       if (existsSync(mig0025RollbackPath)) rmSync(mig0025RollbackPath);
+      const mig0026RollbackPath = join(
+        rollbackMigrationsDir,
+        '0026_relax_telegram_reception_adoption_venue_id.sql',
+      );
+      if (existsSync(mig0026RollbackPath)) rmSync(mig0026RollbackPath);
 
       const rollbackDbPath = join(rollbackTmpDir, 'test_rollback.sqlite3');
       const rollbackContext = initializeDatabase({
@@ -3590,7 +3811,7 @@ test('AC17: 0021まで適用した一時DBにVPBS50のNULL区域とVPHWの注意
       const applied = newContext.connection
         .prepare('SELECT version FROM __schema_migrations ORDER BY version')
         .all() as Array<{ version: number }>;
-      assert.equal(applied.at(-1)?.version, 25, '最新 version が 25 であること');
+      assert.equal(applied.at(-1)?.version, 26, '最新 version が 26 であること');
 
       // 0021 のファイル内容確認
       const mig0021Path = join(

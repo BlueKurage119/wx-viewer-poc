@@ -3,8 +3,20 @@ import test from 'node:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseVpfd51 } from '../src/polling/jmaVpfd51Parser.js';
+import { parseVpfd51 as parseVpfd51Impl } from '../src/polling/jmaVpfd51Parser.js';
 import type { TelegramReception } from '../src/repositories/types.js';
+
+import { testVenueRegistry, eastVenueId } from './helpers/venueConfigPreload.js';
+import { resolveAreaTimeseriesForecastTarget } from '../src/venueForecastTargets.js';
+
+const parseVpfd51 = (
+  raw: string,
+  expected: Parameters<typeof parseVpfd51Impl>[1],
+  target: Parameters<typeof parseVpfd51Impl>[2] = resolveAreaTimeseriesForecastTarget(
+    testVenueRegistry,
+    eastVenueId,
+  ),
+) => parseVpfd51Impl(raw, expected, target);
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const jmaFixturesDir = join(apiRoot, 'tests/fixtures/jma');

@@ -1,13 +1,9 @@
-import { resolveVenueForecastTargets, type VenueId } from '@wx-viewer-poc/shared';
+import type { VenueId, VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import { findWarningCurrentSnapshot } from '../repositories/warningCurrentRepository.js';
 import { findWarningTimeseriesSnapshot } from '../repositories/warningTimeseriesRepository.js';
 import { listBosaiBulletins } from '../repositories/bosaiBulletinRepository.js';
 import { listTelegramReceptions } from '../repositories/telegramReceptionRepository.js';
-import {
-  resolveWarningCurrentTargetArea,
-  resolveWarningTimeseriesTargetArea,
-} from '../venueForecastTargets.js';
 import type {
   BosaiBulletin,
   ControlStatus,
@@ -25,28 +21,37 @@ import type {
  */
 export function getVenueWarningCurrent(
   connection: DatabaseConnection,
+  registry: VenueRegistry,
   venueId: VenueId,
   controlStatus: ControlStatus,
 ): WarningCurrentSnapshot | null {
-  const targetArea = resolveWarningCurrentTargetArea(venueId);
-  return findWarningCurrentSnapshot(connection, targetArea.municipalCode, controlStatus);
+  return findWarningCurrentSnapshot(
+    connection,
+    registry.getVenue(venueId).warning.municipalCode,
+    controlStatus,
+  );
 }
 
 export function getVenueWarningTimeseries(
   connection: DatabaseConnection,
+  registry: VenueRegistry,
   venueId: VenueId,
   controlStatus: ControlStatus,
 ): WarningTimeseriesSnapshot | null {
-  const targetArea = resolveWarningTimeseriesTargetArea(venueId);
-  return findWarningTimeseriesSnapshot(connection, targetArea.municipalCode, controlStatus);
+  return findWarningTimeseriesSnapshot(
+    connection,
+    registry.getVenue(venueId).warningTimeseries.municipalCode,
+    controlStatus,
+  );
 }
 
 export function listVenueBosaiBulletins(
   connection: DatabaseConnection,
+  registry: VenueRegistry,
   venueId: VenueId,
   options: Omit<ListBosaiBulletinsOptions, 'includedAreaCodes'>,
 ): readonly BosaiBulletin[] {
-  const includedAreaCodes = resolveVenueForecastTargets(venueId).bosaiBulletin.includedAreaCodes;
+  const includedAreaCodes = registry.getVenue(venueId).bosaiBulletin.includedAreaCodes;
   return listBosaiBulletins(connection, { ...options, includedAreaCodes });
 }
 

@@ -1,3 +1,4 @@
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -197,6 +198,7 @@ test('T1: 停止中の手動サイクルがXML取得を行う', async () => {
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
     });
@@ -255,6 +257,7 @@ test('T2: 手動サイクル後も自動取得が再開しない', async () => {
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
       timerScheduler,
@@ -331,6 +334,7 @@ test('T3: 手動サイクル中の stop() が電文境界で中断する', async
     };
 
     service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
     });
@@ -374,6 +378,7 @@ test('T4: シャットダウン後は手動サイクルを開始しない', asyn
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
     });
@@ -407,6 +412,7 @@ test('R4: シャットダウン後に start() が届いても手動サイクル�
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
     });
@@ -461,6 +467,7 @@ test('T5: 中断済みの自動サイクルには合流しない', async () => {
     };
 
     service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
     });
@@ -775,6 +782,7 @@ test('R1: 停止後に始めた手動サイクルの実行中、2本目の手動
     };
 
     const service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
     });
@@ -820,6 +828,7 @@ test('R2: 先行フィード完了後・後続フィード未着手の中断は 
     };
 
     service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
     });

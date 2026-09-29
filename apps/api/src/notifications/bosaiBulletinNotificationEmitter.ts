@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import {
-  VENUE_IDS,
   type NotificationDetectionContext,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
   type WeatherNotification,
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
@@ -49,6 +49,7 @@ export class InitialBosaiNotificationTracker implements InitialBosaiNotification
 }
 
 export interface BosaiNotificationEmitDeps {
+  readonly venueRegistry: VenueRegistry;
   readonly now: () => UtcIso8601String;
   readonly notificationIdFactory?: () => string;
   readonly initialState: InitialBosaiNotificationState;
@@ -78,7 +79,7 @@ export function emitBosaiBulletinNotificationsForReception(
   let totalRecorded = 0;
   let hasFailed = false;
 
-  for (const venueId of VENUE_IDS) {
+  for (const venueId of deps.venueRegistry.listVenueIds()) {
     const isCompleted = deps.initialState.isCompleted(
       venueId,
       current.controlStatus as 'normal' | 'training',
@@ -86,6 +87,7 @@ export function emitBosaiBulletinNotificationsForReception(
     const detectionContext: NotificationDetectionContext = isCompleted ? 'normal' : 'initial';
 
     const plan = planBosaiBulletinNotifications({
+      venueRegistry: deps.venueRegistry,
       current,
       previous,
       venueId,
@@ -157,6 +159,7 @@ export function emitInitialBosaiBulletinNotifications(
       }
 
       const plan = planBosaiBulletinNotifications({
+        venueRegistry: deps.venueRegistry,
         current: bulletin,
         previous: null,
         venueId,
@@ -197,10 +200,12 @@ export function emitInitialBosaiBulletinNotifications(
     deps.initialState.markCompleted(venueId, status);
   }
 
-  const allCompleted = VENUE_IDS.every(
-    (v) =>
-      deps.initialState.isCompleted(v, 'normal') && deps.initialState.isCompleted(v, 'training'),
-  );
+  const allCompleted = deps.venueRegistry
+    .listVenueIds()
+    .every(
+      (v) =>
+        deps.initialState.isCompleted(v, 'normal') && deps.initialState.isCompleted(v, 'training'),
+    );
   if (allCompleted) {
     deps.initialState.setCollecting(false);
   }

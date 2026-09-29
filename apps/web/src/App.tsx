@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { FilledButton } from './components/md/Button';
 import { AppShell } from './shell/AppShell';
-import { resolveTerminal, views, type Terminal, type ViewId } from './shell/config';
+import {
+  createTerminals,
+  resolveTerminal,
+  views,
+  type Terminal,
+  type ViewId,
+} from './shell/config';
 import { NotificationArea } from './shell/NotificationArea';
 import { previewNotices, scenarios, type PreviewScenario } from './shell/fixtures';
 import {
@@ -22,6 +28,7 @@ import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
 import { monitoringOperationMessage } from './monitoring/monitoringOperationMessage';
 import { useMonitoringToolbar } from './monitoring/useMonitoringToolbar';
 import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
+import { useVenueRegistry } from './venueRegistryContext';
 
 const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
   weather: {
@@ -47,7 +54,8 @@ const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; descri
 };
 
 export function App() {
-  const terminal = resolveTerminal(window.location.pathname);
+  const terminals = createTerminals(useVenueRegistry());
+  const terminal = resolveTerminal(window.location.pathname, terminals);
   if (!terminal)
     return (
       <main className="entry-message">

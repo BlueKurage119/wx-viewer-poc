@@ -9,6 +9,7 @@ import {
   type UtcIso8601String,
   type WeatherControlStatus,
   type WeatherMetadata,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type { NowcastService } from '../polling/nowcastService.js';
 import type { TileDeliveryProfileService } from './tileDeliveryProfileService.js';
@@ -19,6 +20,7 @@ import {
 } from './tileApiSupport.js';
 
 export interface NowcastApiServiceDependencies {
+  readonly venueRegistry: VenueRegistry;
   readonly getService: () => NowcastService | null;
   readonly enablePolling: boolean;
   readonly tileDeliveryProfileService: TileDeliveryProfileService;
@@ -49,6 +51,11 @@ export function createNowcastApiService(
   const clock = dependencies.clock ?? (() => new Date().toISOString() as UtcIso8601String);
   const allowedZooms = dependencies.allowedZooms ?? TILE_API_ALLOWED_ZOOMS;
   const tileDeliveryProfileService = dependencies.tileDeliveryProfileService;
+  const venueId = (terminal: TerminalDefinition) => {
+    const id = dependencies.venueRegistry.resolveVenueId(terminal.venueId);
+    if (!id) throw new Error(`端末の会場 ID が設定にありません: ${terminal.venueId}`);
+    return id;
+  };
 
   return {
     getTimes(
@@ -59,7 +66,7 @@ export function createNowcastApiService(
         return {
           tileDeliveryProfile: tileDeliveryProfileService.getProfile(terminal),
           terminalId: terminal.id,
-          venueId: terminal.venueId,
+          venueId: venueId(terminal),
           controlStatus,
           isTraining: controlStatus === 'training',
           evaluatedAt: clock(),
@@ -137,7 +144,7 @@ export function createNowcastApiService(
       return {
         tileDeliveryProfile: tileDeliveryProfileService.getProfile(terminal),
         terminalId: terminal.id,
-        venueId: terminal.venueId,
+        venueId: venueId(terminal),
         controlStatus: 'normal',
         isTraining: false,
         evaluatedAt: catalog.now,

@@ -12,6 +12,7 @@ import { GbButton, Switch } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import { resolvePanelTarget } from '../panelTargets';
+import { useVenueRegistry } from '../../../venueRegistryContext';
 import {
   resolveWarningTimeSeriesPanelMessage,
   type DetailCell,
@@ -153,6 +154,7 @@ export interface WarningTimeSeriesContentProps {
 }
 
 export function WarningTimeSeriesContent({ response, table }: WarningTimeSeriesContentProps) {
+  const registry = useVenueRegistry();
   const [open, setOpen] = useState(false);
   // ダイアログを開くたびに全表示(false)になる。保存しない(§4.8)。
   const [narrowed, setNarrowed] = useState(false);
@@ -207,7 +209,12 @@ export function WarningTimeSeriesContent({ response, table }: WarningTimeSeriesC
           open={open}
           meta={{
             title: '警報等時系列',
-            target: resolvePanelTarget(response.venueId, 'warningTimeSeries') ?? null,
+            target: (() => {
+              const venueId = registry.resolveVenueId(response.venueId);
+              return venueId
+                ? (resolvePanelTarget(registry.getVenue(venueId), 'warningTimeSeries') ?? null)
+                : null;
+            })(),
             time: { kind: 'issued', value: response.metadata.issuedAt },
             isTraining: response.isTraining,
           }}

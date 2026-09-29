@@ -1,6 +1,5 @@
 import type { UtcIso8601String } from './types.js';
 import type { VenueId } from './venueForecastTargets.js';
-import { isVenueId } from './venueForecastTargets.js';
 
 /**
  * Issue #42「E10. 監視画面向けAPI」§6 の履歴検索API DTO。
@@ -76,7 +75,8 @@ export interface MonitoringReceptionQuery {
   readonly areaCode?: string;
   readonly documentUrl?: string;
   readonly adoptionResult?: string;
-  readonly adoptionVenueId?: VenueId;
+  /** 履歴に保存された会場 ID。削除済み会場も検索できるため、現行 VenueId にはしない。 */
+  readonly adoptionVenueId?: string;
   readonly receivedAtFrom?: UtcIso8601String;
   readonly receivedAtTo?: UtcIso8601String;
   readonly reportDateTimeFrom?: UtcIso8601String;
@@ -228,7 +228,7 @@ export function parseMonitoringReceptionQuery(query: unknown): MonitoringRecepti
     areaCode?: string;
     documentUrl?: string;
     adoptionResult?: string;
-    adoptionVenueId?: VenueId;
+    adoptionVenueId?: string;
     receivedAtFrom?: UtcIso8601String;
     receivedAtTo?: UtcIso8601String;
     reportDateTimeFrom?: UtcIso8601String;
@@ -269,7 +269,7 @@ export function parseMonitoringReceptionQuery(query: unknown): MonitoringRecepti
   }
   if ('adoptionVenueId' in query) {
     const raw = query.adoptionVenueId;
-    if (!isVenueId(raw)) return null;
+    if (typeof raw !== 'string' || raw.length === 0) return null;
     result.adoptionVenueId = raw;
   }
   if ('receivedAtFrom' in query) {

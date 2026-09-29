@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -115,11 +116,12 @@ test('AC1 cursorの書式と検証', async () => {
   const { context, cleanup } = createDb();
   try {
     const deltaService = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
-    const app = createApp({ notificationDelta: deltaService });
+    const app = createApp({ venueRegistry: testVenueRegistry, notificationDelta: deltaService });
     const { baseUrl, close } = await startTestServer(app);
 
     try {
@@ -182,15 +184,19 @@ test('AC2 startup応答へのcursor追加', async () => {
   try {
     const initialization = new StartupNotificationInitialization();
     initialization.setInitialFetchPhase('completed');
-    initialization.markVenueEvaluated('east');
+    initialization.markVenueEvaluated(eastVenueId);
 
     const startupService = createStartupNotificationService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       initialization,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
-    const app = createApp({ startupNotifications: startupService });
+    const app = createApp({
+      venueRegistry: testVenueRegistry,
+      startupNotifications: startupService,
+    });
     const { baseUrl, close } = await startTestServer(app);
 
     try {
@@ -253,12 +259,16 @@ test('AC2 startup応答へのcursor追加', async () => {
       // 3. 202（initializing）応答には cursor キーが存在しない
       const unreadyInit = new StartupNotificationInitialization(); // not_started
       const unreadyService = createStartupNotificationService({
+        venueRegistry: testVenueRegistry,
         connection: context.connection,
         initialization: unreadyInit,
         serverGenerationId: serverGenId,
         now: () => fixedNow as UtcIso8601String,
       });
-      const unreadyApp = createApp({ startupNotifications: unreadyService });
+      const unreadyApp = createApp({
+        venueRegistry: testVenueRegistry,
+        startupNotifications: unreadyService,
+      });
       const { baseUrl: unreadyUrl, close: closeUnready } = await startTestServer(unreadyApp);
       try {
         const res202 = await fetch(`${unreadyUrl}/api/notifications/startup`, {
@@ -289,24 +299,27 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
   try {
     const initialization = new StartupNotificationInitialization();
     initialization.setInitialFetchPhase('completed');
-    initialization.markVenueEvaluated('east');
+    initialization.markVenueEvaluated(eastVenueId);
 
     // B4に既存行を2件登録
     insertSampleHistoryRow(context.connection, { notificationId: 'notif-1' });
     insertSampleHistoryRow(context.connection, { notificationId: 'notif-2' });
 
     const startupService = createStartupNotificationService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       initialization,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
     const deltaService = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
     const app = createApp({
+      venueRegistry: testVenueRegistry,
       startupNotifications: startupService,
       notificationDelta: deltaService,
     });
@@ -359,13 +372,13 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
       // サービス直接呼出しでは requestedAt を固定して完全一致を検証
       const serviceDirect1 = deltaService.query({
         terminalId: 'hkeagh01',
-        venueId: 'east',
+        venueId: eastVenueId,
         cursor: toNotificationDeltaCursor(2),
         requestedAt: fixedNow as UtcIso8601String,
       });
       const serviceDirect2 = deltaService.query({
         terminalId: 'hkeagh01',
-        venueId: 'east',
+        venueId: eastVenueId,
         cursor: toNotificationDeltaCursor(2),
         requestedAt: fixedNow as UtcIso8601String,
       });
@@ -382,18 +395,18 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
 test('AC4 会場スコープおよび端末モード非依存性', async () => {
   const { context, cleanup } = createDb();
   try {
-    // 1. codeType='venue', code='east' (速報通知 D10形式)
+    // 1. codeType='venue', code=eastVenueId (速報通知 D10形式)
     insertSampleHistoryRow(context.connection, {
       notificationId: 'notif-venue-east',
       targetAreaJson: JSON.stringify([
-        { kind: 'area', codeType: 'venue', code: 'east', name: '東京ビッグサイト' },
+        { kind: 'area', codeType: 'venue', code: eastVenueId, name: '東京ビッグサイト' },
       ]),
     });
-    // 2. codeType='venue', code='trc' (速報通知 D10形式)
+    // 2. codeType='venue', code=trcVenueId (速報通知 D10形式)
     insertSampleHistoryRow(context.connection, {
       notificationId: 'notif-venue-trc',
       targetAreaJson: JSON.stringify([
-        { kind: 'area', codeType: 'venue', code: 'trc', name: '東京流通センター' },
+        { kind: 'area', codeType: 'venue', code: trcVenueId, name: '東京流通センター' },
       ]),
     });
     // 3. codeType='jma_municipal_warning_area', code='1310800' (江東区/east)
@@ -434,16 +447,17 @@ test('AC4 会場スコープおよび端末モード非依存性', async () => {
     insertSampleHistoryRow(context.connection, {
       notificationId: 'notif-venue-trc-tail',
       targetAreaJson: JSON.stringify([
-        { kind: 'area', codeType: 'venue', code: 'trc', name: '東京流通センター' },
+        { kind: 'area', codeType: 'venue', code: trcVenueId, name: '東京流通センター' },
       ]),
     });
 
     const deltaService = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
-    const app = createApp({ notificationDelta: deltaService });
+    const app = createApp({ venueRegistry: testVenueRegistry, notificationDelta: deltaService });
     const { baseUrl, close } = await startTestServer(app);
 
     try {
@@ -612,11 +626,12 @@ test('AC5 origin/detectionContextの2軸独立（AD-H069）', async () => {
     });
 
     const deltaService = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
-    const app = createApp({ notificationDelta: deltaService });
+    const app = createApp({ venueRegistry: testVenueRegistry, notificationDelta: deltaService });
     const { baseUrl, close } = await startTestServer(app);
 
     try {
@@ -670,11 +685,12 @@ test('AC6 件数上限なし（確定事項2）', async () => {
     })();
 
     const deltaService = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
-    const app = createApp({ notificationDelta: deltaService });
+    const app = createApp({ venueRegistry: testVenueRegistry, notificationDelta: deltaService });
     const { baseUrl, close } = await startTestServer(app);
 
     try {
@@ -714,11 +730,12 @@ test('AC7 表示3要素の配信方式（AD-H024・確定事項4）', async () =
     });
 
     const deltaService = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
-    const app = createApp({ notificationDelta: deltaService });
+    const app = createApp({ venueRegistry: testVenueRegistry, notificationDelta: deltaService });
     const { baseUrl, close } = await startTestServer(app);
 
     try {
@@ -754,11 +771,12 @@ test('AC8 cursor_out_of_range と破損行', async () => {
     insertSampleHistoryRow(context.connection, { notificationId: 'notif-2' });
 
     const deltaService = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
-    const app = createApp({ notificationDelta: deltaService });
+    const app = createApp({ venueRegistry: testVenueRegistry, notificationDelta: deltaService });
     const { baseUrl, close } = await startTestServer(app);
 
     try {
@@ -884,22 +902,25 @@ test('AC9 副作用がないこと（確定事項1）', async () => {
   try {
     const initialization = new StartupNotificationInitialization();
     initialization.setInitialFetchPhase('completed');
-    initialization.markVenueEvaluated('east');
+    initialization.markVenueEvaluated(eastVenueId);
 
     insertSampleHistoryRow(context.connection, { notificationId: 'notif-1' });
 
     const startupService = createStartupNotificationService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       initialization,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
     const deltaService = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
     const app = createApp({
+      venueRegistry: testVenueRegistry,
       startupNotifications: startupService,
       notificationDelta: deltaService,
     });
@@ -955,11 +976,12 @@ test('AC11 HTTP実挙動', async () => {
   const { context, cleanup } = createDb();
   try {
     const deltaService = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
-    const app = createApp({ notificationDelta: deltaService });
+    const app = createApp({ venueRegistry: testVenueRegistry, notificationDelta: deltaService });
     const { baseUrl, close } = await startTestServer(app);
 
     try {
@@ -984,7 +1006,7 @@ test('AC11 HTTP実挙動', async () => {
       assert.deepEqual(await healthRes.json(), { status: 'ok' });
 
       // 4. dependencies.notificationDelta なしの createApp では差分エンドポイントが登録されない (404)
-      const appWithoutDelta = createApp({});
+      const appWithoutDelta = createApp({ venueRegistry: testVenueRegistry });
       const { baseUrl: urlNoDelta, close: closeNoDelta } = await startTestServer(appWithoutDelta);
       try {
         const noDeltaRes = await fetch(
@@ -1101,6 +1123,6 @@ test('AC12 境界（作りすぎていないこと）', async () => {
   const { resolveNotificationVenueScope } =
     await import('../src/notifications/notificationVenueScope.js');
   assert.equal(typeof resolveNotificationVenueScope, 'function');
-  // terminalMode 引数を取らない（targets のみ）
-  assert.equal(resolveNotificationVenueScope.length, 1);
+  // terminalMode 引数を取らず、対象と会場レジストリを受け取る。
+  assert.equal(resolveNotificationVenueScope.length, 2);
 });

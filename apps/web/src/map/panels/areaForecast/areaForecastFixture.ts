@@ -3,7 +3,10 @@ import type {
   AreaTimeseriesResponse,
   AreaTimeseriesTimeDefineDto,
   AreaTimeseriesValueDto,
+  VenueId,
 } from '@wx-viewer-poc/shared';
+
+const EAST_FIXTURE_VENUE_ID = 'east' as VenueId;
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
@@ -244,7 +247,7 @@ export function buildAreaForecastFixtureResponse(
 
   return {
     terminalId: 'hkeagh01',
-    venueId: 'east',
+    venueId: EAST_FIXTURE_VENUE_ID,
     controlStatus: 'normal',
     isTraining: false,
     evaluatedAt: new Date(now).toISOString(),

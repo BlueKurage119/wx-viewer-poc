@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -14,9 +15,25 @@ import {
   findEarlyWarningSnapshot,
   saveEarlyWarningSnapshot,
 } from '../src/repositories/earlyWarningRepository.js';
-import { processEarlyWarningReception } from '../src/polling/jmaEarlyWarningProcessor.js';
-import { DEFAULT_EARLY_WARNING_TARGET_AREA } from '../src/polling/jmaEarlyWarningParser.js';
+import { processEarlyWarningReception as processEarlyWarningReceptionImpl } from '../src/polling/jmaEarlyWarningProcessor.js';
+const DEFAULT_EARLY_WARNING_TARGET_AREA = resolveEarlyWarningTargetArea(
+  testVenueRegistry,
+  eastVenueId,
+);
 import type { TelegramReceptionInput } from '../src/repositories/types.js';
+
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
+import { resolveEarlyWarningTargetArea } from '../src/venueForecastTargets.js';
+
+const processEarlyWarningReception = (
+  db: Parameters<typeof processEarlyWarningReceptionImpl>[0],
+  reception: Parameters<typeof processEarlyWarningReceptionImpl>[1],
+  at: Parameters<typeof processEarlyWarningReceptionImpl>[2],
+  target: Parameters<typeof processEarlyWarningReceptionImpl>[3] = resolveEarlyWarningTargetArea(
+    testVenueRegistry,
+    eastVenueId,
+  ),
+) => processEarlyWarningReceptionImpl(db, reception, at, target, testVenueRegistry);
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -215,14 +232,14 @@ test('processEarlyWarningReception: VPFD61 を near として保存し、recepti
     assert.deepEqual(updatedReception.adoptions, [
       {
         receptionId: reception.id,
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '早期注意情報として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,
       },
       {
         receptionId: reception.id,
-        venueId: 'trc',
+        venueId: trcVenueId,
         adoptionResult: '早期注意情報として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,

@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -7,7 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { initializeDatabase } from '../src/database/index.js';
-import { createStartupNotificationRuntime, startServer } from '../src/server.js';
+import {
+  createStartupNotificationRuntime as createStartupNotificationRuntimeImpl,
+  startServer,
+} from '../src/server.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
 import {
@@ -23,6 +27,19 @@ import {
 } from '@wx-viewer-poc/shared';
 
 const migrationsDirectory = join(fileURLToPath(import.meta.url), '../../migrations');
+const createStartupNotificationRuntime = (
+  connection: Parameters<typeof createStartupNotificationRuntimeImpl>[0],
+  clock: Parameters<typeof createStartupNotificationRuntimeImpl>[1],
+  getFetchHealth?: Parameters<typeof createStartupNotificationRuntimeImpl>[3],
+  recoveryInternals?: Parameters<typeof createStartupNotificationRuntimeImpl>[4],
+) =>
+  createStartupNotificationRuntimeImpl(
+    connection,
+    clock,
+    testVenueRegistry,
+    getFetchHealth,
+    recoveryInternals,
+  );
 const config = {
   delayedThresholdSeconds: 60,
   yieldEveryParsedReceptions: 25,
@@ -108,7 +125,10 @@ test('AC12: 59,999msでは遅延せず60,000msで会場別に1回だけ通知し
     recover: (() => controlled) as never,
   });
   try {
-    const promise = runtime.recoverVenue(resolveVenueWarningContext('east'), config);
+    const promise = runtime.recoverVenue(
+      resolveVenueWarningContext(testVenueRegistry, eastVenueId),
+      config,
+    );
     now = '2026-09-22T00:00:59.999Z';
     callback?.();
     assert.equal(recoveryRows(context.connection).length, 1);
@@ -116,7 +136,12 @@ test('AC12: 59,999msでは遅延せず60,000msで会場別に1回だけ通知し
     callback?.();
     callback?.();
     assert.equal(recoveryRows(context.connection).length, 2);
-    resolveRecovery({ venueId: 'east', statuses: [], parsedReceptionCount: 0, elapsedMs: 60000 });
+    resolveRecovery({
+      venueId: eastVenueId,
+      statuses: [],
+      parsedReceptionCount: 0,
+      elapsedMs: 60000,
+    });
     await promise;
     callback?.();
     assert.deepEqual(
@@ -148,15 +173,23 @@ test('AC12: 設定値3秒を実際のタイマー待ち時間と遅延判定に�
     recover: (() => controlled) as never,
   });
   try {
-    const promise = runtime.recoverVenue(resolveVenueWarningContext('east'), {
-      ...config,
-      delayedThresholdSeconds: 3,
-    });
+    const promise = runtime.recoverVenue(
+      resolveVenueWarningContext(testVenueRegistry, eastVenueId),
+      {
+        ...config,
+        delayedThresholdSeconds: 3,
+      },
+    );
     assert.equal(registeredDelay, 3000);
     now = '2026-09-22T00:00:03.000Z';
     callback?.();
     assert.equal(recoveryRows(context.connection).at(-1)?.change_type, 'database_recovery_delayed');
-    resolveRecovery({ venueId: 'east', statuses: [], parsedReceptionCount: 0, elapsedMs: 3000 });
+    resolveRecovery({
+      venueId: eastVenueId,
+      statuses: [],
+      parsedReceptionCount: 0,
+      elapsedMs: 3000,
+    });
     await promise;
   } finally {
     context.close();
@@ -181,18 +214,20 @@ test('AC12: 会場別timerは独立し、失敗後のcallbackでは通知を追�
         clearCount += 1;
       }) as typeof clearTimeout,
       recover: (async (_connection, venue) => {
-        if (venue.venueId === 'east') throw new Error('east failure');
+        if (venue.venueId === eastVenueId) throw new Error('east failure');
         return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 1 };
       }) as typeof recoverWarningCurrent,
     },
   );
   try {
-    await assert.rejects(runtime.recoverVenue(resolveVenueWarningContext('east'), config));
+    await assert.rejects(
+      runtime.recoverVenue(resolveVenueWarningContext(testVenueRegistry, eastVenueId), config),
+    );
     const afterFailure = recoveryRows(context.connection).length;
     callbacks[0]?.();
     assert.equal(recoveryRows(context.connection).length, afterFailure);
     assert.equal(clearCount, 1);
-    await runtime.recoverVenue(resolveVenueWarningContext('trc'), config);
+    await runtime.recoverVenue(resolveVenueWarningContext(testVenueRegistry, trcVenueId), config);
     assert.equal(clearCount, 2);
     assert.deepEqual(
       recoveryRows(context.connection).map((row) => [
@@ -200,10 +235,10 @@ test('AC12: 会場別timerは独立し、失敗後のcallbackでは通知を追�
         JSON.parse(row.target_area_json)[0].code,
       ]),
       [
-        ['database_recovery_started', 'east'],
-        ['database_recovery_failed', 'east'],
-        ['database_recovery_started', 'trc'],
-        ['database_recovery_completed', 'trc'],
+        ['database_recovery_started', eastVenueId],
+        ['database_recovery_failed', eastVenueId],
+        ['database_recovery_started', trcVenueId],
+        ['database_recovery_completed', trcVenueId],
       ],
     );
   } finally {
@@ -231,7 +266,7 @@ test('AC13: 実serverオーケストレーションで3秒後に会場別遅延�
     },
     recoveryInternals: {
       recover: async (_connection, venue) => {
-        if (venue.venueId === 'east') await gate;
+        if (venue.venueId === eastVenueId) await gate;
         return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 3000 };
       },
     },
@@ -278,17 +313,21 @@ test('AC10/§3.1: 開始状態・開始通知の後に未処理再処理を行�
     },
   );
   try {
-    await runtime.recoverVenue(resolveVenueWarningContext('east'), config, async () => {
-      assert.equal(
-        runtime.recoveryTracker.getStatus('east', '2026-09-22T00:00:00.001Z').status,
-        'running',
-      );
-      assert.deepEqual(
-        recoveryRows(context.connection).map((row) => row.change_type),
-        ['database_recovery_started'],
-      );
-      events.push('reprocess');
-    });
+    await runtime.recoverVenue(
+      resolveVenueWarningContext(testVenueRegistry, eastVenueId),
+      config,
+      async () => {
+        assert.equal(
+          runtime.recoveryTracker.getStatus(eastVenueId, '2026-09-22T00:00:00.001Z').status,
+          'running',
+        );
+        assert.deepEqual(
+          recoveryRows(context.connection).map((row) => row.change_type),
+          ['database_recovery_started'],
+        );
+        events.push('reprocess');
+      },
+    );
     assert.deepEqual(events, ['reprocess', 'recover']);
   } finally {
     context.close();
@@ -362,7 +401,7 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
     pollingSchedule: createTestPollingSchedule(),
     recoveryInternals: {
       recover: async (_connection, venue) => {
-        if (venue.venueId === 'east') await gate;
+        if (venue.venueId === eastVenueId) await gate;
         return {
           venueId: venue.venueId,
           statuses: [
@@ -425,7 +464,7 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
         };
       }>;
     };
-    const running = monitoringBody.venues.find((venue) => venue.venueId === 'east')!.recovery;
+    const running = monitoringBody.venues.find((venue) => venue.venueId === eastVenueId)!.recovery;
     assert.equal(running.status, 'running');
     assert.ok(running.startedAt);
     assert.equal(running.finishedAt, null);
@@ -454,7 +493,7 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
       `http://127.0.0.1:${port}/api/monitoring/status?terminalId=hkeagh01`,
     );
     const completedBody = (await completedResponse.json()) as typeof monitoringBody;
-    const completed = completedBody.venues.find((venue) => venue.venueId === 'east')!.recovery;
+    const completed = completedBody.venues.find((venue) => venue.venueId === eastVenueId)!.recovery;
     assert.equal(completed.status, 'completed');
     assert.ok(completed.startedAt);
     assert.ok(completed.finishedAt);
@@ -467,8 +506,8 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
     assert.equal(completed.parsedReceptionCount, 5);
     assert.equal(completed.errorCode, null);
     for (const [terminalId, expectedVenue] of [
-      ['hkeagh01', 'east'],
-      ['htrcph01', 'trc'],
+      ['hkeagh01', eastVenueId],
+      ['htrcph01', trcVenueId],
     ] as const) {
       const delta = (await (
         await fetch(
@@ -508,10 +547,13 @@ for (const stage of ['validation', 'candidate', 'parse-reduce', 'commit'] as con
     );
     try {
       await assert.rejects(
-        runtime.recoverVenue(resolveVenueWarningContext('trc'), config),
+        runtime.recoverVenue(resolveVenueWarningContext(testVenueRegistry, trcVenueId), config),
         new RegExp(stage),
       );
-      const failedStatus = runtime.recoveryTracker.getStatus('trc', '2026-09-22T00:00:01.000Z');
+      const failedStatus = runtime.recoveryTracker.getStatus(
+        trcVenueId,
+        '2026-09-22T00:00:01.000Z',
+      );
       assert.equal(failedStatus.status, 'failed');
       assert.ok(failedStatus.startedAt);
       assert.ok(failedStatus.finishedAt);
@@ -550,7 +592,9 @@ test('AC16: 失敗通知はcommit後のDB再オープンでも会場別question�
       }) as never,
     },
   );
-  await assert.rejects(runtime.recoverVenue(resolveVenueWarningContext('trc'), config));
+  await assert.rejects(
+    runtime.recoverVenue(resolveVenueWarningContext(testVenueRegistry, trcVenueId), config),
+  );
   const startedCursor = recoveryRows(context.connection).find(
     (row) => row.change_type === 'database_recovery_started',
   )!.id;
@@ -563,14 +607,15 @@ test('AC16: 失敗通知はcommit後のDB再オープンでも会場別question�
     assert.ok(failed);
     assert.equal(failed.category, 'question');
     assert.equal(failed.ack_required, 1);
-    assert.equal(JSON.parse(failed.target_area_json)[0].code, 'trc');
+    assert.equal(JSON.parse(failed.target_area_json)[0].code, trcVenueId);
     assert.equal(failed.message_definition_id, 'system-database-initialization-failed');
     const delta = createNotificationDeltaService({
+      venueRegistry: testVenueRegistry,
       connection: reopened.connection,
       serverGenerationId: 'reopened-generation',
     }).query({
       terminalId: 'htrcph01',
-      venueId: 'trc',
+      venueId: trcVenueId,
       cursor: toNotificationDeltaCursor(startedCursor),
       requestedAt: '2026-09-22T00:00:01.000Z',
     });
@@ -622,11 +667,11 @@ test('差し戻し1: 開始通知の記録失敗でもfailed化し、失敗通�
   };
   try {
     await assert.rejects(
-      runtime.recoverVenue(resolveVenueWarningContext('east'), config),
+      runtime.recoverVenue(resolveVenueWarningContext(testVenueRegistry, eastVenueId), config),
       /simulated notification failure/,
     );
     assert.equal(
-      runtime.recoveryTracker.getStatus('east', '2026-09-22T00:00:01.000Z').status,
+      runtime.recoveryTracker.getStatus(eastVenueId, '2026-09-22T00:00:01.000Z').status,
       'failed',
     );
     assert.equal(
@@ -709,7 +754,7 @@ for (const [jstTime, fixedNow] of [
     });
     startup.promise = starting;
     t.after(() => rmSync(directory, { recursive: true, force: true }));
-    // server.ts の起動時復旧は VENUE_IDS を for...of で逐次 await するため、
+    // server.ts の起動時復旧は会場レジストリを for...of で逐次 await するため、
     // 会場は同時にではなく1つずつ recover を呼び出す(2会場が同時にゲート待機することはない)。
     // 先頭会場が recover ゲートで待機した時点で、ループは次の会場へ進めず、
     // 全会場のrecoverVenue完了を待つ evaluateVenues / 初期取得開始にも到達できないため、
@@ -747,8 +792,8 @@ for (const [jstTime, fixedNow] of [
       .find((line) => line.startsWith('RECOVERY_STATUS:'));
     assert.ok(statusLine);
     assert.deepEqual(JSON.parse(statusLine.slice('RECOVERY_STATUS:'.length)), [
-      ['east', 'completed'],
-      ['trc', 'completed'],
+      [eastVenueId, 'completed'],
+      [trcVenueId, 'completed'],
     ]);
     const reopened = initializeDatabase({ databasePath: disabledDb, migrationsDirectory });
     try {
@@ -789,7 +834,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
           clearCount += 1;
         }) as typeof clearTimeout,
         recover: async (_connection, venue) => {
-          if (venue.venueId === 'east') await gate;
+          if (venue.venueId === eastVenueId) await gate;
           return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 1 };
         },
       },

@@ -1,3 +1,4 @@
+import { eastVenueId } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -107,7 +108,7 @@ const sampleTelegramInput: TelegramReceptionInput = {
   contentHash: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
   adoptions: [
     {
-      venueId: 'east',
+      venueId: eastVenueId,
       adoptionResult: '採用',
       adoptionReason: '最新の発表',
       adoptionDecidedAt: '2000-01-01T00:00:03Z',

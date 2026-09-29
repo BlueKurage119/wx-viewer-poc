@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
@@ -11,8 +12,21 @@ import {
   recordTelegramReception,
 } from '../src/repositories/telegramReceptionRepository.js';
 import { findAreaTimeseriesSnapshot } from '../src/repositories/areaTimeseriesRepository.js';
-import { processVpfd51Reception } from '../src/polling/jmaVpfd51Processor.js';
+import { processVpfd51Reception as processVpfd51ReceptionImpl } from '../src/polling/jmaVpfd51Processor.js';
 import type { TelegramReceptionInput } from '../src/repositories/types.js';
+
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
+import { resolveAreaTimeseriesForecastTarget } from '../src/venueForecastTargets.js';
+
+const processVpfd51Reception = (
+  db: Parameters<typeof processVpfd51ReceptionImpl>[0],
+  reception: Parameters<typeof processVpfd51ReceptionImpl>[1],
+  at: Parameters<typeof processVpfd51ReceptionImpl>[2],
+  target: Parameters<typeof processVpfd51ReceptionImpl>[3] = resolveAreaTimeseriesForecastTarget(
+    testVenueRegistry,
+    eastVenueId,
+  ),
+) => processVpfd51ReceptionImpl(db, reception, at, target, testVenueRegistry);
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -224,14 +238,14 @@ test('processVpfd51Reception: 正常パース時に snapshot 保存と adoption 
     assert.deepEqual(updatedReception.adoptions, [
       {
         receptionId: reception.id,
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '地域時系列予報として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,
       },
       {
         receptionId: reception.id,
-        venueId: 'trc',
+        venueId: trcVenueId,
         adoptionResult: '地域時系列予報として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,

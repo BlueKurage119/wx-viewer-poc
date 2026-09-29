@@ -4,7 +4,6 @@ import type {
   VenueForecastTargets,
   VenueId,
 } from '@wx-viewer-poc/shared';
-import { resolveVenueForecastTargets } from '@wx-viewer-poc/shared';
 import { formatJstMonthDayClock } from './monitoringTimeFormat.js';
 
 /** 反映状態の表示語。K7は3値と欠落のみ。K8で異常系を追加する。 */
@@ -98,7 +97,7 @@ function resolveTargetDisplayName(
  */
 export function buildInformationRows(
   data: MonitoringStatusResponse | null,
-  resolveTargets: VenueForecastTargetsResolver = resolveVenueForecastTargets,
+  resolveTargets: VenueForecastTargetsResolver | undefined,
   isFailed: boolean = false,
 ): readonly InformationRow[] {
   if (!data) {
@@ -127,7 +126,7 @@ export function buildInformationRows(
 
   let targets: VenueForecastTargets | undefined;
   try {
-    targets = resolveTargets(requestedVenueId);
+    targets = resolveTargets?.(requestedVenueId);
   } catch {
     targets = undefined;
   }

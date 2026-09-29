@@ -1,15 +1,16 @@
 import {
   resolveNotificationMessage,
-  resolveVenueForecastTargets,
   type ResolvedNotificationOutputSnapshot,
   type SystemNotification,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 
 export type DatabaseRecoveryEvent = 'started' | 'completed' | 'delayed' | 'failed';
 
 export interface PlanDatabaseRecoveryNotificationInput {
+  readonly venueRegistry: VenueRegistry;
   readonly event: DatabaseRecoveryEvent;
   readonly venueId: VenueId;
   readonly serverGenerationId: string;
@@ -33,7 +34,7 @@ export function planDatabaseRecoveryNotification(
     failed: 'system-database-initialization-failed',
   } as const;
   const category = input.event === 'failed' ? 'question' : 'warning';
-  const targetName = resolveVenueForecastTargets(input.venueId).warning.displayName;
+  const targetName = input.venueRegistry.getVenue(input.venueId).warning.displayName;
   const notification: SystemNotification = {
     notificationId: input.notificationIdFactory(),
     origin: 'system',

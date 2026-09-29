@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -146,6 +147,7 @@ function createTestApp(options?: {
   }
   const nowIso = options?.nowIso ?? '2026-09-14T06:30:00.000Z';
   const weatherApi = createWeatherApiService({
+    venueRegistry: testVenueRegistry,
     connection: db.connection,
     getPollingStatus: () => options?.pollingStatus ?? createAvailablePollingStatus(),
     now: () => nowIso,
@@ -751,7 +753,7 @@ test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険�
   // 2. 公式 fixture の電文構造を保持したまま通常 processVpwp50Reception 経路で処理・保存し、
   //    /api/weather/warning-timeseries の応答までエンドツーエンドで検証
   const { db, app } = createTestApp();
-  const eastVenue = resolveVenueWarningTimeseriesContext('east');
+  const eastVenue = resolveVenueWarningTimeseriesContext(testVenueRegistry, eastVenueId);
   // 会場ターゲット（江東区 1310800）に対応付けた電文
   const venueXml = rawXml
     .replaceAll('1510000', eastVenue.targetArea.municipalCode)
@@ -786,7 +788,7 @@ test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険�
   // 受信台帳の採用判定が「警報等時系列として解析済み」になっていること
   const updatedReception = findTelegramReceptionById(db.connection, reception.id);
   assert.ok(updatedReception);
-  const adoption = updatedReception.adoptions.find((a) => a.venueId === 'east');
+  const adoption = updatedReception.adoptions.find((a) => a.venueId === eastVenueId);
   assert.ok(adoption);
   assert.equal(adoption.adoptionResult, '警報等時系列として解析済み');
 
@@ -796,7 +798,7 @@ test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険�
   );
   assert.equal(res.status, 200);
   assert.equal(res.body.terminalId, 'hkeagh01');
-  assert.equal(res.body.venueId, 'east');
+  assert.equal(res.body.venueId, eastVenueId);
   assert.equal(res.body.controlStatus, 'normal');
   assert.equal(res.body.isTraining, false);
   assert.equal(res.body.area.code, '1310800');
@@ -2006,14 +2008,14 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   insertFailure({
     telegramType: 'VPWP50',
     controlStatus: 'normal',
-    venueId: 'east',
+    venueId: eastVenueId,
     areaCode: '1310800',
     reportDateTime: '2026-09-14T06:00:00Z',
     controlDateTime: '2026-09-14T06:00:00Z',
   });
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
       areaCode: '1310800',
@@ -2026,14 +2028,14 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   insertFailure({
     telegramType: 'VPWP50',
     controlStatus: 'normal',
-    venueId: 'east',
+    venueId: eastVenueId,
     areaCode: '1310800',
     reportDateTime: '2026-09-14T05:59:59.999Z',
     controlDateTime: '2026-09-14T06:00:00.000Z',
   });
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
       areaCode: '1310800',
@@ -2046,14 +2048,14 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   insertFailure({
     telegramType: 'VPWP50',
     controlStatus: 'normal',
-    venueId: 'east',
+    venueId: eastVenueId,
     areaCode: '1310800',
     reportDateTime: '2026-09-14T06:00:00.000Z',
     controlDateTime: '2026-09-14T05:59:59.999Z',
   });
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
       areaCode: '1310800',
@@ -2066,14 +2068,14 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   insertFailure({
     telegramType: 'VPWP50',
     controlStatus: 'normal',
-    venueId: 'east',
+    venueId: eastVenueId,
     areaCode: '1310800',
     reportDateTime: '2026-09-14T06:00:00.000Z',
     controlDateTime: '2026-09-14T06:00:00.001Z',
   });
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
       areaCode: '1310800',
@@ -2085,7 +2087,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   // 5. controlDateTime を .001Z まで進めると、同じ reportDateTime の失敗から回復する
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
       areaCode: '1310800',
@@ -2101,14 +2103,14 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   insertFailure({
     telegramType: 'VPWP50',
     controlStatus: 'normal',
-    venueId: 'east',
+    venueId: eastVenueId,
     areaCode: '1310800',
     reportDateTime: '2026-09-14T06:00:00.001Z',
     controlDateTime: '2026-09-14T06:00:00.000Z',
   });
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
       areaCode: '1310800',
@@ -2121,7 +2123,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   // 別会場 (trc) では false
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'trc',
+      venueId: trcVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
       areaCode: '1310800',
@@ -2133,7 +2135,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   // 別領域 (training) では false
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'training',
       telegramType: 'VPWP50',
       areaCode: '1310800',
@@ -2145,7 +2147,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   // 別区域 (1311100) では false
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
       areaCode: '1311100',
@@ -2157,7 +2159,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   // 別種別 (VPFD61) では false
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPFD61',
       areaCode: '1310800',
@@ -2169,7 +2171,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   // 回復: baseline を失敗時刻以上 ('2026-09-14T06:00:00.001Z') に更新すると false に回復
   assert.equal(
     hasNewerWeatherParseFailure(db.connection, {
-      venueId: 'east',
+      venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
       areaCode: '1310800',

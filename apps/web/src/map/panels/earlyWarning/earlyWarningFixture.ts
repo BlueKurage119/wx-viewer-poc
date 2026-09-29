@@ -4,7 +4,10 @@ import type {
   EarlyWarningResponse,
   WeatherDataset,
   WeatherMetadata,
+  VenueId,
 } from '@wx-viewer-poc/shared';
+
+const EAST_FIXTURE_VENUE_ID = 'east' as VenueId;
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -97,7 +100,7 @@ export function buildEarlyWarningFixtureResponse(now: number = Date.now()): Earl
   const issuedAt = new Date(now).toISOString();
   return {
     terminalId: 'fixture-terminal',
-    venueId: 'east',
+    venueId: EAST_FIXTURE_VENUE_ID,
     controlStatus: 'normal',
     isTraining: false,
     evaluatedAt: issuedAt,

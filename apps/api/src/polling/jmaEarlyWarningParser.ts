@@ -11,7 +11,6 @@ import {
   type TelegramReception,
 } from '../repositories/types.js';
 import { addIso8601Duration } from './jmaVpwp50Parser.js';
-import { resolveEarlyWarningTargetArea } from '../venueForecastTargets.js';
 
 export const JMA_REPORT_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/';
 export const JMA_INFORMATION_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/informationBasis1/';
@@ -21,9 +20,6 @@ export const JMA_ELEMENT_BASIS_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/elem
 export const EXPECTED_METEOROLOGICAL_INFOS_TYPE = '区域予報';
 export const EXPECTED_VPFD61_INFO_KIND = '警報級の可能性（明日まで）';
 export const EXPECTED_VPFW60_INFO_KIND = '警報級の可能性（明後日以降）';
-
-export const DEFAULT_EARLY_WARNING_TARGET_AREA: EarlyWarningTargetArea =
-  resolveEarlyWarningTargetArea('east');
 
 function parseDocument(rawXml: string): Element | null {
   try {
@@ -110,7 +106,7 @@ export function parseEarlyWarning(
     TelegramReception,
     'telegramType' | 'controlStatus' | 'reportDateTime' | 'controlDateTime'
   >,
-  targetArea: EarlyWarningTargetArea = DEFAULT_EARLY_WARNING_TARGET_AREA,
+  targetArea: EarlyWarningTargetArea,
 ): EarlyWarningParseResult {
   if (
     expected.telegramType !== VPFD61_TELEGRAM_TYPE &&

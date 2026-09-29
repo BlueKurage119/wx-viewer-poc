@@ -1,8 +1,8 @@
 import {
-  VENUE_IDS,
   type AmedasTarget,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
@@ -852,6 +852,7 @@ export function resolveUniqueAmedasVenues(
 
 export interface CreateScheduledAdaptersOptions {
   readonly connection: DatabaseConnection;
+  readonly venueRegistry: VenueRegistry;
   readonly nowcastService?: NowcastService;
   readonly kikikuruService?: KikikuruService;
   readonly amedasState?: AmedasFetchState;
@@ -874,19 +875,22 @@ export function createScheduledAdapters(
   let amedasAdapter: ScheduledPollAdapter;
 
   if (options.amedasState !== undefined || options.amedasVenueId !== undefined) {
-    const amedasVenueId = options.amedasVenueId ?? 'east';
+    const amedasVenueId = options.amedasVenueId ?? options.amedasState?.venueId;
+    if (!amedasVenueId) throw new Error('アメダス会場 ID を指定してください');
     const amedasState = options.amedasState ?? new AmedasFetchState(amedasVenueId);
     amedasAdapter = new AmedasScheduledAdapter(
       options.connection,
       amedasState,
       options.amedasPointRecheckSeconds ?? 600,
       {
-        fetchOptions: options.amedasFetchOptions,
+        fetchOptions: { ...options.amedasFetchOptions, venueRegistry: options.venueRegistry },
         now: options.now,
       },
     );
   } else {
-    const uniqueVenues = resolveUniqueAmedasVenues(VENUE_IDS);
+    const uniqueVenues = resolveUniqueAmedasVenues(options.venueRegistry.listVenueIds(), (id) =>
+      resolveAmedasTarget(options.venueRegistry, id),
+    );
     const adapters = uniqueVenues.map((venueId) => {
       const state = new AmedasFetchState(venueId);
       return new AmedasScheduledAdapter(
@@ -894,7 +898,7 @@ export function createScheduledAdapters(
         state,
         options.amedasPointRecheckSeconds ?? 600,
         {
-          fetchOptions: options.amedasFetchOptions,
+          fetchOptions: { ...options.amedasFetchOptions, venueRegistry: options.venueRegistry },
           now: options.now,
         },
       );

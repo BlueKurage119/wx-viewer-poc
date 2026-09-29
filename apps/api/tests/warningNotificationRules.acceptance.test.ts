@@ -1,3 +1,4 @@
+import { testVenueRegistry, eastVenueId } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -29,7 +30,7 @@ import {
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
-const EAST_VENUE = resolveVenueWarningContext('east'); // 江東区: 1310800
+const EAST_VENUE = resolveVenueWarningContext(testVenueRegistry, eastVenueId); // 江東区: 1310800
 
 function createTempDb(): {
   connection: ReturnType<typeof initializeDatabase>['connection'];

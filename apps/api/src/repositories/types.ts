@@ -758,12 +758,17 @@ export interface ListTelegramReceptionsOptions {
   /** 指定した値の行だけを返す。NULL（不明）の行は返さない（§3.6）。 */
   readonly controlStatus?: ControlStatus;
   readonly telegramType?: string;
+  /** 受信順。省略時は監視履歴向けの新しい順。 */
+  readonly receivedAtOrder?: 'asc' | 'desc';
   readonly infoType?: string;
   readonly areaCode?: string;
   readonly documentUrl?: string;
   readonly adoptionResult?: string;
-  /** 指定した会場の判定行が存在する受信だけを返す。adoptionResult と併用するとその会場かつその結果に絞る。 */
-  readonly adoptionVenueId?: VenueId;
+  /**
+   * 指定した会場の判定行が存在する受信だけを返す。削除済み会場の履歴を検索できるよう、
+   * 現行レジストリで検証済みの VenueId にはしない。adoptionResult と併用するとその会場かつその結果に絞る。
+   */
+  readonly adoptionVenueId?: string;
   readonly receivedAtFrom?: UtcIso8601String;
   readonly receivedAtTo?: UtcIso8601String;
   readonly reportDateTimeFrom?: UtcIso8601String;

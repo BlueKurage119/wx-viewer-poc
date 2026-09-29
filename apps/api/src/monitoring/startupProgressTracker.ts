@@ -1,8 +1,8 @@
 import {
-  VENUE_IDS,
   type MonitoringVenueReprocessingStatus,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 
 export interface StartupProgressTracker {
@@ -23,8 +23,9 @@ export class InMemoryStartupProgressTracker implements StartupProgressTracker {
   constructor(
     private readonly nowFn: () => UtcIso8601String = () =>
       new Date().toISOString() as UtcIso8601String,
+    registry?: VenueRegistry,
   ) {
-    for (const venueId of VENUE_IDS) {
+    for (const venueId of registry?.listVenueIds() ?? []) {
       this.statusMap.set(venueId, {
         status: 'idle',
         total: 0,

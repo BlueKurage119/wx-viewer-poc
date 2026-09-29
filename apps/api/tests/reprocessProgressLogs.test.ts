@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -8,7 +9,6 @@ import crypto from 'node:crypto';
 
 import {
   TERMINAL_DEFINITIONS,
-  VENUE_IDS,
   type UtcIso8601String,
   type MonitoringVenueReprocessingStatus,
 } from '@wx-viewer-poc/shared';
@@ -36,6 +36,8 @@ import type {
   InitialFetchPhase,
 } from '../src/polling/jmaXmlPollingService.js';
 
+const VENUE_IDS = testVenueRegistry.listVenueIds();
+
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 
@@ -62,7 +64,7 @@ function insertSampleTelegram(
   index: number,
   options?: {
     readonly telegramType?: string;
-    readonly venueIdToAdopt?: 'east' | 'trc';
+    readonly venueIdToAdopt?: typeof eastVenueId | typeof trcVenueId;
   },
 ): number {
   const telegramType = options?.telegramType ?? 'VPWW55';
@@ -116,7 +118,7 @@ function insertSampleTelegram(
 test('4.1 countPendingWarningTelegramReceptions: 未処理電文が0件のとき0を返す', () => {
   const { connection, cleanup } = createTempDb();
   try {
-    const count = countPendingWarningTelegramReceptions(connection, 'east');
+    const count = countPendingWarningTelegramReceptions(connection, eastVenueId);
     assert.equal(count, 0);
   } finally {
     cleanup();
@@ -130,8 +132,8 @@ test('4.1 countPendingWarningTelegramReceptions: 未処理電文が3件挿入さ
     insertSampleTelegram(connection, 2);
     insertSampleTelegram(connection, 3);
 
-    const countEast = countPendingWarningTelegramReceptions(connection, 'east');
-    const countTrc = countPendingWarningTelegramReceptions(connection, 'trc');
+    const countEast = countPendingWarningTelegramReceptions(connection, eastVenueId);
+    const countTrc = countPendingWarningTelegramReceptions(connection, trcVenueId);
     assert.equal(countEast, 3);
     assert.equal(countTrc, 3);
   } finally {
@@ -142,10 +144,10 @@ test('4.1 countPendingWarningTelegramReceptions: 未処理電文が3件挿入さ
 test('4.1 countPendingWarningTelegramReceptions: eastのみ採用判定済みの電文がある場合、eastは0、trcは1を返す（会場別の判定分離）', () => {
   const { connection, cleanup } = createTempDb();
   try {
-    insertSampleTelegram(connection, 1, { venueIdToAdopt: 'east' });
+    insertSampleTelegram(connection, 1, { venueIdToAdopt: eastVenueId });
 
-    const countEast = countPendingWarningTelegramReceptions(connection, 'east');
-    const countTrc = countPendingWarningTelegramReceptions(connection, 'trc');
+    const countEast = countPendingWarningTelegramReceptions(connection, eastVenueId);
+    const countTrc = countPendingWarningTelegramReceptions(connection, trcVenueId);
     assert.equal(countEast, 0);
     assert.equal(countTrc, 1);
   } finally {
@@ -159,7 +161,7 @@ test('4.1 countPendingWarningTelegramReceptions: eastのみ採用判定済みの
 test('4.2 reprocessPendingWarningTelegramReceptions: 通常時（0件）は1行のみ出力し早期終了する', async () => {
   const { connection, cleanup } = createTempDb();
   try {
-    const venue = resolveVenueWarningContext('east');
+    const venue = resolveVenueWarningContext(testVenueRegistry, eastVenueId);
     const logs: string[] = [];
     const tracker = new InMemoryStartupProgressTracker();
 
@@ -180,7 +182,7 @@ test('4.2 reprocessPendingWarningTelegramReceptions: 通常時（0件）は1行�
     assert.equal(logs[0], "[api] found 0 pending warning telegrams for venue 'east'");
 
     // トラッカーも completed になる
-    const status = tracker.getVenueReprocessingStatus('east');
+    const status = tracker.getVenueReprocessingStatus(eastVenueId);
     assert.equal(status.status, 'completed');
     assert.equal(status.total, 0);
     assert.equal(status.processedCount, 0);
@@ -197,7 +199,7 @@ test('4.2 reprocessPendingWarningTelegramReceptions: 件数あり（250件）の
       insertSampleTelegram(connection, i);
     }
 
-    const venue = resolveVenueWarningContext('east');
+    const venue = resolveVenueWarningContext(testVenueRegistry, eastVenueId);
     const logs: string[] = [];
     const tracker = new InMemoryStartupProgressTracker();
 
@@ -234,7 +236,7 @@ test('4.2 reprocessPendingWarningTelegramReceptions: 件数あり（250件）の
     );
 
     // トラッカーの完了状態検証
-    const status = tracker.getVenueReprocessingStatus('east');
+    const status = tracker.getVenueReprocessingStatus(eastVenueId);
     assert.equal(status.status, 'completed');
     assert.equal(status.total, 250);
     assert.equal(status.processedCount, 250);
@@ -248,7 +250,7 @@ test('4.2 reprocessPendingWarningTelegramReceptions: 静穏性（options 未指�
   const { connection, cleanup } = createTempDb();
   try {
     insertSampleTelegram(connection, 1);
-    const venue = resolveVenueWarningContext('east');
+    const venue = resolveVenueWarningContext(testVenueRegistry, eastVenueId);
 
     // 既存のコンソール出力を汚染しないことを確認（options なし）
     const result = await reprocessPendingWarningTelegramReceptions(
@@ -387,8 +389,8 @@ test('4.4 InMemoryStartupProgressTracker: 単体で開始・更新・完了に�
   }
 
   // 0件での開始 -> 即時 completed
-  tracker.startVenueReprocessing('east', 0);
-  assert.deepEqual(tracker.getVenueReprocessingStatus('east'), {
+  tracker.startVenueReprocessing(eastVenueId, 0);
+  assert.deepEqual(tracker.getVenueReprocessingStatus(eastVenueId), {
     status: 'completed',
     total: 0,
     processedCount: 0,
@@ -399,8 +401,8 @@ test('4.4 InMemoryStartupProgressTracker: 単体で開始・更新・完了に�
 
   // 100件での開始 -> running
   const startedAt = '2026-09-16T01:05:00.000Z' as UtcIso8601String;
-  tracker.startVenueReprocessing('trc', 100, startedAt);
-  assert.deepEqual(tracker.getVenueReprocessingStatus('trc'), {
+  tracker.startVenueReprocessing(trcVenueId, 100, startedAt);
+  assert.deepEqual(tracker.getVenueReprocessingStatus(trcVenueId), {
     status: 'running',
     total: 100,
     processedCount: 0,
@@ -410,14 +412,14 @@ test('4.4 InMemoryStartupProgressTracker: 単体で開始・更新・完了に�
   });
 
   // 進捗更新
-  tracker.updateVenueReprocessing('trc', 50);
-  assert.equal(tracker.getVenueReprocessingStatus('trc').processedCount, 50);
-  assert.equal(tracker.getVenueReprocessingStatus('trc').status, 'running');
+  tracker.updateVenueReprocessing(trcVenueId, 50);
+  assert.equal(tracker.getVenueReprocessingStatus(trcVenueId).processedCount, 50);
+  assert.equal(tracker.getVenueReprocessingStatus(trcVenueId).status, 'running');
 
   // 完了
   const finishedAt = '2026-09-16T01:05:02.500Z' as UtcIso8601String;
-  tracker.completeVenueReprocessing('trc', 100, 2500, finishedAt);
-  assert.deepEqual(tracker.getVenueReprocessingStatus('trc'), {
+  tracker.completeVenueReprocessing(trcVenueId, 100, 2500, finishedAt);
+  assert.deepEqual(tracker.getVenueReprocessingStatus(trcVenueId), {
     status: 'completed',
     total: 100,
     processedCount: 100,
@@ -435,14 +437,19 @@ for (const [jstTime, fixedNow] of [
     const { connection, cleanup } = createTempDb();
     try {
       const tracker = new InMemoryStartupProgressTracker();
-      tracker.startVenueReprocessing('east', 150, '2026-09-16T02:00:00.000Z' as UtcIso8601String);
-      tracker.updateVenueReprocessing('east', 60);
+      tracker.startVenueReprocessing(
+        eastVenueId,
+        150,
+        '2026-09-16T02:00:00.000Z' as UtcIso8601String,
+      );
+      tracker.updateVenueReprocessing(eastVenueId, 60);
 
-      tracker.startVenueReprocessing('trc', 0);
+      tracker.startVenueReprocessing(trcVenueId, 0);
 
       const schedule = createTestPollingSchedule();
       const service = createMonitoringStatusService({
         connection,
+        venueRegistry: testVenueRegistry,
         scheduler: {
           getStatus: () => buildStoppedPollingStatus(new Date(fixedNow), schedule),
           isRunningNow: () => false,
@@ -458,7 +465,7 @@ for (const [jstTime, fixedNow] of [
         startupInitialization: {
           getStatus: () => ({
             initialFetchPhase: 'completed',
-            evaluatedVenueIds: new Set(['east', 'trc']),
+            evaluatedVenueIds: new Set([eastVenueId, trcVenueId]),
           }),
         },
         progressTracker: tracker,
@@ -574,12 +581,12 @@ for (const [jstTime, fixedNow] of [
         now: () => '2026-09-16T02:00:00Z' as UtcIso8601String,
       });
 
-      const terminal = TERMINAL_DEFINITIONS.find((t) => t.venueId === 'east')!;
+      const terminal = TERMINAL_DEFINITIONS.find((t) => t.venueId === eastVenueId)!;
       const status = service.getStatus(terminal);
 
       assert.equal(status.venues.length, 2);
-      const eastVenue = status.venues.find((v) => v.venueId === 'east')!;
-      const trcVenue = status.venues.find((v) => v.venueId === 'trc')!;
+      const eastVenue = status.venues.find((v) => v.venueId === eastVenueId)!;
+      const trcVenue = status.venues.find((v) => v.venueId === trcVenueId)!;
 
       // east: 再処理中 (running)
       assert.deepEqual(eastVenue.reprocessing, {
@@ -651,7 +658,7 @@ test('4.4 監視API HTTPエンドポイント: GET /api/monitoring/status の ve
 test('4.2 イベントループ解放: 複数ページ処理時にページ間で yieldEventLoop が呼ばれ、並行処理に制御が渡る', async () => {
   const { connection, cleanup } = createTempDb();
   try {
-    const venue = resolveVenueWarningContext('east');
+    const venue = resolveVenueWarningContext(testVenueRegistry, eastVenueId);
     const clock = () => '2026-09-16T00:00:00Z' as UtcIso8601String;
 
     // 150件（2ページ分: 100件 + 50件）の未処理電文を挿入
@@ -696,7 +703,7 @@ test('4.2 イベントループ解放: 複数ページ処理時にページ間�
 test('4.2 イベントループ解放: 既定の yieldEventLoop でも並行する setImmediate が再処理中に実行される', async () => {
   const { connection, cleanup } = createTempDb();
   try {
-    const venue = resolveVenueWarningContext('east');
+    const venue = resolveVenueWarningContext(testVenueRegistry, eastVenueId);
     const clock = () => '2026-09-16T00:00:00Z' as UtcIso8601String;
 
     // 120件の未処理電文を挿入（2ページ）

@@ -5,6 +5,7 @@ import {
   type MonitoringProcessingResponse,
   type TerminalDefinition,
   type UtcIso8601String,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
@@ -15,6 +16,7 @@ import { buildRawExcerpt } from './monitoringProcessingDiagnostics.js';
 
 export interface MonitoringProcessingServiceDependencies {
   readonly connection: DatabaseConnection;
+  readonly venueRegistry: VenueRegistry;
   readonly serverGenerationId: string;
   readonly now: () => UtcIso8601String;
   readonly windowHours?: number;
@@ -60,7 +62,7 @@ export function createMonitoringProcessingService(
       return {
         status: 'ready',
         terminalId: terminal.id,
-        requestedVenueId: terminal.venueId,
+        requestedVenueId: deps.venueRegistry.resolveVenueId(terminal.venueId)!,
         serverGenerationId: deps.serverGenerationId,
         generatedAt,
         windowHours,

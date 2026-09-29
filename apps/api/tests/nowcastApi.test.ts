@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -25,10 +26,11 @@ const VALID_1X1_PNG = Buffer.from(VALID_1X1_PNG_BASE64, 'base64');
 const proxyProfileService = createStaticTileDeliveryProfileService('proxy');
 
 function createNowcastApiService(
-  dependencies: Omit<NowcastApiServiceDependencies, 'tileDeliveryProfileService'>,
+  dependencies: Omit<NowcastApiServiceDependencies, 'tileDeliveryProfileService' | 'venueRegistry'>,
 ) {
   return createNowcastApiServiceImpl({
     ...dependencies,
+    venueRegistry: testVenueRegistry,
     tileDeliveryProfileService: proxyProfileService,
   });
 }
@@ -536,8 +538,8 @@ test('B07: ナウキャスト - 台帳端末 2 件で会場別 context・共通�
     );
     assert.equal(resEast.statusCode, 200);
     assert.equal(resTrc.statusCode, 200);
-    assert.equal(resEast.json.venueId, 'east');
-    assert.equal(resTrc.json.venueId, 'trc');
+    assert.equal(resEast.json.venueId, eastVenueId);
+    assert.equal(resTrc.json.venueId, trcVenueId);
     assert.deepEqual(resEast.json.products, resTrc.json.products);
 
     // training / test

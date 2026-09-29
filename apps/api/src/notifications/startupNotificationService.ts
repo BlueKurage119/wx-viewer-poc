@@ -8,6 +8,7 @@ import {
   type TerminalSessionId,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type { InitialFetchPhase } from '../polling/index.js';
 import {
@@ -70,6 +71,7 @@ export interface StartupNotificationService {
 
 export interface CreateStartupNotificationServiceDependencies {
   readonly connection: DatabaseConnection;
+  readonly venueRegistry: VenueRegistry;
   readonly initialization: StartupNotificationInitialization;
   readonly serverGenerationId: string;
   readonly now?: () => UtcIso8601String;
@@ -125,6 +127,7 @@ export function createStartupNotificationService(
           const projection = projector(
             dependencies.connection,
             {
+              venueRegistry: dependencies.venueRegistry,
               venueId: input.venueId,
               now: inquiredAt,
               includeWarningCategory: warningClaimed,

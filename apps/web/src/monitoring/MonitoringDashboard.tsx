@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo } from 'react';
+import type { VenueForecastTargets } from '@wx-viewer-poc/shared';
 import type { MonitoringLoadState } from './useMonitoringStatus';
 import {
   buildMonitoringCards,
@@ -12,6 +13,7 @@ import {
 import { buildInformationRows, type InformationRow } from './monitoringInformationRows';
 import { useMonitoringStatus } from './useMonitoringStatus';
 import { useMonitoringUptime } from './useMonitoringUptime';
+import { useVenueRegistry } from '../venueRegistryContext';
 
 const SOURCE_HEADERS = [
   '取得元',
@@ -312,9 +314,11 @@ const InformationTable = memo(function InformationTable({
 export function MonitoringDashboardView({
   state,
   uptimeSeconds,
+  resolveTargets,
 }: {
   state: MonitoringLoadState;
   uptimeSeconds?: number | null;
+  resolveTargets?: (venueId: string) => VenueForecastTargets | undefined;
 }) {
   const serverUptime = useMonitoringUptime(state.data);
   const displayUptime = uptimeSeconds !== undefined ? uptimeSeconds : serverUptime;
@@ -331,8 +335,8 @@ export function MonitoringDashboardView({
     [state.data, isFailed],
   );
   const informationRows = useMemo(
-    () => (state.data ? buildInformationRows(state.data, undefined, isFailed) : null),
-    [state.data, isFailed],
+    () => (state.data ? buildInformationRows(state.data, resolveTargets, isFailed) : null),
+    [state.data, resolveTargets, isFailed],
   );
 
   return (
@@ -417,10 +421,19 @@ export interface MonitoringDashboardProps {
 
 export function MonitoringDashboard({ terminalId, onLoadStateChange }: MonitoringDashboardProps) {
   const state = useMonitoringStatus(terminalId);
+  const registry = useVenueRegistry();
 
   useEffect(() => {
     onLoadStateChange?.(state);
   }, [state, onLoadStateChange]);
 
-  return <MonitoringDashboardView state={state} />;
+  return (
+    <MonitoringDashboardView
+      state={state}
+      resolveTargets={(venueId) => {
+        const resolved = registry.resolveVenueId(venueId);
+        return resolved ? registry.getVenue(resolved) : undefined;
+      }}
+    />
+  );
 }

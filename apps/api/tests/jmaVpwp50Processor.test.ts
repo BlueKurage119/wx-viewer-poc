@@ -1,3 +1,4 @@
+import { eastVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -15,7 +16,7 @@ import { processVpwp50Reception } from '../src/polling/jmaVpwp50Processor.js';
 import { resolveVenueWarningTimeseriesContext } from '../src/venueForecastTargets.js';
 import type { TelegramReceptionInput } from '../src/repositories/types.js';
 
-const EAST_VENUE = resolveVenueWarningTimeseriesContext('east');
+const EAST_VENUE = resolveVenueWarningTimeseriesContext(testVenueRegistry, eastVenueId);
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -195,7 +196,7 @@ test('processVpwp50Reception: 正常系 - スナップショット保存と採�
     assert.deepEqual(updatedReception.adoptions, [
       {
         receptionId: reception.id,
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '警報等時系列として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,
@@ -347,7 +348,7 @@ test('processVpwp50Reception: 異常系 - 未対応構造時はスナップシ�
     // reception に記録されていること
     const updated = findTelegramReceptionById(context.connection, invalidReception.id);
     assert.ok(updated);
-    assert.equal(updated.adoptions[0]?.venueId, 'east');
+    assert.equal(updated.adoptions[0]?.venueId, eastVenueId);
     assert.equal(updated.adoptions[0]?.adoptionResult, '未対応構造');
     assert.ok(updated.adoptions[0]?.adoptionReason);
     assert.equal(updated.adoptions[0]?.adoptionDecidedAt, '2026-09-09T00:00:03.000Z');
@@ -382,7 +383,7 @@ test('processVpwp50Reception: 対象地域外 - スナップショットを変�
 
     const updated = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(updated);
-    assert.equal(updated.adoptions[0]?.venueId, 'east');
+    assert.equal(updated.adoptions[0]?.venueId, eastVenueId);
     assert.equal(updated.adoptions[0]?.adoptionResult, '対象地域外');
     assert.equal(updated.adoptions[0]?.adoptionDecidedAt, '2026-09-09T00:00:02.000Z');
 
@@ -451,7 +452,7 @@ test('processVpwp50Reception: rawBody が null の場合は未対応構造', () 
 
     const updated = findTelegramReceptionById(context.connection, reception.id);
     assert.ok(updated);
-    assert.equal(updated.adoptions[0]?.venueId, 'east');
+    assert.equal(updated.adoptions[0]?.venueId, eastVenueId);
     assert.equal(updated.adoptions[0]?.adoptionResult, '未対応構造');
     assert.equal(updated.adoptions[0]?.adoptionReason, '原文（raw_body）がありません');
   } finally {

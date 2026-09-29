@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { PANEL_DEFINITIONS } from '../src/map/panels/panelDefinitions.ts';
 import { resolveInfoPanelDisplay } from '../src/map/panels/panelDisplayState.ts';
 import { resolvePanelTarget } from '../src/map/panels/panelTargets.ts';
+import { eastVenueTargets, trcVenueTargets } from './venueConfigPreload.ts';
 import { formatPanelTime } from '../src/map/panels/panelTime.ts';
 import { sortCardsByTimeDescending } from '../src/map/panels/panelSort.ts';
 import type { InfoPanelPresence, InfoPanelStatus } from '../src/map/panels/panelDefinitions.ts';
@@ -18,21 +19,24 @@ test('panelDefinitions: 6パネルの配置順が基本設計 §5.2 と一致す
 
 // AC-3: panelTargets が east/trc の対象名を返す
 test('panelTargets: east の対象名が §3.3 表と一致する', () => {
-  assert.equal(resolvePanelTarget('east', 'bosaiBulletin'), undefined);
-  assert.equal(resolvePanelTarget('east', 'warning'), '江東区');
-  assert.equal(resolvePanelTarget('east', 'warningTimeSeries'), '江東区');
-  assert.equal(resolvePanelTarget('east', 'earlyWarning'), '東京地方');
-  assert.equal(resolvePanelTarget('east', 'amedas'), '江戸川臨海');
-  assert.equal(resolvePanelTarget('east', 'areaForecast'), '東京地方／東京（北の丸公園）');
+  assert.equal(resolvePanelTarget(eastVenueTargets, 'bosaiBulletin'), undefined);
+  assert.equal(resolvePanelTarget(eastVenueTargets, 'warning'), '江東区');
+  assert.equal(resolvePanelTarget(eastVenueTargets, 'warningTimeSeries'), '江東区');
+  assert.equal(resolvePanelTarget(eastVenueTargets, 'earlyWarning'), '東京地方');
+  assert.equal(resolvePanelTarget(eastVenueTargets, 'amedas'), '江戸川臨海');
+  assert.equal(
+    resolvePanelTarget(eastVenueTargets, 'areaForecast'),
+    '東京地方／東京（北の丸公園）',
+  );
 });
 
 test('panelTargets: trc の対象名が §3.3 表と一致する', () => {
-  assert.equal(resolvePanelTarget('trc', 'bosaiBulletin'), undefined);
-  assert.equal(resolvePanelTarget('trc', 'warning'), '大田区');
-  assert.equal(resolvePanelTarget('trc', 'warningTimeSeries'), '大田区');
-  assert.equal(resolvePanelTarget('trc', 'earlyWarning'), '東京地方');
-  assert.equal(resolvePanelTarget('trc', 'amedas'), '羽田');
-  assert.equal(resolvePanelTarget('trc', 'areaForecast'), '東京地方／東京（北の丸公園）');
+  assert.equal(resolvePanelTarget(trcVenueTargets, 'bosaiBulletin'), undefined);
+  assert.equal(resolvePanelTarget(trcVenueTargets, 'warning'), '大田区');
+  assert.equal(resolvePanelTarget(trcVenueTargets, 'warningTimeSeries'), '大田区');
+  assert.equal(resolvePanelTarget(trcVenueTargets, 'earlyWarning'), '東京地方');
+  assert.equal(resolvePanelTarget(trcVenueTargets, 'amedas'), '羽田');
+  assert.equal(resolvePanelTarget(trcVenueTargets, 'areaForecast'), '東京地方／東京（北の丸公園）');
 });
 
 // AC-2: resolveInfoPanelDisplay が §5 の表の全セルを網羅する

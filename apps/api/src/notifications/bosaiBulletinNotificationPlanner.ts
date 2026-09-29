@@ -1,12 +1,12 @@
 import {
   resolveNotificationMessage,
-  resolveVenueForecastTargets,
   type NotificationDetectionContext,
   type NotificationMessageDefinitionId,
   type NotificationTarget,
   type ResolvedNotificationOutputSnapshot,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
   type WeatherNotification,
 } from '@wx-viewer-poc/shared';
 import type { BosaiBulletin, BosaiBulletinAreaInput } from '../repositories/types.js';
@@ -19,6 +19,7 @@ export type BosaiNotificationKind =
   | 'tornado-sighting';
 
 export interface BosaiNotificationPlanInput {
+  readonly venueRegistry: VenueRegistry;
   readonly current: BosaiBulletin;
   readonly previous: BosaiBulletin | null;
   readonly venueId: VenueId;
@@ -168,7 +169,7 @@ export function planBosaiBulletinNotifications(
     }
   }
 
-  const venueTargets = resolveVenueForecastTargets(venueId);
+  const venueTargets = input.venueRegistry.getVenue(venueId);
   const venueIncludedAreaCodes = venueTargets.bosaiBulletin.includedAreaCodes;
   const targetTuple: readonly [NotificationTarget] = [
     {

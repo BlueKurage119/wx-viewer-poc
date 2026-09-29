@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -5,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initializeDatabase } from '../src/database/index.js';
-import { processVphwReception } from '../src/polling/jmaVphwProcessor.js';
+import { processVphwReception as processVphwReceptionImpl } from '../src/polling/jmaVphwProcessor.js';
 import {
   findBosaiBulletin,
   listBosaiBulletins,
@@ -20,7 +21,21 @@ import type {
   TelegramReceptionInput,
   VphwTelegramType,
 } from '../src/repositories/types.js';
-import { resolveVenueForecastTargets } from '@wx-viewer-poc/shared';
+const resolveVenueForecastTargets = (id: Parameters<typeof testVenueRegistry.getVenue>[0]) =>
+  testVenueRegistry.getVenue(id);
+
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
+import { resolveBosaiBulletinTarget } from '../src/venueForecastTargets.js';
+
+const processVphwReception = (
+  db: Parameters<typeof processVphwReceptionImpl>[0],
+  reception: Parameters<typeof processVphwReceptionImpl>[1],
+  at: Parameters<typeof processVphwReceptionImpl>[2],
+  target: Parameters<typeof processVphwReceptionImpl>[3] = resolveBosaiBulletinTarget(
+    testVenueRegistry,
+  ),
+  deps?: Parameters<typeof processVphwReceptionImpl>[4],
+) => processVphwReceptionImpl(db, reception, at, target, deps, testVenueRegistry);
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -276,14 +291,14 @@ test('受け入れ条件 (processor・保存・メタデータ): 19_01_01_091210
     assert.deepEqual(updatedReception.adoptions, [
       {
         receptionId: reception.id,
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '気象防災速報として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,
       },
       {
         receptionId: reception.id,
-        venueId: 'trc',
+        venueId: trcVenueId,
         adoptionResult: '気象防災速報として解析済み',
         adoptionReason: null,
         adoptionDecidedAt: processedAt,
@@ -627,7 +642,7 @@ test('受け入れ条件 (processor・訓練試験分離): Control/Status が �
     assert.equal(bTest.controlStatus, 'test');
 
     // listBosaiBulletins の絞り込みで訓練行のみが返ること
-    const eastTargets = resolveVenueForecastTargets('east').bosaiBulletin.includedAreaCodes;
+    const eastTargets = resolveVenueForecastTargets(eastVenueId).bosaiBulletin.includedAreaCodes;
     const trainingList = listBosaiBulletins(context.connection, {
       controlStatus: 'training',
       includedAreaCodes: eastTargets,
@@ -718,14 +733,14 @@ test('受け入れ条件 (processor・対象判定): 19_01_01_091210_VPHW50.xml 
 
     processVphwReception(context.connection, reception, '2009-08-09T22:40:00.000Z');
 
-    const eastTargets = resolveVenueForecastTargets('east').bosaiBulletin.includedAreaCodes;
+    const eastTargets = resolveVenueForecastTargets(eastVenueId).bosaiBulletin.includedAreaCodes;
     const eastList = listBosaiBulletins(context.connection, {
       controlStatus: 'normal',
       includedAreaCodes: eastTargets,
     });
     assert.equal(eastList.length, 1);
 
-    const trcTargets = resolveVenueForecastTargets('trc').bosaiBulletin.includedAreaCodes;
+    const trcTargets = resolveVenueForecastTargets(trcVenueId).bosaiBulletin.includedAreaCodes;
     const trcList = listBosaiBulletins(context.connection, {
       controlStatus: 'normal',
       includedAreaCodes: trcTargets,

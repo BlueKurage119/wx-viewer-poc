@@ -11,7 +11,6 @@ import {
   type Vpfd51ParseResult,
 } from '../repositories/types.js';
 import { addIso8601Duration } from './jmaVpwp50Parser.js';
-import { resolveAreaTimeseriesForecastTarget } from '../venueForecastTargets.js';
 
 export const JMA_REPORT_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/';
 export const JMA_INFORMATION_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/informationBasis1/';
@@ -28,9 +27,6 @@ export const PROPERTY_TYPE_TEMPERATURE = '３時間毎気温';
 
 export const BLOCK_ID_REGION = 'region-3hour';
 export const BLOCK_ID_TEMPERATURE = 'temperature-3hour';
-
-export const DEFAULT_AREA_TIMESERIES_FORECAST_TARGET: AreaTimeseriesForecastTarget =
-  resolveAreaTimeseriesForecastTarget('east');
 
 function parseDocument(rawXml: string): Element | null {
   try {
@@ -117,7 +113,7 @@ export function parseVpfd51(
     TelegramReception,
     'telegramType' | 'controlStatus' | 'reportDateTime' | 'controlDateTime'
   >,
-  target: AreaTimeseriesForecastTarget = DEFAULT_AREA_TIMESERIES_FORECAST_TARGET,
+  target: AreaTimeseriesForecastTarget,
 ): Vpfd51ParseResult {
   // 1. 電文種別チェック
   if (expected.telegramType !== VPFD51_TELEGRAM_TYPE) {

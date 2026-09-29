@@ -2,7 +2,12 @@ import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
 import crypto from 'node:crypto';
 
-import { VENUE_IDS, type UtcIso8601String } from '@wx-viewer-poc/shared';
+import {
+  TERMINAL_DEFINITIONS,
+  type VenueRegistry,
+  type VenueId,
+  type UtcIso8601String,
+} from '@wx-viewer-poc/shared';
 import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
 import {
@@ -13,6 +18,7 @@ import {
   resolvePollingPeriod,
   validatePollingScheduleConfig,
   type PollingScheduleConfig,
+  loadVenueConfig,
 } from './config/index.js';
 import {
   createFetchControlService,
@@ -50,6 +56,7 @@ import {
 } from './polling/index.js';
 import { recoverWarningCurrent } from './polling/jmaWarningCurrentProcessor.js';
 import { reprocessPendingWarningTelegramReceptions } from './polling/jmaWarningTelegramProcessor.js';
+import { reprocessPendingVenueForecastReceptions } from './polling/jmaVenueForecastReprocessor.js';
 import { recoverLegacyVphwBulletinAreas } from './polling/jmaVphwProcessor.js';
 import { resolveVenueWarningContext } from './venueForecastTargets.js';
 import {
@@ -94,11 +101,12 @@ export interface StartServerOptions {
   readonly schedulerOptions?: Partial<TimeBasedPollingSchedulerOptions>;
   readonly pollingSchedule?: PollingScheduleConfig;
   readonly configUrl?: URL;
+  readonly venueConfigUrl?: URL;
   readonly imageServices?: ImageServices;
   /** Issue #43 §6.1: graceful shutdown の検証用。指定すると SIGTERM/SIGINT を購読する。 */
   readonly shutdownSignalSource?: SignalSource;
   readonly fetchControlNotificationIdFactory?: () => string;
-  readonly recoveryInternals?: Parameters<typeof createStartupNotificationRuntime>[3];
+  readonly recoveryInternals?: Parameters<typeof createStartupNotificationRuntime>[4];
 }
 
 const DEFAULT_PORT = 3001;
@@ -116,9 +124,30 @@ function hasWarningRecoveryTables(
   return names.length === 3;
 }
 
+function hasTelegramReceptionTable(
+  connection: ReturnType<typeof initializeDatabase>['connection'],
+): boolean {
+  return (
+    connection
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'telegram_reception'")
+      .get() !== undefined
+  );
+}
+
+function reprocessVenueForecastBeforeWarningRecovery(
+  connection: ReturnType<typeof initializeDatabase>['connection'],
+  processedAt: UtcIso8601String,
+  registry: VenueRegistry,
+): void {
+  if (hasTelegramReceptionTable(connection)) {
+    reprocessPendingVenueForecastReceptions(connection, processedAt, registry);
+  }
+}
+
 export function createStartupNotificationRuntime(
   connection: ReturnType<typeof initializeDatabase>['connection'],
   clock: () => string,
+  registry: VenueRegistry,
   getFetchHealth?: () => ReturnType<FetchHealthMonitorService['getLastAggregate']>,
   recoveryInternals?: {
     readonly setTimeout?: typeof setTimeout;
@@ -134,11 +163,13 @@ export function createStartupNotificationRuntime(
     now: clock,
   };
   const bosaiEmitDeps: BosaiNotificationEmitDeps = {
+    venueRegistry: registry,
     initialState: new InitialBosaiNotificationTracker(),
     now: clock,
   };
   const startupNotifications = createStartupNotificationService({
     connection,
+    venueRegistry: registry,
     initialization,
     serverGenerationId,
     now: clock,
@@ -146,21 +177,26 @@ export function createStartupNotificationRuntime(
   });
   const notificationDelta = createNotificationDeltaService({
     connection,
+    venueRegistry: registry,
     serverGenerationId,
     now: clock,
   });
-  const progressTracker = new InMemoryStartupProgressTracker(() => clock() as UtcIso8601String);
-  const recoveryTracker = new InMemoryWarningCurrentRecoveryTracker();
+  const progressTracker = new InMemoryStartupProgressTracker(
+    () => clock() as UtcIso8601String,
+    registry,
+  );
+  const recoveryTracker = new InMemoryWarningCurrentRecoveryTracker(registry);
   const recoveryEmitter = new DatabaseRecoveryNotificationEmitter(connection);
   const setRecoveryTimeout = recoveryInternals?.setTimeout ?? setTimeout;
   const clearRecoveryTimeout = recoveryInternals?.clearTimeout ?? clearTimeout;
   const runRecovery = recoveryInternals?.recover ?? recoverWarningCurrent;
   const emitRecovery = (
-    venueId: (typeof VENUE_IDS)[number],
+    venueId: VenueId,
     event: 'started' | 'completed' | 'delayed' | 'failed',
   ) => {
     recoveryEmitter.emit(
       planDatabaseRecoveryNotification({
+        venueRegistry: registry,
         event,
         venueId,
         serverGenerationId,
@@ -225,8 +261,8 @@ export function createStartupNotificationRuntime(
     }
   };
   const evaluateVenues = async () => {
-    for (const venueId of VENUE_IDS) {
-      const venue = resolveVenueWarningContext(venueId);
+    for (const venueId of registry.listVenueIds()) {
+      const venue = resolveVenueWarningContext(registry, venueId);
       emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps);
       emitInitialBosaiBulletinNotifications(connection, venueId, bosaiEmitDeps);
       initialization.markVenueEvaluated(venueId);
@@ -378,6 +414,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   }
 
   // DB初期化・HTTP待受より前に設定を読み込み検証する（失敗時はDBや待受を起動しない）
+  const venueConfig = loadVenueConfig({ baseUrl: options.venueConfigUrl });
+  for (const terminal of TERMINAL_DEFINITIONS) {
+    if (venueConfig.registry.resolveVenueId(terminal.venueId) === null)
+      throw new Error(`端末 ${terminal.id} の会場 ID が設定にありません: ${terminal.venueId}`);
+  }
   const loaded = options.pollingSchedule
     ? null
     : loadPollingScheduleConfigWithSources(options.configUrl);
@@ -390,12 +431,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const startupRuntime = createStartupNotificationRuntime(
     database.connection,
     clock,
+    venueConfig.registry,
     () => fetchHealthMonitorService?.getLastAggregate() ?? null,
     options.recoveryInternals,
   );
   let pollingService: JmaXmlPollingService | undefined;
   const weatherApi = createWeatherApiService({
     connection: database.connection,
+    venueRegistry: venueConfig.registry,
     getPollingStatus: () => pollingService?.getStatus(),
     now: clock,
   });
@@ -408,12 +451,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   );
 
   const nowcastApi = createNowcastApiService({
+    venueRegistry: venueConfig.registry,
     getService: () => imageServices?.nowcast ?? null,
     enablePolling,
     tileDeliveryProfileService,
     clock,
   });
   const kikikuruApi = createKikikuruApiService({
+    venueRegistry: venueConfig.registry,
     getService: () => imageServices?.kikikuru ?? null,
     enablePolling,
     tileDeliveryProfileService,
@@ -463,11 +508,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   });
   const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
     connection: database.connection,
+    venueRegistry: venueConfig.registry,
     serverGenerationId: startupRuntime.serverGenerationId,
     now: () => clock() as UtcIso8601String,
   });
   const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
     connection: database.connection,
+    venueRegistry: venueConfig.registry,
     // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
     // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
     // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
@@ -499,6 +546,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   });
 
   const app = createApp({
+    venueConfig: venueConfig.response,
+    venueRegistry: venueConfig.registry,
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
@@ -543,9 +592,17 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
               fetchFn: options.pollingServiceOptions?.fetchFn,
             });
 
-          if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection);
-          for (const venueId of hasWarningRecoveryTables(database.connection) ? VENUE_IDS : []) {
-            const venue = resolveVenueWarningContext(venueId);
+          if (enablePolling)
+            recoverLegacyVphwBulletinAreas(database.connection, venueConfig.registry);
+          reprocessVenueForecastBeforeWarningRecovery(
+            database.connection,
+            clock() as UtcIso8601String,
+            venueConfig.registry,
+          );
+          for (const venueId of hasWarningRecoveryTables(database.connection)
+            ? venueConfig.registry.listVenueIds()
+            : []) {
+            const venue = resolveVenueWarningContext(venueConfig.registry, venueId);
             await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
               if (enablePolling) {
                 await reprocessPendingWarningTelegramReceptions(
@@ -572,6 +629,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             options.pollingService ??
             new JmaXmlPollingService(database.connection, {
               freshnessPolicy: schedule.freshness.xml,
+              venueRegistry: venueConfig.registry,
               warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
               bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
               ...options.pollingServiceOptions,
@@ -583,6 +641,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             options.schedulerOptions?.adapters ??
             createScheduledAdapters({
               connection: database.connection,
+              venueRegistry: venueConfig.registry,
               nowcastService: imageServices.nowcast,
               kikikuruService: imageServices.kikikuru,
               now: nowFn,
@@ -742,6 +801,11 @@ async function main(): Promise<void> {
   });
 
   // DB初期化・HTTP待受より前に設定を読み込み検証する
+  const venueConfig = loadVenueConfig();
+  for (const terminal of TERMINAL_DEFINITIONS) {
+    if (venueConfig.registry.resolveVenueId(terminal.venueId) === null)
+      throw new Error(`端末 ${terminal.id} の会場 ID が設定にありません: ${terminal.venueId}`);
+  }
   const loaded = loadPollingScheduleConfigWithSources();
   const schedule = loaded.config;
   logPollingConfig(loaded);
@@ -753,11 +817,13 @@ async function main(): Promise<void> {
   const startupRuntime = createStartupNotificationRuntime(
     database.connection,
     clock,
+    venueConfig.registry,
     () => fetchHealthMonitorService?.getLastAggregate() ?? null,
   );
   let pollingService: JmaXmlPollingService | undefined;
   const weatherApi = createWeatherApiService({
     connection: database.connection,
+    venueRegistry: venueConfig.registry,
     getPollingStatus: () => pollingService?.getStatus(),
     now: clock,
   });
@@ -770,12 +836,14 @@ async function main(): Promise<void> {
   );
 
   const nowcastApi = createNowcastApiService({
+    venueRegistry: venueConfig.registry,
     getService: () => imageServices?.nowcast ?? null,
     enablePolling,
     tileDeliveryProfileService,
     clock,
   });
   const kikikuruApi = createKikikuruApiService({
+    venueRegistry: venueConfig.registry,
     getService: () => imageServices?.kikikuru ?? null,
     enablePolling,
     tileDeliveryProfileService,
@@ -824,11 +892,13 @@ async function main(): Promise<void> {
   });
   const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
     connection: database.connection,
+    venueRegistry: venueConfig.registry,
     serverGenerationId: startupRuntime.serverGenerationId,
     now: () => clock() as UtcIso8601String,
   });
   const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
     connection: database.connection,
+    venueRegistry: venueConfig.registry,
     // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
     // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
     // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
@@ -860,6 +930,8 @@ async function main(): Promise<void> {
   });
 
   const app = createApp({
+    venueConfig: venueConfig.response,
+    venueRegistry: venueConfig.registry,
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
@@ -918,12 +990,19 @@ async function main(): Promise<void> {
       enablePolling,
     });
 
-    if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection);
-    for (const venueId of hasWarningRecoveryTables(database.connection) ? VENUE_IDS : []) {
+    if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection, venueConfig.registry);
+    reprocessVenueForecastBeforeWarningRecovery(
+      database.connection,
+      clock() as UtcIso8601String,
+      venueConfig.registry,
+    );
+    for (const venueId of hasWarningRecoveryTables(database.connection)
+      ? venueConfig.registry.listVenueIds()
+      : []) {
       if (closed) {
         return;
       }
-      const venue = resolveVenueWarningContext(venueId);
+      const venue = resolveVenueWarningContext(venueConfig.registry, venueId);
       await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
         if (enablePolling) {
           await reprocessPendingWarningTelegramReceptions(
@@ -954,6 +1033,7 @@ async function main(): Promise<void> {
     }
     pollingService = new JmaXmlPollingService(database.connection, {
       freshnessPolicy: schedule.freshness.xml,
+      venueRegistry: venueConfig.registry,
       warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
       bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
     });
@@ -962,6 +1042,7 @@ async function main(): Promise<void> {
 
     const adapters = createScheduledAdapters({
       connection: database.connection,
+      venueRegistry: venueConfig.registry,
       nowcastService: imageServices.nowcast,
       kikikuruService: imageServices.kikikuru,
       amedasPointRecheckSeconds: schedule.amedasPointRecheckSeconds,

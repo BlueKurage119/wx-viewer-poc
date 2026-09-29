@@ -1,7 +1,7 @@
-import type { UtcIso8601String } from '@wx-viewer-poc/shared';
+import type { UtcIso8601String, VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import { findBosaiBulletin, saveBosaiBulletin } from '../repositories/bosaiBulletinRepository.js';
-import { upsertTelegramReceptionAdoptionForAllVenues } from '../repositories/telegramReceptionRepository.js';
+import { upsertTelegramReceptionAdoptionForAllVenues as upsertAll } from '../repositories/telegramReceptionRepository.js';
 import type {
   BosaiBulletin,
   BosaiBulletinTarget,
@@ -13,17 +13,23 @@ import {
   emitBosaiBulletinNotificationsForReception,
   type BosaiNotificationEmitDeps,
 } from '../notifications/bosaiBulletinNotificationEmitter.js';
-import { DEFAULT_BOSAI_BULLETIN_TARGET, parseVphw } from './jmaVphwParser.js';
-
-export { DEFAULT_BOSAI_BULLETIN_TARGET };
+import { parseVphw } from './jmaVphwParser.js';
+import { resolveBosaiBulletinTarget } from '../venueForecastTargets.js';
 
 export function processVphwReception(
   connection: DatabaseConnection,
   reception: TelegramReception,
   processedAt: UtcIso8601String,
-  target: BosaiBulletinTarget = DEFAULT_BOSAI_BULLETIN_TARGET,
+  target: BosaiBulletinTarget,
   deps?: BosaiNotificationEmitDeps,
+  registry?: VenueRegistry,
 ): VphwParseResult {
+  if (!registry) throw new Error('速報処理には会場レジストリが必要です');
+  const upsertTelegramReceptionAdoptionForAllVenues = (
+    db: DatabaseConnection,
+    receptionId: number,
+    input: Parameters<typeof upsertAll>[2],
+  ) => upsertAll(db, receptionId, input, registry);
   if (!reception.rawBody) {
     const errorResult: VphwParseResult = {
       ok: false,
@@ -122,7 +128,11 @@ export function processVphwReception(
   return parseResult;
 }
 
-export function recoverLegacyVphwBulletinAreas(connection: DatabaseConnection): void {
+export function recoverLegacyVphwBulletinAreas(
+  connection: DatabaseConnection,
+  registry: VenueRegistry,
+): void {
+  const target = resolveBosaiBulletinTarget(registry);
   const legacyRows = connection
     .prepare(
       `
@@ -193,12 +203,16 @@ export function recoverLegacyVphwBulletinAreas(connection: DatabaseConnection): 
       }[];
 
       for (const candidate of candidates) {
-        const candidateParsed = parseVphw(candidate.raw_body, {
-          telegramType: candidate.telegram_type as 'VPHW50' | 'VPHW51',
-          controlStatus: candidate.control_status as ControlStatus,
-          reportDateTime: candidate.report_datetime,
-          controlDateTime: candidate.control_datetime,
-        });
+        const candidateParsed = parseVphw(
+          candidate.raw_body,
+          {
+            telegramType: candidate.telegram_type as 'VPHW50' | 'VPHW51',
+            controlStatus: candidate.control_status as ControlStatus,
+            reportDateTime: candidate.report_datetime,
+            controlDateTime: candidate.control_datetime,
+          },
+          target,
+        );
         if (
           candidateParsed.ok &&
           candidateParsed.value.eventId === row.event_id &&
@@ -218,12 +232,16 @@ export function recoverLegacyVphwBulletinAreas(connection: DatabaseConnection): 
       continue;
     }
 
-    const parseResult = parseVphw(reception.raw_body, {
-      telegramType: reception.telegram_type as 'VPHW50' | 'VPHW51',
-      controlStatus: reception.control_status as ControlStatus,
-      reportDateTime: reception.report_datetime,
-      controlDateTime: reception.control_datetime,
-    });
+    const parseResult = parseVphw(
+      reception.raw_body,
+      {
+        telegramType: reception.telegram_type as 'VPHW50' | 'VPHW51',
+        controlStatus: reception.control_status as ControlStatus,
+        reportDateTime: reception.report_datetime,
+        controlDateTime: reception.control_datetime,
+      },
+      target,
+    );
 
     if (!parseResult.ok) {
       console.warn(

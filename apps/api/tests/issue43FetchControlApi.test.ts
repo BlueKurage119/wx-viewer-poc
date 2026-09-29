@@ -1,3 +1,4 @@
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -766,6 +767,7 @@ test('受け入れ条件8: バックオフ割り込み（manual固有）', async
     };
 
     const xmlService = new JmaXmlPollingService(context.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn,
       clock: now,
@@ -798,6 +800,7 @@ test('受け入れ条件9: 強制更新の実行前後で定期予定(nextRunAt�
       const fetchFn: typeof fetch = async () => new Response('', { status: 500 });
       const nowFn = () => new Date(iso);
       const xmlService = new JmaXmlPollingService(context.connection, {
+        venueRegistry: testVenueRegistry,
         freshnessPolicy: defaultXmlFreshnessPolicy,
         fetchFn,
         clock: () => nowFn().toISOString(),
@@ -843,6 +846,7 @@ test('レビュー指摘#1: XML取得が例外を投げず失敗結果を返す�
     // feedResults に feedFetchOutcome: 'failure' を記録するだけで正常終了する。
     const fetchFn: typeof fetch = async () => new Response('', { status: 500 });
     const xmlService = new JmaXmlPollingService(context.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn,
       clock: now,
@@ -899,6 +903,7 @@ test('Codexレビュー指摘#1（2回目レビュー）: 強制更新が実行�
     const now = () => '2026-09-15T10:00:00.000Z';
     const fetchFn: typeof fetch = async () => new Response('{}', { status: 200 });
     const xmlService = new JmaXmlPollingService(context.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn,
       clock: now,
@@ -987,6 +992,7 @@ test('受け入れ条件23(c): 復旧は長期フィード(regular_l/extra_l)を
       return new Response('', { status: 500 });
     };
     const recoveryXmlService = new JmaXmlPollingService(context.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: recoveryFetchFn,
       clock: now,
@@ -1007,6 +1013,7 @@ test('受け入れ条件23(c): 復旧は長期フィード(regular_l/extra_l)を
       return new Response('', { status: 500 });
     };
     const manualXmlService = new JmaXmlPollingService(context.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: manualFetchFn,
       clock: now,
@@ -1030,6 +1037,7 @@ test('受け入れ条件11: 手動停止は時間帯境界を跨いでも維持�
     const nowFn = () => new Date(nowIso);
     const fetchFn: typeof fetch = async () => new Response('', { status: 500 });
     const xmlService = new JmaXmlPollingService(context.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn,
       clock: () => nowFn().toISOString(),

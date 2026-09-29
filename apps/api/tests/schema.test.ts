@@ -36,8 +36,8 @@ test('1. 本番 migration をすべて適用すると全テーブルが存在し
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 25);
-    assert.equal(context.migrationSummary.appliedVersions.length, 25);
+    assert.equal(expectedSqlFiles.length, 26);
+    assert.equal(context.migrationSummary.appliedVersions.length, 26);
 
     const tables = (
       context.connection
@@ -359,7 +359,7 @@ test('8. migration を2回適用しても再実行されない', () => {
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 25);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 26);
     context1.close();
 
     const connection = openDatabase(databasePath);
@@ -378,7 +378,7 @@ test('8. migration を2回適用しても再実行されない', () => {
 test('9. migration ファイル内に BEGIN / COMMIT / ROLLBACK が含まれない', () => {
   const sqlFiles = readdirSync(migrationsDirectory).filter((file) => file.endsWith('.sql'));
 
-  assert.equal(sqlFiles.length, 25, '25 migration files should exist');
+  assert.equal(sqlFiles.length, 26, '26 migration files should exist');
 
   const forbiddenPattern = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/im;
   for (const file of sqlFiles) {
@@ -395,6 +395,7 @@ test('10. migration 0025 適用前の地域時系列値は保持され、conditi
   const temporaryMigrations = join(directory, 'migrations');
   const databasePath = join(directory, 'test.sqlite3');
   cpSync(migrationsDirectory, temporaryMigrations, { recursive: true });
+  rmSync(join(temporaryMigrations, '0026_relax_telegram_reception_adoption_venue_id.sql'));
   const migrationPath = join(temporaryMigrations, '0025_add_area_timeseries_condition.sql');
   const migrationSql = readFileSync(migrationPath, 'utf8');
   rmSync(migrationPath);

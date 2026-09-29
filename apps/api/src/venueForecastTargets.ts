@@ -1,9 +1,4 @@
-import {
-  VENUE_IDS,
-  resolveVenueForecastTargets,
-  type AmedasTarget,
-  type VenueId,
-} from '@wx-viewer-poc/shared';
+import { type AmedasTarget, type VenueId, type VenueRegistry } from '@wx-viewer-poc/shared';
 import type {
   AreaTimeseriesForecastTarget,
   BosaiBulletinTarget,
@@ -14,14 +9,22 @@ import type {
 } from './repositories/types.js';
 
 /** C2 用の市町村等警報対象を会場定義から解決する。 */
-export function resolveWarningTargetArea(venueId: VenueId): WarningTargetArea {
-  const target = resolveVenueForecastTargets(venueId).warning;
+export function resolveWarningTargetArea(
+  registryOrVenueId: VenueRegistry | VenueId,
+  maybeVenueId?: VenueId,
+): WarningTargetArea {
+  const [registry, venueId] = registryAndVenue(registryOrVenueId, maybeVenueId);
+  const target = registry.getVenue(venueId).warning;
   return { municipalCode: target.municipalCode, displayName: target.displayName };
 }
 
 /** C3 用の市町村等・府県予報区対象を会場定義から解決する。 */
-export function resolveWarningCurrentTargetArea(venueId: VenueId): WarningCurrentTargetArea {
-  const target = resolveVenueForecastTargets(venueId).warning;
+export function resolveWarningCurrentTargetArea(
+  registryOrVenueId: VenueRegistry | VenueId,
+  maybeVenueId?: VenueId,
+): WarningCurrentTargetArea {
+  const [registry, venueId] = registryAndVenue(registryOrVenueId, maybeVenueId);
+  const target = registry.getVenue(venueId).warning;
   return {
     municipalCode: target.municipalCode,
     displayName: target.displayName,
@@ -30,8 +33,12 @@ export function resolveWarningCurrentTargetArea(venueId: VenueId): WarningCurren
 }
 
 /** C4 用の警報等時系列対象を会場定義から解決する。 */
-export function resolveWarningTimeseriesTargetArea(venueId: VenueId): WarningTimeseriesTargetArea {
-  const target = resolveVenueForecastTargets(venueId).warningTimeseries;
+export function resolveWarningTimeseriesTargetArea(
+  registryOrVenueId: VenueRegistry | VenueId,
+  maybeVenueId?: VenueId,
+): WarningTimeseriesTargetArea {
+  const [registry, venueId] = registryAndVenue(registryOrVenueId, maybeVenueId);
+  const target = registry.getVenue(venueId).warningTimeseries;
   return { municipalCode: target.municipalCode, displayName: target.displayName };
 }
 
@@ -42,8 +49,11 @@ export interface VenueWarningContext {
 }
 
 /** C2 用のコンテキストを会場定義から解決する。 */
-export function resolveVenueWarningContext(venueId: VenueId): VenueWarningContext {
-  return { venueId, targetArea: resolveWarningCurrentTargetArea(venueId) };
+export function resolveVenueWarningContext(
+  registry: VenueRegistry,
+  venueId: VenueId,
+): VenueWarningContext {
+  return { venueId, targetArea: resolveWarningCurrentTargetArea(registry, venueId) };
 }
 
 /** C4 用の会場 ID と解決済み対象を対で運ぶ。 */
@@ -54,57 +64,29 @@ export interface VenueWarningTimeseriesContext {
 
 /** C4 用のコンテキストを会場定義から解決する。 */
 export function resolveVenueWarningTimeseriesContext(
+  registry: VenueRegistry,
   venueId: VenueId,
 ): VenueWarningTimeseriesContext {
-  return { venueId, targetArea: resolveWarningTimeseriesTargetArea(venueId) };
+  return { venueId, targetArea: resolveWarningTimeseriesTargetArea(registry, venueId) };
 }
 
 /** C5 用の広域予報対象を会場定義から解決する。 */
-export function resolveEarlyWarningTargetArea(venueId: VenueId): EarlyWarningTargetArea {
-  const target = resolveVenueForecastTargets(venueId).broadForecast;
+export function resolveEarlyWarningTargetArea(
+  registryOrVenueId: VenueRegistry | VenueId,
+  maybeVenueId?: VenueId,
+): EarlyWarningTargetArea {
+  const [registry, venueId] = registryAndVenue(registryOrVenueId, maybeVenueId);
+  const target = registry.getVenue(venueId).broadForecast;
   return { forecastAreaCode: target.areaCode, displayName: target.displayName };
-}
-
-/**
- * 全会場が同一のキーへ解決することを保証した上で代表値を 1 つ返す。
- * 不一致は「静かに壊れる」ため例外にする（§3.3.1）。resolveShared* から使う内部ヘルパーで、
- * テストでは合成 resolver を注入して不一致検知そのものを直接検証する。
- */
-export function assertSharedAcrossVenues<T>(
-  resolveForVenue: (venueId: VenueId) => T,
-  keyOf: (value: T) => unknown,
-  errorContext: string,
-): T {
-  const values = VENUE_IDS.map((venueId) => resolveForVenue(venueId));
-  const first = values[0]!;
-  const firstKey = keyOf(first);
-  for (const value of values.slice(1)) {
-    if (keyOf(value) !== firstKey) {
-      throw new Error(
-        `${errorContext} は全会場で同一である前提が崩れています: ${JSON.stringify(values)}`,
-      );
-    }
-  }
-  return first;
-}
-
-/**
- * C5 用の広域予報対象を、全会場で同一に解決されることを保証した上で 1 つ返す。
- * 会場追加等で対象が食い違うと「静かに壊れる」のを防ぐための表明（§3.3.1）。
- */
-export function resolveSharedEarlyWarningTargetArea(): EarlyWarningTargetArea {
-  return assertSharedAcrossVenues(
-    resolveEarlyWarningTargetArea,
-    (v) => v.forecastAreaCode,
-    'C5 の広域予報対象',
-  );
 }
 
 /** C6 用の地域時系列予報対象（広域予報区域＋気温予報地点）を会場定義から解決する。 */
 export function resolveAreaTimeseriesForecastTarget(
-  venueId: VenueId,
+  registryOrVenueId: VenueRegistry | VenueId,
+  maybeVenueId?: VenueId,
 ): AreaTimeseriesForecastTarget {
-  const targets = resolveVenueForecastTargets(venueId);
+  const [registry, venueId] = registryAndVenue(registryOrVenueId, maybeVenueId);
+  const targets = registry.getVenue(venueId);
   return {
     forecastAreaCode: targets.broadForecast.areaCode,
     forecastAreaName: targets.broadForecast.displayName,
@@ -113,32 +95,28 @@ export function resolveAreaTimeseriesForecastTarget(
   };
 }
 
-/**
- * C6 用の地域時系列予報対象を、全会場で同一に解決されることを保証した上で 1 つ返す。
- * 会場追加等で対象が食い違うと「静かに壊れる」のを防ぐための表明（§3.3.1）。
- */
-export function resolveSharedAreaTimeseriesForecastTarget(): AreaTimeseriesForecastTarget {
-  return assertSharedAcrossVenues(
-    resolveAreaTimeseriesForecastTarget,
-    (v) => `${v.forecastAreaCode} ${v.temperatureStationCode}`,
-    'C6 の地域時系列予報対象',
-  );
-}
-
 /** C7 用の気象防災速報判定対象（両会場の includedAreaCodes の和集合。順序は east → trc の出現順、重複除去済み）を解決する。 */
-export function resolveBosaiBulletinTarget(): BosaiBulletinTarget {
-  const eastCodes = resolveVenueForecastTargets('east').bosaiBulletin.includedAreaCodes;
-  const trcCodes = resolveVenueForecastTargets('trc').bosaiBulletin.includedAreaCodes;
-  const combined = new Set<string>([...eastCodes, ...trcCodes]);
+export function resolveBosaiBulletinTarget(registry: VenueRegistry): BosaiBulletinTarget {
+  const combined = new Set<string>();
+  for (const venue of registry.listVenues()) {
+    for (const code of venue.bosaiBulletin.includedAreaCodes) combined.add(code);
+  }
   return { includedAreaCodes: Array.from(combined) };
 }
 
-export const DEFAULT_BOSAI_BULLETIN_TARGET: BosaiBulletinTarget = resolveBosaiBulletinTarget();
-
 /** C9 用のアメダス対象地点を会場定義から解決する。 */
-export function resolveAmedasTarget(venueId: VenueId): AmedasTarget {
-  return resolveVenueForecastTargets(venueId).amedas;
+export function resolveAmedasTarget(
+  registryOrVenueId: VenueRegistry | VenueId,
+  maybeVenueId?: VenueId,
+): AmedasTarget {
+  const [registry, venueId] = registryAndVenue(registryOrVenueId, maybeVenueId);
+  return registry.getVenue(venueId).amedas;
 }
 
-/** east 既定の後方互換 alias（Issue #109 §3.2 の DEFAULT_* と同じ作法）。 */
-export const DEFAULT_AMEDAS_TARGET: AmedasTarget = resolveAmedasTarget('east');
+function registryAndVenue(
+  registryOrVenueId: VenueRegistry | VenueId,
+  maybeVenueId: VenueId | undefined,
+): readonly [VenueRegistry, VenueId] {
+  if (maybeVenueId) return [registryOrVenueId as VenueRegistry, maybeVenueId];
+  throw new Error('会場レジストリを明示指定してください');
+}

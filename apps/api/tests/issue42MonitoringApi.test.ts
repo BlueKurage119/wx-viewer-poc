@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,7 @@ import {
   PROCESSING_FAILURE_SAMPLE_LIMIT,
   PROCESSING_WINDOW_HOURS,
   type UtcIso8601String,
+  type TerminalDefinition,
 } from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
@@ -172,13 +174,10 @@ function stubNowcastApi(): NowcastApiService {
     sourceVersion: null,
   };
   return {
-    getTimes: (
-      terminal: { id: string; venueId: 'east' | 'trc' },
-      controlStatus: 'normal' | 'training' | 'test',
-    ) => ({
+    getTimes: (terminal: TerminalDefinition, controlStatus: 'normal' | 'training' | 'test') => ({
       tileDeliveryProfile: 'proxy',
       terminalId: terminal.id,
-      venueId: terminal.venueId,
+      venueId: testVenueRegistry.resolveVenueId(terminal.venueId)!,
       controlStatus,
       isTraining: controlStatus === 'training',
       evaluatedAt: FIXED_NOW,
@@ -213,13 +212,10 @@ function stubKikikuruApi(): KikikuruApiService {
     sourceVersion: null,
   };
   return {
-    getTimes: (
-      terminal: { id: string; venueId: 'east' | 'trc' },
-      controlStatus: 'normal' | 'training' | 'test',
-    ) => ({
+    getTimes: (terminal: TerminalDefinition, controlStatus: 'normal' | 'training' | 'test') => ({
       tileDeliveryProfile: 'proxy',
       terminalId: terminal.id,
-      venueId: terminal.venueId,
+      venueId: testVenueRegistry.resolveVenueId(terminal.venueId)!,
       controlStatus,
       isTraining: controlStatus === 'training',
       evaluatedAt: FIXED_NOW,
@@ -264,11 +260,11 @@ function stubWeatherApi(): WeatherApiService {
     sourceVersion: null,
   };
   const baseContext = (
-    terminal: { id: string; venueId: 'east' | 'trc' },
+    terminal: TerminalDefinition,
     controlStatus: 'normal' | 'training' | 'test',
   ) => ({
     terminalId: terminal.id,
-    venueId: terminal.venueId,
+    venueId: testVenueRegistry.resolveVenueId(terminal.venueId)!,
     controlStatus,
     isTraining: controlStatus === 'training',
     evaluatedAt: FIXED_NOW,
@@ -354,7 +350,7 @@ function fakeStartupStatus(
 ): StartupNotificationInitializationStatus {
   return {
     initialFetchPhase: 'completed',
-    evaluatedVenueIds: new Set(['east', 'trc']),
+    evaluatedVenueIds: new Set([eastVenueId, trcVenueId]),
     ...overrides,
   };
 }
@@ -373,6 +369,7 @@ function buildApp(options: BuildAppOptions) {
   const weatherApi =
     options.weatherApi ??
     createWeatherApiService({
+      venueRegistry: testVenueRegistry,
       connection: options.connection,
       now: () => FIXED_NOW,
     });
@@ -380,6 +377,7 @@ function buildApp(options: BuildAppOptions) {
   const kikikuruApi = stubKikikuruApi();
 
   const deps: MonitoringStatusServiceDependencies = {
+    venueRegistry: testVenueRegistry,
     connection: options.connection,
     scheduler: {
       getStatus: () => options.schedulerStatus ?? fakeSchedulerStatus(),
@@ -406,6 +404,7 @@ function buildApp(options: BuildAppOptions) {
 
   const monitoringStatus = createMonitoringStatusService(deps);
   const monitoringProcessing = createMonitoringProcessingService({
+    venueRegistry: testVenueRegistry,
     connection: options.connection,
     serverGenerationId: 'gen-1',
     now: () => FIXED_NOW,
@@ -851,7 +850,7 @@ test('AC6 処理できなかった電文の診断（確定事項2・7・8）', a
       areas: [],
       adoptions: [
         {
-          venueId: 'east',
+          venueId: eastVenueId,
           adoptionResult: '未対応構造',
           adoptionReason: 'Control/Status が不正です',
           adoptionDecidedAt: FIXED_NOW,
@@ -880,7 +879,7 @@ test('AC6 処理できなかった電文の診断（確定事項2・7・8）', a
       areas: [],
       adoptions: [
         {
-          venueId: 'east',
+          venueId: eastVenueId,
           adoptionResult: '未対応構造',
           adoptionReason: null,
           adoptionDecidedAt: FIXED_NOW,
@@ -909,7 +908,7 @@ test('AC6 処理できなかった電文の診断（確定事項2・7・8）', a
       areas: [],
       adoptions: [
         {
-          venueId: 'east',
+          venueId: eastVenueId,
           adoptionResult: '未対応構造',
           adoptionReason: null,
           adoptionDecidedAt: FIXED_NOW,
@@ -938,7 +937,7 @@ test('AC6 処理できなかった電文の診断（確定事項2・7・8）', a
       areas: [],
       adoptions: [
         {
-          venueId: 'east',
+          venueId: eastVenueId,
           adoptionResult: '対象地域外',
           adoptionReason: null,
           adoptionDecidedAt: FIXED_NOW,
@@ -1028,7 +1027,7 @@ test('AC6(f) recentFailures はサンプル上限で止まるが byAdoptionResul
         areas: [],
         adoptions: [
           {
-            venueId: 'east',
+            venueId: eastVenueId,
             adoptionResult: '未対応構造',
             adoptionReason: null,
             adoptionDecidedAt: FIXED_NOW,
@@ -1210,6 +1209,87 @@ test('AC8 一覧に原文を含めないこと（確定事項3）', async () => 
   }
 });
 
+test('削除済み会場 ID は現行レジストリへ解決せず、履歴検索だけで照会できる', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const removedVenueId = 'removed-venue';
+    assert.equal(testVenueRegistry.resolveVenueId(removedVenueId), null);
+
+    const reception = recordTelegramReception(context.connection, {
+      fetchAttemptId: null,
+      feedKind: 'regular',
+      feedEntryId: 'removed-venue-history',
+      documentUrl: 'https://example.test/removed-venue-history',
+      telegramType: 'VPWS50',
+      title: null,
+      controlStatus: 'normal',
+      infoType: null,
+      eventId: null,
+      serial: null,
+      controlDateTime: null,
+      reportDateTime: null,
+      targetDateTime: null,
+      receivedAt: FIXED_NOW,
+      rawBody: null,
+      bodyBytes: null,
+      contentHash: null,
+      areas: [],
+      adoptions: [],
+    });
+    context.connection
+      .prepare(
+        `INSERT INTO telegram_reception_adoption
+          (reception_id, venue_id, adoption_result, adoption_reason, adoption_decided_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(reception.id, removedVenueId, '採用', null, FIXED_NOW);
+
+    const result = createMonitoringHistoryService({
+      connection: context.connection,
+      now: () => FIXED_NOW,
+    }).listReceptions({ adoptionVenueId: removedVenueId, limit: 100, offset: 0 });
+    assert.deepEqual(result, {
+      status: 'ready',
+      generatedAt: FIXED_NOW,
+      totalCount: 1,
+      limit: 100,
+      offset: 0,
+      items: [
+        {
+          id: reception.id,
+          fetchAttemptId: null,
+          feedKind: 'regular',
+          documentUrl: 'https://example.test/removed-venue-history',
+          telegramType: 'VPWS50',
+          title: null,
+          controlStatus: 'normal',
+          infoType: null,
+          eventId: null,
+          serial: null,
+          controlDateTime: null,
+          reportDateTime: null,
+          targetDateTime: null,
+          receivedAt: FIXED_NOW,
+          hasRawBody: false,
+          bodyBytes: null,
+          contentHash: null,
+          areas: [],
+          adoptions: [
+            {
+              venueId: removedVenueId,
+              adoptionResult: '採用',
+              adoptionReason: null,
+              adoptionDecidedAt: FIXED_NOW,
+            },
+          ],
+        },
+      ],
+    });
+  } finally {
+    cleanup();
+  }
+});
+
 test('AC9 検索上限（確定事項3）', async () => {
   const { context, cleanup } = createDb();
   try {
@@ -1335,13 +1415,13 @@ test('AC10(a) 会場別セクションは全会場分を返す（確定事項6�
       areas: [],
       adoptions: [
         {
-          venueId: 'east',
+          venueId: eastVenueId,
           adoptionResult: '未対応構造',
           adoptionReason: null,
           adoptionDecidedAt: FIXED_NOW,
         },
         {
-          venueId: 'trc',
+          venueId: trcVenueId,
           adoptionResult: '警報・注意報として解析済み',
           adoptionReason: null,
           adoptionDecidedAt: FIXED_NOW,
@@ -1362,10 +1442,10 @@ test('AC10(a) 会場別セクションは全会場分を返す（確定事項6�
           }[];
         };
         const venueIds = new Set(body.venues.map((v) => v.venueId));
-        assert.deepEqual(venueIds, new Set(['east', 'trc']));
+        assert.deepEqual(venueIds, new Set([eastVenueId, trcVenueId]));
 
-        const east = body.venues.find((v) => v.venueId === 'east')!;
-        const trc = body.venues.find((v) => v.venueId === 'trc')!;
+        const east = body.venues.find((v) => v.venueId === eastVenueId)!;
+        const trc = body.venues.find((v) => v.venueId === trcVenueId)!;
         assert.ok(east.recentAdoptions.some((a) => a.adoptionResult === '未対応構造'));
         assert.ok(
           trc.recentAdoptions.some((a) => a.adoptionResult === '警報・注意報として解析済み'),
@@ -1378,11 +1458,11 @@ test('AC10(a) 会場別セクションは全会場分を返す（確定事項6�
 
       const eastReq = await fetch(`${baseUrl}/api/monitoring/status?terminalId=hkeagh01`);
       const eastBody = (await eastReq.json()) as { requestedVenueId: string };
-      assert.equal(eastBody.requestedVenueId, 'east');
+      assert.equal(eastBody.requestedVenueId, eastVenueId);
 
       const trcReq = await fetch(`${baseUrl}/api/monitoring/status?terminalId=htrcph01`);
       const trcBody = (await trcReq.json()) as { requestedVenueId: string };
-      assert.equal(trcBody.requestedVenueId, 'trc');
+      assert.equal(trcBody.requestedVenueId, trcVenueId);
 
       const processingEast = await fetch(
         `${baseUrl}/api/monitoring/processing?terminalId=hkeagh01`,
@@ -1394,8 +1474,8 @@ test('AC10(a) 会場別セクションは全会場分を返す（確定事項6�
       const pt = (await processingTrc.json()) as {
         byAdoptionResult: readonly { venueId: string }[];
       };
-      assert.ok(pe.byAdoptionResult.some((r) => r.venueId === 'trc'));
-      assert.ok(pt.byAdoptionResult.some((r) => r.venueId === 'east'));
+      assert.ok(pe.byAdoptionResult.some((r) => r.venueId === trcVenueId));
+      assert.ok(pt.byAdoptionResult.some((r) => r.venueId === eastVenueId));
     } finally {
       await close();
     }
@@ -1550,10 +1630,12 @@ test('AC13 HTTP実挙動と依存注入（3依存の独立性・startup-inquirie
 
     // monitoringStatus のみ登録した場合
     const weatherApi = createWeatherApiService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       now: () => FIXED_NOW,
     });
     const monitoringStatus = createMonitoringStatusService({
+      venueRegistry: testVenueRegistry,
       connection: context.connection,
       scheduler: { getStatus: () => fakeSchedulerStatus(), isRunningNow: () => true },
       xmlPollingService: { getStatus: () => fakeXmlStatus() },

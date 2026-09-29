@@ -1,7 +1,11 @@
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { NotificationTarget } from '@wx-viewer-poc/shared';
-import { resolveNotificationVenueScope } from '../src/notifications/notificationVenueScope.js';
+import { resolveNotificationVenueScope as resolveNotificationVenueScopeImpl } from '../src/notifications/notificationVenueScope.js';
+
+const resolveNotificationVenueScope = (targets: readonly NotificationTarget[]) =>
+  resolveNotificationVenueScopeImpl(targets, testVenueRegistry);
 
 test('resolveNotificationVenueScope: 規則1 codeType===venue のとき該当会場を解決する', () => {
   const targetsEast: NotificationTarget[] = [

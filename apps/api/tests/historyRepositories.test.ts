@@ -1,3 +1,4 @@
+import { eastVenueId } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -81,7 +82,7 @@ const sampleTelegramInput: TelegramReceptionInput = {
   ],
   adoptions: [
     {
-      venueId: 'east',
+      venueId: eastVenueId,
       adoptionResult: '採用',
       adoptionReason: '最新の発表',
       adoptionDecidedAt: '2026-09-09T00:00:03Z',
@@ -658,7 +659,7 @@ test('12. 解析失敗相当の行を保存・取得でき、NULL が既定値�
       areas: [],
       adoptions: [
         {
-          venueId: 'east',
+          venueId: eastVenueId,
           adoptionResult: '未対応形式',
           adoptionReason: 'ルートタグが未知のフォーマット',
           adoptionDecidedAt: '2026-09-09T00:00:01Z',
@@ -673,7 +674,7 @@ test('12. 解析失敗相当の行を保存・取得でき、NULL が既定値�
     assert.deepEqual(created.adoptions, [
       {
         receptionId: created.id,
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '未対応形式',
         adoptionReason: 'ルートタグが未知のフォーマット',
         adoptionDecidedAt: '2026-09-09T00:00:01Z',
@@ -702,7 +703,7 @@ test('13. 同一 documentUrl を 2 回 recordTelegramReception すると 2 行�
       receivedAt: '2026-09-09T00:00:00Z',
       adoptions: [
         {
-          venueId: 'east',
+          venueId: eastVenueId,
           adoptionResult: '未判定',
           adoptionReason: null,
           adoptionDecidedAt: null,
@@ -714,7 +715,7 @@ test('13. 同一 documentUrl を 2 回 recordTelegramReception すると 2 行�
       receivedAt: '2026-09-09T00:10:00Z',
       adoptions: [
         {
-          venueId: 'east',
+          venueId: eastVenueId,
           adoptionResult: '重複受信',
           adoptionReason: null,
           adoptionDecidedAt: null,
@@ -825,7 +826,12 @@ test('16. telegramType / infoType / receivedAtFrom/To / reportDateTimeFrom/To / 
       telegramType: 'VPWW55',
       infoType: '発表',
       adoptions: [
-        { venueId: 'east', adoptionResult: '採用', adoptionReason: null, adoptionDecidedAt: null },
+        {
+          venueId: eastVenueId,
+          adoptionResult: '採用',
+          adoptionReason: null,
+          adoptionDecidedAt: null,
+        },
       ],
       receivedAt: '2026-09-09T01:00:00Z',
       reportDateTime: '2026-09-09T01:00:00Z',
@@ -837,7 +843,7 @@ test('16. telegramType / infoType / receivedAtFrom/To / reportDateTimeFrom/To / 
       infoType: '訂正',
       adoptions: [
         {
-          venueId: 'east',
+          venueId: eastVenueId,
           adoptionResult: '不採用',
           adoptionReason: null,
           adoptionDecidedAt: null,
@@ -907,7 +913,7 @@ test('17. upsertTelegramReceptionAdoption で対象会場の採用結果・理�
     });
 
     const updated = upsertTelegramReceptionAdoption(context.connection, created.id, {
-      venueId: 'east',
+      venueId: eastVenueId,
       adoptionResult: '採用（集約版）',
       adoptionReason: '全域カバーのため',
       adoptionDecidedAt: '2026-09-09T00:01:00Z',
@@ -915,7 +921,7 @@ test('17. upsertTelegramReceptionAdoption で対象会場の採用結果・理�
 
     assert.deepEqual(updated, {
       receptionId: created.id,
-      venueId: 'east',
+      venueId: eastVenueId,
       adoptionResult: '採用（集約版）',
       adoptionReason: '全域カバーのため',
       adoptionDecidedAt: '2026-09-09T00:01:00Z',
@@ -930,7 +936,7 @@ test('17. upsertTelegramReceptionAdoption で対象会場の採用結果・理�
 
     // 同一 (reception_id, venue_id) への再 upsert は上書きする
     const reupserted = upsertTelegramReceptionAdoption(context.connection, created.id, {
-      venueId: 'east',
+      venueId: eastVenueId,
       adoptionResult: '再判定',
       adoptionReason: null,
       adoptionDecidedAt: '2026-09-09T00:02:00Z',
@@ -942,7 +948,7 @@ test('17. upsertTelegramReceptionAdoption で対象会場の採用結果・理�
     // 存在しない reception_id は外部キー制約違反になる
     assert.throws(() => {
       upsertTelegramReceptionAdoption(context.connection, 999999, {
-        venueId: 'east',
+        venueId: eastVenueId,
         adoptionResult: '採用',
         adoptionReason: null,
         adoptionDecidedAt: null,

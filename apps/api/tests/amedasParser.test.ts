@@ -1,3 +1,4 @@
+import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -43,7 +44,7 @@ test('parseAmedasLatestTime: 正常系および異常系', () => {
 });
 
 test('parseAmedasPointBlock: east（江戸川臨海）原文 fixture 正規化', () => {
-  const eastTarget = resolveAmedasTarget('east');
+  const eastTarget = resolveAmedasTarget(testVenueRegistry, eastVenueId);
   const res = parseAmedasPointBlock(point44136Json, eastTarget);
   assert.equal(res.ok, true);
   if (!res.ok) return;
@@ -105,7 +106,7 @@ test('parseAmedasPointBlock: east（江戸川臨海）原文 fixture 正規化',
 });
 
 test('parseAmedasPointBlock: east 合成 fixture による欠測・AQC・未知キーの検証', () => {
-  const eastTarget = resolveAmedasTarget('east');
+  const eastTarget = resolveAmedasTarget(testVenueRegistry, eastVenueId);
   const res = parseAmedasPointBlock(point44136SyntheticJson, eastTarget);
   assert.equal(res.ok, true);
   if (!res.ok) return;
@@ -188,7 +189,7 @@ test('parseAmedasPointBlock: east 合成 fixture による欠測・AQC・未知�
 });
 
 test('parseAmedasPointBlock: trc（羽田）正規化および east との対比', () => {
-  const trcTarget = resolveAmedasTarget('trc');
+  const trcTarget = resolveAmedasTarget(testVenueRegistry, trcVenueId);
   const res = parseAmedasPointBlock(point44166Json, trcTarget);
   assert.equal(res.ok, true);
   if (!res.ok) return;
@@ -237,7 +238,7 @@ test('parseAmedasPointBlock: trc（羽田）正規化および east との対比
   }
 
   // 同一データ構造（humidity: [55, 0]）を east の target で正規化すると valueNumber === 55 の行が作られること
-  const eastTarget = resolveAmedasTarget('east');
+  const eastTarget = resolveAmedasTarget(testVenueRegistry, eastVenueId);
   // 44136 向けに observationNumber だけ 136 に置換した同一データを用意
   const eastWithHumJson = point44166SyntheticWithHumidityJson.replace(
     /"observationNumber":\s*166/g,
@@ -254,7 +255,7 @@ test('parseAmedasPointBlock: trc（羽田）正規化および east との対比
 });
 
 test('parseAmedasPointBlock: 構造検証による ok: false（例外なし）', () => {
-  const eastTarget = resolveAmedasTarget('east');
+  const eastTarget = resolveAmedasTarget(testVenueRegistry, eastVenueId);
 
   // 1. JSON 不正
   assert.equal(parseAmedasPointBlock('not json', eastTarget).ok, false);
@@ -289,7 +290,7 @@ test('parseAmedasPointBlock: 構造検証による ok: false（例外なし）',
 });
 
 test('parseAmedasPointBlock: AQC が null 以外の非数値なら未知形状として行を作らない', () => {
-  const eastTarget = resolveAmedasTarget('east');
+  const eastTarget = resolveAmedasTarget(testVenueRegistry, eastVenueId);
   const result = parseAmedasPointBlock(
     JSON.stringify({
       '20260911180000': {

@@ -1,8 +1,8 @@
 import {
-  VENUE_IDS,
   type MonitoringWarningRecoveryStatus,
   type UtcIso8601String,
   type VenueId,
+  type VenueRegistry,
 } from '@wx-viewer-poc/shared';
 import type {
   WarningCurrentRecoveryProgress,
@@ -38,8 +38,8 @@ const idle = (): MonitoringWarningRecoveryStatus => ({
 
 export class InMemoryWarningCurrentRecoveryTracker implements WarningCurrentRecoveryTracker {
   private readonly states = new Map<VenueId, MonitoringWarningRecoveryStatus>();
-  constructor() {
-    for (const venueId of VENUE_IDS) this.states.set(venueId, idle());
+  constructor(registry?: VenueRegistry) {
+    for (const venueId of registry?.listVenueIds() ?? []) this.states.set(venueId, idle());
   }
   start(venueId: VenueId, startedAt: UtcIso8601String): void {
     this.states.set(venueId, { ...idle(), status: 'running', startedAt });

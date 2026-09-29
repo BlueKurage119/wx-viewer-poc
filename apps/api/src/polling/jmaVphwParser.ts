@@ -15,17 +15,7 @@ import {
   type VphwParseResult,
   type VphwTelegramType,
 } from '../repositories/types.js';
-import {
-  DEFAULT_BOSAI_BULLETIN_TARGET,
-  resolveBosaiBulletinTarget,
-} from '../venueForecastTargets.js';
-
-export {
-  DEFAULT_BOSAI_BULLETIN_TARGET,
-  resolveBosaiBulletinTarget,
-  type ParsedVphw,
-  type VphwParseResult,
-};
+export { type ParsedVphw, type VphwParseResult };
 
 export const JMA_REPORT_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/';
 export const JMA_INFORMATION_NAMESPACE = 'http://xml.kishou.go.jp/jmaxml1/informationBasis1/';
@@ -124,7 +114,7 @@ export function parseVphw(
     TelegramReception,
     'telegramType' | 'controlStatus' | 'reportDateTime' | 'controlDateTime'
   >,
-  target: BosaiBulletinTarget = DEFAULT_BOSAI_BULLETIN_TARGET,
+  target: BosaiBulletinTarget,
 ): VphwParseResult {
   // 判定#1: 電文種別チェック
   if (!isVphwTelegramType(expected.telegramType)) {

@@ -1,6 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMonitoringReceptionQuery } from '../src/monitoringHistory.js';
+import {
+  parseMonitoringReceptionQuery,
+  type MonitoringReceptionQuery,
+} from '../src/monitoringHistory.js';
+
+type IsSame<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
+    ? true
+    : false;
+
+// 履歴検索の会場 ID は現行レジストリの VenueId ではなく、保存済み ID をそのまま照会する文字列である。
+const adoptionVenueIdIsPersistedId: IsSame<
+  NonNullable<MonitoringReceptionQuery['adoptionVenueId']>,
+  string
+> = true;
+void adoptionVenueIdIsPersistedId;
 
 /**
  * レビュー指摘 #5: isValidUtcIso8601 が Date.parse ベースだったため、
@@ -57,4 +72,13 @@ test('receivedAtFrom/To はSQL比較のためtoISOString()相当の3桁固定小
   // （修正前は '...00.1Z' のまま渡され、DB保存形式 '...00.100Z' と辞書順比較がずれていた）
   const normalized = parseMonitoringReceptionQuery({ receivedAtFrom: '2026-09-15T10:00:00.1Z' });
   assert.equal(normalized?.receivedAtFrom, '2026-09-15T10:00:00.100Z');
+});
+
+test('adoptionVenueId は削除済み会場の履歴 ID を文字列のまま受理する', () => {
+  const result = parseMonitoringReceptionQuery({ adoptionVenueId: 'removed-venue' });
+  assert.deepEqual(result, {
+    adoptionVenueId: 'removed-venue',
+    limit: 100,
+    offset: 0,
+  });
 });

@@ -1,5 +1,6 @@
-/** 会場固有の気象対象を表す識別子。端末の表示モードとは独立する。 */
-export type VenueId = 'east' | 'trc';
+/** 起動時に検証済みの会場 ID。外部入力は VenueRegistry.resolveVenueId を通す。 */
+declare const venueIdBrand: unique symbol;
+export type VenueId = string & { readonly [venueIdBrand]: 'VenueId' };
 
 declare const municipalWarningAreaCodeBrand: unique symbol;
 declare const prefectureForecastAreaCodeBrand: unique symbol;
@@ -7,7 +8,6 @@ declare const regionalForecastAreaCodeBrand: unique symbol;
 declare const forecastTemperatureStationCodeBrand: unique symbol;
 declare const amedasStationCodeBrand: unique symbol;
 declare const bosaiBulletinAreaCodeBrand: unique symbol;
-
 export type MunicipalWarningAreaCode = string & {
   readonly [municipalWarningAreaCodeBrand]: 'MunicipalWarningAreaCode';
 };
@@ -30,36 +30,30 @@ export interface WarningCurrentTarget {
   readonly displayName: string;
   readonly prefectureCode: PrefectureForecastAreaCode;
 }
-
 export interface WarningTimeseriesTarget {
   readonly municipalCode: MunicipalWarningAreaCode;
   readonly displayName: string;
 }
-
 export interface BroadForecastTarget {
   readonly areaCode: RegionalForecastAreaCode;
   readonly displayName: string;
 }
-
 export interface TemperatureForecastTarget {
   readonly stationCode: ForecastTemperatureStationCode;
   readonly displayName: string;
 }
-
 export interface AmedasTarget {
   readonly stationCode: AmedasStationCode;
   readonly displayName: string;
-  /** 気象庁地点表の elems。ビット演算による機能推測には使用しない。 */
   readonly elements: string;
 }
-
 export interface BosaiBulletinTarget {
   readonly includedAreaCodes: readonly BosaiBulletinAreaCode[];
 }
-
 export interface VenueForecastTargets {
   readonly venueId: VenueId;
   readonly venueName: string;
+  readonly experimental: boolean;
   readonly mapReference: Readonly<{ readonly latitude: number; readonly longitude: number }>;
   readonly warning: WarningCurrentTarget;
   readonly warningTimeseries: WarningTimeseriesTarget;
@@ -68,110 +62,56 @@ export interface VenueForecastTargets {
   readonly amedas: AmedasTarget;
   readonly bosaiBulletin: BosaiBulletinTarget;
 }
-
-const municipalWarningAreaCode = (value: string): MunicipalWarningAreaCode =>
-  value as MunicipalWarningAreaCode;
-const prefectureForecastAreaCode = (value: string): PrefectureForecastAreaCode =>
-  value as PrefectureForecastAreaCode;
-const regionalForecastAreaCode = (value: string): RegionalForecastAreaCode =>
-  value as RegionalForecastAreaCode;
-const forecastTemperatureStationCode = (value: string): ForecastTemperatureStationCode =>
-  value as ForecastTemperatureStationCode;
-const amedasStationCode = (value: string): AmedasStationCode => value as AmedasStationCode;
-const bosaiBulletinAreaCode = (value: string): BosaiBulletinAreaCode =>
-  value as BosaiBulletinAreaCode;
-
-function mapReference(latitude: number, longitude: number): VenueForecastTargets['mapReference'] {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    throw new Error('会場の地図基準位置は有限数値で指定してください');
-  }
-  return Object.freeze({ latitude, longitude });
+export type VenueConfigDto = VenueForecastTargets;
+export interface VenueConfigResponse {
+  readonly generation: string;
+  readonly venues: readonly VenueConfigDto[];
 }
 
-export const VENUE_FORECAST_TARGETS: Readonly<Record<VenueId, VenueForecastTargets>> =
-  Object.freeze({
-    east: Object.freeze({
-      venueId: 'east',
-      venueName: '東京ビッグサイト',
-      mapReference: mapReference(35.63159368010876, 139.79281040119963),
-      warning: Object.freeze({
-        municipalCode: municipalWarningAreaCode('1310800'),
-        displayName: '江東区',
-        prefectureCode: prefectureForecastAreaCode('130000'),
-      }),
-      warningTimeseries: Object.freeze({
-        municipalCode: municipalWarningAreaCode('1310800'),
-        displayName: '江東区',
-      }),
-      broadForecast: Object.freeze({
-        areaCode: regionalForecastAreaCode('130010'),
-        displayName: '東京地方',
-      }),
-      temperatureForecast: Object.freeze({
-        stationCode: forecastTemperatureStationCode('44132'),
-        displayName: '東京（北の丸公園）',
-      }),
-      amedas: Object.freeze({
-        stationCode: amedasStationCode('44136'),
-        displayName: '江戸川臨海',
-        elements: '11112010',
-      }),
-      bosaiBulletin: Object.freeze({
-        includedAreaCodes: Object.freeze([
-          bosaiBulletinAreaCode('1310800'),
-          bosaiBulletinAreaCode('130012'),
-          bosaiBulletinAreaCode('130010'),
-        ]),
-      }),
-    }),
-    trc: Object.freeze({
-      venueId: 'trc',
-      venueName: '東京流通センター',
-      mapReference: mapReference(35.58138, 139.748119),
-      warning: Object.freeze({
-        municipalCode: municipalWarningAreaCode('1311100'),
-        displayName: '大田区',
-        prefectureCode: prefectureForecastAreaCode('130000'),
-      }),
-      warningTimeseries: Object.freeze({
-        municipalCode: municipalWarningAreaCode('1311100'),
-        displayName: '大田区',
-      }),
-      broadForecast: Object.freeze({
-        areaCode: regionalForecastAreaCode('130010'),
-        displayName: '東京地方',
-      }),
-      temperatureForecast: Object.freeze({
-        stationCode: forecastTemperatureStationCode('44132'),
-        displayName: '東京（北の丸公園）',
-      }),
-      amedas: Object.freeze({
-        stationCode: amedasStationCode('44166'),
-        displayName: '羽田',
-        elements: '11110000',
-      }),
-      bosaiBulletin: Object.freeze({
-        includedAreaCodes: Object.freeze([
-          bosaiBulletinAreaCode('1311100'),
-          bosaiBulletinAreaCode('130011'),
-          bosaiBulletinAreaCode('130010'),
-        ]),
-      }),
+function freezeVenue(venue: VenueForecastTargets): VenueForecastTargets {
+  return Object.freeze({
+    ...venue,
+    mapReference: Object.freeze({ ...venue.mapReference }),
+    warning: Object.freeze({ ...venue.warning }),
+    warningTimeseries: Object.freeze({ ...venue.warningTimeseries }),
+    broadForecast: Object.freeze({ ...venue.broadForecast }),
+    temperatureForecast: Object.freeze({ ...venue.temperatureForecast }),
+    amedas: Object.freeze({ ...venue.amedas }),
+    bosaiBulletin: Object.freeze({
+      includedAreaCodes: Object.freeze([...venue.bosaiBulletin.includedAreaCodes]),
     }),
   });
-
-export function resolveVenueForecastTargets(venueId: VenueId): VenueForecastTargets {
-  return VENUE_FORECAST_TARGETS[venueId];
 }
-
-/**
- * VenueId の全列挙。VENUE_FORECAST_TARGETS のキーから導出せずリテラルで定義する
- * （キー順序に依存する処理を作らないため）。全キーとの一致は
- * packages/shared/tests/venueForecastTargets.test.ts で固定する。
- */
-export const VENUE_IDS: readonly VenueId[] = Object.freeze(['east', 'trc']);
-
-/** DB から読み出した venue_id 文字列を VenueId へ戻す唯一の経路。外部入力を無検証でキャストしない。 */
-export function isVenueId(value: unknown): value is VenueId {
-  return typeof value === 'string' && (VENUE_IDS as readonly string[]).includes(value);
+export interface VenueRegistry {
+  readonly generation: string;
+  listVenueIds(): readonly VenueId[];
+  listVenues(): readonly VenueForecastTargets[];
+  resolveVenueId(value: unknown): VenueId | null;
+  getVenue(id: VenueId): VenueForecastTargets;
+}
+export function createVenueRegistry(
+  venues: readonly VenueForecastTargets[],
+  generation: string,
+): VenueRegistry {
+  const frozen = Object.freeze(venues.map(freezeVenue));
+  const venueIds = Object.freeze(frozen.map((venue) => venue.venueId));
+  const byId = new Map<VenueId, VenueForecastTargets>();
+  for (const venue of frozen) {
+    if (byId.has(venue.venueId)) {
+      throw new Error(`会場 ID が重複しています: ${venue.venueId}`);
+    }
+    byId.set(venue.venueId, venue);
+  }
+  return Object.freeze({
+    generation,
+    listVenueIds: (): readonly VenueId[] => venueIds,
+    listVenues: (): readonly VenueForecastTargets[] => frozen,
+    resolveVenueId: (value: unknown): VenueId | null =>
+      typeof value === 'string' && byId.has(value as VenueId) ? (value as VenueId) : null,
+    getVenue: (id: VenueId): VenueForecastTargets => {
+      const venue = byId.get(id);
+      if (!venue) throw new Error(`会場 ID が設定にありません: ${id}`);
+      return venue;
+    },
+  });
 }

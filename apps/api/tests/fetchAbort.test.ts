@@ -1,3 +1,4 @@
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -183,7 +184,7 @@ test('AC11-(b): 中断後の pollSingleFeed が残りの電文を GET しない�
       'initial',
       1,
       processedUrls,
-      { fetchFn: mockFetch },
+      { fetchFn: mockFetch, venueRegistry: testVenueRegistry },
       controller.signal,
     );
 
@@ -256,6 +257,7 @@ test('AC11-(c): 中断フィードが feedFetchOutcome: "aborted" になり succ
     };
 
     service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
     });
@@ -337,6 +339,7 @@ test('AC11-(d): 中断でバックオフの consecutiveFailures が増えない'
     };
 
     service = new JmaXmlPollingService(db.connection, {
+      venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       fetchFn: mockFetch,
     });

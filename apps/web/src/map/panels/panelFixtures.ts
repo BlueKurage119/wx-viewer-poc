@@ -12,6 +12,7 @@ import type {
   WarningTimeseriesTimeDefine,
   WarningTimeseriesValue,
   WeatherMetadata,
+  VenueId,
 } from '@wx-viewer-poc/shared';
 import type { InfoPanelCardInput, InfoPanelColumnInput } from './panelDefinitions';
 import { AreaForecastDetailFixtureEntry } from './detailDialogFixtures';
@@ -31,6 +32,7 @@ import type {
 } from '@wx-viewer-poc/shared';
 
 const DUMMY_CONTENT = '（G2〜G7で実装）';
+const EAST_FIXTURE_VENUE_ID = 'east' as VenueId;
 
 function todayAt(hour: number, minute: number): string {
   const now = new Date();
@@ -377,7 +379,7 @@ export function buildWarningTimeseriesFixtureResponse(
 
   return {
     terminalId: 'fixture-terminal',
-    venueId: 'east',
+    venueId: EAST_FIXTURE_VENUE_ID,
     controlStatus: 'normal',
     isTraining: false,
     evaluatedAt: todayAt(5, 0),
@@ -780,7 +782,7 @@ function buildWarningBadgesFixture(): InfoPanelColumnInput {
 
   const response: WarningsResponse = {
     terminalId: 'fixture-terminal',
-    venueId: 'east',
+    venueId: EAST_FIXTURE_VENUE_ID,
     controlStatus: 'normal',
     isTraining: false,
     evaluatedAt: todayAt(14, 0),
