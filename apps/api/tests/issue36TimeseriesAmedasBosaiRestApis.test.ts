@@ -1182,7 +1182,7 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
 
 test('B6追加 #229: 空風向とconditionをRESTで保持する', async () => {
   const { db, app } = createTestApp();
-  saveAreaTimeseriesSnapshot(db.connection, {
+  const saved = saveAreaTimeseriesSnapshot(db.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     stationCode: '44132',
@@ -1246,6 +1246,36 @@ test('B6追加 #229: 空風向とconditionをRESTで保持する', async () => {
       sequence: 1,
     },
   ]);
+  saveAreaTimeseriesSnapshot(db.connection, {
+    ...saved,
+    telegram: { ...saved.telegram, controlStatus: 'training' },
+    values: saved.values.map((value) => ({ ...value, valueText: '北', condition: '強く' })),
+  });
+  const training = await request(app).get(
+    '/api/weather/area-timeseries?terminalId=hkeagh01&controlStatus=training',
+  );
+  assert.equal(training.status, 200);
+  assert.deepEqual(
+    training.body.data.values,
+    res.body.data.values.map((value: AreaTimeseriesValue) => ({
+      ...value,
+      valueText: '北',
+      condition: '強く',
+    })),
+  );
+  saveAreaTimeseriesSnapshot(db.connection, {
+    ...saved,
+    metadata: { ...saved.metadata, availability: 'stale' },
+    values: [],
+    timeDefines: [],
+  });
+  const stale = await request(app).get(
+    '/api/weather/area-timeseries?terminalId=hkeagh01&controlStatus=normal',
+  );
+  assert.equal(stale.status, 200);
+  assert.equal(stale.body.metadata.availability, 'stale');
+  assert.deepEqual(stale.body.data.values, res.body.data.values);
+  assert.deepEqual(stale.body.data.timeDefines, res.body.data.timeDefines);
 });
 
 // ---------------------------------------------------------------------------

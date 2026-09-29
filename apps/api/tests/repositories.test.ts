@@ -268,26 +268,53 @@ test('4追加 #229: conditionは保存・stale保持・再オープン・null更
           ],
   });
   try {
-    saveAreaTimeseriesSnapshot(db.context.connection, input('風弱く', 'available'));
-    saveAreaTimeseriesSnapshot(db.context.connection, input(null, 'stale'));
-    assert.equal(
-      findAreaTimeseriesSnapshot(db.context.connection, '130010', '44132', 'normal')?.values[0]
-        ?.condition,
-      '風弱く',
+    const initial = input('風弱く', 'available');
+    initial.values.push({
+      ...initial.values[0]!,
+      refId: '2',
+      valueText: '北',
+      condition: '強く',
+      sequence: 2,
+    });
+    initial.values.push({
+      ...initial.values[0]!,
+      refId: '3',
+      valueText: '南',
+      condition: null,
+      sequence: 3,
+    });
+    initial.timeDefines.push({ ...initial.timeDefines[0]!, timeId: '2', sequence: 2 });
+    initial.timeDefines.push({ ...initial.timeDefines[0]!, timeId: '3', sequence: 3 });
+    const saved = saveAreaTimeseriesSnapshot(db.context.connection, initial);
+    assert.deepEqual(
+      saved.values.map(({ id, ...value }) => {
+        assert.ok(id > 0);
+        return value;
+      }),
+      initial.values,
+    );
+    assert.deepEqual(
+      findAreaTimeseriesSnapshot(db.context.connection, '130010', '44132', 'normal')?.values,
+      saved.values,
+    );
+    const stale = saveAreaTimeseriesSnapshot(db.context.connection, input(null, 'stale'));
+    assert.deepEqual(stale.values, saved.values);
+    assert.deepEqual(
+      findAreaTimeseriesSnapshot(db.context.connection, '130010', '44132', 'normal')?.values,
+      saved.values,
     );
     db.context.close();
     const reopened = initializeDatabase({ databasePath: db.databasePath, migrationsDirectory });
     try {
-      assert.equal(
-        findAreaTimeseriesSnapshot(reopened.connection, '130010', '44132', 'normal')?.values[0]
-          ?.condition,
-        '風弱く',
+      assert.deepEqual(
+        findAreaTimeseriesSnapshot(reopened.connection, '130010', '44132', 'normal')?.values,
+        saved.values,
       );
-      saveAreaTimeseriesSnapshot(reopened.connection, input(null, 'available'));
-      assert.equal(
-        findAreaTimeseriesSnapshot(reopened.connection, '130010', '44132', 'normal')?.values[0]
-          ?.condition,
-        null,
+      const updated = saveAreaTimeseriesSnapshot(reopened.connection, input(null, 'available'));
+      assert.equal(updated.values[0]?.condition, null);
+      assert.deepEqual(
+        findAreaTimeseriesSnapshot(reopened.connection, '130010', '44132', 'normal')?.values,
+        updated.values,
       );
     } finally {
       reopened.close();

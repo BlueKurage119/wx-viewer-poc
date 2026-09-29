@@ -443,6 +443,9 @@ test('10. migration 0025 適用前の地域時系列値は保持され、conditi
         ) VALUES (1, 'region-3hour', '1', 'wind_direction', NULL, '北', NULL, '８方位漢字', 1)`,
       )
       .run();
+    const oldRows = before.connection
+      .prepare('SELECT * FROM area_timeseries_value ORDER BY id')
+      .all();
     before.close();
 
     writeFileSync(migrationPath, migrationSql, 'utf8');
@@ -450,16 +453,21 @@ test('10. migration 0025 適用前の地域時系列値は保持され、conditi
     try {
       assert.deepEqual(after.migrationSummary.appliedVersions, [25]);
       assert.deepEqual(
-        after.connection
-          .prepare(
-            `SELECT value_text, unit, sequence, condition
-             FROM area_timeseries_value WHERE snapshot_id = 1`,
-          )
-          .get(),
-        { value_text: '北', unit: '８方位漢字', sequence: 1, condition: null },
+        after.connection.prepare('SELECT * FROM area_timeseries_value ORDER BY id').all(),
+        oldRows.map((row) => ({ ...(row as Record<string, unknown>), condition: null })),
       );
     } finally {
       after.close();
+    }
+    const again = initializeDatabase({ databasePath, migrationsDirectory: temporaryMigrations });
+    try {
+      assert.deepEqual(again.migrationSummary.appliedVersions, []);
+      assert.deepEqual(
+        again.connection.prepare('SELECT * FROM area_timeseries_value ORDER BY id').all(),
+        oldRows.map((row) => ({ ...(row as Record<string, unknown>), condition: null })),
+      );
+    } finally {
+      again.close();
     }
   } finally {
     rmSync(directory, { recursive: true, force: true });
