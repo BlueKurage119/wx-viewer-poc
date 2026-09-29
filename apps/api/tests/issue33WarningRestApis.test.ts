@@ -50,6 +50,7 @@ import type { ControlStatus } from '../src/repositories/types.js';
 import { initializeDatabase } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
 import { startServer } from '../src/server.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import { createWeatherApiService } from '../src/services/weatherApiService.js';
 import { evaluateWeatherAvailability } from '../src/services/weatherAvailability.js';
 import { hasNewerWeatherParseFailure } from '../src/repositories/weatherParseFailureRepository.js';
@@ -1926,6 +1927,7 @@ test('A15: GET 前後で DB 件数不変、安全な 500、startServer での結
   const started = await startServer({
     port: 0,
     enablePolling: false,
+    pollingSchedule: createTestPollingSchedule(),
   });
 
   try {

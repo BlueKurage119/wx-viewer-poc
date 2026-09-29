@@ -44,6 +44,7 @@ import {
   type PollingTimerScheduler,
 } from '../src/polling/jmaXmlPollingService.js';
 import { startServer } from '../src/server.js';
+import { createAlwaysOnTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -1159,6 +1160,7 @@ test('11. startServer() の既定起動で 4 フィードの初期サイクル�
     const apiServer = await startServer({
       config,
       port: 0,
+      pollingSchedule: createAlwaysOnTestPollingSchedule(),
       pollingServiceOptions: {
         fetchFn: customFetch,
         allowedUrlPrefixes: [server.baseUrl],
@@ -1191,6 +1193,7 @@ test('11. startServer() の既定起動で 4 フィードの初期サイクル�
       config,
       port: 0,
       enablePolling: false,
+      pollingSchedule: createAlwaysOnTestPollingSchedule(),
     });
     try {
       assert.equal(disabledServer.pollingService, undefined);
@@ -3133,6 +3136,7 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
           startServer({
             config: { databasePath: fresh.databasePath, migrationsDirectory },
             port: 0,
+            pollingSchedule: createAlwaysOnTestPollingSchedule(),
             pollingService: crashingService,
             schedulerOptions: {
               now: () => new Date('2026-09-09T12:00:00+09:00'),
@@ -3175,6 +3179,7 @@ test('22-9b. HTTP待受失敗時は初期取得を開始せず、DBを解放し�
         startServer({
           config: { databasePath, migrationsDirectory },
           port: address.port,
+          pollingSchedule: createAlwaysOnTestPollingSchedule(),
           pollingService,
         }),
       /EADDRINUSE/,

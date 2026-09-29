@@ -7,6 +7,7 @@ import test from 'node:test';
 import { startServer } from '../src/server.js';
 import { initializeDatabase } from '../src/database/index.js';
 import type { SignalSource } from '../src/gracefulShutdown.js';
+import { createAlwaysOnTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 /**
  * Issue #42/#43 レビュー指摘 #6 の回帰テスト。
@@ -47,56 +48,107 @@ function makeDeferredResponse(): {
   return { promise, resolve };
 }
 
-test('レビュー指摘#6: 初期化中(初回XML取得の待機中)にシグナルが届いてもクラッシュしない', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-graceful-shutdown-timing-'));
-  const databasePath = path.join(tmpDir, 'test.sqlite3');
-  const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
-
-  try {
-    const deferred = makeDeferredResponse();
-    const signalSource = new FakeSignalSource();
+test('常時稼働設定では注入時計がJST昼12時・夜22時でも同じ初期取得結果になる', async () => {
+  for (const fixedNow of ['2026-09-07T03:00:00.000Z', '2026-09-07T13:00:00.000Z']) {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-polling-clock-independence-'));
+    const databasePath = path.join(tmpDir, 'test.sqlite3');
+    const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
+    let fetchCount = 0;
     const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
       source,
       runScheduled: async () => {},
       runManual: async () => {},
     });
 
-    const startPromise = startServer({
-      config: { databasePath, migrationsDirectory },
-      port: 0,
-      enablePolling: true,
-      shutdownSignalSource: signalSource,
-      // 初回XML取得を意図的に完了させず、close() が未初期化な期間を作る。
-      pollingServiceOptions: { fetchFn: () => deferred.promise },
-      schedulerOptions: {
-        adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
-        setTimer: () => 1,
-        clearTimer: () => {},
-      },
-    });
-
-    // startServer() は最初の await(HTTP待受)まで同期的に進む。この時点で
-    // シグナル登録が close 定義前に行われていた場合、trigger() は
-    // ReferenceError を同期的に投げる(修正前の挙動)。
-    assert.doesNotThrow(
-      () => signalSource.trigger('SIGTERM'),
-      '初期化中のシグナルで ReferenceError が発生してはならない',
-    );
-
-    // 初回取得を完了させ、起動を終わらせる。
-    deferred.resolve(new Response('', { status: 500 }));
-    const server = await startPromise;
-    // 起動完了後は close 定義後に登録が済んでおり、シグナルで正しく購読される。
-    const triggered = signalSource.trigger('SIGTERM');
-    assert.equal(triggered, true, '起動完了後はシグナルハンドラが登録されていること');
-    // signalSource.trigger() は close() を待たずに発火するだけなので、
-    // バックグラウンドの close() 完了(DB書き込み含む)を待ってから一時ディレクトリを片付ける。
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await server.close().catch(() => {});
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    try {
+      const server = await startServer({
+        config: { databasePath, migrationsDirectory },
+        port: 0,
+        enablePolling: true,
+        pollingSchedule: createAlwaysOnTestPollingSchedule(),
+        pollingServiceOptions: {
+          clock: () => fixedNow,
+          fetchFn: async () => {
+            fetchCount += 1;
+            return new Response('<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"/>');
+          },
+        },
+        schedulerOptions: {
+          adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+          now: () => new Date(fixedNow),
+          setTimer: () => 1,
+          clearTimer: () => {},
+        },
+      });
+      try {
+        assert.equal(server.pollingService?.getStatus().initialFetch.phase, 'completed');
+        assert.equal(fetchCount, 4);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   }
 });
+
+for (const [jstTime, fixedNow] of [
+  ['12:00', '2026-09-07T03:00:00.000Z'],
+  ['22:00', '2026-09-07T13:00:00.000Z'],
+] as const) {
+  test(`レビュー指摘#6: 初期化中(初回XML取得の待機中)にシグナルが届いてもクラッシュしない（JST ${jstTime}）`, async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-graceful-shutdown-timing-'));
+    const databasePath = path.join(tmpDir, 'test.sqlite3');
+    const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
+
+    try {
+      const deferred = makeDeferredResponse();
+      const signalSource = new FakeSignalSource();
+      const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
+        source,
+        runScheduled: async () => {},
+        runManual: async () => {},
+      });
+
+      const startPromise = startServer({
+        config: { databasePath, migrationsDirectory },
+        port: 0,
+        enablePolling: true,
+        pollingSchedule: createAlwaysOnTestPollingSchedule(),
+        shutdownSignalSource: signalSource,
+        // 初回XML取得を意図的に完了させず、close() が未初期化な期間を作る。
+        pollingServiceOptions: { fetchFn: () => deferred.promise, clock: () => fixedNow },
+        schedulerOptions: {
+          adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+          now: () => new Date(fixedNow),
+          setTimer: () => 1,
+          clearTimer: () => {},
+        },
+      });
+
+      // startServer() は最初の await(HTTP待受)まで同期的に進む。この時点で
+      // シグナル登録が close 定義前に行われていた場合、trigger() は
+      // ReferenceError を同期的に投げる(修正前の挙動)。
+      assert.doesNotThrow(
+        () => signalSource.trigger('SIGTERM'),
+        '初期化中のシグナルで ReferenceError が発生してはならない',
+      );
+
+      // 初回取得を完了させ、起動を終わらせる。
+      deferred.resolve(new Response('', { status: 500 }));
+      const server = await startPromise;
+      // 起動完了後は close 定義後に登録が済んでおり、シグナルで正しく購読される。
+      const triggered = signalSource.trigger('SIGTERM');
+      assert.equal(triggered, true, '起動完了後はシグナルハンドラが登録されていること');
+      // signalSource.trigger() は close() を待たずに発火するだけなので、
+      // バックグラウンドの close() 完了(DB書き込み含む)を待ってから一時ディレクトリを片付ける。
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await server.close().catch(() => {});
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+}
 
 /**
  * Codexレビュー指摘#6（2回目レビュー）の回帰テスト。
@@ -108,76 +160,83 @@ test('レビュー指摘#6: 初期化中(初回XML取得の待機中)にシグ�
  * 本テストは、初期化中でもシグナルが即座に捕捉され(listenerが登録済みであること)、
  * 初期化完了後にB5へ停止記録が反映されることを確認する。
  */
-test('レビュー指摘#6（2回目）: 初期化中に届いたシグナルも捕捉され、初期化完了後に停止記録される', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-graceful-shutdown-pending-'));
-  const databasePath = path.join(tmpDir, 'test.sqlite3');
-  const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
+for (const [jstTime, fixedNow] of [
+  ['12:00', '2026-09-07T03:00:00.000Z'],
+  ['22:00', '2026-09-07T13:00:00.000Z'],
+] as const) {
+  test(`レビュー指摘#6（2回目）: 初期化中に届いたシグナルも捕捉され、初期化完了後に停止記録される（JST ${jstTime}）`, async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-graceful-shutdown-pending-'));
+    const databasePath = path.join(tmpDir, 'test.sqlite3');
+    const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
 
-  try {
-    const deferred = makeDeferredResponse();
-    const signalSource = new FakeSignalSource();
-    const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
-      source,
-      runScheduled: async () => {},
-      runManual: async () => {},
-    });
-
-    const startPromise = startServer({
-      config: { databasePath, migrationsDirectory },
-      port: 0,
-      enablePolling: true,
-      shutdownSignalSource: signalSource,
-      // 初回XML取得を意図的に完了させず、初期化が終わっていない期間を作る。
-      pollingServiceOptions: { fetchFn: () => deferred.promise },
-      schedulerOptions: {
-        adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
-        setTimer: () => 1,
-        clearTimer: () => {},
-      },
-    });
-
-    // startServer() はHTTP待受までは同期的に進む。この時点で既にシグナル購読が
-    // 済んでいる（＝listenerが登録済みでtriggerがtrueを返す）ことを確認する。
-    const triggeredDuringInit = signalSource.trigger('SIGTERM');
-    assert.equal(
-      triggeredDuringInit,
-      true,
-      '初期化完了を待たずにシグナルハンドラが登録済みであること（修正前は未登録でfalse）',
-    );
-
-    // 初期化を完了させる。保留していたシグナルはここで close({reason:'signal'}) として反映される。
-    deferred.resolve(new Response('', { status: 500 }));
-    const server = await startPromise;
-
-    // close() はバックグラウンドで進む（DB書き込み含む）ため完了を待つ。
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    // close 済みのため、別コネクションでDBファイルを開いて検証する。
-    const readback = initializeDatabase({ databasePath, migrationsDirectory });
     try {
-      const stopRows = readback.connection
-        .prepare("SELECT * FROM operation_history WHERE operation_kind = 'stop'")
-        .all() as { request_id: string }[];
+      const deferred = makeDeferredResponse();
+      const signalSource = new FakeSignalSource();
+      const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
+        source,
+        runScheduled: async () => {},
+        runManual: async () => {},
+      });
+
+      const startPromise = startServer({
+        config: { databasePath, migrationsDirectory },
+        port: 0,
+        enablePolling: true,
+        pollingSchedule: createAlwaysOnTestPollingSchedule(),
+        shutdownSignalSource: signalSource,
+        // 初回XML取得を意図的に完了させず、初期化が終わっていない期間を作る。
+        pollingServiceOptions: { fetchFn: () => deferred.promise, clock: () => fixedNow },
+        schedulerOptions: {
+          adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+          now: () => new Date(fixedNow),
+          setTimer: () => 1,
+          clearTimer: () => {},
+        },
+      });
+
+      // startServer() はHTTP待受までは同期的に進む。この時点で既にシグナル購読が
+      // 済んでいる（＝listenerが登録済みでtriggerがtrueを返す）ことを確認する。
+      const triggeredDuringInit = signalSource.trigger('SIGTERM');
       assert.equal(
-        stopRows.length,
-        1,
-        '初期化中に届いたシグナルは、初期化完了後にB5へ停止記録として反映されること',
+        triggeredDuringInit,
+        true,
+        '初期化完了を待たずにシグナルハンドラが登録済みであること（修正前は未登録でfalse）',
       );
-      assert.match(stopRows[0]!.request_id, /^shutdown-/);
 
-      const notificationRows = readback.connection
-        .prepare(
-          "SELECT * FROM notification_output_history WHERE message_definition_id = 'system-service-stopped'",
-        )
-        .all();
-      assert.equal(notificationRows.length, 1);
+      // 初期化を完了させる。保留していたシグナルはここで close({reason:'signal'}) として反映される。
+      deferred.resolve(new Response('', { status: 500 }));
+      const server = await startPromise;
+
+      // close() はバックグラウンドで進む（DB書き込み含む）ため完了を待つ。
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // close 済みのため、別コネクションでDBファイルを開いて検証する。
+      const readback = initializeDatabase({ databasePath, migrationsDirectory });
+      try {
+        const stopRows = readback.connection
+          .prepare("SELECT * FROM operation_history WHERE operation_kind = 'stop'")
+          .all() as { request_id: string }[];
+        assert.equal(
+          stopRows.length,
+          1,
+          '初期化中に届いたシグナルは、初期化完了後にB5へ停止記録として反映されること',
+        );
+        assert.match(stopRows[0]!.request_id, /^shutdown-/);
+
+        const notificationRows = readback.connection
+          .prepare(
+            "SELECT * FROM notification_output_history WHERE message_definition_id = 'system-service-stopped'",
+          )
+          .all();
+        assert.equal(notificationRows.length, 1);
+      } finally {
+        readback.close();
+      }
+
+      // close() は既に完了済み（冪等）。テスト用に安全に呼んでおく。
+      await server.close().catch(() => {});
     } finally {
-      readback.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-
-    // close() は既に完了済み（冪等）。テスト用に安全に呼んでおく。
-    await server.close().catch(() => {});
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
-});
+  });
+}

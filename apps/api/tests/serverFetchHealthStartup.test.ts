@@ -8,6 +8,7 @@ import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
 import { recordFetchAttempt, listNotificationOutputHistory } from '../src/repositories/index.js';
 import { startServer } from '../src/server.js';
+import { createAlwaysOnTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 /**
  * PRレビュー指摘(#141 discussion r3998740636)の回帰テスト。
@@ -24,96 +25,107 @@ import { startServer } from '../src/server.js';
  *   - fetchHealthMonitorService.start() を scheduler.start() の呼び出しより前に呼ぶ
  *     (isRunning=false のまま初回評価され、全取得元が suspended と誤記録される)
  */
-test('server.ts起動時、再起動前から継続する異常はsuspendedに埋もれずinitial検知される', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-fetch-health-startup-'));
-  const databasePath = path.join(tmpDir, 'test.sqlite3');
-  const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
-
-  try {
-    // 再起動を模す: プロセス起動前から DB に kikikuru 時刻一覧の連続失敗5件(異常相当)が
-    // 残っている。この取得元は下記の dummy adapter が何もしないため、実際の
-    // ポーリング活動による fetch_attempt 行の混入がなく、判定結果を汚染しない。
-    {
-      const seedDb = initializeDatabase({ databasePath, migrationsDirectory });
-      for (let i = 0; i < 5; i++) {
-        recordFetchAttempt(seedDb.connection, {
-          sourceKind: 'risk_target_times',
-          targetRef: null,
-          requestUrl: 'https://example.com/risk_target_times',
-          triggerKind: 'scheduled',
-          attemptNo: 1,
-          startedAt: new Date(Date.now() - (5 - i) * 1000).toISOString() as UtcIso8601String,
-          finishedAt: new Date(Date.now() - (5 - i) * 1000).toISOString() as UtcIso8601String,
-          durationMs: 50,
-          outcome: 'failure',
-          httpStatus: 500,
-          responseBytes: 0,
-          itemCount: null,
-          failedItemCount: null,
-          contentHash: 'seed',
-          errorKind: 'network_error',
-          errorMessage: 'seeded failure (simulating pre-restart state)',
-        });
-      }
-      seedDb.close();
-    }
-
-    // XML自体は本テストの対象外(空応答で即座に完了させ、初期取得を長引かせない)。
-    const dummyFetch: typeof fetch = async () => new Response('Not found', { status: 404 });
-    const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
-      source,
-      runScheduled: async () => {},
-      runManual: async () => {},
-    });
-
-    const server = await startServer({
-      config: { databasePath, migrationsDirectory },
-      port: 0,
-      enablePolling: true,
-      pollingServiceOptions: { fetchFn: dummyFetch },
-      schedulerOptions: {
-        adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
-        now: () => new Date('2026-09-07T12:00:00+09:00'),
-        setTimer: () => 1,
-        clearTimer: () => {},
-      },
-    });
+for (const [jstTime, fixedNow] of [
+  ['12:00', '2026-09-07T03:00:00.000Z'],
+  ['22:00', '2026-09-07T13:00:00.000Z'],
+] as const) {
+  test(`server.ts起動時、再起動前から継続する異常はsuspendedに埋もれずinitial検知される（JST ${jstTime}）`, async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-fetch-health-startup-'));
+    const databasePath = path.join(tmpDir, 'test.sqlite3');
+    const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
+    const pollingClock = fixedNow as UtcIso8601String;
+    const fixedNowMs = Date.parse(pollingClock);
 
     try {
-      assert.ok(server.fetchHealthMonitorService, 'FetchHealthMonitorService が結線されていること');
-      const aggregate = server.fetchHealthMonitorService!.getLastAggregate();
-      assert.ok(aggregate, '起動完了時点で初回評価が完了していること');
+      // 再起動を模す: プロセス起動前から DB に kikikuru 時刻一覧の連続失敗5件(異常相当)が
+      // 残っている。この取得元は下記の dummy adapter が何もしないため、実際の
+      // ポーリング活動による fetch_attempt 行の混入がなく、判定結果を汚染しない。
+      {
+        const seedDb = initializeDatabase({ databasePath, migrationsDirectory });
+        for (let i = 0; i < 5; i++) {
+          recordFetchAttempt(seedDb.connection, {
+            sourceKind: 'risk_target_times',
+            targetRef: null,
+            requestUrl: 'https://example.com/risk_target_times',
+            triggerKind: 'scheduled',
+            attemptNo: 1,
+            startedAt: new Date(fixedNowMs - (5 - i) * 1000).toISOString() as UtcIso8601String,
+            finishedAt: new Date(fixedNowMs - (5 - i) * 1000).toISOString() as UtcIso8601String,
+            durationMs: 50,
+            outcome: 'failure',
+            httpStatus: 500,
+            responseBytes: 0,
+            itemCount: null,
+            failedItemCount: null,
+            contentHash: 'seed',
+            errorKind: 'network_error',
+            errorMessage: 'seeded failure (simulating pre-restart state)',
+          });
+        }
+        seedDb.close();
+      }
 
-      const kikikuru = aggregate!.sources.find((s) => s.sourceId === 'kikikuru_target_times');
-      assert.equal(
-        kikikuru?.status,
-        'abnormal',
-        'isRunning=true の状態で評価されるため suspended に誤判定されない',
-      );
+      // XML自体は本テストの対象外(空応答で即座に完了させ、初期取得を長引かせない)。
+      const dummyFetch: typeof fetch = async () => new Response('Not found', { status: 404 });
+      const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
+        source,
+        runScheduled: async () => {},
+        runManual: async () => {},
+      });
 
-      // startServer() は接続をテストへ公開しないため、同じDBファイルへ別接続で
-      // 検証する(SQLiteは複数接続からの読み取りを許す。#29 AC8 が前提とする性質と同じ)。
-      const verifyDb = initializeDatabase({ databasePath, migrationsDirectory });
+      const server = await startServer({
+        config: { databasePath, migrationsDirectory },
+        port: 0,
+        enablePolling: true,
+        pollingSchedule: createAlwaysOnTestPollingSchedule(),
+        pollingServiceOptions: { fetchFn: dummyFetch, clock: () => pollingClock },
+        schedulerOptions: {
+          adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+          now: () => new Date(fixedNow),
+          setTimer: () => 1,
+          clearTimer: () => {},
+        },
+      });
+
       try {
-        const history = listNotificationOutputHistory(verifyDb.connection, { origin: 'system' });
-        const kikikuruNotification = history.find((h) =>
-          (JSON.parse(h.relatedRefsJson) as Array<{ type: string; ref: string }>).some(
-            (ref) => ref.ref === 'kikikuru_target_times',
-          ),
+        assert.ok(
+          server.fetchHealthMonitorService,
+          'FetchHealthMonitorService が結線されていること',
         );
-        assert.ok(kikikuruNotification, 'kikikuru_target_times の通知が記録されていること');
+        const aggregate = server.fetchHealthMonitorService!.getLastAggregate();
+        assert.ok(aggregate, '起動完了時点で初回評価が完了していること');
+
+        const kikikuru = aggregate!.sources.find((s) => s.sourceId === 'kikikuru_target_times');
         assert.equal(
-          kikikuruNotification!.detectionContext,
-          'initial',
-          '再起動前から継続する異常は initial として検知される(suspended経由でnormal扱いにならない)',
+          kikikuru?.status,
+          'abnormal',
+          'isRunning=true の状態で評価されるため suspended に誤判定されない',
         );
+
+        // startServer() は接続をテストへ公開しないため、同じDBファイルへ別接続で
+        // 検証する(SQLiteは複数接続からの読み取りを許す。#29 AC8 が前提とする性質と同じ)。
+        const verifyDb = initializeDatabase({ databasePath, migrationsDirectory });
+        try {
+          const history = listNotificationOutputHistory(verifyDb.connection, { origin: 'system' });
+          const kikikuruNotification = history.find((h) =>
+            (JSON.parse(h.relatedRefsJson) as Array<{ type: string; ref: string }>).some(
+              (ref) => ref.ref === 'kikikuru_target_times',
+            ),
+          );
+          assert.ok(kikikuruNotification, 'kikikuru_target_times の通知が記録されていること');
+          assert.equal(
+            kikikuruNotification!.detectionContext,
+            'initial',
+            '再起動前から継続する異常は initial として検知される(suspended経由でnormal扱いにならない)',
+          );
+        } finally {
+          verifyDb.close();
+        }
       } finally {
-        verifyDb.close();
+        await server.close();
       }
     } finally {
-      await server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
-});
+  });
+}

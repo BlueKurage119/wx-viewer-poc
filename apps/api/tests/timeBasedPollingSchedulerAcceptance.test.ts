@@ -6,7 +6,6 @@ import test from 'node:test';
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 
 import {
-  loadPollingScheduleConfig,
   resolvePollingPeriod,
   getNextEnabledAt,
   type PollingScheduleConfig,
@@ -15,6 +14,7 @@ import { initializeDatabase } from '../src/database/index.js';
 import { NowcastService, JmaXmlPollingService, createImageServices } from '../src/polling/index.js';
 import { FeedBackoffManager } from '../src/polling/retryBackoff.js';
 import { startServer } from '../src/server.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const VALID_1X1_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -47,7 +47,7 @@ function setupTestDb() {
 }
 
 test('受け入れ条件 4: XML周期・索引周期の独立変更、夜間数値化、画像Enabledの独立性、次回予定計算、カスタム境界', () => {
-  const baseSchedule = loadPollingScheduleConfig();
+  const baseSchedule = createTestPollingSchedule();
 
   // 1. XML周期だけ変更して索引周期が変わらない
   const xmlModifiedSchedule: PollingScheduleConfig = {
@@ -221,7 +221,7 @@ test('受け入れ条件 4: XML周期・索引周期の独立変更、夜間数�
 test('注入された不正な設定は DB 初期化・HTTP 待受より前に拒否する', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'startserver-invalid-schedule-'));
   const databasePath = path.join(tmpDir, 'test.sqlite3');
-  const baseSchedule = loadPollingScheduleConfig();
+  const baseSchedule = createTestPollingSchedule();
   const invalidSchedule = {
     ...baseSchedule,
     freshness: {
@@ -277,7 +277,7 @@ test('受け入れ条件 9: 閲覧readCatalog複数回呼出で索引HTTP不変�
       connection: database.connection,
       nowcastCacheRoot: tmpDir,
       kikikuruCacheRoot: tmpDir,
-      schedule: loadPollingScheduleConfig(),
+      schedule: createTestPollingSchedule(),
       fetchFn: mockFetch,
       now: () => currentTime,
     });
@@ -396,7 +396,7 @@ test('受け入れ条件 11: 実インスタンスでのXMLおよび索引の鮮
 
     // --- 索引 (NowcastService) 実インスタンス検証 ---
     let nowcastFetchSuccess = true;
-    const defaultSchedule = loadPollingScheduleConfig();
+    const defaultSchedule = createTestPollingSchedule();
     const nowcastService = new NowcastService(database.connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
@@ -492,7 +492,7 @@ test('受け入れ条件 15: startServer経由のimageServices結線、日中/�
 
     // 1. 日中時刻（12:00 JST）での起動と独立ポリシー注入検証
     let clockTime = new Date('2026-09-07T12:00:00+09:00');
-    const baseSchedule = loadPollingScheduleConfig();
+    const baseSchedule = createTestPollingSchedule();
     const dayScheduleWithCustomFreshness: PollingScheduleConfig = {
       ...baseSchedule,
       freshness: {
@@ -533,6 +533,7 @@ test('受け入れ条件 15: startServer経由のimageServices結線、日中/�
       },
       port: 0,
       enablePolling: true,
+      pollingSchedule: baseSchedule,
       pollingServiceOptions: { fetchFn: dummyFetch },
       schedulerOptions: {
         ...schedulerSafeOptions,
@@ -591,6 +592,7 @@ test('受け入れ条件 15: startServer経由のimageServices結線、日中/�
       },
       port: 0,
       enablePolling: false,
+      pollingSchedule: baseSchedule,
     });
 
     assert.ok(disabledServer.imageServices);

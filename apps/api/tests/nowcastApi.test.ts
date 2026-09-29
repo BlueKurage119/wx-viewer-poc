@@ -17,6 +17,7 @@ import {
 } from '../src/services/nowcastApiService.js';
 import { createStaticTileDeliveryProfileService } from '../src/services/tileDeliveryProfileService.js';
 import { findRadarSnapshot } from '../src/repositories/radarRepository.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const VALID_1X1_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -1239,6 +1240,7 @@ test('B18 (統合検証): startServer 起動統合テストと main 子プロセ
     port: 0,
     enablePolling: false,
     config: { databasePath: dbPath, migrationsDirectory },
+    pollingSchedule: createTestPollingSchedule(),
   });
 
   try {
@@ -1257,21 +1259,32 @@ test('B18 (統合検証): startServer 起動統合テストと main 子プロセ
   const childDbPath = path.join(childTmpDir, 'child.db');
   const projectRoot = path.resolve(import.meta.dirname, '..');
 
-  const testServer = http.createServer().listen(0, '127.0.0.1');
-  const testAddress = testServer.address();
-  const testPort = typeof testAddress === 'object' && testAddress ? testAddress.port : 3099;
-  await new Promise<void>((resolve) => testServer.close(() => resolve()));
-
-  const child = spawn('node', ['--import', 'tsx', 'src/server.ts'], {
-    cwd: projectRoot,
-    env: {
-      ...process.env,
-      PORT: String(testPort),
-      DATABASE_PATH: childDbPath,
-      DISABLE_POLLING: 'true',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const testServer = http.createServer();
+  await new Promise<void>((resolve, reject) => {
+    testServer.once('error', reject);
+    testServer.listen(0, '127.0.0.1', resolve);
   });
+  const testAddress = testServer.address();
+  assert.ok(testAddress && typeof testAddress !== 'string', '空きポートを取得できること');
+  const testPort = testAddress.port;
+  await new Promise<void>((resolve, reject) => {
+    testServer.close((error) => (error === undefined ? resolve() : reject(error)));
+  });
+
+  const child = spawn(
+    'node',
+    ['--import', 'tsx', '--import', './tests/helpers/pollingConfigPreload.mjs', 'src/server.ts'],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PORT: String(testPort),
+        DATABASE_PATH: childDbPath,
+        DISABLE_POLLING: 'true',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
 
   try {
     let output = '';
@@ -1302,9 +1315,17 @@ test('B18 (統合検証): startServer 起動統合テストと main 子プロセ
     });
 
     const port = await portPromise;
-    const res = await fetch(
-      `http://127.0.0.1:${port}/api/weather/nowcast/times?terminalId=hkeagh01&controlStatus=normal`,
-    );
+    let res: Response;
+    try {
+      res = await fetch(
+        `http://127.0.0.1:${port}/api/weather/nowcast/times?terminalId=hkeagh01&controlStatus=normal`,
+      );
+    } catch (error) {
+      throw new Error(
+        `main子プロセスへの接続に失敗しました: exitCode=${child.exitCode}, signalCode=${child.signalCode}, output=${output}`,
+        { cause: error },
+      );
+    }
     assert.equal(res.status, 200);
     const json = (await res.json()) as { status: string };
     assert.equal(json.status, 'ok');

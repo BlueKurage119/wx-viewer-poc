@@ -10,7 +10,10 @@ import { initializeDatabase } from '../src/database/index.js';
 import { createStartupNotificationRuntime, startServer } from '../src/server.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
-import { loadPollingScheduleConfig } from '../src/config/index.js';
+import {
+  createAlwaysOnTestPollingSchedule,
+  createTestPollingSchedule,
+} from './helpers/pollingSchedule.js';
 import { createNotificationDeltaService } from '../src/notifications/index.js';
 import type { SignalSource } from '../src/gracefulShutdown.js';
 import {
@@ -217,7 +220,7 @@ test('AC13: 実serverオーケストレーションで3秒後に会場別遅延�
     release = resolve;
   });
   const port = 35000 + Math.floor(Math.random() * 1000);
-  const schedule = loadPollingScheduleConfig();
+  const schedule = createTestPollingSchedule();
   const starting = startServer({
     config: { databasePath, migrationsDirectory },
     port,
@@ -297,7 +300,7 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
   const directory = mkdtempSync(join(tmpdir(), 'database-recovery-prelisten-'));
   try {
     const invalidConfigDb = join(directory, 'invalid-config.sqlite3');
-    const schedule = loadPollingScheduleConfig();
+    const schedule = createTestPollingSchedule();
     await assert.rejects(
       startServer({
         config: { databasePath: invalidConfigDb, migrationsDirectory },
@@ -315,6 +318,7 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
       startServer({
         config: { databasePath: directory, migrationsDirectory },
         port: 0,
+        pollingSchedule: createTestPollingSchedule(),
       }),
     );
 
@@ -326,6 +330,7 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
       startServer({
         config: { databasePath: migrationDb, migrationsDirectory: brokenMigrations },
         port: 0,
+        pollingSchedule: createTestPollingSchedule(),
       }),
     );
     const migrated = initializeDatabase({
@@ -354,6 +359,7 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
     config: { databasePath, migrationsDirectory },
     port,
     enablePolling: false,
+    pollingSchedule: createTestPollingSchedule(),
     recoveryInternals: {
       recover: async (_connection, venue) => {
         if (venue.venueId === 'east') await gate;
@@ -638,106 +644,128 @@ test('差し戻し1: 開始通知の記録失敗でもfailed化し、失敗通�
   }
 });
 
-test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポーリング無効でも復旧通知を記録する', async (t) => {
-  const { directory, databasePath, context } = setup();
-  context.close();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let fetchCount = 0;
-  const waitingVenues = new Set<string>();
-  const schedule = loadPollingScheduleConfig();
-  const alwaysOnSchedule = {
-    ...schedule,
-    periods: schedule.periods.map((period) => ({
-      ...period,
-      xmlSeconds: period.xmlSeconds ?? 60,
-    })),
-  };
-  const starting = startServer({
-    config: { databasePath, migrationsDirectory },
-    port: 0,
-    enablePolling: true,
-    pollingSchedule: alwaysOnSchedule,
-    pollingServiceOptions: {
-      fetchFn: async () => {
-        fetchCount += 1;
-        return new Response(
-          '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>',
-        );
+for (const [jstTime, fixedNow] of [
+  ['12:00', '2026-09-22T03:00:00.000Z'],
+  ['22:00', '2026-09-22T13:00:00.000Z'],
+] as const) {
+  test(`AC17/18: 全会場復旧完了まで上流取得を開始せず、ポーリング無効でも復旧通知を記録する（JST ${jstTime}）`, async (t) => {
+    const { directory, databasePath, context } = setup();
+    context.close();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let fetchCount = 0;
+    const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
+      source,
+      runScheduled: async () => {},
+      runManual: async () => {},
+    });
+    const originalFetch = globalThis.fetch;
+    let unintendedFetchCount = 0;
+    globalThis.fetch = async () => {
+      unintendedFetchCount += 1;
+      throw new Error('AC17/18の対象外アダプターはHTTP取得してはならない');
+    };
+    const startup: { promise?: ReturnType<typeof startServer> } = {};
+    t.after(async () => {
+      try {
+        release();
+        await startup.promise?.then((server) => server.close()).catch(() => undefined);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+    const waitingVenues = new Set<string>();
+    const alwaysOnSchedule = createAlwaysOnTestPollingSchedule();
+    const starting = startServer({
+      config: { databasePath, migrationsDirectory },
+      port: 0,
+      enablePolling: true,
+      pollingSchedule: alwaysOnSchedule,
+      pollingServiceOptions: {
+        clock: () => fixedNow,
+        fetchFn: async () => {
+          fetchCount += 1;
+          return new Response(
+            '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>',
+          );
+        },
       },
-    },
-    recoveryInternals: {
-      recover: async (
-        _connection: Parameters<typeof recoverWarningCurrent>[0],
-        venue: Parameters<typeof recoverWarningCurrent>[1],
-      ) => {
-        waitingVenues.add(venue.venueId);
-        await gate;
-        return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 1 };
+      schedulerOptions: {
+        now: () => new Date(fixedNow),
+        adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
       },
-    },
-  });
-  t.after(async () => {
+      recoveryInternals: {
+        recover: async (
+          _connection: Parameters<typeof recoverWarningCurrent>[0],
+          venue: Parameters<typeof recoverWarningCurrent>[1],
+        ) => {
+          waitingVenues.add(venue.venueId);
+          await gate;
+          return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 1 };
+        },
+      },
+    });
+    startup.promise = starting;
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    // server.ts の起動時復旧は VENUE_IDS を for...of で逐次 await するため、
+    // 会場は同時にではなく1つずつ recover を呼び出す(2会場が同時にゲート待機することはない)。
+    // 先頭会場が recover ゲートで待機した時点で、ループは次の会場へ進めず、
+    // 全会場のrecoverVenue完了を待つ evaluateVenues / 初期取得開始にも到達できないため、
+    // 「全会場復旧完了まで上流取得を開始しない」検証としてはこれで十分である。
+    await waitUntil(() => waitingVenues.size >= 1, 5000, '会場がrecoverゲートで待機する');
+    assert.equal(fetchCount, 0);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(fetchCount, 0);
     release();
-    await starting.then((server) => server.close()).catch(() => undefined);
-  });
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  // server.ts の起動時復旧は VENUE_IDS を for...of で逐次 await するため、
-  // 会場は同時にではなく1つずつ recover を呼び出す(2会場が同時にゲート待機することはない)。
-  // 先頭会場が recover ゲートで待機した時点で、ループは次の会場へ進めず、
-  // 全会場のrecoverVenue完了を待つ evaluateVenues / 初期取得開始にも到達できないため、
-  // 「全会場復旧完了まで上流取得を開始しない」検証としてはこれで十分である。
-  await waitUntil(() => waitingVenues.size >= 1, 5000, '会場がrecoverゲートで待機する');
-  assert.equal(fetchCount, 0);
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.equal(fetchCount, 0);
-  release();
-  const server = await starting;
-  await waitUntil(() => fetchCount > 0, 5000, '全会場復旧完了後に上流取得が開始する');
-  await server.close();
+    const server = await starting;
+    await waitUntil(() => fetchCount > 0, 5000, '全会場復旧完了後に上流取得が開始する');
+    await server.close();
+    assert.equal(unintendedFetchCount, 0, '対象外アダプターがHTTP取得を試みないこと');
 
-  const disabledDb = join(directory, 'disabled.sqlite3');
-  const apiDirectory = join(fileURLToPath(import.meta.url), '../..');
-  const disabledResult = await execFileAsync(
-    process.execPath,
-    [
-      '--import',
-      'tsx',
-      '--input-type=module',
-      '--eval',
-      `import { startServer } from './src/server.ts';
-       const server = await startServer({ config: ${JSON.stringify({ databasePath: disabledDb, migrationsDirectory })}, port: 0 });
+    const disabledDb = join(directory, 'disabled.sqlite3');
+    const apiDirectory = join(fileURLToPath(import.meta.url), '../..');
+    const disabledResult = await execFileAsync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        '--input-type=module',
+        '--eval',
+        `import { startServer } from './src/server.ts';
+       import { createTestPollingSchedule } from './tests/helpers/pollingSchedule.ts';
+       const server = await startServer({ config: ${JSON.stringify({ databasePath: disabledDb, migrationsDirectory })}, port: 0, pollingSchedule: createTestPollingSchedule() });
        const status = await (await fetch('http://127.0.0.1:' + server.port + '/api/monitoring/status?terminalId=hkeagh01')).json();
        console.log('RECOVERY_STATUS:' + JSON.stringify(status.venues.map((venue) => [venue.venueId, venue.recovery.status])));
        await server.close();`,
-    ],
-    { cwd: apiDirectory, env: { ...process.env, DISABLE_POLLING: 'true' } },
-  );
-  const statusLine = disabledResult.stdout
-    .split('\n')
-    .find((line) => line.startsWith('RECOVERY_STATUS:'));
-  assert.ok(statusLine);
-  assert.deepEqual(JSON.parse(statusLine.slice('RECOVERY_STATUS:'.length)), [
-    ['east', 'completed'],
-    ['trc', 'completed'],
-  ]);
-  const reopened = initializeDatabase({ databasePath: disabledDb, migrationsDirectory });
-  try {
-    assert.deepEqual(
-      recoveryRows(reopened.connection).map((row) => row.change_type),
-      [
-        'database_recovery_started',
-        'database_recovery_completed',
-        'database_recovery_started',
-        'database_recovery_completed',
       ],
+      { cwd: apiDirectory, env: { ...process.env, DISABLE_POLLING: 'true' } },
     );
-  } finally {
-    reopened.close();
-  }
-});
+    const statusLine = disabledResult.stdout
+      .split('\n')
+      .find((line) => line.startsWith('RECOVERY_STATUS:'));
+    assert.ok(statusLine);
+    assert.deepEqual(JSON.parse(statusLine.slice('RECOVERY_STATUS:'.length)), [
+      ['east', 'completed'],
+      ['trc', 'completed'],
+    ]);
+    const reopened = initializeDatabase({ databasePath: disabledDb, migrationsDirectory });
+    try {
+      assert.deepEqual(
+        recoveryRows(reopened.connection).map((row) => row.change_type),
+        [
+          'database_recovery_started',
+          'database_recovery_completed',
+          'database_recovery_started',
+          'database_recovery_completed',
+        ],
+      );
+    } finally {
+      reopened.close();
+    }
+  });
+}
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   test(`AC18: ${signal}を復旧中に受けてもfailed状態・失敗通知を作らずtimerをclearする`, async () => {
@@ -753,6 +781,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       config: { databasePath, migrationsDirectory },
       port: 0,
       enablePolling: false,
+      pollingSchedule: createTestPollingSchedule(),
       shutdownSignalSource: signalSource,
       recoveryInternals: {
         setTimeout: (() => 1 as unknown as NodeJS.Timeout) as unknown as typeof setTimeout,

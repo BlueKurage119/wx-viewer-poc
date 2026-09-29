@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { AmedasTarget, UtcIso8601String } from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
-import { loadPollingScheduleConfig } from '../src/config/pollingScheduleLoader.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import {
   AmedasScheduledAdapter,
   createScheduledAdapters,
@@ -29,7 +29,7 @@ const latestTimeText = readFileSync(join(fixturesDir, 'amedas_latest_time.txt'),
 const point44136Json = readFileSync(join(fixturesDir, 'amedas_point_44136_block.json'), 'utf-8');
 const point44166Json = readFileSync(join(fixturesDir, 'amedas_point_44166_block.json'), 'utf-8');
 
-const defaultSchedule = loadPollingScheduleConfig();
+const defaultSchedule = createTestPollingSchedule();
 
 const dummyNowcastService = {
   refreshTimes: async () => {},

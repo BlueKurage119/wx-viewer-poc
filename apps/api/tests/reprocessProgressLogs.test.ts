@@ -20,7 +20,10 @@ import {
 } from '../src/repositories/index.js';
 import { reprocessPendingWarningTelegramReceptions } from '../src/polling/jmaWarningTelegramProcessor.js';
 import { buildStoppedPollingStatus } from '../src/polling/index.js';
-import { loadPollingScheduleConfig } from '../src/config/index.js';
+import {
+  createAlwaysOnTestPollingSchedule,
+  createTestPollingSchedule,
+} from './helpers/pollingSchedule.js';
 import { InMemoryStartupProgressTracker } from '../src/monitoring/startupProgressTracker.js';
 import type { WeatherApiService } from '../src/services/weatherApiService.js';
 import type { NowcastApiService } from '../src/services/nowcastApiService.js';
@@ -263,78 +266,105 @@ test('4.2 reprocessPendingWarningTelegramReceptions: 静穏性（options 未指�
 // --------------------------------------------------------------------------
 // 4.3 初回XMLフィード取得フェーズのログ出力
 // --------------------------------------------------------------------------
-test('4.3 初回XMLフィード取得フェーズのログ出力（running / completed / failed）', async () => {
-  const { databasePath, cleanup } = createTempDb();
-  try {
-    let capturedPhaseListener: ((phase: InitialFetchPhase) => void) | undefined;
-
-    const fakePollingService = {
-      onInitialFetchPhaseChange: (listener: (phase: InitialFetchPhase) => void) => {
-        capturedPhaseListener = listener;
-      },
-      onInitialFetchCompleted: () => {},
-      getStatus: () => ({
-        initialFetch: { phase: 'not_started' as const, result: null },
-      }),
-      setScheduledIntervalSeconds: () => {},
-      start: async () => {},
-      stop: async () => {},
-    } as unknown as JmaXmlPollingService;
-
-    const originalLog = console.log;
-    const originalError = console.error;
-    const consoleLogs: string[] = [];
-    const consoleErrors: string[] = [];
-
-    console.log = (...args: unknown[]) => {
-      consoleLogs.push(args.map(String).join(' '));
-    };
-    console.error = (...args: unknown[]) => {
-      consoleErrors.push(args.map(String).join(' '));
-    };
-
-    let server;
+for (const [jstTime, fixedNow] of [
+  ['12:00', '2026-09-16T03:00:00.000Z'],
+  ['22:00', '2026-09-16T13:00:00.000Z'],
+] as const) {
+  test(`4.3 初回XMLフィード取得フェーズのログ出力（running / completed / failed、JST ${jstTime}）`, async () => {
+    const { databasePath, cleanup } = createTempDb();
     try {
-      server = await startServer({
-        config: { databasePath, migrationsDirectory },
-        port: 0,
-        enablePolling: true,
-        pollingService: fakePollingService,
+      let capturedPhaseListener: ((phase: InitialFetchPhase) => void) | undefined;
+
+      const fakePollingService = {
+        onInitialFetchPhaseChange: (listener: (phase: InitialFetchPhase) => void) => {
+          capturedPhaseListener = listener;
+        },
+        onInitialFetchCompleted: () => {},
+        getStatus: () => ({
+          initialFetch: { phase: 'not_started' as const, result: null },
+        }),
+        setScheduledIntervalSeconds: () => {},
+        start: async () => {},
+        stop: async () => {},
+      } as unknown as JmaXmlPollingService;
+
+      const originalLog = console.log;
+      const originalError = console.error;
+      const consoleLogs: string[] = [];
+      const consoleErrors: string[] = [];
+      const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
+        source,
+        runScheduled: async () => {},
+        runManual: async () => {},
       });
+      const originalFetch = globalThis.fetch;
+      let unintendedFetchCount = 0;
+      globalThis.fetch = async () => {
+        unintendedFetchCount += 1;
+        throw new Error('4.3の対象外アダプターはHTTP取得してはならない');
+      };
 
-      assert.ok(capturedPhaseListener, 'onInitialFetchPhaseChange リスナーが登録されていること');
+      console.log = (...args: unknown[]) => {
+        consoleLogs.push(args.map(String).join(' '));
+      };
+      console.error = (...args: unknown[]) => {
+        consoleErrors.push(args.map(String).join(' '));
+      };
 
-      // 1. running への遷移
-      capturedPhaseListener!('running');
-      assert.ok(consoleLogs.includes('[api] starting initial JMA XML feed fetch...'));
+      let server;
+      try {
+        server = await startServer({
+          config: { databasePath, migrationsDirectory },
+          port: 0,
+          enablePolling: true,
+          pollingSchedule: createAlwaysOnTestPollingSchedule(),
+          pollingService: fakePollingService,
+          pollingServiceOptions: { clock: () => fixedNow },
+          schedulerOptions: {
+            now: () => new Date(fixedNow),
+            adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+          },
+        });
 
-      // 2. completed への遷移
-      capturedPhaseListener!('completed');
-      assert.ok(
-        consoleLogs.some((msg) =>
-          /^\[api\] completed initial JMA XML feed fetch \(\d+ms\)$/.test(msg),
-        ),
-      );
+        assert.ok(capturedPhaseListener, 'onInitialFetchPhaseChange リスナーが登録されていること');
 
-      // 3. failed への遷移（再計測）
-      capturedPhaseListener!('running');
-      capturedPhaseListener!('failed');
-      assert.ok(
-        consoleErrors.some((msg) =>
-          /^\[api\] failed initial JMA XML feed fetch \(\d+ms\)$/.test(msg),
-        ),
-      );
-    } finally {
-      console.log = originalLog;
-      console.error = originalError;
-      if (server) {
-        await server.close();
+        // 1. running への遷移
+        capturedPhaseListener!('running');
+        assert.ok(consoleLogs.includes('[api] starting initial JMA XML feed fetch...'));
+
+        // 2. completed への遷移
+        capturedPhaseListener!('completed');
+        assert.ok(
+          consoleLogs.some((msg) =>
+            /^\[api\] completed initial JMA XML feed fetch \(\d+ms\)$/.test(msg),
+          ),
+        );
+
+        // 3. failed への遷移（再計測）
+        capturedPhaseListener!('running');
+        capturedPhaseListener!('failed');
+        assert.ok(
+          consoleErrors.some((msg) =>
+            /^\[api\] failed initial JMA XML feed fetch \(\d+ms\)$/.test(msg),
+          ),
+        );
+      } finally {
+        console.log = originalLog;
+        console.error = originalError;
+        try {
+          if (server) {
+            await server.close();
+          }
+          assert.equal(unintendedFetchCount, 0, '対象外アダプターがHTTP取得を試みないこと');
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
       }
+    } finally {
+      cleanup();
     }
-  } finally {
-    cleanup();
-  }
-});
+  });
+}
 
 // --------------------------------------------------------------------------
 // 4.4 クラウド移植・監視端末向けAPI構造（進捗トラッカーと /api/monitoring/status）
@@ -397,60 +427,43 @@ test('4.4 InMemoryStartupProgressTracker: 単体で開始・更新・完了に�
   });
 });
 
-test('4.4 監視API (/api/monitoring/status): venues に reprocessing が含まれ、進捗状態が反映される', async () => {
-  const { connection, cleanup } = createTempDb();
-  try {
-    const tracker = new InMemoryStartupProgressTracker();
-    tracker.startVenueReprocessing('east', 150, '2026-09-16T02:00:00.000Z' as UtcIso8601String);
-    tracker.updateVenueReprocessing('east', 60);
+for (const [jstTime, fixedNow] of [
+  ['12:00', '2026-09-16T03:00:00.000Z'],
+  ['22:00', '2026-09-16T13:00:00.000Z'],
+] as const) {
+  test(`4.4 監視API (/api/monitoring/status): venues に reprocessing が含まれ、進捗状態が反映される（JST ${jstTime}）`, async () => {
+    const { connection, cleanup } = createTempDb();
+    try {
+      const tracker = new InMemoryStartupProgressTracker();
+      tracker.startVenueReprocessing('east', 150, '2026-09-16T02:00:00.000Z' as UtcIso8601String);
+      tracker.updateVenueReprocessing('east', 60);
 
-    tracker.startVenueReprocessing('trc', 0);
+      tracker.startVenueReprocessing('trc', 0);
 
-    const schedule = loadPollingScheduleConfig();
-    const service = createMonitoringStatusService({
-      connection,
-      scheduler: {
-        getStatus: () => buildStoppedPollingStatus(new Date(), schedule),
-        isRunningNow: () => false,
-      },
-      xmlPollingService: {
-        getStatus: () => ({
-          initialFetch: { phase: 'completed', result: null },
-        }),
-      },
-      fetchHealthMonitor: {
-        getLastAggregate: () => null,
-      },
-      startupInitialization: {
-        getStatus: () => ({
-          initialFetchPhase: 'completed',
-          evaluatedVenueIds: new Set(['east', 'trc']),
-        }),
-      },
-      progressTracker: tracker,
-      weatherApi: {
-        getWarnings: () => ({
-          metadata: {
-            availability: 'available',
-            issuedAt: null,
-            validAt: null,
-            fetchedAt: null,
-            lastSuccessAt: null,
-          },
-          data: null,
-        }),
-        getWarningTimeseries: () => ({
-          metadata: {
-            availability: 'available',
-            issuedAt: null,
-            validAt: null,
-            fetchedAt: null,
-            lastSuccessAt: null,
-          },
-          data: null,
-        }),
-        getEarlyWarning: () => ({
-          near: {
+      const schedule = createTestPollingSchedule();
+      const service = createMonitoringStatusService({
+        connection,
+        scheduler: {
+          getStatus: () => buildStoppedPollingStatus(new Date(fixedNow), schedule),
+          isRunningNow: () => false,
+        },
+        xmlPollingService: {
+          getStatus: () => ({
+            initialFetch: { phase: 'completed', result: null },
+          }),
+        },
+        fetchHealthMonitor: {
+          getLastAggregate: () => null,
+        },
+        startupInitialization: {
+          getStatus: () => ({
+            initialFetchPhase: 'completed',
+            evaluatedVenueIds: new Set(['east', 'trc']),
+          }),
+        },
+        progressTracker: tracker,
+        weatherApi: {
+          getWarnings: () => ({
             metadata: {
               availability: 'available',
               issuedAt: null,
@@ -459,8 +472,8 @@ test('4.4 監視API (/api/monitoring/status): venues に reprocessing が含ま�
               lastSuccessAt: null,
             },
             data: null,
-          },
-          far: {
+          }),
+          getWarningTimeseries: () => ({
             metadata: {
               availability: 'available',
               issuedAt: null,
@@ -469,37 +482,9 @@ test('4.4 監視API (/api/monitoring/status): venues に reprocessing が含ま�
               lastSuccessAt: null,
             },
             data: null,
-          },
-        }),
-        getAmedas: () => ({
-          metadata: {
-            availability: 'available',
-            issuedAt: null,
-            validAt: null,
-            fetchedAt: null,
-            lastSuccessAt: null,
-          },
-          data: null,
-        }),
-        getAreaTimeseries: () => ({
-          metadata: {
-            availability: 'available',
-            issuedAt: null,
-            validAt: null,
-            fetchedAt: null,
-            lastSuccessAt: null,
-          },
-          data: null,
-        }),
-        getBulletins: () => ({
-          availability: 'available',
-          bulletins: [],
-        }),
-      } as unknown as WeatherApiService,
-      nowcastApi: {
-        getTimes: () => ({
-          products: {
-            N1: {
+          }),
+          getEarlyWarning: () => ({
+            near: {
               metadata: {
                 availability: 'available',
                 issuedAt: null,
@@ -509,7 +494,7 @@ test('4.4 監視API (/api/monitoring/status): venues に reprocessing が含ま�
               },
               data: null,
             },
-            N2: {
+            far: {
               metadata: {
                 availability: 'available',
                 issuedAt: null,
@@ -519,53 +504,103 @@ test('4.4 監視API (/api/monitoring/status): venues に reprocessing が含ま�
               },
               data: null,
             },
-          },
-        }),
-      } as unknown as NowcastApiService,
-      kikikuruApi: {
-        getTimes: () => ({
-          layers: {},
-        }),
-      } as unknown as KikikuruApiService,
-      fetchHealthConfig: {
-        evaluationIntervalSeconds: 60,
-        delayedConsecutiveFailures: 3,
-        delayedIntervalMultiplier: 3,
-        abnormalConsecutiveFailures: 5,
-        abnormalElapsedSeconds: 600,
-        maxScanAttempts: 10,
-      },
-      serverGenerationId: 'gen-test-1',
-      serverStartedAt: '2026-09-16T00:00:00Z' as UtcIso8601String,
-      now: () => '2026-09-16T02:00:00Z' as UtcIso8601String,
-    });
+          }),
+          getAmedas: () => ({
+            metadata: {
+              availability: 'available',
+              issuedAt: null,
+              validAt: null,
+              fetchedAt: null,
+              lastSuccessAt: null,
+            },
+            data: null,
+          }),
+          getAreaTimeseries: () => ({
+            metadata: {
+              availability: 'available',
+              issuedAt: null,
+              validAt: null,
+              fetchedAt: null,
+              lastSuccessAt: null,
+            },
+            data: null,
+          }),
+          getBulletins: () => ({
+            availability: 'available',
+            bulletins: [],
+          }),
+        } as unknown as WeatherApiService,
+        nowcastApi: {
+          getTimes: () => ({
+            products: {
+              N1: {
+                metadata: {
+                  availability: 'available',
+                  issuedAt: null,
+                  validAt: null,
+                  fetchedAt: null,
+                  lastSuccessAt: null,
+                },
+                data: null,
+              },
+              N2: {
+                metadata: {
+                  availability: 'available',
+                  issuedAt: null,
+                  validAt: null,
+                  fetchedAt: null,
+                  lastSuccessAt: null,
+                },
+                data: null,
+              },
+            },
+          }),
+        } as unknown as NowcastApiService,
+        kikikuruApi: {
+          getTimes: () => ({
+            layers: {},
+          }),
+        } as unknown as KikikuruApiService,
+        fetchHealthConfig: {
+          evaluationIntervalSeconds: 60,
+          delayedConsecutiveFailures: 3,
+          delayedIntervalMultiplier: 3,
+          abnormalConsecutiveFailures: 5,
+          abnormalElapsedSeconds: 600,
+          maxScanAttempts: 10,
+        },
+        serverGenerationId: 'gen-test-1',
+        serverStartedAt: '2026-09-16T00:00:00Z' as UtcIso8601String,
+        now: () => '2026-09-16T02:00:00Z' as UtcIso8601String,
+      });
 
-    const terminal = TERMINAL_DEFINITIONS.find((t) => t.venueId === 'east')!;
-    const status = service.getStatus(terminal);
+      const terminal = TERMINAL_DEFINITIONS.find((t) => t.venueId === 'east')!;
+      const status = service.getStatus(terminal);
 
-    assert.equal(status.venues.length, 2);
-    const eastVenue = status.venues.find((v) => v.venueId === 'east')!;
-    const trcVenue = status.venues.find((v) => v.venueId === 'trc')!;
+      assert.equal(status.venues.length, 2);
+      const eastVenue = status.venues.find((v) => v.venueId === 'east')!;
+      const trcVenue = status.venues.find((v) => v.venueId === 'trc')!;
 
-    // east: 再処理中 (running)
-    assert.deepEqual(eastVenue.reprocessing, {
-      status: 'running',
-      total: 150,
-      processedCount: 60,
-      startedAt: '2026-09-16T02:00:00.000Z',
-      finishedAt: null,
-      elapsedMs: null,
-    });
+      // east: 再処理中 (running)
+      assert.deepEqual(eastVenue.reprocessing, {
+        status: 'running',
+        total: 150,
+        processedCount: 60,
+        startedAt: '2026-09-16T02:00:00.000Z',
+        finishedAt: null,
+        elapsedMs: null,
+      });
 
-    // trc: 0件完了 (completed)
-    assert.equal(trcVenue.reprocessing.status, 'completed');
-    assert.equal(trcVenue.reprocessing.total, 0);
-    assert.equal(trcVenue.reprocessing.processedCount, 0);
-    assert.equal(trcVenue.reprocessing.elapsedMs, 0);
-  } finally {
-    cleanup();
-  }
-});
+      // trc: 0件完了 (completed)
+      assert.equal(trcVenue.reprocessing.status, 'completed');
+      assert.equal(trcVenue.reprocessing.total, 0);
+      assert.equal(trcVenue.reprocessing.processedCount, 0);
+      assert.equal(trcVenue.reprocessing.elapsedMs, 0);
+    } finally {
+      cleanup();
+    }
+  });
+}
 
 test('4.4 監視API HTTPエンドポイント: GET /api/monitoring/status の venues に reprocessing プロパティが正しく返される', async () => {
   const { databasePath, cleanup } = createTempDb();
@@ -575,6 +610,7 @@ test('4.4 監視API HTTPエンドポイント: GET /api/monitoring/status の ve
       config: { databasePath, migrationsDirectory },
       port: 0,
       enablePolling: false,
+      pollingSchedule: createTestPollingSchedule(),
     });
 
     const res = await fetch(

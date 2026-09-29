@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { initializeDatabase } from '../src/database/index.js';
 import { runMigrations } from '../src/database/migrations.js';
 import { startServer } from '../src/server.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import {
   planBosaiBulletinNotifications,
   resolveBosaiBulletinSourceVersion,
@@ -2196,6 +2197,7 @@ test('AC14: startServer起動時、polling開始前に速報の初期通知が�
       config: { databasePath, migrationsDirectory },
       port: 0,
       enablePolling: true,
+      pollingSchedule: createTestPollingSchedule(),
       pollingServiceOptions: {
         fetchFn: dynamicFetch,
         clock: () => fixedNowIso,

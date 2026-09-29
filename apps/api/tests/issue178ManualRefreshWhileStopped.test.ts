@@ -13,7 +13,10 @@ import {
   TimeBasedPollingScheduler,
   type ScheduledPollAdapter,
 } from '../src/polling/timeBasedPollingScheduler.js';
-import { loadPollingScheduleConfig } from '../src/config/pollingScheduleLoader.js';
+import {
+  createAlwaysOnTestPollingSchedule,
+  createTestPollingSchedule,
+} from './helpers/pollingSchedule.js';
 import type { PollingScheduleConfig, ScheduledSource } from '../src/config/pollingSchedule.js';
 import {
   createFetchControlService,
@@ -490,7 +493,7 @@ test('T5: 中断済みの自動サイクルには合流しない', async () => {
 });
 
 test('T6: runManualOnce() の中断判定', async () => {
-  const dummySchedule: PollingScheduleConfig = loadPollingScheduleConfig();
+  const dummySchedule: PollingScheduleConfig = createTestPollingSchedule();
 
   const feed = (kind: 'regular' | 'extra', outcome: 'success' | 'failure' | 'aborted') => ({
     feedKind: kind,
@@ -516,6 +519,7 @@ test('T6: runManualOnce() の中断判定', async () => {
       schedule: dummySchedule,
       adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
       xmlPollingService: fakeXmlService,
+      now: () => new Date('2026-09-19T03:00:00.000Z'),
     });
     return scheduler.runManualOnce();
   };
@@ -820,9 +824,10 @@ test('R2: 先行フィード完了後・後続フィード未着手の中断は 
       fetchFn: mockFetch,
     });
     const scheduler = new TimeBasedPollingScheduler({
-      schedule: loadPollingScheduleConfig(),
+      schedule: createTestPollingSchedule(),
       adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
       xmlPollingService: service,
+      now: () => new Date('2026-09-19T03:00:00.000Z'),
     });
 
     const fetchControl = createFetchControlService({
@@ -843,35 +848,42 @@ test('R2: 先行フィード完了後・後続フィード未着手の中断は 
   }
 });
 
-test('R3: startServer() のシグナル停止後は手動サイクルを開始しない', async () => {
-  const tempDb = createTempDb();
-  try {
-    let fetchCount = 0;
-    const mockFetch: typeof fetch = async () => {
-      fetchCount += 1;
-      return xmlResponse(emptyAtomXml, 'application/atom+xml');
-    };
-    const server = await startServer({
-      config: {
-        databasePath: tempDb.databasePath,
-        migrationsDirectory,
-      },
-      port: 0,
-      enablePolling: true,
-      pollingServiceOptions: { fetchFn: mockFetch },
-      schedulerOptions: {
-        adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
-      },
-    });
+for (const [jstTime, fixedNow] of [
+  ['12:00', '2026-09-19T03:00:00.000Z'],
+  ['22:00', '2026-09-19T13:00:00.000Z'],
+] as const) {
+  test(`R3: startServer() のシグナル停止後は手動サイクルを開始しない（JST ${jstTime}）`, async () => {
+    const tempDb = createTempDb();
+    try {
+      let fetchCount = 0;
+      const mockFetch: typeof fetch = async () => {
+        fetchCount += 1;
+        return xmlResponse(emptyAtomXml, 'application/atom+xml');
+      };
+      const server = await startServer({
+        config: {
+          databasePath: tempDb.databasePath,
+          migrationsDirectory,
+        },
+        port: 0,
+        enablePolling: true,
+        pollingSchedule: createAlwaysOnTestPollingSchedule(),
+        pollingServiceOptions: { fetchFn: mockFetch, clock: () => fixedNow },
+        schedulerOptions: {
+          adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+          now: () => new Date(fixedNow),
+        },
+      });
 
-    await server.close({ reason: 'signal' });
-    const countAfterClose = fetchCount;
+      await server.close({ reason: 'signal' });
+      const countAfterClose = fetchCount;
 
-    const result = await server.pollingService!.pollOnce('manual');
-    assert.equal(fetchCount, countAfterClose, 'fetchFn must not be called after signal close');
-    assert.deepEqual(result.feedResults, []);
-    assert.equal(result.aborted, true);
-  } finally {
-    tempDb.cleanup();
-  }
-});
+      const result = await server.pollingService!.pollOnce('manual');
+      assert.equal(fetchCount, countAfterClose, 'fetchFn must not be called after signal close');
+      assert.deepEqual(result.feedResults, []);
+      assert.equal(result.aborted, true);
+    } finally {
+      tempDb.cleanup();
+    }
+  });
+}
