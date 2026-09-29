@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import test, { describe } from 'node:test';
+import test, { afterEach, describe } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { loadPollingScheduleConfig } from '../src/config/pollingScheduleLoader.js';
+import {
+  DEFAULT_CONFIG_URL,
+  LOCAL_CONFIG_URL,
+  loadPollingScheduleConfig,
+  loadPollingScheduleConfigWithSources,
+} from '../src/config/pollingScheduleLoader.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import {
   resolvePollingPeriod,
@@ -451,4 +457,166 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     const p = resolvePollingPeriod(testDate, reordered);
     assert.equal(p.xmlSeconds, 60);
   });
+});
+
+const originalRead = fs.readFileSync;
+const originalEnvironment = process.env.NODE_ENV;
+const shared = originalRead(DEFAULT_CONFIG_URL, 'utf-8');
+
+function withFiles(local: string | null, base = shared): void {
+  fs.readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
+    const href = file instanceof URL ? file.href : String(file);
+    if (href === DEFAULT_CONFIG_URL.href) return base;
+    if (href === LOCAL_CONFIG_URL.href) {
+      if (local === null) {
+        const error = new Error('ファイルなし') as NodeJS.ErrnoException;
+        error.code = 'ENOENT';
+        throw error;
+      }
+      return local;
+    }
+    return originalRead(file, ...(args as [BufferEncoding]));
+  }) as typeof fs.readFileSync;
+  syncBuiltinESMExports();
+}
+
+afterEach(() => {
+  fs.readFileSync = originalRead;
+  syncBuiltinESMExports();
+  if (originalEnvironment === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = originalEnvironment;
+});
+
+test('不在、空の上書き、部分上書きと既存戻り値', () => {
+  delete process.env.NODE_ENV;
+  withFiles(null);
+  const baseline = loadPollingScheduleConfigWithSources();
+  assert.equal(baseline.localOverride, 'absent');
+  assert.deepEqual(baseline.sources, [DEFAULT_CONFIG_URL]);
+  assert.deepEqual(loadPollingScheduleConfig(), baseline.config);
+
+  withFiles('{}');
+  const empty = loadPollingScheduleConfigWithSources();
+  assert.equal(empty.localOverride, 'applied');
+  assert.deepEqual(empty.config, baseline.config);
+
+  withFiles('tileDeliveryProfile: jma-direct\nfreshness:\n  xml:\n    staleAfterSeconds: 600\n');
+  const changed = loadPollingScheduleConfigWithSources();
+  assert.deepEqual(changed.sources, [DEFAULT_CONFIG_URL, LOCAL_CONFIG_URL]);
+  assert.deepEqual(changed.config, {
+    ...baseline.config,
+    tileDeliveryProfile: 'jma-direct',
+    freshness: {
+      ...baseline.config.freshness,
+      xml: { staleAfterSeconds: 600 },
+    },
+  });
+});
+
+test('配列は全置換し null と false を保持する', () => {
+  delete process.env.NODE_ENV;
+  withFiles(
+    'periods:\n  - start: "00:00"\n    end: "12:00"\n    xmlSeconds: null\n    imageCatalogSeconds: 30\n    amedasSeconds: 30\n    nowcastEnabled: false\n    kikikuruEnabled: false\n  - start: "12:00"\n    end: "00:00"\n    xmlSeconds: 60\n    imageCatalogSeconds: 60\n    amedasSeconds: 60\n    nowcastEnabled: true\n    kikikuruEnabled: true\n',
+  );
+  const periods = loadPollingScheduleConfig().periods;
+  assert.equal(periods.length, 2);
+  assert.equal(periods[0]?.xmlSeconds, null);
+  assert.equal(periods[0]?.nowcastEnabled, false);
+});
+
+test('本番ではローカルへアクセスしない。同じURLと別URLを区別する', () => {
+  process.env.NODE_ENV = 'production';
+  withFiles('invalid: [');
+  assert.equal(loadPollingScheduleConfigWithSources().localOverride, 'disabled-production');
+  delete process.env.NODE_ENV;
+  assert.throws(() => loadPollingScheduleConfigWithSources(), /YAML解析に失敗/);
+  withFiles('{}');
+  assert.equal(
+    loadPollingScheduleConfigWithSources(new URL(DEFAULT_CONFIG_URL.href)).localOverride,
+    'applied',
+  );
+  const fixture = new URL('./fixtures/polling/schedule.yaml', import.meta.url);
+  const explicit = loadPollingScheduleConfigWithSources(fixture);
+  assert.equal(explicit.localOverride, 'not-applicable');
+  assert.deepEqual(explicit.sources, [fixture]);
+});
+
+test('不正なローカル文書と未知キーを拒否する', () => {
+  delete process.env.NODE_ENV;
+  for (const local of [
+    '',
+    'null',
+    '[]',
+    '42',
+    'foo: [',
+    'foo: 1\nfoo: 2',
+    'a: 1\n---\nb: 2',
+    'unknown: 1',
+    'freshness:\n  xml:\n    staleAfterSeconds: -1',
+    'freshness:\n  imageCatalog:\n    unknown: 1',
+    'periods: []',
+  ]) {
+    withFiles(local);
+    assert.throws(
+      () => loadPollingScheduleConfigWithSources(),
+      (error: Error) => {
+        assert.match(error.message, /polling.local.yaml/);
+        return true;
+      },
+    );
+  }
+});
+
+test('循環参照と特殊キーを拒否し、オブジェクトのプロトタイプを汚染しない', () => {
+  delete process.env.NODE_ENV;
+  withFiles('freshness: &cycle\n  xml: *cycle\n');
+  assert.throws(() => loadPollingScheduleConfigWithSources(), /循環参照/);
+  withFiles('"__proto__": hacked\n');
+  assert.throws(() => loadPollingScheduleConfigWithSources(), /__proto__/);
+  assert.equal(({} as Record<string, unknown>).hacked, undefined);
+});
+
+test('ローカル読込権限エラーと共有ファイルの不正を救済しない', () => {
+  delete process.env.NODE_ENV;
+  fs.readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
+    if (file instanceof URL && file.href === LOCAL_CONFIG_URL.href) {
+      const error = new Error('権限なし') as NodeJS.ErrnoException;
+      error.code = 'EACCES';
+      throw error;
+    }
+    return originalRead(file, ...(args as [BufferEncoding]));
+  }) as typeof fs.readFileSync;
+  syncBuiltinESMExports();
+  assert.throws(
+    () => loadPollingScheduleConfigWithSources(),
+    /polling.local.yaml.*EACCES|polling.local.yaml.*権限なし/,
+  );
+
+  withFiles('{}', 'periods: [');
+  assert.throws(() => loadPollingScheduleConfigWithSources(), /polling.yaml.*YAML解析に失敗/);
+  fs.readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
+    if (file instanceof URL && file.href === DEFAULT_CONFIG_URL.href) {
+      const error = new Error('共有ファイルなし') as NodeJS.ErrnoException;
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return originalRead(file, ...(args as [BufferEncoding]));
+  }) as typeof fs.readFileSync;
+  syncBuiltinESMExports();
+  assert.throws(() => loadPollingScheduleConfigWithSources(), /polling.yaml.*読み込みに失敗/);
+});
+
+test('ローカルの時間帯重複と欠落を検証で拒否する', () => {
+  delete process.env.NODE_ENV;
+  for (const periods of [
+    '  - start: "00:00"\n    end: "12:00"\n  - start: "11:00"\n    end: "00:00"',
+    '  - start: "00:00"\n    end: "12:00"',
+  ]) {
+    const completeFields = periods.replaceAll(
+      / {4}end: "([0-9:]+)"/g,
+      '    end: "$1"\n    xmlSeconds: 60\n    imageCatalogSeconds: 60\n    amedasSeconds: 60\n    nowcastEnabled: true\n    kikikuruEnabled: true',
+    );
+    withFiles(`periods:\n${completeFields}\n`);
+    assert.throws(() => loadPollingScheduleConfigWithSources(), /時間帯範囲/);
+  }
 });
