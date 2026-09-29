@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test, { afterEach, describe } from 'node:test';
 import { pathToFileURL } from 'node:url';
+import yaml from 'js-yaml';
 import {
   DEFAULT_CONFIG_URL,
   LOCAL_CONFIG_URL,
@@ -618,5 +619,27 @@ test('ローカルの時間帯重複と欠落を検証で拒否する', () => {
     );
     withFiles(`periods:\n${completeFields}\n`);
     assert.throws(() => loadPollingScheduleConfigWithSources(), /時間帯範囲/);
+  }
+});
+
+test('合成前の入力オブジェクトを変更しない', () => {
+  delete process.env.NODE_ENV;
+  const base = yaml.load(shared, { schema: yaml.CORE_SCHEMA, json: false }) as Record<
+    string,
+    unknown
+  >;
+  const local = { freshness: { xml: { staleAfterSeconds: 600 } } };
+  const baseSnapshot = structuredClone(base);
+  const localSnapshot = structuredClone(local);
+  const originalLoad = yaml.load;
+  withFiles('LOCAL', 'BASE');
+  yaml.load = ((content: string) => (content === 'BASE' ? base : local)) as typeof yaml.load;
+  try {
+    const loaded = loadPollingScheduleConfigWithSources();
+    assert.equal(loaded.config.freshness.xml.staleAfterSeconds, 600);
+    assert.deepEqual(base, baseSnapshot);
+    assert.deepEqual(local, localSnapshot);
+  } finally {
+    yaml.load = originalLoad;
   }
 });

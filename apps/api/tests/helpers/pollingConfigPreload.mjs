@@ -10,6 +10,14 @@ const defaultConfigUrl = pathToFileURL(defaultConfigPath).href;
 const localConfigUrl = new URL('../../../../config/polling.local.yaml', import.meta.url).href;
 const originalReadFileSync = fs.readFileSync;
 
+if (process.env.WX_TEST_UPSTREAM_MARKER) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (...args) => {
+    fs.writeFileSync(process.env.WX_TEST_UPSTREAM_MARKER, 'fetch');
+    return originalFetch(...args);
+  };
+}
+
 fs.readFileSync = function readFileSyncForPollingFixture(path, ...options) {
   const requested = path instanceof URL ? path.href : String(path);
   if (requested === localConfigUrl && process.env.WX_TEST_LOCAL_POLLING_ABSENT === 'true') {

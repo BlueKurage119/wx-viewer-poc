@@ -143,6 +143,7 @@ test('実プロセスの不正設定はDB生成と待受より前に失敗する
           DISABLE_POLLING: 'true',
           WX_VIEWER_DB_PATH: databasePath,
           WX_TEST_LOCAL_POLLING_YAML: 'unknown: 1',
+          WX_TEST_UPSTREAM_MARKER: path.join(directory, 'upstream-called'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
@@ -158,6 +159,7 @@ test('実プロセスの不正設定はDB生成と待受より前に失敗する
     assert.match(output, /polling.local.yaml.*未知のルート設定キーです: unknown/s);
     assert.doesNotMatch(output, /ポーリング設定:|listening on/);
     assert.equal(fs.existsSync(databasePath), false);
+    assert.equal(fs.existsSync(path.join(directory, 'upstream-called')), false);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
