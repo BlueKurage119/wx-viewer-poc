@@ -44,7 +44,7 @@ export function resolveNotificationVenueScope(
   for (const target of targets) {
     if (target.codeType === 'jma_municipal_warning_area') {
       for (const venueId of VENUE_IDS) {
-        if (VENUE_FORECAST_TARGETS[venueId].warning.municipalCode === target.code) {
+        if (VENUE_FORECAST_TARGETS[venueId]?.warning.municipalCode === target.code) {
           if (!municipalMatches.includes(venueId)) {
             municipalMatches.push(venueId);
           }

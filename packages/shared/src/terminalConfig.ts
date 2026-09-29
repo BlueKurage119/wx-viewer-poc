@@ -1,11 +1,9 @@
-import type { VenueId } from './venueForecastTargets.js';
-
 export type TerminalMode = 'H' | 'K';
 
 export interface TerminalDefinition {
   readonly id: string;
   readonly mode: TerminalMode;
-  readonly venueId: VenueId;
+  readonly venueId: 'east' | 'trc';
 }
 
 /** API と web が共用する、端末 ID から会場を決定する最小台帳。 */

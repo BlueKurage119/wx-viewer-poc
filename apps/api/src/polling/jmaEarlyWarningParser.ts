@@ -22,8 +22,12 @@ export const EXPECTED_METEOROLOGICAL_INFOS_TYPE = '区域予報';
 export const EXPECTED_VPFD61_INFO_KIND = '警報級の可能性（明日まで）';
 export const EXPECTED_VPFW60_INFO_KIND = '警報級の可能性（明後日以降）';
 
-export const DEFAULT_EARLY_WARNING_TARGET_AREA: EarlyWarningTargetArea =
-  resolveEarlyWarningTargetArea('east');
+export const DEFAULT_EARLY_WARNING_TARGET_AREA: EarlyWarningTargetArea = new Proxy(
+  {} as EarlyWarningTargetArea,
+  {
+    get: (_target, property) => Reflect.get(resolveEarlyWarningTargetArea('east'), property),
+  },
+);
 
 function parseDocument(rawXml: string): Element | null {
   try {

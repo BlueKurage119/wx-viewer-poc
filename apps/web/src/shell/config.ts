@@ -20,7 +20,7 @@ export interface Terminal {
   mode: TerminalMode;
   venue: Venue;
 }
-const venues = {
+const venues: Record<string, Venue> = {
   east: {
     id: 'east',
     name: '東京ビッグサイト',
@@ -44,7 +44,7 @@ export const terminals: readonly Terminal[] = TERMINAL_DEFINITIONS.map((terminal
   id: terminal.id,
   name: terminalNames[terminal.id]!,
   mode: terminal.mode,
-  venue: venues[terminal.venueId],
+  venue: venues[terminal.venueId]!,
 }));
 export const views: readonly {
   id: ViewId;

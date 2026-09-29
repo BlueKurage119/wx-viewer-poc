@@ -29,8 +29,12 @@ export const PROPERTY_TYPE_TEMPERATURE = '３時間毎気温';
 export const BLOCK_ID_REGION = 'region-3hour';
 export const BLOCK_ID_TEMPERATURE = 'temperature-3hour';
 
-export const DEFAULT_AREA_TIMESERIES_FORECAST_TARGET: AreaTimeseriesForecastTarget =
-  resolveAreaTimeseriesForecastTarget('east');
+export const DEFAULT_AREA_TIMESERIES_FORECAST_TARGET: AreaTimeseriesForecastTarget = new Proxy(
+  {} as AreaTimeseriesForecastTarget,
+  {
+    get: (_target, property) => Reflect.get(resolveAreaTimeseriesForecastTarget('east'), property),
+  },
+);
 
 function parseDocument(rawXml: string): Element | null {
   try {

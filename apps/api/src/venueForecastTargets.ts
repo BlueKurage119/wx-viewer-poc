@@ -133,7 +133,12 @@ export function resolveBosaiBulletinTarget(): BosaiBulletinTarget {
   return { includedAreaCodes: Array.from(combined) };
 }
 
-export const DEFAULT_BOSAI_BULLETIN_TARGET: BosaiBulletinTarget = resolveBosaiBulletinTarget();
+/** レジストリ確定前のモジュール評価を避ける遅延参照。 */
+export const DEFAULT_BOSAI_BULLETIN_TARGET: BosaiBulletinTarget = Object.freeze({
+  get includedAreaCodes() {
+    return resolveBosaiBulletinTarget().includedAreaCodes;
+  },
+});
 
 /** C9 用のアメダス対象地点を会場定義から解決する。 */
 export function resolveAmedasTarget(venueId: VenueId): AmedasTarget {
@@ -141,4 +146,15 @@ export function resolveAmedasTarget(venueId: VenueId): AmedasTarget {
 }
 
 /** east 既定の後方互換 alias（Issue #109 §3.2 の DEFAULT_* と同じ作法）。 */
-export const DEFAULT_AMEDAS_TARGET: AmedasTarget = resolveAmedasTarget('east');
+/** レジストリ確定前のモジュール評価を避ける遅延参照。 */
+export const DEFAULT_AMEDAS_TARGET: AmedasTarget = Object.freeze({
+  get stationCode() {
+    return resolveAmedasTarget('east').stationCode;
+  },
+  get displayName() {
+    return resolveAmedasTarget('east').displayName;
+  },
+  get elements() {
+    return resolveAmedasTarget('east').elements;
+  },
+});

@@ -2,7 +2,12 @@ import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
 import crypto from 'node:crypto';
 
-import { VENUE_IDS, type UtcIso8601String } from '@wx-viewer-poc/shared';
+import {
+  configureVenueRegistry,
+  TERMINAL_DEFINITIONS,
+  VENUE_IDS,
+  type UtcIso8601String,
+} from '@wx-viewer-poc/shared';
 import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
 import {
@@ -13,6 +18,7 @@ import {
   resolvePollingPeriod,
   validatePollingScheduleConfig,
   type PollingScheduleConfig,
+  loadVenueConfig,
 } from './config/index.js';
 import {
   createFetchControlService,
@@ -94,6 +100,7 @@ export interface StartServerOptions {
   readonly schedulerOptions?: Partial<TimeBasedPollingSchedulerOptions>;
   readonly pollingSchedule?: PollingScheduleConfig;
   readonly configUrl?: URL;
+  readonly venueConfigUrl?: URL;
   readonly imageServices?: ImageServices;
   /** Issue #43 §6.1: graceful shutdown の検証用。指定すると SIGTERM/SIGINT を購読する。 */
   readonly shutdownSignalSource?: SignalSource;
@@ -378,6 +385,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   }
 
   // DB初期化・HTTP待受より前に設定を読み込み検証する（失敗時はDBや待受を起動しない）
+  const venueConfig = loadVenueConfig({ baseUrl: options.venueConfigUrl });
+  configureVenueRegistry(venueConfig.registry);
+  for (const terminal of TERMINAL_DEFINITIONS) {
+    if (venueConfig.registry.resolveVenueId(terminal.venueId) === null)
+      throw new Error(`端末 ${terminal.id} の会場 ID が設定にありません: ${terminal.venueId}`);
+  }
   const loaded = options.pollingSchedule
     ? null
     : loadPollingScheduleConfigWithSources(options.configUrl);
@@ -499,6 +512,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   });
 
   const app = createApp({
+    venueConfig: venueConfig.response,
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
@@ -742,6 +756,12 @@ async function main(): Promise<void> {
   });
 
   // DB初期化・HTTP待受より前に設定を読み込み検証する
+  const venueConfig = loadVenueConfig();
+  configureVenueRegistry(venueConfig.registry);
+  for (const terminal of TERMINAL_DEFINITIONS) {
+    if (venueConfig.registry.resolveVenueId(terminal.venueId) === null)
+      throw new Error(`端末 ${terminal.id} の会場 ID が設定にありません: ${terminal.venueId}`);
+  }
   const loaded = loadPollingScheduleConfigWithSources();
   const schedule = loaded.config;
   logPollingConfig(loaded);
@@ -860,6 +880,7 @@ async function main(): Promise<void> {
   });
 
   const app = createApp({
+    venueConfig: venueConfig.response,
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,

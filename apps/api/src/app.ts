@@ -13,6 +13,7 @@ import {
   parseWeatherApiQuery,
   resolveTerminalDefinition,
   type UtcIso8601String,
+  type VenueConfigResponse,
 } from '@wx-viewer-poc/shared';
 import type {
   NotificationDeltaService,
@@ -29,6 +30,7 @@ import type { FetchControlService } from './services/fetchControlService.js';
 import { isFetchControlRequestId, parseFetchControlRequest } from '@wx-viewer-poc/shared';
 
 export interface AppDependencies {
+  readonly venueConfig?: VenueConfigResponse;
   readonly startupNotifications?: StartupNotificationService;
   readonly notificationDelta?: NotificationDeltaService;
   readonly weatherApi?: WeatherApiService;
@@ -54,6 +56,12 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   app.get('/api/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });
+
+  if (dependencies.venueConfig) {
+    app.get('/api/config/venues', (_req, res) => {
+      sendJsonNoStore(res, 200, dependencies.venueConfig);
+    });
+  }
 
   if (dependencies.weatherApi) {
     const weatherApi = dependencies.weatherApi;

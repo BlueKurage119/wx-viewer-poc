@@ -3,15 +3,20 @@ import test from 'node:test';
 import {
   VENUE_FORECAST_TARGETS,
   VENUE_IDS,
+  configureVenueRegistry,
   isVenueId,
   resolveVenueForecastTargets,
 } from '../src/index.ts';
+import { loadVenueConfig } from '../../../apps/api/src/config/venueConfigLoader.ts';
+
+configureVenueRegistry(loadVenueConfig().registry);
 
 test('会場別の気象対象を用途ごとに完全一致で解決する', () => {
   assert.deepEqual(VENUE_FORECAST_TARGETS, {
     east: {
       venueId: 'east',
       venueName: '東京ビッグサイト',
+      experimental: false,
       mapReference: { latitude: 35.63159368010876, longitude: 139.79281040119963 },
       warning: { municipalCode: '1310800', displayName: '江東区', prefectureCode: '130000' },
       warningTimeseries: { municipalCode: '1310800', displayName: '江東区' },
@@ -23,6 +28,7 @@ test('会場別の気象対象を用途ごとに完全一致で解決する', ()
     trc: {
       venueId: 'trc',
       venueName: '東京流通センター',
+      experimental: true,
       mapReference: { latitude: 35.58138, longitude: 139.748119 },
       warning: { municipalCode: '1311100', displayName: '大田区', prefectureCode: '130000' },
       warningTimeseries: { municipalCode: '1311100', displayName: '大田区' },
