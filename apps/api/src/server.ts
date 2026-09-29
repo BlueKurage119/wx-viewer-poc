@@ -56,6 +56,7 @@ import {
 } from './polling/index.js';
 import { recoverWarningCurrent } from './polling/jmaWarningCurrentProcessor.js';
 import { reprocessPendingWarningTelegramReceptions } from './polling/jmaWarningTelegramProcessor.js';
+import { reprocessPendingVenueForecastReceptions } from './polling/jmaVenueForecastReprocessor.js';
 import { recoverLegacyVphwBulletinAreas } from './polling/jmaVphwProcessor.js';
 import { resolveVenueWarningContext } from './venueForecastTargets.js';
 import {
@@ -558,6 +559,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             });
 
           if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection);
+          reprocessPendingVenueForecastReceptions(database.connection, clock() as UtcIso8601String);
           for (const venueId of hasWarningRecoveryTables(database.connection) ? VENUE_IDS : []) {
             const venue = resolveVenueWarningContext(venueId);
             await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
