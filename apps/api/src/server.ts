@@ -6,7 +6,10 @@ import { VENUE_IDS, type UtcIso8601String } from '@wx-viewer-poc/shared';
 import { createApp } from './app.js';
 import { initializeDatabase, type DatabaseConfig } from './database/index.js';
 import {
-  loadPollingScheduleConfig,
+  DEFAULT_CONFIG_URL,
+  LOCAL_CONFIG_URL,
+  loadPollingScheduleConfigWithSources,
+  type LoadedPollingScheduleConfig,
   resolvePollingPeriod,
   validatePollingScheduleConfig,
   type PollingScheduleConfig,
@@ -317,6 +320,28 @@ function monitorServerErrors(server: Server): {
   };
 }
 
+function formatPollingConfigSource(source: URL): string {
+  if (source.href === DEFAULT_CONFIG_URL.href) return 'config/polling.yaml';
+  if (source.href === LOCAL_CONFIG_URL.href) return 'config/polling.local.yaml';
+  return source.href;
+}
+
+function logPollingConfig(loaded: LoadedPollingScheduleConfig | null): void {
+  if (loaded === null) {
+    console.info('ポーリング設定: 読み込み元=設定オブジェクト; ローカル上書き=対象外（設定注入）');
+    return;
+  }
+  const status = {
+    applied: 'あり',
+    absent: 'なし（ファイルなし）',
+    'disabled-production': '無効（production）',
+    'not-applicable': '対象外（明示URL）',
+  }[loaded.localOverride];
+  console.info(
+    `ポーリング設定: 読み込み元=${loaded.sources.map(formatPollingConfigSource).join(', ')}; ローカル上書き=${status}`,
+  );
+}
+
 export async function startServer(options: StartServerOptions = {}): Promise<StartedServer> {
   // Codexレビュー指摘#6（2回目レビュー）: registerGracefulShutdown() の呼び出しを
   // close の定義（＝初回XML取得を含む長い初期化のawait完了後）まで遅らせると、その間に
@@ -353,9 +378,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   }
 
   // DB初期化・HTTP待受より前に設定を読み込み検証する（失敗時はDBや待受を起動しない）
-  const schedule = validatePollingScheduleConfig(
-    options.pollingSchedule ?? loadPollingScheduleConfig(options.configUrl),
-  );
+  const loaded = options.pollingSchedule
+    ? null
+    : loadPollingScheduleConfigWithSources(options.configUrl);
+  const schedule = validatePollingScheduleConfig(options.pollingSchedule ?? loaded?.config);
+  logPollingConfig(loaded);
 
   const database = initializeDatabase(options.config);
   const clock = options.pollingServiceOptions?.clock ?? (() => new Date().toISOString());
@@ -715,7 +742,9 @@ async function main(): Promise<void> {
   });
 
   // DB初期化・HTTP待受より前に設定を読み込み検証する
-  const schedule = loadPollingScheduleConfig();
+  const loaded = loadPollingScheduleConfigWithSources();
+  const schedule = loaded.config;
+  logPollingConfig(loaded);
 
   const port = process.env.PORT ? Number(process.env.PORT) : DEFAULT_PORT;
   const database = initializeDatabase();
