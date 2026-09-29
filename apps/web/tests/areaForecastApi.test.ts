@@ -46,6 +46,7 @@ function createValidResponse(
           valueText: '晴れ',
           valueNumber: null,
           unit: null,
+          condition: null,
           sequence: 1,
         },
       ],
@@ -182,4 +183,41 @@ test('Issue #58 PR指摘: parseAreaForecastResponse - area の欠落・不正は
   assert.equal(parseAreaForecastResponse({ ...base, area: undefined }, 'normal'), null);
   assert.equal(parseAreaForecastResponse({ ...base, area: null }, 'normal'), null);
   assert.equal(parseAreaForecastResponse({ ...base, area: { code: 130010 } }, 'normal'), null);
+});
+
+test('Issue #229: 全値のconditionはnullまたは文字列を受理する', () => {
+  for (const condition of [null, '', '風弱く', '未知の付加情報']) {
+    const base = createValidResponse();
+    const response = {
+      ...base,
+      data: {
+        ...base.data!,
+        values: ['weather', 'wind_direction', 'wind_speed_rank', 'temperature'].map((element) => ({
+          ...base.data!.values[0]!,
+          element,
+          condition,
+        })),
+      },
+    };
+    assert.deepEqual(parseAreaForecastResponse(response, 'normal'), response);
+  }
+});
+
+test('Issue #229: いずれかの値のcondition欠落・不正型は応答全体を拒否する', () => {
+  const base = createValidResponse();
+  const missing: Record<string, unknown> = { ...base.data!.values[0]! };
+  delete missing.condition;
+  const invalidValues = [
+    missing,
+    ...[undefined, 1, true, {}, []].map((condition) => ({ ...base.data!.values[0]!, condition })),
+  ];
+  for (const element of ['weather', 'wind_direction', 'wind_speed_rank', 'temperature']) {
+    for (const invalid of invalidValues) {
+      const response = {
+        ...base,
+        data: { ...base.data!, values: [base.data!.values[0]!, { ...invalid, element }] },
+      };
+      assert.equal(parseAreaForecastResponse(response, 'normal'), null);
+    }
+  }
 });

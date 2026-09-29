@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,8 +36,8 @@ test('1. 本番 migration をすべて適用すると全テーブルが存在し
       .filter((file) => file.endsWith('.sql'))
       .sort();
 
-    assert.equal(expectedSqlFiles.length, 24);
-    assert.equal(context.migrationSummary.appliedVersions.length, 24);
+    assert.equal(expectedSqlFiles.length, 25);
+    assert.equal(context.migrationSummary.appliedVersions.length, 25);
 
     const tables = (
       context.connection
@@ -359,7 +359,7 @@ test('8. migration を2回適用しても再実行されない', () => {
       databasePath,
       migrationsDirectory,
     });
-    assert.equal(context1.migrationSummary.appliedVersions.length, 24);
+    assert.equal(context1.migrationSummary.appliedVersions.length, 25);
     context1.close();
 
     const connection = openDatabase(databasePath);
@@ -378,7 +378,7 @@ test('8. migration を2回適用しても再実行されない', () => {
 test('9. migration ファイル内に BEGIN / COMMIT / ROLLBACK が含まれない', () => {
   const sqlFiles = readdirSync(migrationsDirectory).filter((file) => file.endsWith('.sql'));
 
-  assert.equal(sqlFiles.length, 24, '24 migration files should exist');
+  assert.equal(sqlFiles.length, 25, '25 migration files should exist');
 
   const forbiddenPattern = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/im;
   for (const file of sqlFiles) {
@@ -390,7 +390,91 @@ test('9. migration ファイル内に BEGIN / COMMIT / ROLLBACK が含まれな�
   }
 });
 
-test('10. bosai_bulletin_area に relation 列が存在しない', () => {
+test('10. migration 0025 適用前の地域時系列値は保持され、condition は null になる', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-condition-migration-test-'));
+  const temporaryMigrations = join(directory, 'migrations');
+  const databasePath = join(directory, 'test.sqlite3');
+  cpSync(migrationsDirectory, temporaryMigrations, { recursive: true });
+  const migrationPath = join(temporaryMigrations, '0025_add_area_timeseries_condition.sql');
+  const migrationSql = readFileSync(migrationPath, 'utf8');
+  rmSync(migrationPath);
+
+  try {
+    const before = initializeDatabase({ databasePath, migrationsDirectory: temporaryMigrations });
+    before.connection
+      .prepare(
+        `INSERT INTO area_timeseries_snapshot (
+          area_code, area_name, station_code, station_name, control_status, info_type, event_id,
+          report_datetime, control_datetime, source, issued_at, valid_at, valid_from, valid_to,
+          fetched_at, last_success_at, availability, source_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        '130010',
+        '東京地方',
+        '44132',
+        '東京',
+        'normal',
+        '発表',
+        null,
+        '2026-09-10T08:00:00.000Z',
+        '2026-09-10T08:00:00.000Z',
+        'VPFD51',
+        '2026-09-10T08:00:00.000Z',
+        null,
+        null,
+        null,
+        '2026-09-10T08:00:00.000Z',
+        '2026-09-10T08:00:00.000Z',
+        'available',
+        '1.0_1',
+      );
+    before.connection
+      .prepare(
+        `INSERT INTO area_timeseries_time_define (
+          snapshot_id, block_id, time_id, sequence, time_from, time_to, duration
+        ) VALUES (1, 'region-3hour', '1', 1, '2026-09-10T09:00:00.000Z', '2026-09-10T12:00:00.000Z', 'PT3H')`,
+      )
+      .run();
+    before.connection
+      .prepare(
+        `INSERT INTO area_timeseries_value (
+          snapshot_id, block_id, ref_id, element, value_code, value_text, value_number, unit, sequence
+        ) VALUES (1, 'region-3hour', '1', 'wind_direction', NULL, '北', NULL, '８方位漢字', 1)`,
+      )
+      .run();
+    const oldRows = before.connection
+      .prepare('SELECT * FROM area_timeseries_value ORDER BY id')
+      .all();
+    before.close();
+
+    writeFileSync(migrationPath, migrationSql, 'utf8');
+    const after = initializeDatabase({ databasePath, migrationsDirectory: temporaryMigrations });
+    try {
+      assert.deepEqual(after.migrationSummary.appliedVersions, [25]);
+      assert.deepEqual(
+        after.connection.prepare('SELECT * FROM area_timeseries_value ORDER BY id').all(),
+        oldRows.map((row) => ({ ...(row as Record<string, unknown>), condition: null })),
+      );
+    } finally {
+      after.close();
+    }
+    const again = initializeDatabase({ databasePath, migrationsDirectory: temporaryMigrations });
+    try {
+      assert.deepEqual(again.migrationSummary.appliedVersions, []);
+      assert.deepEqual(
+        again.connection.prepare('SELECT * FROM area_timeseries_value ORDER BY id').all(),
+        oldRows.map((row) => ({ ...(row as Record<string, unknown>), condition: null })),
+      );
+    } finally {
+      again.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('11. bosai_bulletin_area に relation 列が存在しない', () => {
   const { databasePath, cleanup } = createTempDbPath();
   try {
     const context = initializeDatabase({

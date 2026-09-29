@@ -196,6 +196,7 @@ test('B1 端末と対象解決: 3 GET で east / trc の端末解決。他区域
         valueText: '晴れ',
         valueNumber: null,
         unit: null,
+        condition: null,
         sequence: 1,
       },
     ],
@@ -541,6 +542,7 @@ test('B3 controlStatus 分離: #36/#38 で normal/training/test 領域が完全�
           valueText: `天気-${cs}`,
           valueNumber: null,
           unit: null,
+          condition: null,
           sequence: 1,
         },
       ],
@@ -822,6 +824,7 @@ test('B4 未取得・正常空・保持値: snapshotなしは unavailable、明�
         valueText: '曇り',
         valueNumber: null,
         unit: null,
+        condition: null,
         sequence: 1,
       },
     ],
@@ -972,6 +975,7 @@ test('B5 #36 ブロック分離: region-3hour と temperature-3hour が同じ ti
         valueText: '雨',
         valueNumber: null,
         unit: null,
+        condition: null,
         sequence: 1,
       },
       {
@@ -982,6 +986,7 @@ test('B5 #36 ブロック分離: region-3hour と temperature-3hour が同じ ti
         valueText: '20',
         valueNumber: 20,
         unit: '度',
+        condition: null,
         sequence: 1,
       },
     ],
@@ -1081,6 +1086,7 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
         valueText: 'くもり時々雨',
         valueNumber: null,
         unit: null,
+        condition: null,
         sequence: 1,
       },
       {
@@ -1091,6 +1097,7 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
         valueText: '北東',
         valueNumber: null,
         unit: '16方位',
+        condition: null,
         sequence: 2,
       },
       {
@@ -1101,6 +1108,7 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
         valueText: null,
         valueNumber: null,
         unit: null,
+        condition: null,
         sequence: 3,
       },
       {
@@ -1111,6 +1119,7 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
         valueText: '18',
         valueNumber: 18,
         unit: '度',
+        condition: null,
         sequence: 1,
       },
     ],
@@ -1132,6 +1141,7 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
       valueText: 'くもり時々雨',
       valueNumber: null,
       unit: null,
+      condition: null,
       sequence: 1,
     },
     {
@@ -1142,6 +1152,7 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
       valueText: '18',
       valueNumber: 18,
       unit: '度',
+      condition: null,
       sequence: 1,
     },
     {
@@ -1152,6 +1163,7 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
       valueText: '北東',
       valueNumber: null,
       unit: '16方位',
+      condition: null,
       sequence: 2,
     },
     {
@@ -1162,9 +1174,108 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
       valueText: null,
       valueNumber: null,
       unit: null,
+      condition: null,
       sequence: 3,
     },
   ]);
+});
+
+test('B6追加 #229: 空風向とconditionをRESTで保持する', async () => {
+  const { db, app } = createTestApp();
+  const saved = saveAreaTimeseriesSnapshot(db.connection, {
+    areaCode: '130010',
+    areaName: '東京地方',
+    stationCode: '44132',
+    stationName: '東京',
+    metadata: {
+      source: 'test',
+      issuedAt: '2026-09-14T06:00:00.000Z',
+      validAt: null,
+      validFrom: null,
+      validTo: null,
+      fetchedAt: '2026-09-14T06:00:00.000Z',
+      lastSuccessAt: '2026-09-14T06:00:00.000Z',
+      availability: 'available',
+      sourceVersion: null,
+    },
+    telegram: {
+      controlStatus: 'normal',
+      infoType: '発表',
+      eventId: null,
+      reportDateTime: '2026-09-14T06:00:00.000Z',
+      controlDateTime: '2026-09-14T06:00:00.000Z',
+    },
+    timeDefines: [
+      {
+        blockId: 'region-3hour',
+        timeId: '1',
+        sequence: 1,
+        timeFrom: '2026-09-14T06:00:00.000Z',
+        timeTo: '2026-09-14T09:00:00.000Z',
+        duration: 'PT3H',
+      },
+    ],
+    values: [
+      {
+        blockId: 'region-3hour',
+        refId: '1',
+        element: 'wind_direction',
+        valueCode: null,
+        valueText: '',
+        valueNumber: null,
+        unit: '８方位漢字',
+        condition: '風弱く',
+        sequence: 1,
+      },
+    ],
+  });
+  const res = await request(app).get(
+    '/api/weather/area-timeseries?terminalId=hkeagh01&controlStatus=normal',
+  );
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.data.values, [
+    {
+      blockId: 'region-3hour',
+      refId: '1',
+      element: 'wind_direction',
+      valueCode: null,
+      valueText: '',
+      valueNumber: null,
+      unit: '８方位漢字',
+      condition: '風弱く',
+      sequence: 1,
+    },
+  ]);
+  saveAreaTimeseriesSnapshot(db.connection, {
+    ...saved,
+    telegram: { ...saved.telegram, controlStatus: 'training' },
+    values: saved.values.map((value) => ({ ...value, valueText: '北', condition: '強く' })),
+  });
+  const training = await request(app).get(
+    '/api/weather/area-timeseries?terminalId=hkeagh01&controlStatus=training',
+  );
+  assert.equal(training.status, 200);
+  assert.deepEqual(
+    training.body.data.values,
+    res.body.data.values.map((value: AreaTimeseriesValue) => ({
+      ...value,
+      valueText: '北',
+      condition: '強く',
+    })),
+  );
+  saveAreaTimeseriesSnapshot(db.connection, {
+    ...saved,
+    metadata: { ...saved.metadata, availability: 'stale' },
+    values: [],
+    timeDefines: [],
+  });
+  const stale = await request(app).get(
+    '/api/weather/area-timeseries?terminalId=hkeagh01&controlStatus=normal',
+  );
+  assert.equal(stale.status, 200);
+  assert.equal(stale.body.metadata.availability, 'stale');
+  assert.deepEqual(stale.body.data.values, res.body.data.values);
+  assert.deepEqual(stale.body.data.timeDefines, res.body.data.timeDefines);
 });
 
 // ---------------------------------------------------------------------------

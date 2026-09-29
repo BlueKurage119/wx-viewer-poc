@@ -111,7 +111,8 @@ export function parseAreaForecastResponse(
         (item.valueCode === null || typeof item.valueCode === 'string') &&
         (item.valueText === null || typeof item.valueText === 'string') &&
         (item.valueNumber === null || typeof item.valueNumber === 'number') &&
-        (item.unit === null || typeof item.unit === 'string'),
+        (item.unit === null || typeof item.unit === 'string') &&
+        (item.condition === null || typeof item.condition === 'string'),
     );
     if (!valuesValid) {
       return null;

@@ -39,7 +39,7 @@ import type { SnapshotMetadataInput, TelegramMetadataInput } from '../src/reposi
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 
-function setupTestDb(): { context: DatabaseContext; cleanup: () => void } {
+function setupTestDb(): { context: DatabaseContext; databasePath: string; cleanup: () => void } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-repo-test-'));
   const databasePath = join(directory, 'test.sqlite3');
   const context = initializeDatabase({
@@ -48,6 +48,7 @@ function setupTestDb(): { context: DatabaseContext; cleanup: () => void } {
   });
   return {
     context,
+    databasePath,
     cleanup: () => {
       context.close();
       rmSync(directory, { recursive: true, force: true });
@@ -224,6 +225,102 @@ test('1. 現況警報 (WarningCurrent): CRUD, 置き換え, 訓練分離, 明細
     assert.ok(findWarningCurrentSnapshot(context.connection, '1310800', 'training'));
   } finally {
     cleanup();
+  }
+});
+
+test('4追加 #229: conditionは保存・stale保持・再オープン・null更新で正しく往復する', () => {
+  const db = setupTestDb();
+  const input = (condition: string | null, availability: 'available' | 'stale') => ({
+    areaCode: '130010',
+    areaName: '東京地方',
+    stationCode: '44132',
+    stationName: '東京',
+    metadata: { ...sampleMetadata, availability },
+    telegram: sampleTelegram,
+    timeDefines:
+      availability === 'stale'
+        ? []
+        : [
+            {
+              blockId: 'region-3hour',
+              timeId: '1',
+              sequence: 1,
+              timeFrom: '2026-09-09T00:00:00Z',
+              timeTo: '2026-09-09T03:00:00Z',
+              duration: 'PT3H',
+            },
+          ],
+    values:
+      availability === 'stale'
+        ? []
+        : [
+            {
+              blockId: 'region-3hour',
+              refId: '1',
+              element: 'wind_direction',
+              valueCode: null,
+              valueText: '',
+              valueNumber: null,
+              unit: '８方位漢字',
+              condition,
+              sequence: 1,
+            },
+          ],
+  });
+  try {
+    const initial = input('風弱く', 'available');
+    initial.values.push({
+      ...initial.values[0]!,
+      refId: '2',
+      valueText: '北',
+      condition: '強く',
+      sequence: 2,
+    });
+    initial.values.push({
+      ...initial.values[0]!,
+      refId: '3',
+      valueText: '南',
+      condition: null,
+      sequence: 3,
+    });
+    initial.timeDefines.push({ ...initial.timeDefines[0]!, timeId: '2', sequence: 2 });
+    initial.timeDefines.push({ ...initial.timeDefines[0]!, timeId: '3', sequence: 3 });
+    const saved = saveAreaTimeseriesSnapshot(db.context.connection, initial);
+    assert.deepEqual(
+      saved.values.map(({ id, ...value }) => {
+        assert.ok(id > 0);
+        return value;
+      }),
+      initial.values,
+    );
+    assert.deepEqual(
+      findAreaTimeseriesSnapshot(db.context.connection, '130010', '44132', 'normal')?.values,
+      saved.values,
+    );
+    const stale = saveAreaTimeseriesSnapshot(db.context.connection, input(null, 'stale'));
+    assert.deepEqual(stale.values, saved.values);
+    assert.deepEqual(
+      findAreaTimeseriesSnapshot(db.context.connection, '130010', '44132', 'normal')?.values,
+      saved.values,
+    );
+    db.context.close();
+    const reopened = initializeDatabase({ databasePath: db.databasePath, migrationsDirectory });
+    try {
+      assert.deepEqual(
+        findAreaTimeseriesSnapshot(reopened.connection, '130010', '44132', 'normal')?.values,
+        saved.values,
+      );
+      const updated = saveAreaTimeseriesSnapshot(reopened.connection, input(null, 'available'));
+      assert.equal(updated.values[0]?.condition, null);
+      assert.deepEqual(
+        findAreaTimeseriesSnapshot(reopened.connection, '130010', '44132', 'normal')?.values,
+        updated.values,
+      );
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    rmSync(join(db.databasePath, '..'), { recursive: true, force: true });
   }
 });
 
@@ -563,6 +660,7 @@ test('4. 地域時系列予報 (AreaTimeseries): block_id による天気・風�
           valueText: '晴れ',
           valueNumber: null,
           unit: null,
+          condition: null,
           sequence: 1,
         },
         {
@@ -573,6 +671,7 @@ test('4. 地域時系列予報 (AreaTimeseries): block_id による天気・風�
           valueText: null,
           valueNumber: 24.5,
           unit: 'degree',
+          condition: null,
           sequence: 1,
         },
       ],
