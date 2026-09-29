@@ -7,6 +7,7 @@ import test from 'node:test';
 import { startServer } from '../src/server.js';
 import { initializeDatabase } from '../src/database/index.js';
 import type { SignalSource } from '../src/gracefulShutdown.js';
+import { createAlwaysOnTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 /**
  * Issue #42/#43 レビュー指摘 #6 の回帰テスト。
@@ -47,10 +48,55 @@ function makeDeferredResponse(): {
   return { promise, resolve };
 }
 
+test('常時稼働設定では注入時計がJST昼12時・夜22時でも同じ初期取得結果になる', async () => {
+  for (const fixedNow of ['2026-09-07T03:00:00.000Z', '2026-09-07T13:00:00.000Z']) {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-polling-clock-independence-'));
+    const databasePath = path.join(tmpDir, 'test.sqlite3');
+    const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
+    let fetchCount = 0;
+    const dummyAdapter = (source: 'nowcast' | 'kikikuru' | 'amedas') => ({
+      source,
+      runScheduled: async () => {},
+      runManual: async () => {},
+    });
+
+    try {
+      const server = await startServer({
+        config: { databasePath, migrationsDirectory },
+        port: 0,
+        enablePolling: true,
+        pollingSchedule: createAlwaysOnTestPollingSchedule(),
+        pollingServiceOptions: {
+          clock: () => fixedNow,
+          fetchFn: async () => {
+            fetchCount += 1;
+            return new Response('<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"/>');
+          },
+        },
+        schedulerOptions: {
+          adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+          now: () => new Date(fixedNow),
+          setTimer: () => 1,
+          clearTimer: () => {},
+        },
+      });
+      try {
+        assert.equal(server.pollingService?.getStatus().initialFetch.phase, 'completed');
+        assert.equal(fetchCount, 4);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }
+});
+
 test('レビュー指摘#6: 初期化中(初回XML取得の待機中)にシグナルが届いてもクラッシュしない', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-graceful-shutdown-timing-'));
   const databasePath = path.join(tmpDir, 'test.sqlite3');
   const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
+  const fixedNow = '2026-09-07T03:00:00.000Z';
 
   try {
     const deferred = makeDeferredResponse();
@@ -65,11 +111,13 @@ test('レビュー指摘#6: 初期化中(初回XML取得の待機中)にシグ�
       config: { databasePath, migrationsDirectory },
       port: 0,
       enablePolling: true,
+      pollingSchedule: createAlwaysOnTestPollingSchedule(),
       shutdownSignalSource: signalSource,
       // 初回XML取得を意図的に完了させず、close() が未初期化な期間を作る。
-      pollingServiceOptions: { fetchFn: () => deferred.promise },
+      pollingServiceOptions: { fetchFn: () => deferred.promise, clock: () => fixedNow },
       schedulerOptions: {
         adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+        now: () => new Date(fixedNow),
         setTimer: () => 1,
         clearTimer: () => {},
       },
@@ -112,6 +160,7 @@ test('レビュー指摘#6（2回目）: 初期化中に届いたシグナルも
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-graceful-shutdown-pending-'));
   const databasePath = path.join(tmpDir, 'test.sqlite3');
   const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
+  const fixedNow = '2026-09-07T13:00:00.000Z';
 
   try {
     const deferred = makeDeferredResponse();
@@ -126,11 +175,13 @@ test('レビュー指摘#6（2回目）: 初期化中に届いたシグナルも
       config: { databasePath, migrationsDirectory },
       port: 0,
       enablePolling: true,
+      pollingSchedule: createAlwaysOnTestPollingSchedule(),
       shutdownSignalSource: signalSource,
       // 初回XML取得を意図的に完了させず、初期化が終わっていない期間を作る。
-      pollingServiceOptions: { fetchFn: () => deferred.promise },
+      pollingServiceOptions: { fetchFn: () => deferred.promise, clock: () => fixedNow },
       schedulerOptions: {
         adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
+        now: () => new Date(fixedNow),
         setTimer: () => 1,
         clearTimer: () => {},
       },

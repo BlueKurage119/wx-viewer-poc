@@ -16,14 +16,14 @@ import {
   type PollingScheduleConfig,
   type ScheduledSource,
 } from '../src/config/pollingSchedule.js';
-import { loadPollingScheduleConfig } from '../src/config/pollingScheduleLoader.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import {
   TimeBasedPollingScheduler,
   AmedasScheduledAdapter,
   type ScheduledPollAdapter,
 } from '../src/polling/timeBasedPollingScheduler.js';
 
-const defaultSchedule = loadPollingScheduleConfig();
+const defaultSchedule = createTestPollingSchedule();
 import {
   JmaXmlPollingService,
   type InitialFetchResult,

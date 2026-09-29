@@ -20,6 +20,7 @@ import { saveBosaiBulletin } from '../src/repositories/bosaiBulletinRepository.j
 import { recordTelegramReception } from '../src/repositories/telegramReceptionRepository.js';
 import type { JmaXmlPollingStatus } from '../src/polling/jmaXmlPollingService.js';
 import { startServer } from '../src/server.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -2646,6 +2647,7 @@ test('B15 副作用なしと結線: GET 前後で行数・通知件数変化な�
     port: 0,
     config: { databasePath: ':memory:', migrationsDirectory },
     enablePolling: false,
+    pollingSchedule: createTestPollingSchedule(),
   });
 
   try {

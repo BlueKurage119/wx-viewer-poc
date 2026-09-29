@@ -20,7 +20,10 @@ import {
 } from '../src/repositories/index.js';
 import { reprocessPendingWarningTelegramReceptions } from '../src/polling/jmaWarningTelegramProcessor.js';
 import { buildStoppedPollingStatus } from '../src/polling/index.js';
-import { loadPollingScheduleConfig } from '../src/config/index.js';
+import {
+  createAlwaysOnTestPollingSchedule,
+  createTestPollingSchedule,
+} from './helpers/pollingSchedule.js';
 import { InMemoryStartupProgressTracker } from '../src/monitoring/startupProgressTracker.js';
 import type { WeatherApiService } from '../src/services/weatherApiService.js';
 import type { NowcastApiService } from '../src/services/nowcastApiService.js';
@@ -299,6 +302,7 @@ test('4.3 初回XMLフィード取得フェーズのログ出力（running / com
         config: { databasePath, migrationsDirectory },
         port: 0,
         enablePolling: true,
+        pollingSchedule: createAlwaysOnTestPollingSchedule(),
         pollingService: fakePollingService,
       });
 
@@ -406,7 +410,7 @@ test('4.4 監視API (/api/monitoring/status): venues に reprocessing が含ま�
 
     tracker.startVenueReprocessing('trc', 0);
 
-    const schedule = loadPollingScheduleConfig();
+    const schedule = createTestPollingSchedule();
     const service = createMonitoringStatusService({
       connection,
       scheduler: {
@@ -575,6 +579,7 @@ test('4.4 監視API HTTPエンドポイント: GET /api/monitoring/status の ve
       config: { databasePath, migrationsDirectory },
       port: 0,
       enablePolling: false,
+      pollingSchedule: createTestPollingSchedule(),
     });
 
     const res = await fetch(

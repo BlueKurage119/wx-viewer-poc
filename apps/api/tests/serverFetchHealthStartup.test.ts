@@ -8,6 +8,7 @@ import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
 import { recordFetchAttempt, listNotificationOutputHistory } from '../src/repositories/index.js';
 import { startServer } from '../src/server.js';
+import { createAlwaysOnTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 /**
  * PRレビュー指摘(#141 discussion r3998740636)の回帰テスト。
@@ -28,6 +29,8 @@ test('server.ts起動時、再起動前から継続する異常はsuspendedに�
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-fetch-health-startup-'));
   const databasePath = path.join(tmpDir, 'test.sqlite3');
   const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
+  const fixedNow = '2026-09-07T03:00:00.000Z' as UtcIso8601String;
+  const fixedNowMs = Date.parse(fixedNow);
 
   try {
     // 再起動を模す: プロセス起動前から DB に kikikuru 時刻一覧の連続失敗5件(異常相当)が
@@ -42,8 +45,8 @@ test('server.ts起動時、再起動前から継続する異常はsuspendedに�
           requestUrl: 'https://example.com/risk_target_times',
           triggerKind: 'scheduled',
           attemptNo: 1,
-          startedAt: new Date(Date.now() - (5 - i) * 1000).toISOString() as UtcIso8601String,
-          finishedAt: new Date(Date.now() - (5 - i) * 1000).toISOString() as UtcIso8601String,
+          startedAt: new Date(fixedNowMs - (5 - i) * 1000).toISOString() as UtcIso8601String,
+          finishedAt: new Date(fixedNowMs - (5 - i) * 1000).toISOString() as UtcIso8601String,
           durationMs: 50,
           outcome: 'failure',
           httpStatus: 500,
@@ -70,7 +73,8 @@ test('server.ts起動時、再起動前から継続する異常はsuspendedに�
       config: { databasePath, migrationsDirectory },
       port: 0,
       enablePolling: true,
-      pollingServiceOptions: { fetchFn: dummyFetch },
+      pollingSchedule: createAlwaysOnTestPollingSchedule(),
+      pollingServiceOptions: { fetchFn: dummyFetch, clock: () => fixedNow },
       schedulerOptions: {
         adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
         now: () => new Date('2026-09-07T12:00:00+09:00'),

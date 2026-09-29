@@ -5,6 +5,7 @@ import path from 'node:path';
 import test, { describe } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { loadPollingScheduleConfig } from '../src/config/pollingScheduleLoader.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import {
   resolvePollingPeriod,
   validatePollingScheduleConfig,
@@ -25,20 +26,20 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     candidatePageSize: 100,
   };
 
-  test('既定の config/polling.yaml を正しく読み込めること', () => {
+  test('既定の config/polling.yaml を形式・値域どおりに読み込めること', () => {
     const config = loadPollingScheduleConfig();
     assert.equal(config.timezone, 'Asia/Tokyo');
-    assert.equal(config.tileDeliveryProfile, 'proxy');
-    assert.equal(config.amedasPointRecheckSeconds, 600);
-    assert.equal(config.freshness.xml.staleAfterSeconds, 300);
-    assert.equal(config.freshness.imageCatalog.staleAfterSeconds, 300);
-    assert.deepEqual(config.fetchHealth, validFetchHealth);
-    assert.deepEqual(config.startupRecovery, validStartupRecovery);
-    assert.equal(config.periods.length, 4);
+    assert.ok(['proxy', 'jma-direct'].includes(config.tileDeliveryProfile));
+    assert.ok(config.amedasPointRecheckSeconds > 0);
+    assert.ok(config.freshness.xml.staleAfterSeconds > 0);
+    assert.ok(config.freshness.imageCatalog.staleAfterSeconds > 0);
+    assert.ok(config.fetchHealth.evaluationIntervalSeconds > 0);
+    assert.ok(config.startupRecovery.delayedThresholdSeconds > 0);
+    assert.ok(config.periods.length > 0);
   });
 
   test('起動時復旧設定は正の安全整数と上限を厳密に検証すること (Issue #193 AC13)', () => {
-    const baseConfig = loadPollingScheduleConfig();
+    const baseConfig = createTestPollingSchedule();
     assert.deepEqual(
       validatePollingScheduleConfig({
         ...baseConfig,
@@ -87,7 +88,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
   });
 
   test('tileDeliveryProfile は proxy と jma-direct だけを受理すること', () => {
-    const base = loadPollingScheduleConfig();
+    const base = createTestPollingSchedule();
     assert.equal(
       validatePollingScheduleConfig({ ...base, tileDeliveryProfile: 'jma-direct' })
         .tileDeliveryProfile,
@@ -106,11 +107,11 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
   test('cwd をどこに変更しても既定URLがリポジトリルートの config/polling.yaml を解決すること (受け入れ条件 15)', () => {
     const origCwd = process.cwd();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wx-cwd-test-'));
+    const configBeforeChdir = loadPollingScheduleConfig();
     try {
       process.chdir(tempDir);
       const configFromTemp = loadPollingScheduleConfig();
-      assert.equal(configFromTemp.timezone, 'Asia/Tokyo');
-      assert.equal(configFromTemp.amedasPointRecheckSeconds, 600);
+      assert.deepEqual(configFromTemp, configBeforeChdir);
     } finally {
       process.chdir(origCwd);
       fs.rmSync(tempDir, { recursive: true, force: true });

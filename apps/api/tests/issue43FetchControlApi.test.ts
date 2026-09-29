@@ -36,7 +36,7 @@ import {
 import { NowcastService } from '../src/polling/nowcastService.js';
 import { KikikuruService } from '../src/polling/kikikuruService.js';
 import { resolvePollingPeriod, type PollingScheduleConfig } from '../src/config/pollingSchedule.js';
-import { loadPollingScheduleConfig } from '../src/config/pollingScheduleLoader.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -803,7 +803,7 @@ test('受け入れ条件9: 強制更新の実行前後で定期予定(nextRunAt�
         clock: () => nowFn().toISOString(),
       });
 
-      const schedule: PollingScheduleConfig = loadPollingScheduleConfig();
+      const schedule: PollingScheduleConfig = createTestPollingSchedule();
       const scheduler = new TimeBasedPollingScheduler({
         schedule,
         adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
@@ -847,7 +847,7 @@ test('レビュー指摘#1: XML取得が例外を投げず失敗結果を返す�
       fetchFn,
       clock: now,
     });
-    const schedule: PollingScheduleConfig = loadPollingScheduleConfig();
+    const schedule: PollingScheduleConfig = createTestPollingSchedule();
     const scheduler = new TimeBasedPollingScheduler({
       schedule,
       adapters: [dummyAdapter('nowcast'), dummyAdapter('kikikuru'), dummyAdapter('amedas')],
@@ -903,7 +903,7 @@ test('Codexレビュー指摘#1（2回目レビュー）: 強制更新が実行�
       fetchFn,
       clock: now,
     });
-    const schedule: PollingScheduleConfig = loadPollingScheduleConfig();
+    const schedule: PollingScheduleConfig = createTestPollingSchedule();
     const deferred = makeDeferred<void>();
     const nowcastAdapter = makeJoinableAdapter('nowcast', deferred);
     const scheduler = new TimeBasedPollingScheduler({
@@ -1060,7 +1060,7 @@ test('受け入れ条件11: 手動停止は時間帯境界を跨いでも維持�
       timers.delete(id as number);
     };
 
-    const schedule: PollingScheduleConfig = loadPollingScheduleConfig();
+    const schedule: PollingScheduleConfig = createTestPollingSchedule();
     const scheduler = new TimeBasedPollingScheduler({
       schedule,
       adapters: [
@@ -1115,7 +1115,7 @@ test('受け入れ条件21・22: 夜間帯の強制更新は索引を迂回し�
     const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-fetchcontrol-cache-'));
     try {
       const nightNow = () => new Date('2026-09-15T21:00:00+09:00');
-      const schedule: PollingScheduleConfig = loadPollingScheduleConfig();
+      const schedule: PollingScheduleConfig = createTestPollingSchedule();
 
       const requestedUrls: string[] = [];
       const fetchFn: typeof fetch = async (url) => {

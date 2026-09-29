@@ -10,7 +10,10 @@ import { initializeDatabase } from '../src/database/index.js';
 import { createStartupNotificationRuntime, startServer } from '../src/server.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
-import { loadPollingScheduleConfig } from '../src/config/index.js';
+import {
+  createAlwaysOnTestPollingSchedule,
+  createTestPollingSchedule,
+} from './helpers/pollingSchedule.js';
 import { createNotificationDeltaService } from '../src/notifications/index.js';
 import type { SignalSource } from '../src/gracefulShutdown.js';
 import {
@@ -217,7 +220,7 @@ test('AC13: 実serverオーケストレーションで3秒後に会場別遅延�
     release = resolve;
   });
   const port = 35000 + Math.floor(Math.random() * 1000);
-  const schedule = loadPollingScheduleConfig();
+  const schedule = createTestPollingSchedule();
   const starting = startServer({
     config: { databasePath, migrationsDirectory },
     port,
@@ -297,7 +300,7 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
   const directory = mkdtempSync(join(tmpdir(), 'database-recovery-prelisten-'));
   try {
     const invalidConfigDb = join(directory, 'invalid-config.sqlite3');
-    const schedule = loadPollingScheduleConfig();
+    const schedule = createTestPollingSchedule();
     await assert.rejects(
       startServer({
         config: { databasePath: invalidConfigDb, migrationsDirectory },
@@ -315,6 +318,7 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
       startServer({
         config: { databasePath: directory, migrationsDirectory },
         port: 0,
+        pollingSchedule: createTestPollingSchedule(),
       }),
     );
 
@@ -326,6 +330,7 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
       startServer({
         config: { databasePath: migrationDb, migrationsDirectory: brokenMigrations },
         port: 0,
+        pollingSchedule: createTestPollingSchedule(),
       }),
     );
     const migrated = initializeDatabase({
@@ -354,6 +359,7 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
     config: { databasePath, migrationsDirectory },
     port,
     enablePolling: false,
+    pollingSchedule: createTestPollingSchedule(),
     recoveryInternals: {
       recover: async (_connection, venue) => {
         if (venue.venueId === 'east') await gate;
@@ -647,14 +653,7 @@ test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポー�
   });
   let fetchCount = 0;
   const waitingVenues = new Set<string>();
-  const schedule = loadPollingScheduleConfig();
-  const alwaysOnSchedule = {
-    ...schedule,
-    periods: schedule.periods.map((period) => ({
-      ...period,
-      xmlSeconds: period.xmlSeconds ?? 60,
-    })),
-  };
+  const alwaysOnSchedule = createAlwaysOnTestPollingSchedule();
   const starting = startServer({
     config: { databasePath, migrationsDirectory },
     port: 0,
@@ -708,7 +707,8 @@ test('AC17/18: 全会場復旧完了まで上流取得を開始せず、ポー�
       '--input-type=module',
       '--eval',
       `import { startServer } from './src/server.ts';
-       const server = await startServer({ config: ${JSON.stringify({ databasePath: disabledDb, migrationsDirectory })}, port: 0 });
+       import { createTestPollingSchedule } from './tests/helpers/pollingSchedule.ts';
+       const server = await startServer({ config: ${JSON.stringify({ databasePath: disabledDb, migrationsDirectory })}, port: 0, pollingSchedule: createTestPollingSchedule() });
        const status = await (await fetch('http://127.0.0.1:' + server.port + '/api/monitoring/status?terminalId=hkeagh01')).json();
        console.log('RECOVERY_STATUS:' + JSON.stringify(status.venues.map((venue) => [venue.venueId, venue.recovery.status])));
        await server.close();`,
@@ -753,6 +753,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       config: { databasePath, migrationsDirectory },
       port: 0,
       enablePolling: false,
+      pollingSchedule: createTestPollingSchedule(),
       shutdownSignalSource: signalSource,
       recoveryInternals: {
         setTimeout: (() => 1 as unknown as NodeJS.Timeout) as unknown as typeof setTimeout,

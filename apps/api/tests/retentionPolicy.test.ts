@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { initializeDatabase } from '../src/database/index.js';
 import { startServer } from '../src/server.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import {
   findFetchAttemptById,
   findNotificationOutputHistoryById,
@@ -183,7 +184,12 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
     });
 
     try {
-      const server = await startServer({ config, port: 0, enablePolling: false });
+      const server = await startServer({
+        config,
+        port: 0,
+        enablePolling: false,
+        pollingSchedule: createTestPollingSchedule(),
+      });
 
       try {
         const response = await fetch(`http://127.0.0.1:${server.port}/api/health`);

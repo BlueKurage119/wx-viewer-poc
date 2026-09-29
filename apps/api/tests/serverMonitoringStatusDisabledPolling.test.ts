@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { startServer } from '../src/server.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 /**
  * Issue #42/#43 レビュー指摘 #2 の回帰テスト。
@@ -25,6 +26,7 @@ test('ポーリング無効起動時、監視状態APIは500にならず停止�
       config: { databasePath, migrationsDirectory },
       port: 0,
       enablePolling: false,
+      pollingSchedule: createTestPollingSchedule(),
     });
 
     try {

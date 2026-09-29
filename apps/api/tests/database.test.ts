@@ -12,6 +12,7 @@ import {
   runMigrations,
 } from '../src/database/index.js';
 import { startServer } from '../src/server.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -270,7 +271,12 @@ test('DB初期化を完了してからhealth endpointを公開し、終了後に
     migrationsDirectory: join(directory, 'migrations'),
   };
   await mkdir(config.migrationsDirectory);
-  const server = await startServer({ config, port: 0, enablePolling: false });
+  const server = await startServer({
+    config,
+    port: 0,
+    enablePolling: false,
+    pollingSchedule: createTestPollingSchedule(),
+  });
   try {
     const response = await fetch(`http://127.0.0.1:${server.port}/api/health`);
     assert.equal(response.status, 200);
@@ -289,7 +295,9 @@ test('不正migrationではHTTP待受の前に起動を失敗させる', async (
   await writeMigration(migrationsDirectory, '0001_invalid.sql', 'THIS IS INVALID SQL;');
   const config = { databasePath: join(directory, 'state.sqlite3'), migrationsDirectory };
 
-  await assert.rejects(() => startServer({ config, port: 0 }));
+  await assert.rejects(() =>
+    startServer({ config, port: 0, pollingSchedule: createTestPollingSchedule() }),
+  );
   const database = openDatabase(config.databasePath);
   database.close();
 });
