@@ -1,3 +1,4 @@
+import { testTerminalRegistry } from './helpers/venueConfigPreload.js';
 import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -152,7 +153,7 @@ function createTestApp(options?: {
     getPollingStatus: () => options?.pollingStatus ?? createAvailablePollingStatus(),
     now: () => nowIso,
   });
-  const app = createApp({ weatherApi });
+  const app = createApp({ terminalRegistry: testTerminalRegistry, weatherApi });
   return { db, app, weatherApi, nowIso };
 }
 
@@ -1894,6 +1895,7 @@ test('A15: GET 前後で DB 件数不変、安全な 500、startServer での結
 
   // 内部障害時の 500 ハンドリング（内部例外やSQLを出さない）
   const brokenApp = createApp({
+    terminalRegistry: testTerminalRegistry,
     weatherApi: {
       getWarnings() {
         throw new Error('Database disk image is malformed');

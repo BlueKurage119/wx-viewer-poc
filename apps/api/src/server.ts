@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import crypto from 'node:crypto';
 
 import {
-  TERMINAL_DEFINITIONS,
+  type TerminalRegistry,
   type VenueRegistry,
   type VenueId,
   type UtcIso8601String,
@@ -19,6 +19,7 @@ import {
   validatePollingScheduleConfig,
   type PollingScheduleConfig,
   loadVenueConfig,
+  loadTerminalConfig,
 } from './config/index.js';
 import {
   createFetchControlService,
@@ -102,6 +103,8 @@ export interface StartServerOptions {
   readonly pollingSchedule?: PollingScheduleConfig;
   readonly configUrl?: URL;
   readonly venueConfigUrl?: URL;
+  readonly terminalConfigUrl?: URL;
+  readonly terminalLocalConfigUrl?: URL;
   readonly imageServices?: ImageServices;
   /** Issue #43 §6.1: graceful shutdown の検証用。指定すると SIGTERM/SIGINT を購読する。 */
   readonly shutdownSignalSource?: SignalSource;
@@ -148,12 +151,15 @@ export function createStartupNotificationRuntime(
   connection: ReturnType<typeof initializeDatabase>['connection'],
   clock: () => string,
   registry: VenueRegistry,
-  getFetchHealth?: () => ReturnType<FetchHealthMonitorService['getLastAggregate']>,
-  recoveryInternals?: {
-    readonly setTimeout?: typeof setTimeout;
-    readonly clearTimeout?: typeof clearTimeout;
-    readonly recover?: typeof recoverWarningCurrent;
-  },
+  getFetchHealth: (() => ReturnType<FetchHealthMonitorService['getLastAggregate']>) | undefined,
+  recoveryInternals:
+    | {
+        readonly setTimeout?: typeof setTimeout;
+        readonly clearTimeout?: typeof clearTimeout;
+        readonly recover?: typeof recoverWarningCurrent;
+      }
+    | undefined,
+  terminalRegistry: TerminalRegistry,
 ) {
   const serverGenerationId = crypto.randomUUID();
   const serverStartedAt = clock() as UtcIso8601String;
@@ -170,6 +176,7 @@ export function createStartupNotificationRuntime(
   const startupNotifications = createStartupNotificationService({
     connection,
     venueRegistry: registry,
+    terminalRegistry,
     initialization,
     serverGenerationId,
     now: clock,
@@ -415,10 +422,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
   // DB初期化・HTTP待受より前に設定を読み込み検証する（失敗時はDBや待受を起動しない）
   const venueConfig = loadVenueConfig({ baseUrl: options.venueConfigUrl });
-  for (const terminal of TERMINAL_DEFINITIONS) {
-    if (venueConfig.registry.resolveVenueId(terminal.venueId) === null)
-      throw new Error(`端末 ${terminal.id} の会場 ID が設定にありません: ${terminal.venueId}`);
-  }
+  const terminalConfig = loadTerminalConfig({
+    baseUrl: options.terminalConfigUrl,
+    localUrl: options.terminalLocalConfigUrl,
+    venueRegistry: venueConfig.registry,
+    venueGeneration: venueConfig.response.generation,
+  });
   const loaded = options.pollingSchedule
     ? null
     : loadPollingScheduleConfigWithSources(options.configUrl);
@@ -434,6 +443,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     venueConfig.registry,
     () => fetchHealthMonitorService?.getLastAggregate() ?? null,
     options.recoveryInternals,
+    terminalConfig.registry,
   );
   let pollingService: JmaXmlPollingService | undefined;
   const weatherApi = createWeatherApiService({
@@ -515,6 +525,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
     connection: database.connection,
     venueRegistry: venueConfig.registry,
+    terminalRegistry: terminalConfig.registry,
     // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
     // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
     // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
@@ -548,6 +559,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const app = createApp({
     venueConfig: venueConfig.response,
     venueRegistry: venueConfig.registry,
+    terminalConfig: terminalConfig.response,
+    terminalRegistry: terminalConfig.registry,
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,
@@ -802,10 +815,10 @@ async function main(): Promise<void> {
 
   // DB初期化・HTTP待受より前に設定を読み込み検証する
   const venueConfig = loadVenueConfig();
-  for (const terminal of TERMINAL_DEFINITIONS) {
-    if (venueConfig.registry.resolveVenueId(terminal.venueId) === null)
-      throw new Error(`端末 ${terminal.id} の会場 ID が設定にありません: ${terminal.venueId}`);
-  }
+  const terminalConfig = loadTerminalConfig({
+    venueRegistry: venueConfig.registry,
+    venueGeneration: venueConfig.response.generation,
+  });
   const loaded = loadPollingScheduleConfigWithSources();
   const schedule = loaded.config;
   logPollingConfig(loaded);
@@ -819,6 +832,8 @@ async function main(): Promise<void> {
     clock,
     venueConfig.registry,
     () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+    undefined,
+    terminalConfig.registry,
   );
   let pollingService: JmaXmlPollingService | undefined;
   const weatherApi = createWeatherApiService({
@@ -899,6 +914,7 @@ async function main(): Promise<void> {
   const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
     connection: database.connection,
     venueRegistry: venueConfig.registry,
+    terminalRegistry: terminalConfig.registry,
     // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
     // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
     // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
@@ -932,6 +948,8 @@ async function main(): Promise<void> {
   const app = createApp({
     venueConfig: venueConfig.response,
     venueRegistry: venueConfig.registry,
+    terminalConfig: terminalConfig.response,
+    terminalRegistry: terminalConfig.registry,
     startupNotifications: startupRuntime.startupNotifications,
     notificationDelta: startupRuntime.notificationDelta,
     weatherApi,

@@ -1,4 +1,9 @@
-import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
+import {
+  eastVenueId,
+  trcVenueId,
+  testVenueRegistry,
+  testTerminalRegistry,
+} from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -378,6 +383,7 @@ function buildApp(options: BuildAppOptions) {
 
   const deps: MonitoringStatusServiceDependencies = {
     venueRegistry: testVenueRegistry,
+    terminalRegistry: testTerminalRegistry,
     connection: options.connection,
     scheduler: {
       getStatus: () => options.schedulerStatus ?? fakeSchedulerStatus(),
@@ -414,7 +420,12 @@ function buildApp(options: BuildAppOptions) {
     now: () => FIXED_NOW,
   });
 
-  return createApp({ monitoringStatus, monitoringProcessing, monitoringHistory });
+  return createApp({
+    terminalRegistry: testTerminalRegistry,
+    monitoringStatus,
+    monitoringProcessing,
+    monitoringHistory,
+  });
 }
 
 test('AC1 クエリ検証（terminalId 欠落・余剰キー・重複・空文字・未知端末）', async () => {
@@ -1636,6 +1647,7 @@ test('AC13 HTTP実挙動と依存注入（3依存の独立性・startup-inquirie
     });
     const monitoringStatus = createMonitoringStatusService({
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       connection: context.connection,
       scheduler: { getStatus: () => fakeSchedulerStatus(), isRunningNow: () => true },
       xmlPollingService: { getStatus: () => fakeXmlStatus() },
@@ -1656,7 +1668,7 @@ test('AC13 HTTP実挙動と依存注入（3依存の独立性・startup-inquirie
       serverStartedAt: '2026-09-09T00:00:00Z' as UtcIso8601String,
       now: () => FIXED_NOW,
     });
-    const onlyStatusApp = createApp({ monitoringStatus });
+    const onlyStatusApp = createApp({ terminalRegistry: testTerminalRegistry, monitoringStatus });
     const { baseUrl: onlyBaseUrl, close: onlyClose } = await startTestServer(onlyStatusApp);
     try {
       const statusRes = await fetch(`${onlyBaseUrl}/api/monitoring/status?terminalId=hkeagh01`);

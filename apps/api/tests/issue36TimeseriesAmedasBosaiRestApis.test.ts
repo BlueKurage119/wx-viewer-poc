@@ -1,3 +1,4 @@
+import { testTerminalRegistry } from './helpers/venueConfigPreload.js';
 import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { type Server } from 'node:http';
@@ -145,7 +146,7 @@ function createTestApp(options?: {
     now: () => nowIso,
     resolveAmedasTarget: options?.resolveAmedasTarget,
   });
-  const app = createApp({ weatherApi });
+  const app = createApp({ terminalRegistry: testTerminalRegistry, weatherApi });
   return { db, app, weatherApi, nowIso };
 }
 
@@ -2343,6 +2344,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
   };
 
   const appStaleFeed = createApp({
+    terminalRegistry: testTerminalRegistry,
     weatherApi: createWeatherApiService({
       venueRegistry: testVenueRegistry,
       connection: db.connection,
@@ -2744,6 +2746,7 @@ test('B15 副作用なしと結線: GET 前後で行数・通知件数変化な�
   };
 
   const throwingApp = createApp({
+    terminalRegistry: testTerminalRegistry,
     weatherApi: throwingApi as unknown as ReturnType<typeof createWeatherApiService>,
   });
   const throwingClient = request(throwingApp);

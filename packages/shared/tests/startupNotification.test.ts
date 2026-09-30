@@ -1,19 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseStartupNotificationRequest, resolveTerminalDefinition } from '../src/index.ts';
+import { createTerminalRegistry, parseStartupNotificationRequest } from '../src/index.ts';
 
 test('起動通知 request は端末台帳と UUID v4 の厳密な入力だけを受理する', () => {
-  assert.deepEqual(resolveTerminalDefinition('hkeagh01'), {
-    id: 'hkeagh01',
-    mode: 'H',
-    venueId: 'east',
-  });
-  assert.deepEqual(resolveTerminalDefinition('ktrcph01'), {
-    id: 'ktrcph01',
-    mode: 'K',
-    venueId: 'trc',
-  });
-  assert.equal(resolveTerminalDefinition('unknown'), null);
+  const registry = createTerminalRegistry(
+    [
+      { id: 'hkeagh01', name: '東地区外務H1', mode: 'H', venueId: 'east' as never },
+      { id: 'ktrcph01', name: 'TRC公共K1', mode: 'K', venueId: 'trc' as never },
+    ],
+    'test',
+  );
+  assert.equal(registry.resolveTerminal('hkeagh01')?.mode, 'H');
+  assert.equal(registry.resolveTerminal('ktrcph01')?.venueId, 'trc');
+  assert.equal(registry.resolveTerminal('unknown'), null);
   assert.deepEqual(
     parseStartupNotificationRequest({
       terminalId: 'hkeagh01',

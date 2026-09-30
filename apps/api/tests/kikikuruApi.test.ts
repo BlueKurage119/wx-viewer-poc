@@ -1,3 +1,4 @@
+import { testTerminalRegistry } from './helpers/venueConfigPreload.js';
 import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -241,7 +242,9 @@ test('B01: キキクル - 3 層に異なる自然キーと同 validTime の別 m
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     const res = await client.request(
       '/api/weather/kikikuru/times?terminalId=hkeagh01&controlStatus=normal',
@@ -288,7 +291,9 @@ test('B02: キキクル - snapshot なし・初回失敗・正常空を作り、
       enablePolling: true,
       clock,
     });
-    const client1 = createTestClient(createApp({ kikikuruApi: apiService1 }));
+    const client1 = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService1 }),
+    );
 
     const res1 = await client1.request(
       '/api/weather/kikikuru/times?terminalId=hkeagh01&controlStatus=normal',
@@ -327,7 +332,9 @@ test('B02: キキクル - snapshot なし・初回失敗・正常空を作り、
       enablePolling: true,
       clock,
     });
-    const client2 = createTestClient(createApp({ kikikuruApi: apiService2 }));
+    const client2 = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService2 }),
+    );
 
     const res2 = await client2.request(
       '/api/weather/kikikuru/times?terminalId=hkeagh01&controlStatus=normal',
@@ -367,7 +374,9 @@ test('B02: キキクル - snapshot なし・初回失敗・正常空を作り、
       enablePolling: true,
       clock,
     });
-    const client3 = createTestClient(createApp({ kikikuruApi: apiService3 }));
+    const client3 = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService3 }),
+    );
 
     const res3 = await client3.request(
       '/api/weather/kikikuru/times?terminalId=hkeagh01&controlStatus=normal',
@@ -412,7 +421,9 @@ test('B03: キキクル - layer/imageId 不一致、危険な member、flood で
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     const baseValid = `/api/weather/kikikuru/heavyrain/tiles/10/800/300.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
       frame.baseTime,
@@ -474,7 +485,9 @@ test('B04: キキクル - 一覧 GET 繰り返しで fetch 0 回、DB 不変、r
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     // 初回 GET (未 refreshTimes)
     const res1 = await client.request(
@@ -547,7 +560,9 @@ test('B05: キキクル - rain_mesh 一覧更新から時刻 API・最新フレ�
       enablePolling: true,
       clock: () => currentTime,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
     const timesResponse = await client.request(
       '/api/weather/kikikuru/times?terminalId=hkeagh01&controlStatus=normal',
     );
@@ -618,7 +633,9 @@ test('B07: キキクル - 台帳端末 2 件で会場別 context・共通索引�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     // 別会場端末 2 件
     const resEast = await client.request(
@@ -693,7 +710,9 @@ test('B08: キキクル - 形式違反・範囲外・未知端末は 400/404、�
       getService: () => service,
       enablePolling: true,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     const baseValid =
       '/api/weather/kikikuru/heavyrain/tiles/10/800/300.png?terminalId=hkeagh01&controlStatus=normal&baseTime=2026-09-07T03:00:00.000Z&validTime=2026-09-07T03:05:00.000Z&imageId=rain_mesh&member=none';
@@ -762,7 +781,9 @@ test('B09: キキクル - 3 層それぞれで単体 GET、PNG バイト列 fixt
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     const catalog = service.readCatalog();
     const testCases: { layer: KikikuruLayer; imageId: string }[] = [
@@ -882,7 +903,9 @@ test('B10: キキクル - 3 層の独立性（成功・初回失敗・成功後�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     const res1 = await client.request(
       '/api/weather/kikikuru/times?terminalId=hkeagh01&controlStatus=normal',
@@ -940,7 +963,9 @@ test('B11: キキクル - stale かつ画像許可でミス 200、停止時キ�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     const tileUrl1 = `/api/weather/kikikuru/heavyrain/tiles/10/800/300.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
       frame.baseTime,
@@ -977,7 +1002,9 @@ test('B11: キキクル - stale かつ画像許可でミス 200、停止時キ�
       enablePolling: false,
       clock,
     });
-    const clientDisabled = createTestClient(createApp({ kikikuruApi: apiServiceDisabled }));
+    const clientDisabled = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiServiceDisabled }),
+    );
     const res4 = await clientDisabled.request(tileUrl2);
     assert.equal(res4.statusCode, 503);
     assert.equal(res4.json.imageAccess.reason, 'disabled');
@@ -1016,7 +1043,9 @@ test('B12: キキクル - 不在フレーム 404、上流エラー 502、保存�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     // 不在フレーム: 404
     const resNotFound = await client.request(
@@ -1080,7 +1109,9 @@ test('B16: キキクル - no-store, nosniff と 3 ヘッダー、条件付き GE
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     // 一覧 GET
     const resTimes = await client.request(
@@ -1146,7 +1177,9 @@ test('B13: キキクル - saveTile 失敗・DB 保存失敗・履歴保存失敗
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     // 1 つ目の座標を正常取得
     const url1 = `/api/weather/kikikuru/heavyrain/tiles/10/800/300.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
@@ -1215,7 +1248,9 @@ test('B14: キキクル - 既存キャッシュ破損時に再取得 200、停�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     const tileUrl = `/api/weather/kikikuru/heavyrain/tiles/10/800/300.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
       frame.baseTime,
@@ -1290,7 +1325,9 @@ test('B15: キキクル - 成功結果後のファイル消失/改変で配信�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     // 正常取得
     const url1 = `/api/weather/kikikuru/heavyrain/tiles/10/800/300.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
@@ -1347,7 +1384,9 @@ test('B17: キキクル - HEAD 送信で 405/Allow: GET (呼出し 0 回)、不�
       getService: () => service,
       enablePolling: true,
     });
-    const client = createTestClient(createApp({ kikikuruApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, kikikuruApi: apiService }),
+    );
 
     // HEAD 送信
     const resHead = await client.request('/api/weather/kikikuru/heavyrain/tiles/10/800/300.png', {

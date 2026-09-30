@@ -29,6 +29,7 @@ import { monitoringOperationMessage } from './monitoring/monitoringOperationMess
 import { useMonitoringToolbar } from './monitoring/useMonitoringToolbar';
 import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
 import { useVenueRegistry } from './venueRegistryContext';
+import { useTerminalRegistry } from './terminalRegistryContext';
 
 const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
   weather: {
@@ -54,7 +55,7 @@ const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; descri
 };
 
 export function App() {
-  const terminals = createTerminals(useVenueRegistry());
+  const terminals = createTerminals(useVenueRegistry(), useTerminalRegistry());
   const terminal = resolveTerminal(window.location.pathname, terminals);
   if (!terminal)
     return (

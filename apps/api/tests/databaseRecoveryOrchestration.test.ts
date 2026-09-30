@@ -1,4 +1,9 @@
-import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
+import {
+  eastVenueId,
+  trcVenueId,
+  testVenueRegistry,
+  testTerminalRegistry,
+} from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -39,6 +44,7 @@ const createStartupNotificationRuntime = (
     testVenueRegistry,
     getFetchHealth,
     recoveryInternals,
+    testTerminalRegistry,
   );
 const config = {
   delayedThresholdSeconds: 60,

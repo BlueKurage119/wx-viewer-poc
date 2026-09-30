@@ -1,5 +1,5 @@
 import {
-  TERMINAL_DEFINITIONS,
+  type TerminalRegistry,
   type Availability,
   type MonitoringHealthSection,
   type MonitoringHealthSource,
@@ -48,6 +48,7 @@ export interface XmlPollingStatusProvider {
 export interface MonitoringStatusServiceDependencies {
   readonly connection: DatabaseConnection;
   readonly venueRegistry: VenueRegistry;
+  readonly terminalRegistry: TerminalRegistry;
   readonly scheduler: Pick<TimeBasedPollingScheduler, 'getStatus' | 'isRunningNow'>;
   readonly xmlPollingService: XmlPollingStatusProvider;
   readonly fetchHealthMonitor: Pick<FetchHealthMonitorService, 'getLastAggregate'>;
@@ -66,10 +67,6 @@ export interface MonitoringStatusServiceDependencies {
 
 export interface MonitoringStatusService {
   getStatus(terminal: TerminalDefinition): MonitoringStatusResponse;
-}
-
-function resolveRepresentativeTerminal(venueId: VenueId): TerminalDefinition | null {
-  return TERMINAL_DEFINITIONS.find((t) => t.venueId === venueId) ?? null;
 }
 
 const AVAILABILITY_RANK: Readonly<Record<Availability, number>> = {
@@ -275,7 +272,8 @@ export function createMonitoringStatusService(
   }
 
   function buildInformationForVenue(venueId: VenueId): readonly MonitoringInformationSection[] {
-    const terminal = resolveRepresentativeTerminal(venueId);
+    const terminal =
+      deps.terminalRegistry.listTerminals().find((t) => t.venueId === venueId) ?? null;
     const sections: MonitoringInformationSection[] = [];
     if (!terminal) {
       return (
@@ -440,7 +438,7 @@ export function createMonitoringStatusService(
 
   function buildTiles(): MonitoringTilesSection {
     // タイルの索引・配信状態はサーバー共通（会場に依存しない）ため、任意の端末で読み出す。
-    const terminal = TERMINAL_DEFINITIONS[0]!;
+    const terminal = deps.terminalRegistry.listTerminals()[0]!;
 
     const nowcast = deps.nowcastApi.getTimes(terminal, 'normal');
     const nowcastAvailability = worseAvailability(

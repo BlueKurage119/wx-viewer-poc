@@ -1,4 +1,9 @@
-import { testVenueRegistry, eastVenueId, trcVenueId } from './helpers/venueConfigPreload.js';
+import {
+  testTerminalRegistry,
+  testVenueRegistry,
+  eastVenueId,
+  trcVenueId,
+} from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -166,6 +171,7 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
       connection: context.connection,
       initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
       outputIdFactory: () => `00000000-0000-4000-8000-${String(++id).padStart(12, '0')}`,
@@ -213,6 +219,7 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
       connection: context.connection,
       initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000bb',
       now: () => now,
       outputIdFactory: () => `00000000-0000-4000-8000-${String(++id).padStart(12, '0')}`,
@@ -258,6 +265,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
       connection: context.connection,
       initialization,
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
     });
@@ -282,6 +290,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
       connection: context.connection,
       initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
       projector: () => {
@@ -314,6 +323,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
       connection: context.connection,
       initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
       recordInquiry: () => {
@@ -388,11 +398,16 @@ test('AC1/13: HTTP endpoint は JSON 契約・入力エラー・初期化中を�
       connection: context.connection,
       initialization: new StartupNotificationInitialization(),
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       now: () => now,
     });
     await withServer(
-      createApp({ startupNotifications: service, venueRegistry: testVenueRegistry }),
+      createApp({
+        terminalRegistry: testTerminalRegistry,
+        startupNotifications: service,
+        venueRegistry: testVenueRegistry,
+      }),
       async (baseUrl) => {
         const health = await fetch(`${baseUrl}/api/health`);
         assert.equal(health.status, 200);

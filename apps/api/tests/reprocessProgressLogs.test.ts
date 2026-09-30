@@ -1,4 +1,9 @@
-import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
+import {
+  eastVenueId,
+  trcVenueId,
+  testVenueRegistry,
+  testTerminalRegistry,
+} from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -8,7 +13,6 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
 import {
-  TERMINAL_DEFINITIONS,
   type UtcIso8601String,
   type MonitoringVenueReprocessingStatus,
 } from '@wx-viewer-poc/shared';
@@ -450,6 +454,7 @@ for (const [jstTime, fixedNow] of [
       const service = createMonitoringStatusService({
         connection,
         venueRegistry: testVenueRegistry,
+        terminalRegistry: testTerminalRegistry,
         scheduler: {
           getStatus: () => buildStoppedPollingStatus(new Date(fixedNow), schedule),
           isRunningNow: () => false,
@@ -581,7 +586,7 @@ for (const [jstTime, fixedNow] of [
         now: () => '2026-09-16T02:00:00Z' as UtcIso8601String,
       });
 
-      const terminal = TERMINAL_DEFINITIONS.find((t) => t.venueId === eastVenueId)!;
+      const terminal = testTerminalRegistry.listTerminals().find((t) => t.venueId === eastVenueId)!;
       const status = service.getStatus(terminal);
 
       assert.equal(status.venues.length, 2);
