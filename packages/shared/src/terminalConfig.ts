@@ -5,6 +5,7 @@ export type TerminalMode = 'H' | 'K';
 const reservedTerminalIds = new Set([
   'api',
   'assets',
+  'audio',
   'config',
   'src',
   'node_modules',
