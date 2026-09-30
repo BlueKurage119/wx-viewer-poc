@@ -4,6 +4,7 @@ import { App } from './App';
 import { createEntryBootstrap } from './entryBootstrap';
 import { ThemeProvider } from './theme';
 import { VenueRegistryProvider } from './venueConfig';
+import { TerminalRegistryProvider } from './terminalConfig';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -12,11 +13,13 @@ if (!rootElement) {
 }
 void createEntryBootstrap(rootElement, {
   createRoot,
-  renderApplication: (registry) => (
+  renderApplication: (registry, terminalRegistry) => (
     <StrictMode>
       <ThemeProvider fixedMode="dark">
         <VenueRegistryProvider value={registry}>
-          <App />
+          <TerminalRegistryProvider value={terminalRegistry}>
+            <App />
+          </TerminalRegistryProvider>
         </VenueRegistryProvider>
       </ThemeProvider>
     </StrictMode>

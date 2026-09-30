@@ -1,3 +1,4 @@
+import { testTerminalRegistry } from './helpers/venueConfigPreload.js';
 import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -383,7 +384,7 @@ test('受け入れ条件13: 入力検証（HTTP層）', async () => {
       targets,
       now: () => new Date().toISOString() as UtcIso8601String,
     });
-    const app = createApp({ fetchControl });
+    const app = createApp({ terminalRegistry: testTerminalRegistry, fetchControl });
     const server = app.listen(0);
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
@@ -584,7 +585,7 @@ test('受け入れ条件19: ポーリング無効時は503', async () => {
       targets: null,
       now: () => new Date().toISOString() as UtcIso8601String,
     });
-    const app = createApp({ fetchControl });
+    const app = createApp({ terminalRegistry: testTerminalRegistry, fetchControl });
     const server = app.listen(0);
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
@@ -618,7 +619,7 @@ test('受け入れ条件20: 境界（削除・認証・異常終了検知・個�
       targets,
       now: () => new Date().toISOString() as UtcIso8601String,
     });
-    const app = createApp({ fetchControl });
+    const app = createApp({ terminalRegistry: testTerminalRegistry, fetchControl });
     const server = app.listen(0);
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;

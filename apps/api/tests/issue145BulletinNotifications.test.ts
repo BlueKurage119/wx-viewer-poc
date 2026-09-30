@@ -26,7 +26,12 @@ import {
 } from '../src/notifications/startupNotificationService.js';
 import { parseVpbs50 } from '../src/polling/jmaVpbs50Parser.js';
 import { resolveBosaiBulletinTarget } from '../src/venueForecastTargets.js';
-import { testVenueRegistry, eastVenueId, trcVenueId } from './helpers/venueConfigPreload.js';
+import {
+  testTerminalRegistry,
+  testVenueRegistry,
+  eastVenueId,
+  trcVenueId,
+} from './helpers/venueConfigPreload.js';
 
 const bulletinTarget = resolveBosaiBulletinTarget(testVenueRegistry);
 import { processVpbs50Reception } from '../src/polling/jmaVpbs50Processor.js';
@@ -1720,6 +1725,7 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
       connection: context.connection,
       initialization,
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: 'gen-ac9',
       now: () => fixedNowIso,
       getFetchHealth: () => currentHealth,
@@ -1801,6 +1807,7 @@ test('AC10: system normal/suspended/未評価・過去に復帰済みの状態�
       connection: context.connection,
       initialization,
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: 'gen-ac10',
       now: () => fixedNowIso,
       getFetchHealth: () => normalHealth,
@@ -1892,6 +1899,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
       connection: context.connection,
       initialization,
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: 'gen-ac11-1',
       now: () => fixedNowIso,
       getFetchHealth: () => mixedHealth,
@@ -1940,6 +1948,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
       connection: context.connection,
       initialization,
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: 'gen-ac11-2',
       now: () => fixedNowIso,
       getFetchHealth: () => mixedHealth,
@@ -2114,6 +2123,7 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
       connection: context.connection,
       initialization,
       venueRegistry: testVenueRegistry,
+      terminalRegistry: testTerminalRegistry,
       serverGenerationId: 'gen-ac12',
       now: () => fixedNowIso,
       getFetchHealth: () => {

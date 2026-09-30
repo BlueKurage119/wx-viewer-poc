@@ -10,3 +10,4 @@ apps/api/data/
 .claude/settings.local.json
 /config/polling.local.yaml
 /config/venues.local.yaml
+/config/terminals.local.yaml

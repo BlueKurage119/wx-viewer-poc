@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 import {
+  createTerminalRegistry,
   createVenueRegistry,
+  isTerminalConfigResponse,
+  type TerminalRegistry,
   type VenueConfigResponse,
   type VenueForecastTargets,
 } from '@wx-viewer-poc/shared';
@@ -14,7 +17,10 @@ interface RootRenderer {
 export interface EntryBootstrapDependencies {
   readonly createRoot: (container: Element) => RootRenderer;
   readonly fetch?: typeof fetch;
-  readonly renderApplication: (registry: ReturnType<typeof createVenueRegistry>) => ReactNode;
+  readonly renderApplication: (
+    registry: ReturnType<typeof createVenueRegistry>,
+    terminalRegistry: TerminalRegistry,
+  ) => ReactNode;
 }
 
 export function createEntryBootstrap(
@@ -34,42 +40,78 @@ export function createEntryBootstrap(
   }
 
   async function bootstrap() {
-    render('会場設定を読み込んでいます');
-    let response: Response;
-    try {
-      response = await (dependencies.fetch ?? fetch)('/api/config/venues', { cache: 'no-store' });
-    } catch {
-      render('会場設定の通信に失敗しました', true);
-      return;
+    render('設定を読み込んでいます');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let response: Response;
+      try {
+        response = await (dependencies.fetch ?? fetch)('/api/config/venues', { cache: 'no-store' });
+      } catch {
+        render('会場設定の通信に失敗しました', true);
+        return;
+      }
+      let body: unknown;
+      try {
+        body = await response.json();
+      } catch {
+        render('会場設定の応答が不正です');
+        return;
+      }
+      if (!response.ok) {
+        render('会場設定の取得に失敗しました', true);
+        return;
+      }
+      if (!isVenueConfigResponse(body)) {
+        render('会場設定の応答が不正です');
+        return;
+      }
+      let terminalResponse: Response;
+      try {
+        terminalResponse = await (dependencies.fetch ?? fetch)('/api/config/terminals', {
+          cache: 'no-store',
+        });
+      } catch {
+        render('端末設定の通信に失敗しました', true);
+        return;
+      }
+      if (!terminalResponse.ok) {
+        render('端末設定の取得に失敗しました', true);
+        return;
+      }
+      let terminalBody: unknown;
+      try {
+        terminalBody = await terminalResponse.json();
+      } catch {
+        render('端末設定の応答が不正です');
+        return;
+      }
+      if (!isTerminalConfigResponse(terminalBody)) {
+        render('端末設定の応答が不正です');
+        return;
+      }
+      if (terminalBody.venueGeneration !== body.generation) continue;
+      try {
+        const registry = createVenueRegistry(
+          body.venues as readonly VenueForecastTargets[],
+          body.generation,
+        );
+        if (terminalBody.terminals.some((terminal) => !registry.resolveVenueId(terminal.venueId))) {
+          render('端末設定の会場が不正です');
+          return;
+        }
+        const terminalRegistry = createTerminalRegistry(
+          terminalBody.terminals,
+          terminalBody.generation,
+        );
+        createTerminals(registry, terminalRegistry);
+        setCurrentVenueRegistry(registry);
+        root.render(dependencies.renderApplication(registry, terminalRegistry));
+        return;
+      } catch {
+        render('設定の応答が不正です');
+        return;
+      }
     }
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      render('会場設定の応答が不正です');
-      return;
-    }
-    if (!response.ok) {
-      render('会場設定の取得に失敗しました', true);
-      return;
-    }
-    if (!isVenueConfigResponse(body)) {
-      render('会場設定の応答が不正です');
-      return;
-    }
-    let registry: ReturnType<typeof createVenueRegistry>;
-    try {
-      registry = createVenueRegistry(
-        body.venues as readonly VenueForecastTargets[],
-        body.generation,
-      );
-      createTerminals(registry);
-    } catch {
-      render('会場設定の応答が不正です');
-      return;
-    }
-    setCurrentVenueRegistry(registry);
-    root.render(dependencies.renderApplication(registry));
+    render('設定の世代が一致しません', true);
   }
 
   return bootstrap;

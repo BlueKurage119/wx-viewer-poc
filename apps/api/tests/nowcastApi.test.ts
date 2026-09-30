@@ -1,3 +1,4 @@
+import { testTerminalRegistry } from './helpers/venueConfigPreload.js';
 import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -151,7 +152,7 @@ test('B02: ナウキャスト - snapshot なし・初回失敗・正常空を作
       enablePolling: true,
       clock,
     });
-    const app1 = createApp({ nowcastApi: apiService1 });
+    const app1 = createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService1 });
     const client1 = createTestClient(app1);
 
     const res1 = await client1.request(
@@ -191,7 +192,7 @@ test('B02: ナウキャスト - snapshot なし・初回失敗・正常空を作
       enablePolling: true,
       clock,
     });
-    const app2 = createApp({ nowcastApi: apiService2 });
+    const app2 = createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService2 });
     const client2 = createTestClient(app2);
 
     const res2 = await client2.request(
@@ -232,7 +233,7 @@ test('B02: ナウキャスト - snapshot なし・初回失敗・正常空を作
       enablePolling: true,
       clock,
     });
-    const app3 = createApp({ nowcastApi: apiService3 });
+    const app3 = createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService3 });
     const client3 = createTestClient(app3);
 
     const res3 = await client3.request(
@@ -277,7 +278,7 @@ test('B04: ナウキャスト - 一覧 GET を繰り返し、fixture fetch 0 回
       enablePolling: true,
       clock,
     });
-    const app = createApp({ nowcastApi: apiService });
+    const app = createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService });
     const client = createTestClient(app);
 
     // 初回 GET (未 refreshTimes)
@@ -349,7 +350,7 @@ test('B05: ナウキャスト - 同 validTime の N1/N2、同 product の別 bas
       enablePolling: true,
       clock,
     });
-    const app = createApp({ nowcastApi: apiService });
+    const app = createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService });
     const client = createTestClient(app);
 
     const res = await client.request(
@@ -414,7 +415,7 @@ test('B06: ナウキャスト - N1 成功/N2 初回失敗、成功後失敗、�
       enablePolling: true,
       clock,
     });
-    const app = createApp({ nowcastApi: apiService });
+    const app = createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService });
     const client = createTestClient(app);
 
     const res1 = await client.request(
@@ -442,7 +443,9 @@ test('B06: ナウキャスト - N1 成功/N2 初回失敗、成功後失敗、�
       enablePolling: true,
       clock,
     });
-    const clientFail = createTestClient(createApp({ nowcastApi: apiServiceFail }));
+    const clientFail = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiServiceFail }),
+    );
     const res2 = await clientFail.request(
       '/api/weather/nowcast/times?terminalId=hkeagh01&controlStatus=normal',
     );
@@ -468,7 +471,9 @@ test('B06: ナウキャスト - N1 成功/N2 初回失敗、成功後失敗、�
       enablePolling: true,
       clock,
     });
-    const clientFresh = createTestClient(createApp({ nowcastApi: apiServiceFresh }));
+    const clientFresh = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiServiceFresh }),
+    );
 
     // 299秒後
     currentTime = new Date(
@@ -526,7 +531,7 @@ test('B07: ナウキャスト - 台帳端末 2 件で会場別 context・共通�
       enablePolling: true,
       clock,
     });
-    const app = createApp({ nowcastApi: apiService });
+    const app = createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService });
     const client = createTestClient(app);
 
     // 別会場端末 2 件
@@ -603,7 +608,7 @@ test('B08: ナウキャスト - 形式違反・範囲外・未知端末は 400/4
       getService: () => service,
       enablePolling: true,
     });
-    const app = createApp({ nowcastApi: apiService });
+    const app = createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService });
     const client = createTestClient(app);
 
     const baseValid =
@@ -690,7 +695,7 @@ test('B09: ナウキャスト - 実在フレーム単体 GET で PNG fixture 完
       enablePolling: true,
       clock,
     });
-    const app = createApp({ nowcastApi: apiService });
+    const app = createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService });
     const client = createTestClient(app);
 
     const tileUrl = `/api/weather/nowcast/N1/tiles/10/900/400.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
@@ -754,7 +759,9 @@ test('B11: ナウキャスト - stale かつ画像許可でミス 200、停止�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ nowcastApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService }),
+    );
 
     const tileUrl1 = `/api/weather/nowcast/N1/tiles/10/900/400.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
       frame.baseTime,
@@ -787,7 +794,9 @@ test('B11: ナウキャスト - stale かつ画像許可でミス 200、停止�
       enablePolling: false,
       clock,
     });
-    const clientDisabled = createTestClient(createApp({ nowcastApi: apiServiceDisabled }));
+    const clientDisabled = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiServiceDisabled }),
+    );
     const res4 = await clientDisabled.request(tileUrl2);
     assert.equal(res4.statusCode, 503);
     assert.equal(res4.json.imageAccess.reason, 'disabled');
@@ -827,7 +836,9 @@ test('B12: ナウキャスト - 窓外・不在は 404、上流エラーは 502�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ nowcastApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService }),
+    );
 
     // 不在フレーム: 404
     const resNotFound = await client.request(
@@ -899,7 +910,9 @@ test('B13: ナウキャスト - DB 保存失敗等の注入で 500、他要求�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ nowcastApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService }),
+    );
 
     // 1 つ目の座標を正常取得
     const url1 = `/api/weather/nowcast/N1/tiles/10/900/400.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
@@ -965,7 +978,9 @@ test('B14: ナウキャスト - 既存キャッシュ破損時に再取得 200�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ nowcastApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService }),
+    );
 
     const tileUrl = `/api/weather/nowcast/N1/tiles/10/900/400.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
       frame.baseTime,
@@ -1040,7 +1055,9 @@ test('B15: ナウキャスト - 成功結果後のファイル消失/改変で�
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ nowcastApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService }),
+    );
 
     // 正常取得
     const url1 = `/api/weather/nowcast/N1/tiles/10/900/400.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${encodeURIComponent(
@@ -1105,7 +1122,9 @@ test('B16: ナウキャスト - no-store, nosniff と 3 ヘッダー、条件付
       enablePolling: true,
       clock,
     });
-    const client = createTestClient(createApp({ nowcastApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService }),
+    );
 
     // 一覧 GET
     const resTimes = await client.request(
@@ -1159,7 +1178,9 @@ test('B17: ナウキャスト - HEAD 送信で 405/Allow: GET (呼出し 0 回)�
       getService: () => service,
       enablePolling: true,
     });
-    const client = createTestClient(createApp({ nowcastApi: apiService }));
+    const client = createTestClient(
+      createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService }),
+    );
 
     // HEAD 送信
     const resHead = await client.request('/api/weather/nowcast/N1/tiles/10/900/400.png', {
@@ -1190,7 +1211,9 @@ test('B18: ナウキャスト - getter 未準備で 503、準備後は 200 で�
     getService: () => serviceInstance,
     enablePolling: true,
   });
-  const client = createTestClient(createApp({ nowcastApi: apiService }));
+  const client = createTestClient(
+    createApp({ terminalRegistry: testTerminalRegistry, nowcastApi: apiService }),
+  );
 
   // 未準備: 503
   const res1 = await client.request(

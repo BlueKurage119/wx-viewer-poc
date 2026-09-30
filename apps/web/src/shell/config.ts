@@ -1,6 +1,6 @@
 import {
-  TERMINAL_DEFINITIONS,
   type TerminalMode,
+  type TerminalRegistry,
   type VenueForecastTargets,
   type VenueId,
   type VenueRegistry,
@@ -20,16 +20,13 @@ export interface Terminal {
   mode: TerminalMode;
   venue: Venue;
 }
-const terminalNames: Readonly<Record<string, string>> = {
-  hkeagh01: '東地区外務H1',
-  kkeagh01: '東地区外務K1',
-  htrcph01: 'TRC公共H1',
-  ktrcph01: 'TRC公共K1',
-};
-export function createTerminals(registry: VenueRegistry): readonly Terminal[] {
+export function createTerminals(
+  registry: VenueRegistry,
+  terminalRegistry: TerminalRegistry,
+): readonly Terminal[] {
   const venues = new Map<VenueId, Venue>();
   return Object.freeze(
-    TERMINAL_DEFINITIONS.map((terminal) => {
+    terminalRegistry.listTerminals().map((terminal) => {
       const venueId = registry.resolveVenueId(terminal.venueId);
       if (!venueId) {
         throw new Error(`端末台帳の会場 ID が設定にありません: ${terminal.venueId}`);
@@ -47,7 +44,7 @@ export function createTerminals(registry: VenueRegistry): readonly Terminal[] {
       }
       return Object.freeze({
         id: terminal.id,
-        name: terminalNames[terminal.id]!,
+        name: terminal.name,
         mode: terminal.mode,
         venue,
       });

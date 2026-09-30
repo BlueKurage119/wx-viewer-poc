@@ -11,7 +11,8 @@ import {
   parseNotificationDeltaQuery,
   parseStartupNotificationRequest,
   parseWeatherApiQuery,
-  resolveTerminalDefinition,
+  type TerminalConfigResponse,
+  type TerminalRegistry,
   type UtcIso8601String,
   type VenueConfigResponse,
   type VenueRegistry,
@@ -32,6 +33,8 @@ import { isFetchControlRequestId, parseFetchControlRequest } from '@wx-viewer-po
 
 export interface AppDependencies {
   readonly venueConfig?: VenueConfigResponse;
+  readonly terminalConfig?: TerminalConfigResponse;
+  readonly terminalRegistry?: TerminalRegistry;
   readonly venueRegistry?: VenueRegistry;
   readonly startupNotifications?: StartupNotificationService;
   readonly notificationDelta?: NotificationDeltaService;
@@ -56,7 +59,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   app.use(express.json());
 
   const resolveConfiguredVenueId = (terminalId: string) => {
-    const terminal = resolveTerminalDefinition(terminalId);
+    const terminal = dependencies.terminalRegistry?.resolveTerminal(terminalId) ?? null;
     const venueId = terminal && dependencies.venueRegistry?.resolveVenueId(terminal.venueId);
     if (!venueId) throw new Error('端末の会場 ID が設定にありません');
     return venueId;
@@ -72,6 +75,12 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     });
   }
 
+  if (dependencies.terminalConfig) {
+    app.get('/api/config/terminals', (_req, res) => {
+      sendJsonNoStore(res, 200, dependencies.terminalConfig);
+    });
+  }
+
   if (dependencies.weatherApi) {
     const weatherApi = dependencies.weatherApi;
 
@@ -81,7 +90,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         res.status(404).json({ status: 'error', code: 'terminal_not_found' });
         return;
@@ -101,7 +111,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         res.status(404).json({ status: 'error', code: 'terminal_not_found' });
         return;
@@ -121,7 +132,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         res.status(404).json({ status: 'error', code: 'terminal_not_found' });
         return;
@@ -141,7 +153,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         res.status(404).json({ status: 'error', code: 'terminal_not_found' });
         return;
@@ -161,7 +174,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         res.status(404).json({ status: 'error', code: 'terminal_not_found' });
         return;
@@ -181,7 +195,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         res.status(404).json({ status: 'error', code: 'terminal_not_found' });
         return;
@@ -208,7 +223,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.terminalId);
+      const terminal = dependencies.terminalRegistry?.resolveTerminal(parsed.terminalId) ?? null;
       if (terminal === null) {
         res.status(404).json({ status: 'error', code: 'terminal_not_found' });
         return;
@@ -235,7 +250,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.terminalId);
+      const terminal = dependencies.terminalRegistry?.resolveTerminal(parsed.terminalId) ?? null;
       if (terminal === null) {
         sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
         return;
@@ -271,7 +286,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
         return;
@@ -299,7 +315,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
         return;
@@ -340,7 +357,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
         return;
@@ -368,7 +386,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.value.terminalId);
+      const terminal =
+        dependencies.terminalRegistry?.resolveTerminal(parsed.value.terminalId) ?? null;
       if (terminal === null) {
         sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
         return;
@@ -408,7 +427,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.terminalId);
+      const terminal = dependencies.terminalRegistry?.resolveTerminal(parsed.terminalId) ?? null;
       if (terminal === null) {
         sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
         return;
@@ -430,7 +449,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
-      const terminal = resolveTerminalDefinition(parsed.terminalId);
+      const terminal = dependencies.terminalRegistry?.resolveTerminal(parsed.terminalId) ?? null;
       if (terminal === null) {
         sendJsonNoStore(res, 404, { status: 'error', code: 'terminal_not_found' });
         return;

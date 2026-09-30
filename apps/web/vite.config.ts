@@ -2,7 +2,11 @@ import { defineConfig, type Plugin, type Connect } from 'vite';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isUnknownTerminalDocument } from './src/shell/terminalRouting';
+import {
+  fetchTerminalIds,
+  isTerminalDocument,
+  isUnknownTerminalDocument,
+} from './src/shell/terminalRouting';
 import react from '@vitejs/plugin-react';
 
 const API_DEV_PORT = 3001;
@@ -10,17 +14,29 @@ const WEB_DEV_PORT = 5174;
 
 const terminalGuard: Connect.NextHandleFunction = (req, res, next) => {
   if (
-    (req.method === 'GET' || req.method === 'HEAD') &&
-    isUnknownTerminalDocument(req.url ?? '/', req.headers.accept)
+    (req.method !== 'GET' && req.method !== 'HEAD') ||
+    !isTerminalDocument(req.url ?? '/', req.headers.accept)
   ) {
-    res.statusCode = 404;
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.end(
-      '<!doctype html><html lang="ja" style="color-scheme: only dark;"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>端末が見つかりません</title><body style="color-scheme: only dark;font-family:system-ui;padding:40px"><h1>許可されていない端末です</h1><p>指定された端末URLでアクセスしてください。</p></body></html>',
-    );
+    next();
     return;
   }
-  next();
+  void fetchTerminalIds(`http://localhost:${API_DEV_PORT}`)
+    .then((ids) => {
+      if (!isUnknownTerminalDocument(req.url ?? '/', req.headers.accept, ids)) {
+        next();
+        return;
+      }
+      res.statusCode = 404;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.end(
+        '<!doctype html><html lang="ja" style="color-scheme: only dark;"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>端末が見つかりません</title><body style="color-scheme: only dark;font-family:system-ui;padding:40px"><h1>許可されていない端末です</h1><p>指定された端末URLでアクセスしてください。</p></body></html>',
+      );
+    })
+    .catch(() => {
+      res.statusCode = 503;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.end('端末設定を取得できません');
+    });
 };
 const terminalRoutes = (): Plugin => ({
   name: 'terminal-routes',

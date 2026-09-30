@@ -1,0 +1,17 @@
+terminals:
+  - id: hkeagh01
+    name: 東地区外務H1
+    mode: H
+    venueId: east
+  - id: kkeagh01
+    name: 東地区外務K1
+    mode: K
+    venueId: east
+  - id: htrcph01
+    name: TRC公共H1
+    mode: H
+    venueId: trc
+  - id: ktrcph01
+    name: TRC公共K1
+    mode: K
+    venueId: trc

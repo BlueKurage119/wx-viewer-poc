@@ -124,3 +124,29 @@ npm run preview -w apps/web -- --port 4174 --strictPort  # ビルド後の配信
 ```
 
 開発／ビルドプレビューは未登録端末へのHTMLアクセスに404を返す。本番配信環境でも同等の設定を行う。SPAフォールバックの場合もクライアント側で未登録IDを拒否し、既存端末のシェルを表示しない。
+
+## 端末設定（config/terminals.yaml）
+
+端末 ID、表示名、H/K モード、所属会場は `config/terminals.yaml` で管理します。ルートは `terminals` のみで、1 件以上の端末を指定します。各端末には `id`、`name`、`mode`、`venueId` が必要です。`id` は英小文字で始まる 32 文字以内の英小文字・数字・ハイフンです。`name` は前後空白なしの 1〜80 文字で、全端末で一意にします。同じ会場・モードの端末は複数登録できます。
+
+```yaml
+terminals:
+  - id: hkeagh01
+    name: 東地区外務H1
+    mode: H
+    venueId: east
+```
+
+変更後は API を再起動してください。再ビルドは不要です。開発時だけ Git 管理外の `config/terminals.local.yaml` を置くと、同じ ID の項目を差分上書きし、新しい ID の端末を追加できます。新しい ID には全項目が必要です。削除指定はありません。`NODE_ENV=production` ではローカル差分を読み込みません。
+
+```yaml
+terminals:
+  - id: hkeagh01
+    name: 東地区外務H2
+  - id: hkeagh02
+    name: 東地区外務H3
+    mode: H
+    venueId: east
+```
+
+共有設定とローカル差分は API 起動時に検証します。不正な設定があれば、DB 初期化や HTTP 待受の前に起動が失敗します。Web はページ更新時に会場・端末設定を取得し直します。

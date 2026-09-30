@@ -165,8 +165,9 @@ test('H1: ブザー中は専用ボタンや説明文を増やさずヘッダー�
   assert.equal(html.includes('警報を確認してください'), false);
 });
 test('未登録HTMLアクセスのみ404対象とし、APIやモジュールを妨げない', () => {
-  assert.equal(isUnknownTerminalDocument('/unknown', 'text/html'), true);
-  assert.equal(isUnknownTerminalDocument('/hkeagh01/extra', 'text/html'), true);
+  const ids = terminals.map((terminal) => terminal.id);
+  assert.equal(isUnknownTerminalDocument('/unknown', 'text/html', ids), true);
+  assert.equal(isUnknownTerminalDocument('/hkeagh01/extra', 'text/html', ids), true);
   for (const path of [
     '/',
     '/hkeagh01/',
@@ -174,8 +175,8 @@ test('未登録HTMLアクセスのみ404対象とし、APIやモジュールを�
     '/api/health',
     '/@vite/client',
   ])
-    assert.equal(isUnknownTerminalDocument(path, 'text/html'), false);
-  assert.equal(isUnknownTerminalDocument('/src/main.tsx', '*/*'), false);
+    assert.equal(isUnknownTerminalDocument(path, 'text/html', ids), false);
+  assert.equal(isUnknownTerminalDocument('/src/main.tsx', '*/*', ids), false);
 });
 
 test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作ガイド「取得監視: 監視情報API取得不可」の表示テスト', () => {

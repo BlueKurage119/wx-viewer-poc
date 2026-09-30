@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 import {
-  resolveTerminalDefinition,
+  type TerminalRegistry,
   toNotificationDeltaCursor,
   type StartupNotificationInitializingResponse,
   type StartupNotificationReadyResponse,
@@ -72,6 +72,7 @@ export interface StartupNotificationService {
 export interface CreateStartupNotificationServiceDependencies {
   readonly connection: DatabaseConnection;
   readonly venueRegistry: VenueRegistry;
+  readonly terminalRegistry: TerminalRegistry;
   readonly initialization: StartupNotificationInitialization;
   readonly serverGenerationId: string;
   readonly now?: () => UtcIso8601String;
@@ -98,7 +99,7 @@ export function createStartupNotificationService(
 
   return {
     inquire(input) {
-      const terminal = resolveTerminalDefinition(input.terminalId);
+      const terminal = dependencies.terminalRegistry.resolveTerminal(input.terminalId);
       if (terminal === null || terminal.venueId !== input.venueId) {
         throw new Error('terminalId and venueId do not match the terminal registry');
       }

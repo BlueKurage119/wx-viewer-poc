@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ReactNode } from 'react';
 import { createEntryBootstrap } from '../src/entryBootstrap.tsx';
-import { testVenueRegistry } from './venueConfigPreload.ts';
+import { testTerminalRegistry, testVenueRegistry } from './venueConfigPreload.ts';
 
 interface RenderedEntry {
   readonly message: string;
@@ -29,6 +29,11 @@ const validVenueConfig = {
   generation: testVenueRegistry.generation,
   venues: testVenueRegistry.listVenues(),
 };
+const validTerminalConfig = {
+  generation: testTerminalRegistry.generation,
+  venueGeneration: testVenueRegistry.generation,
+  terminals: testTerminalRegistry.listTerminals(),
+};
 
 test('起動と再試行で同じ React root を再利用し、読み込み・通信失敗・不正応答・成功を表示する', async () => {
   const rendered: ReactNode[] = [];
@@ -38,6 +43,7 @@ test('起動と再試行で同じ React root を再利用し、読み込み・�
       throw new Error('network unavailable');
     },
     async () => new Response(JSON.stringify(validVenueConfig)),
+    async () => new Response(JSON.stringify(validTerminalConfig)),
     async () => new Response('{'),
   ];
   const bootstrap = createEntryBootstrap({} as Element, {
@@ -66,12 +72,60 @@ test('起動と再試行で同じ React root を再利用し、読み込み・�
   assert.deepEqual(
     rendered.map((node) => getRenderedEntry(node)?.message ?? 'アプリ本体'),
     [
-      '会場設定を読み込んでいます',
+      '設定を読み込んでいます',
       '会場設定の通信に失敗しました',
-      '会場設定を読み込んでいます',
+      '設定を読み込んでいます',
       'アプリ本体',
-      '会場設定を読み込んでいます',
+      '設定を読み込んでいます',
       '会場設定の応答が不正です',
     ],
   );
+});
+
+test('世代不一致なら両設定を再取得し、一致した設定だけで描画する', async () => {
+  const rendered: ReactNode[] = [];
+  const paths: string[] = [];
+  const responses = [
+    validVenueConfig,
+    { ...validTerminalConfig, venueGeneration: '0'.repeat(64) },
+    validVenueConfig,
+    validTerminalConfig,
+  ];
+  const bootstrap = createEntryBootstrap({} as Element, {
+    createRoot: () => ({ render: (node) => rendered.push(node) }),
+    fetch: async (input) => {
+      paths.push(String(input));
+      return new Response(JSON.stringify(responses.shift()));
+    },
+    renderApplication: () => 'アプリ本体',
+  });
+  await bootstrap();
+  assert.deepEqual(paths, [
+    '/api/config/venues',
+    '/api/config/terminals',
+    '/api/config/venues',
+    '/api/config/terminals',
+  ]);
+  assert.equal(rendered.at(-1), 'アプリ本体');
+});
+
+test('再取得後も世代不一致ならアプリを描画しない', async () => {
+  const rendered: ReactNode[] = [];
+  const responses = [validVenueConfig, validTerminalConfig, validVenueConfig, validTerminalConfig];
+  const bootstrap = createEntryBootstrap({} as Element, {
+    createRoot: () => ({ render: (node) => rendered.push(node) }),
+    fetch: async (input) => {
+      const body = responses.shift()!;
+      return new Response(
+        JSON.stringify(
+          String(input).endsWith('/terminals')
+            ? { ...body, venueGeneration: '0'.repeat(64) }
+            : body,
+        ),
+      );
+    },
+    renderApplication: () => 'アプリ本体',
+  });
+  await bootstrap();
+  assert.equal(getRenderedEntry(rendered.at(-1)!)?.message, '設定の世代が一致しません');
 });
