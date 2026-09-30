@@ -1,3 +1,4 @@
+import { resolveEarlyWarningDetailTarget } from './earlyWarningModel';
 import { useState } from 'react';
 import type { EarlyWarningResponse } from '@wx-viewer-poc/shared';
 import { GbButton } from '../../../components/md';
@@ -180,7 +181,7 @@ export function EarlyWarningContent({
         open={open}
         meta={{
           title: '警報級の可能性',
-          target: '東京地方',
+          target: resolveEarlyWarningDetailTarget(response),
           time: { kind: 'issued', value: null },
           issuedTimes,
           isTraining: response.isTraining,

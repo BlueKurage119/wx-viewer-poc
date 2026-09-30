@@ -6,6 +6,7 @@ import test from 'node:test';
 import { createVenueRegistry, type VenueForecastTargets } from '@wx-viewer-poc/shared';
 import { initializeDatabase } from '../src/database/index.js';
 import { loadVenueConfig } from '../src/config/venueConfigLoader.js';
+import { createWeatherApiService } from '../src/services/weatherApiService.js';
 import { startServer } from '../src/server.js';
 import { processEarlyWarningReceptionForVenues } from '../src/polling/jmaEarlyWarningProcessor.js';
 import { processVpfd51ReceptionForVenues } from '../src/polling/jmaVpfd51Processor.js';
@@ -87,9 +88,9 @@ function countRows(
 }
 function reception(
   connection: ReturnType<typeof setup>['connection'],
-  telegramType: 'VPFD61' | 'VPFD51',
+  telegramType: 'VPFD61' | 'VPFD51' | 'VPFW60',
   rawBody: string | null,
-  areaCode: '130010' | '040010',
+  areaCode: string,
   options: {
     readonly suffix?: string;
     readonly receivedAt?: string;
@@ -368,6 +369,105 @@ test('起動時再処理は不足した採用行を追加し、繰返しても s
     }
     assert.equal(countRows(db.connection, 'early_warning_snapshot'), 1);
     assert.equal(countRows(db.connection, 'area_timeseries_snapshot'), 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('短期は南部、長期は府県単位で取得し、旧対象地域外の長期電文も復旧する', () => {
+  const db = setup();
+  try {
+    const base = loadVenueConfig({ environment: 'production' }).registry.listVenues();
+    const east = base[0]!;
+    const third: VenueForecastTargets = {
+      ...east,
+      venueId: 'saitama-test' as typeof east.venueId,
+      broadForecast: {
+        areaCode: '110010' as typeof east.broadForecast.areaCode,
+        displayName: '南部',
+      },
+      warning: { ...east.warning, prefectureCode: '110000' as typeof east.warning.prefectureCode },
+    };
+    const venues = createVenueRegistry([...base, third], 'early-warning-test');
+    const nearXml = sample('VPFD61', '130010')
+      .replaceAll('130010', '110010')
+      .replaceAll('香川県', '南部');
+    const farOriginal = readFileSync(
+      join(import.meta.dirname, 'fixtures/jma/69_01_01_241031_VPFW60.xml'),
+      'utf8',
+    );
+    const farXml = farOriginal.replaceAll('370000', '110000').replaceAll('香川県', '埼玉県');
+    const near = reception(db.connection, 'VPFD61', nearXml, '110010');
+    assert.equal(
+      processEarlyWarningReceptionForVenues(db.connection, near, receivedAt, venues).find(
+        (x) => x.venueId === third.venueId,
+      )?.result.ok,
+      true,
+    );
+    const far = reception(db.connection, 'VPFW60', farXml, '110000');
+    // 修正前に全会場で対象地域外と記録されていた状態を再現する。
+    const oldVenues = createVenueRegistry(
+      [...base, { ...third, warning: east.warning }],
+      'old-target',
+    );
+    assert.ok(
+      processEarlyWarningReceptionForVenues(db.connection, far, receivedAt, oldVenues).every(
+        (x) => !x.result.ok,
+      ),
+    );
+    assert.equal(reprocessPendingVenueForecastReceptions(db.connection, receivedAt, venues), 1);
+    assert.equal(reprocessPendingVenueForecastReceptions(db.connection, receivedAt, venues), 0);
+    const service = createWeatherApiService({
+      connection: db.connection,
+      venueRegistry: venues,
+      now: () => '2024-10-14T03:00:00.000Z',
+    });
+    const result = service.getEarlyWarning(
+      { id: 'test-terminal', name: '試験端末', mode: 'H', venueId: third.venueId },
+      'normal',
+    );
+    assert.equal(result.near.area.code, '110010');
+    assert.equal(result.far.area.code, '110000');
+    assert.equal(result.far.area.name, '埼玉県');
+    assert.notEqual(result.far.data, null);
+    const newer = reception(
+      db.connection,
+      'VPFW60',
+      withReportDate(farXml, '2024-10-15T11:00:00+09:00'),
+      '110000',
+      { suffix: '-newer' },
+    );
+    processEarlyWarningReceptionForVenues(db.connection, newer, receivedAt, venues);
+    const older = reception(
+      db.connection,
+      'VPFW60',
+      withReportDate(farXml, '2024-10-13T11:00:00+09:00'),
+      '110000',
+      { suffix: '-older' },
+    );
+    processEarlyWarningReceptionForVenues(db.connection, older, receivedAt, oldVenues);
+    assert.equal(reprocessPendingVenueForecastReceptions(db.connection, receivedAt, venues), 1);
+    assert.equal(
+      service.getEarlyWarning(
+        { id: 'test-terminal', name: '試験端末', mode: 'H', venueId: third.venueId },
+        'normal',
+      ).far.metadata.issuedAt,
+      '2024-10-15T02:00:00.000Z',
+    );
+    // 東京都は従来どおり東京地方単位の長期電文を使う。
+    const tokyoXml = farOriginal.replaceAll('370000', '130010').replaceAll('香川県', '東京地方');
+    const tokyo = reception(db.connection, 'VPFW60', tokyoXml, '130010', { suffix: '-tokyo' });
+    assert.equal(
+      processEarlyWarningReceptionForVenues(db.connection, tokyo, receivedAt, venues)[0]?.result.ok,
+      true,
+    );
+    assert.equal(
+      service.getEarlyWarning(
+        { id: 'tokyo-test', name: '試験端末', mode: 'H', venueId: east.venueId },
+        'normal',
+      ).far.area.code,
+      '130010',
+    );
   } finally {
     db.close();
   }

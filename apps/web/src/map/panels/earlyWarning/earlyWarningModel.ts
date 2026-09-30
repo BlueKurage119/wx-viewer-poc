@@ -199,3 +199,9 @@ export function buildDetailTable(response: EarlyWarningResponse): WarningTable {
     })),
   };
 }
+
+export function resolveEarlyWarningDetailTarget(response: EarlyWarningResponse): string {
+  return [
+    ...new Set([response.near.area.name, ...(response.far.data ? [response.far.area.name] : [])]),
+  ].join('／');
+}
