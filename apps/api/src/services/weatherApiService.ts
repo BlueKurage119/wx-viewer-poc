@@ -449,7 +449,12 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
             .map((target) =>
               findEarlyWarningSnapshot(connection, target.forecastAreaCode, 'far', controlStatus),
             )
-            .find((snapshot) => snapshot !== null && snapshot !== undefined) ?? null;
+            .filter((snapshot) => snapshot !== null)
+            .sort(
+              (a, b) =>
+                b.telegram.reportDateTime.localeCompare(a.telegram.reportDateTime) ||
+                b.telegram.controlDateTime.localeCompare(a.telegram.controlDateTime),
+            )[0] ?? null;
 
         const context: WeatherContext = {
           terminalId: terminal.id,

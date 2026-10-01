@@ -454,6 +454,42 @@ test('短期は南部、長期は府県単位で取得し、旧対象地域外�
       ).far.metadata.issuedAt,
       '2024-10-15T02:00:00.000Z',
     );
+    // 両候補が残る区域構成変更でも、候補順より発表時刻を優先する。
+    const broadFar = reception(
+      db.connection,
+      'VPFW60',
+      withReportDate(farXml.replaceAll('110000', '110010'), '2024-10-14T11:00:00+09:00'),
+      '110010',
+      { suffix: '-broad' },
+    );
+    processEarlyWarningReceptionForVenues(db.connection, broadFar, receivedAt, venues);
+    const terminal = {
+      id: 'test-terminal',
+      name: '試験端末',
+      mode: 'H' as const,
+      venueId: third.venueId,
+    };
+    assert.equal(service.getEarlyWarning(terminal, 'normal').far.area.code, '110000');
+    // 発表時刻が同じ場合は更新時刻（Control/DateTime）が新しい広域区域を選ぶ。
+    const newerControlXml = withReportDate(
+      farXml.replaceAll('110000', '110010'),
+      '2024-10-15T11:00:00+09:00',
+    ).replace(/<DateTime>[^<]+<\/DateTime>/, '<DateTime>2024-10-15T03:00:00Z</DateTime>');
+    const newerControl = reception(db.connection, 'VPFW60', newerControlXml, '110010', {
+      suffix: '-broad-newer-control',
+    });
+    processEarlyWarningReceptionForVenues(db.connection, newerControl, receivedAt, venues);
+    assert.equal(service.getEarlyWarning(terminal, 'normal').far.area.code, '110010');
+    // 同一発表・更新時刻では従来の候補順（広域区域優先）を維持する。
+    const tied = reception(
+      db.connection,
+      'VPFW60',
+      newerControlXml.replaceAll('110010', '110000'),
+      '110000',
+      { suffix: '-prefecture-tied' },
+    );
+    processEarlyWarningReceptionForVenues(db.connection, tied, receivedAt, venues);
+    assert.equal(service.getEarlyWarning(terminal, 'normal').far.area.code, '110010');
     // 東京都は従来どおり東京地方単位の長期電文を使う。
     const tokyoXml = farOriginal.replaceAll('370000', '130010').replaceAll('香川県', '東京地方');
     const tokyo = reception(db.connection, 'VPFW60', tokyoXml, '130010', { suffix: '-tokyo' });
