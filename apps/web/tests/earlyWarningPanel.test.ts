@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { EarlyWarningResponse, EarlyWarningData, WeatherDataset } from '@wx-viewer-poc/shared';
 import {
   buildDetailTable,
+  resolveEarlyWarningDetailTarget,
   buildPanelTable,
   selectPanelColumns,
   buildTable,
@@ -755,5 +756,20 @@ test('全被覆: 詳細の見出しとセル位置を揃え、遠距離の雨だ
         [1, '土砂災害、2026年10月1日(木) 12-24時、高・中の表示なし'],
       ],
     ],
+  );
+});
+
+test('詳細の対象地域は応答から取得し、短期と長期が異なる場合は併記する', () => {
+  const original = buildEarlyWarningFixtureResponse(Date.now());
+  const data: EarlyWarningResponse = {
+    ...original,
+    near: { ...original.near, area: { code: '110010', name: '南部' } },
+    far: { ...original.far, area: { code: '110000', name: '埼玉県' } },
+  };
+  assert.equal(resolveEarlyWarningDetailTarget(data), '南部／埼玉県');
+  assert.equal(resolveEarlyWarningDetailTarget(original), '東京地方');
+  assert.equal(
+    resolveEarlyWarningDetailTarget({ ...data, far: { ...data.far, data: null } }),
+    '南部',
   );
 });

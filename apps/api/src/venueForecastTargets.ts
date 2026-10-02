@@ -80,6 +80,19 @@ export function resolveEarlyWarningTargetArea(
   return { forecastAreaCode: target.areaCode, displayName: target.displayName };
 }
 
+/** 長期は電文の区域構成に応じて広域予報区域、府県予報区の順に照合する。 */
+export function resolveEarlyWarningTargetAreas(
+  registry: VenueRegistry,
+  venueId: VenueId,
+  segment: 'near' | 'far',
+): readonly EarlyWarningTargetArea[] {
+  const broad = resolveEarlyWarningTargetArea(registry, venueId);
+  const prefectureCode = registry.getVenue(venueId).warning.prefectureCode;
+  return segment === 'near' || prefectureCode === broad.forecastAreaCode
+    ? [broad]
+    : [broad, { forecastAreaCode: prefectureCode, displayName: `府県予報区（${prefectureCode}）` }];
+}
+
 /** C6 用の地域時系列予報対象（広域予報区域＋気温予報地点）を会場定義から解決する。 */
 export function resolveAreaTimeseriesForecastTarget(
   registryOrVenueId: VenueRegistry | VenueId,

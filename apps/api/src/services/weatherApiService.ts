@@ -53,6 +53,7 @@ import {
   resolveAmedasTarget,
   resolveAreaTimeseriesForecastTarget,
   resolveEarlyWarningTargetArea,
+  resolveEarlyWarningTargetAreas,
   resolveWarningCurrentTargetArea,
   resolveWarningTimeseriesTargetArea,
 } from '../venueForecastTargets.js';
@@ -443,12 +444,17 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
           controlStatus,
         );
 
-        const farSnapshot = findEarlyWarningSnapshot(
-          connection,
-          broadTarget.forecastAreaCode,
-          'far',
-          controlStatus,
-        );
+        const farSnapshot =
+          resolveEarlyWarningTargetAreas(deps.venueRegistry, venueId(terminal), 'far')
+            .map((target) =>
+              findEarlyWarningSnapshot(connection, target.forecastAreaCode, 'far', controlStatus),
+            )
+            .filter((snapshot) => snapshot !== null)
+            .sort(
+              (a, b) =>
+                b.telegram.reportDateTime.localeCompare(a.telegram.reportDateTime) ||
+                b.telegram.controlDateTime.localeCompare(a.telegram.controlDateTime),
+            )[0] ?? null;
 
         const context: WeatherContext = {
           terminalId: terminal.id,
@@ -547,7 +553,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
             venueId: venueId(terminal),
             controlStatus,
             telegramType: 'VPFW60',
-            areaCode: broadTarget.forecastAreaCode,
+            areaCode: farSnapshot.areaCode,
             baseline: {
               reportDateTime: farSnapshot.telegram.reportDateTime,
               controlDateTime: farSnapshot.telegram.controlDateTime,

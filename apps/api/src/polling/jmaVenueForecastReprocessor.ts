@@ -10,6 +10,7 @@ import {
   VPFW60_TELEGRAM_TYPE,
 } from '../repositories/types.js';
 import { processEarlyWarningReceptionForVenues } from './jmaEarlyWarningProcessor.js';
+import { resolveEarlyWarningTargetAreas } from '../venueForecastTargets.js';
 import { processVpfd51ReceptionForVenues } from './jmaVpfd51Processor.js';
 
 /**
@@ -41,14 +42,27 @@ export function reprocessPendingVenueForecastReceptions(
       if (
         registry
           .listVenueIds()
-          .every((venueId) => summary.adoptions.some((row) => row.venueId === venueId))
+          .every((venueId) =>
+            summary.adoptions.some(
+              (row) =>
+                row.venueId === venueId &&
+                !(
+                  summary.telegramType === VPFW60_TELEGRAM_TYPE &&
+                  row.adoptionResult === '対象地域外' &&
+                  resolveEarlyWarningTargetAreas(registry, venueId, 'far').some((target) =>
+                    summary.areas.some((area) => area.areaCode === target.forecastAreaCode),
+                  )
+                ),
+            ),
+          )
       )
         continue;
       const reception = findTelegramReceptionById(connection, summary.id);
       if (!reception) continue;
       if (reception.telegramType === VPFD51_TELEGRAM_TYPE)
         processVpfd51ReceptionForVenues(connection, reception, processedAt, registry);
-      else processEarlyWarningReceptionForVenues(connection, reception, processedAt, registry);
+      else
+        processEarlyWarningReceptionForVenues(connection, reception, processedAt, registry, true);
       processed += 1;
     }
     if (page.length < 1000) return processed;
