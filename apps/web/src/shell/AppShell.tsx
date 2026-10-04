@@ -1,5 +1,5 @@
 import type { WeatherDangerLevel } from '../weather/weatherDangerModel';
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { applyMd3Theme } from '../theme/applyTheme';
 import { DEFAULT_THEME_SEED } from '../theme/seeds';
 import type { Terminal, ViewId } from './config';
@@ -60,6 +60,15 @@ export function AppShell({
 }: ShellProps) {
   const mainRef = useRef<HTMLElement>(null);
   const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const stopOnF8 = (event: KeyboardEvent) => {
+      if (event.key !== 'F8' || !onStopBuzzer) return;
+      event.preventDefault();
+      onStopBuzzer();
+    };
+    window.addEventListener('keydown', stopOnF8);
+    return () => window.removeEventListener('keydown', stopOnF8);
+  }, [onStopBuzzer]);
   useLayoutEffect(() => {
     if (headerRef.current) applyMd3Theme(DEFAULT_THEME_SEED, false, headerRef.current);
   }, []);

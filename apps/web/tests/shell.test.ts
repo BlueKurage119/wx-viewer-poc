@@ -97,6 +97,7 @@ test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを選択肢�
     createNotificationUiState(),
     previewNotices('mixed'),
     'K',
+    1791072000000,
   ).state;
   const html = renderToStaticMarkup(el(NotificationArea, { state, mode: 'K' }));
   assert.ok(
@@ -118,6 +119,7 @@ test('Issue #63: 問いかけは確認を選択してから送信を有効化す
     createNotificationUiState(),
     previewNotices('mixed'),
     'K',
+    1791072000000,
   ).state;
   const callbacks = {
     onSelectQuestionConfirmation: () => undefined,
@@ -186,6 +188,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
     createNotificationUiState(),
     baseNotices,
     terminal.mode,
+    1791072000000,
   ).state;
 
   function computeShellStatus({
@@ -359,7 +362,7 @@ test('Issue #187: 監視APIエラー時の受信異常バッジおよび操作�
 
 test('Issue #200 AC7: 全件確認後はコールバックがあっても初期空欄と同一のHTMLに戻る', () => {
   const initial = createNotificationUiState();
-  let state = receiveNotifications(initial, previewNotices('mixed'), 'K').state;
+  let state = receiveNotifications(initial, previewNotices('mixed'), 'K', 1791072000000).state;
   for (const item of state.items) {
     if (item.category !== 'warning') state = selectQuestionConfirmation(state, item.feedKey);
     state = confirmNotification(state, item.feedKey, 'K');

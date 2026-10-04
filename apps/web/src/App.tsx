@@ -15,6 +15,7 @@ import { previewNotices, scenarios, type PreviewScenario } from './shell/fixture
 import {
   confirmNotification as confirmNotificationState,
   createNotificationUiState,
+  expireWarningHistory,
   nextUnconfirmedChime,
   receiveNotifications,
   selectQuestionConfirmation,
@@ -32,6 +33,9 @@ import { useMonitoringToolbar } from './monitoring/useMonitoringToolbar';
 import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
 import { useVenueRegistry } from './venueRegistryContext';
 import { useTerminalRegistry } from './terminalRegistryContext';
+import { WarningListView } from './warnings/WarningListView';
+import { createWarningListSearchState } from './warnings/warningListFilterModel';
+import './warnings/warningList.css';
 
 const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
   weather: {
@@ -79,12 +83,16 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     import.meta.env.DEV && new URLSearchParams(window.location.search).get('shellPreview') === '1';
   const [scenario, setScenario] = useState<PreviewScenario>('empty');
   const [previewState, setPreviewState] = useState(() => createNotificationUiState());
+  const [warningSearch, setWarningSearch] = useState(createWarningListSearchState);
   const [monitoringState, setMonitoringState] = useState<MonitoringLoadState | null>(null);
   const [selectedLayerId, setSelectedLayerId] = useState<MapLayerId>('nowcast');
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    if (preview) setPreviewState((state) => expireWarningHistory(state, now.getTime()));
+  }, [now, preview]);
   const weatherDanger = useWeatherDangerData({
     terminalId: terminal.id,
     controlStatus: 'normal',
@@ -106,17 +114,24 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     mode: terminal.mode,
     enabled: !preview,
     onChimeRequest: buzzer.request,
+    nowMs: now.getTime(),
   });
   const monitoringToolbar = useMonitoringToolbar({ active: view === 'monitor' });
   const current = views.find((item) => item.id === view)!;
   const selectScenario = (next: PreviewScenario) => {
     setScenario(next);
     const initialState = createNotificationUiState();
-    const receivedResult = receiveNotifications(initialState, previewNotices(next), terminal.mode);
+    const receivedResult = receiveNotifications(
+      initialState,
+      previewNotices(next),
+      terminal.mode,
+      Date.now(),
+    );
     const received = receivedResult.state;
     if (receivedResult.chime) buzzer.request(receivedResult.chime);
     setPreviewState({
       ...received,
+      phase: 'ready',
       operationMessage:
         next === 'result' ? '【表示サンプル】操作が完了しました。' : received.operationMessage,
     });
@@ -223,6 +238,15 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           terminalId={terminal.id}
           selectedLayerId={selectedLayerId}
           onLayerSelect={setSelectedLayerId}
+        />
+      ) : view === 'warnings' ? (
+        <WarningListView
+          entries={visibleNotificationState.warningHistory}
+          mode={terminal.mode}
+          nowMs={now.getTime()}
+          phase={visibleNotificationState.phase}
+          search={warningSearch}
+          onSearchChange={setWarningSearch}
         />
       ) : view === 'monitor' ? (
         <MonitoringDashboard terminalId={terminal.id} onLoadStateChange={setMonitoringState} />
