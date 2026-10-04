@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import type { EarlyWarningResponse, WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { InfoPanelCardInput } from '../panelDefinitions';
+import type { TileCatalogState } from '../../tiles/useTileCatalogPolling';
 import { useTileCatalogPolling } from '../../tiles/useTileCatalogPolling';
 import { fetchEarlyWarning } from '../../../api/earlyWarning';
 import { available } from './earlyWarningModel';
@@ -60,15 +61,19 @@ export function useEarlyWarning(params: {
     resetKey: `${terminalId}:${controlStatus}`,
     enabled: !isEarlyWarningFixtureActive(fixtureEnvironment),
   });
-  return useMemo(() => {
-    if (state.status === 'ready') return buildEarlyWarningCard(state.catalog, Date.now());
-    if (state.status === 'stale')
-      return buildEarlyWarningCard(state.catalog, Date.now(), undefined, 'stale');
-    const kind = state.status === 'failed' ? 'unavailable' : 'loading';
-    return {
-      key: 'earlyWarning',
-      status: state.status === 'failed' ? { kind: 'failed' } : { kind: 'loading' },
-      issuedTimes: { near: { kind }, far: { kind } },
-    };
-  }, [state]);
+  return useMemo(() => buildEarlyWarningPollingCard(state, Date.now()), [state]);
+}
+export function buildEarlyWarningPollingCard(
+  state: TileCatalogState<EarlyWarningResponse>,
+  nowMs: number,
+): InfoPanelCardInput {
+  if (state.status === 'ready') return buildEarlyWarningCard(state.catalog, nowMs);
+  if (state.status === 'stale')
+    return buildEarlyWarningCard(state.catalog, nowMs, undefined, 'stale');
+  const kind = state.status === 'failed' ? 'unavailable' : 'loading';
+  return {
+    key: 'earlyWarning',
+    status: state.status === 'failed' ? { kind: 'failed' } : { kind: 'loading' },
+    issuedTimes: { near: { kind }, far: { kind } },
+  };
 }

@@ -4,6 +4,7 @@ import { createSemanticColors, type SemanticColorToken } from '../src/theme/sema
 import { applyMd3Theme } from '../src/theme/applyTheme.ts';
 
 const EXPECTED_TOKENS: SemanticColorToken[] = [
+  '--wx-alert-level-1-container',
   '--wx-alert-level-2-container',
   '--wx-alert-level-2-on-container',
   '--wx-alert-level-2-outline',
@@ -29,6 +30,7 @@ const EXPECTED_TOKENS: SemanticColorToken[] = [
 
 /** 設計書 §2.6 の表から転記した golden 値 (light モード) */
 const GOLDEN_LIGHT: Record<SemanticColorToken, string> = {
+  '--wx-alert-level-1-container': '#ffffff',
   '--wx-alert-level-2-container': '#ead723',
   '--wx-alert-level-2-on-container': '#201c00',
   '--wx-alert-level-2-outline': '#695f00',
@@ -54,6 +56,7 @@ const GOLDEN_LIGHT: Record<SemanticColorToken, string> = {
 
 /** 設計書 §2.6 の表から転記した golden 値 (dark モード) */
 const GOLDEN_DARK: Record<SemanticColorToken, string> = {
+  '--wx-alert-level-1-container': '#ffffff',
   '--wx-alert-level-2-container': '#ead723',
   '--wx-alert-level-2-on-container': '#201c00',
   '--wx-alert-level-2-outline': '#695f00',
@@ -113,13 +116,13 @@ function createRootStub() {
 }
 
 // 1. キー網羅
-test('§5-1 キー網羅: createSemanticColors(false)/(true) の各キー集合が期待する21キーと完全一致すること', () => {
+test('§5-1 キー網羅: createSemanticColors(false)/(true) の各キー集合が期待する22キーと完全一致すること', () => {
   for (const dark of [false, true]) {
     const colors = createSemanticColors(dark);
     const keys = Object.keys(colors).sort();
     const expected = [...EXPECTED_TOKENS].sort();
     assert.deepEqual(keys, expected);
-    assert.equal(keys.length, 21);
+    assert.equal(keys.length, 22);
   }
 });
 
@@ -151,7 +154,7 @@ test('§5-3 モード非依存性: alert-level と notice-emergency は同値、
   const modeIndependentTokens = EXPECTED_TOKENS.filter(
     (token) => token.startsWith('--wx-alert-level-') || token.startsWith('--wx-notice-emergency-'),
   );
-  assert.equal(modeIndependentTokens.length, 15);
+  assert.equal(modeIndependentTokens.length, 16);
 
   for (const token of modeIndependentTokens) {
     assert.equal(

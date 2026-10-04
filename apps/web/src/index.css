@@ -553,3 +553,34 @@ select {
     gap: 8px;
   }
 }
+
+.nav-icon {
+  position: relative;
+}
+.weather-danger-dot {
+  position: absolute;
+  top: 2px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.weather-danger-level-1 {
+  background: var(--wx-alert-level-1-container);
+}
+.weather-danger-level-2 {
+  background: var(--wx-alert-level-2-container);
+}
+.weather-danger-level-3 {
+  background: var(--wx-alert-level-3-container);
+}
+.weather-danger-level-4 {
+  background: var(--wx-alert-level-4-container);
+}
+.weather-danger-level-5 {
+  background: var(--wx-alert-level-5-container);
+}
+.weather-danger-level-5 {
+  border: 1px solid var(--wx-alert-level-5-outline);
+}

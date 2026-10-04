@@ -1,4 +1,5 @@
-import { useState, useRef, useMemo, useCallback, type ReactElement } from 'react';
+import { useWeatherDangerData, type WeatherDangerPanelData } from '../weather/useWeatherDangerData';
+import { useState, useRef, useMemo, useCallback, useEffect, type ReactElement } from 'react';
 import type L from 'leaflet';
 import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { Venue } from '../shell/config';
@@ -7,10 +8,7 @@ import { LAYER_PRESENTATIONS, emptyTimeline } from './fixtures';
 import { MapViewport, type MapViewportHandle } from './MapViewport';
 import { MapInformationColumnSlot } from './MapInformationColumnSlot';
 import { InfoPanelColumn } from './panels/InfoPanelColumn';
-import { useBosaiBulletins } from './panels/bosai/useBosaiBulletins';
-import { useWarnings } from './panels/warning/useWarnings';
 import { useWarningTimeSeries } from './panels/warningTimeSeries/useWarningTimeSeries';
-import { useEarlyWarning } from './panels/earlyWarning/useEarlyWarning';
 import { useAreaForecast } from './panels/areaForecast/useAreaForecast';
 import { useAmedas } from './panels/amedas/useAmedas';
 import { DEFAULT_INFO_PANEL_INPUT } from './panels/panelFixtures';
@@ -30,6 +28,7 @@ import { KikikuruStatusCard } from './kikikuru/KikikuruStatusCard';
 import { WeatherTileOverlay, type WeatherTileOverlayProps } from './tiles/WeatherTileOverlay';
 
 export interface WeatherMapViewProps {
+  dangerPanelData?: WeatherDangerPanelData;
   venue: Venue;
   terminalId?: string;
   controlStatus?: WeatherControlStatus;
@@ -89,7 +88,28 @@ export function createWeatherTileOverlayElement(
  * レイヤー選択、時間操作、ズーム、会場復帰、および気象タイルレイヤーの重ね描画を統合する。
  * 通常画面のデフォルト表示は空カタログ (emptyTimeline) とし、API 応答取得後に実データを反映する。
  */
-export function WeatherMapView({
+export function WeatherMapView(props: WeatherMapViewProps) {
+  return props.dangerPanelData ? (
+    <WeatherMapViewContent {...props} dangerPanelData={props.dangerPanelData} />
+  ) : (
+    <WeatherMapViewWithData {...props} />
+  );
+}
+function WeatherMapViewWithData(props: WeatherMapViewProps) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const data = useWeatherDangerData({
+    terminalId: props.terminalId ?? (props.venue.id === 'trc' ? 'htrcph01' : 'hkeagh01'),
+    controlStatus: props.controlStatus ?? 'normal',
+    nowMs,
+  });
+  return <WeatherMapViewContent {...props} dangerPanelData={data.panels} />;
+}
+function WeatherMapViewContent({
+  dangerPanelData,
   venue,
   terminalId: propTerminalId,
   controlStatus = 'normal',
@@ -97,7 +117,7 @@ export function WeatherMapView({
   onTimelineIntent,
   selectedLayerId: controlledLayerId,
   onLayerSelect,
-}: WeatherMapViewProps) {
+}: WeatherMapViewProps & { dangerPanelData: WeatherDangerPanelData }) {
   const terminalId = propTerminalId ?? (venue.id === 'trc' ? 'htrcph01' : 'hkeagh01');
 
   const [internalLayerId, setInternalLayerId] = useState<MapLayerId>('nowcast');
@@ -163,17 +183,8 @@ export function WeatherMapView({
     enabled: isKikikuru,
   });
 
-  // 気象防災速報の定期取得 (G2)
-  const bosaiBulletinCards = useBosaiBulletins({
-    terminalId,
-    controlStatus,
-  });
-
-  // 警報・注意報の定期取得 (G3)
-  const warningCards = useWarnings({
-    terminalId,
-    controlStatus,
-  });
+  const bosaiBulletinCards = dangerPanelData.bosaiBulletin;
+  const warningCards = dangerPanelData.warning;
 
   // 警報等時系列の定期取得 (G4 #55)
   const warningTimeSeriesCard = useWarningTimeSeries({
@@ -181,7 +192,7 @@ export function WeatherMapView({
     controlStatus,
   });
 
-  const earlyWarningCard = useEarlyWarning({ terminalId, controlStatus });
+  const earlyWarningCard = dangerPanelData.earlyWarning;
   const amedasCard = useAmedas({ terminalId, controlStatus, venueId: venue.id });
   const areaForecastCard = useAreaForecast({ terminalId, controlStatus });
 
