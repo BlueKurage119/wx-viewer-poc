@@ -9,6 +9,7 @@ export type AlertLevel = 2 | 3 | 4 | 5;
 export type NoticeColorCategory = 'warning' | 'question' | 'emergency';
 export type SemanticColorRole = 'container' | 'on-container' | 'outline';
 export type SemanticColorToken =
+  | '--wx-alert-level-1-container'
   | `--wx-alert-level-${AlertLevel}-${SemanticColorRole}`
   | `--wx-notice-${NoticeColorCategory}-${SemanticColorRole}`;
 
@@ -103,6 +104,7 @@ export function createSemanticColors(dark: boolean): Record<SemanticColorToken, 
       };
 
   return {
+    '--wx-alert-level-1-container': hexFromArgb(yellow.tone(100)),
     ...modeIndependentColors,
     ...modeDependentColors,
   };

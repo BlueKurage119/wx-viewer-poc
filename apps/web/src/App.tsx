@@ -1,3 +1,5 @@
+import type { WeatherDangerLevel } from './weather/weatherDangerModel';
+import { useWeatherDangerData } from './weather/useWeatherDangerData';
 import { useEffect, useState } from 'react';
 import { FilledButton } from './components/md/Button';
 import { AppShell } from './shell/AppShell';
@@ -83,6 +85,21 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  const weatherDanger = useWeatherDangerData({
+    terminalId: terminal.id,
+    controlStatus: 'normal',
+    nowMs: now.getTime(),
+  });
+  // 開発時の視認性確認専用。通常の気象データ取得・パネルには影響しない。
+  const dangerPreview = import.meta.env.DEV
+    ? new URLSearchParams(window.location.search).get('navDangerFixture')
+    : null;
+  const previewDangerLevel =
+    dangerPreview === 'none'
+      ? null
+      : dangerPreview && /^[1-5]$/.test(dangerPreview)
+        ? (Number(dangerPreview) as WeatherDangerLevel)
+        : weatherDanger.level;
   const buzzer = useHeaderBuzzer();
   const notificationFeed = useNotificationFeed({
     terminalId: terminal.id,
@@ -148,6 +165,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
 
   return (
     <AppShell
+      weatherDangerLevel={previewDangerLevel}
       terminal={terminal}
       title={current.title}
       view={view}
@@ -200,6 +218,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     >
       {view === 'weather' ? (
         <WeatherMapView
+          dangerPanelData={weatherDanger.panels}
           venue={terminal.venue}
           terminalId={terminal.id}
           selectedLayerId={selectedLayerId}

@@ -1,3 +1,4 @@
+import type { WeatherDangerLevel } from '../weather/weatherDangerModel';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { applyMd3Theme } from '../theme/applyTheme';
 import { DEFAULT_THEME_SEED } from '../theme/seeds';
@@ -6,6 +7,7 @@ import { Icon } from './Icon';
 import type { HeaderBuzzerState } from '../notifications/useHeaderBuzzer';
 
 interface ShellProps {
+  weatherDangerLevel?: WeatherDangerLevel | null;
   terminal: Terminal;
   title: string;
   view: ViewId;
@@ -42,6 +44,7 @@ const timeFormat = new Intl.DateTimeFormat('ja-JP', {
   hour12: false,
 });
 export function AppShell({
+  weatherDangerLevel,
   terminal,
   title,
   view,
@@ -125,9 +128,20 @@ export function AppShell({
             type="button"
             onClick={() => onViewChange(item.id)}
             aria-current={view === item.id ? 'page' : undefined}
+            aria-label={
+              item.id === 'weather' && weatherDangerLevel
+                ? `${item.label}、${weatherDangerLevel === 1 ? '警報級の可能性あり' : `最高危険度レベル${weatherDangerLevel}相当`}`
+                : undefined
+            }
           >
             <span className="nav-icon">
               <Icon kind={item.icon} />
+              {item.id === 'weather' && weatherDangerLevel && (
+                <span
+                  className={`weather-danger-dot weather-danger-level-${weatherDangerLevel}`}
+                  aria-hidden="true"
+                />
+              )}
             </span>
             <span>{item.label}</span>
           </button>
