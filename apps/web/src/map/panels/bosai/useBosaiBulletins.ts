@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
+import type { BulletinsResponse, WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { InfoPanelCardInput } from '../panelDefinitions';
+import type { TileCatalogState } from '../../tiles/useTileCatalogPolling';
 import { useTileCatalogPolling } from '../../tiles/useTileCatalogPolling';
 import { fetchBosaiBulletins } from '../../../api/bosaiBulletins';
 import { buildBosaiBulletinCards } from './bosaiBulletinCards';
@@ -33,26 +34,30 @@ export function useBosaiBulletins(params: {
     enabled: true,
   });
 
-  return useMemo(() => {
-    if (pollingState.status === 'ready') {
-      const { availability } = pollingState.catalog;
-      // parseBulletinsResponse が 'unavailable' を取得失敗として弾くため、ここには来ない
-      if (availability === 'unavailable') {
-        return [];
-      }
-      return buildBosaiBulletinCards({
-        bulletins: pollingState.catalog.bulletins,
-        availability,
-        nowMs,
-      });
+  return useMemo(() => buildBosaiPollingCards(pollingState, nowMs), [pollingState, nowMs]);
+}
+export function buildBosaiPollingCards(
+  pollingState: TileCatalogState<BulletinsResponse>,
+  nowMs: number,
+): readonly InfoPanelCardInput[] {
+  if (pollingState.status === 'ready') {
+    const { availability } = pollingState.catalog;
+    // parseBulletinsResponse が 'unavailable' を取得失敗として弾くため、ここには来ない
+    if (availability === 'unavailable') {
+      return [];
     }
-    if (pollingState.status === 'stale') {
-      return buildBosaiBulletinCards({
-        bulletins: pollingState.catalog.bulletins,
-        availability: 'stale',
-        nowMs,
-      });
-    }
-    return [];
-  }, [pollingState, nowMs]);
+    return buildBosaiBulletinCards({
+      bulletins: pollingState.catalog.bulletins,
+      availability,
+      nowMs,
+    });
+  }
+  if (pollingState.status === 'stale') {
+    return buildBosaiBulletinCards({
+      bulletins: pollingState.catalog.bulletins,
+      availability: 'stale',
+      nowMs,
+    });
+  }
+  return [];
 }

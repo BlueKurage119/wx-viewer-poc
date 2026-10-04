@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
-import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
+import type { WarningsResponse, WeatherControlStatus } from '@wx-viewer-poc/shared';
 import type { InfoPanelCardInput } from '../panelDefinitions';
+import type { TileCatalogState } from '../../tiles/useTileCatalogPolling';
 import { useTileCatalogPolling } from '../../tiles/useTileCatalogPolling';
 import { fetchWarnings } from '../../../api/warnings';
 import { buildWarningCards } from './warningBadges';
@@ -25,16 +26,19 @@ export function useWarnings(params: {
     enabled: true,
   });
 
-  return useMemo(() => {
-    if (pollingState.status === 'ready') {
-      // data===null(availability:'unavailable')のときは buildWarningCards 内で0件になる
-      const availability =
-        pollingState.catalog.metadata.availability === 'stale' ? 'stale' : 'available';
-      return buildWarningCards(pollingState.catalog, availability);
-    }
-    if (pollingState.status === 'stale') {
-      return buildWarningCards(pollingState.catalog, 'stale');
-    }
-    return [];
-  }, [pollingState]);
+  return useMemo(() => buildWarningPollingCards(pollingState), [pollingState]);
+}
+export function buildWarningPollingCards(
+  pollingState: TileCatalogState<WarningsResponse>,
+): readonly InfoPanelCardInput[] {
+  if (pollingState.status === 'ready') {
+    // data===null(availability:'unavailable')のときは buildWarningCards 内で0件になる
+    const availability =
+      pollingState.catalog.metadata.availability === 'stale' ? 'stale' : 'available';
+    return buildWarningCards(pollingState.catalog, availability);
+  }
+  if (pollingState.status === 'stale') {
+    return buildWarningCards(pollingState.catalog, 'stale');
+  }
+  return [];
 }
