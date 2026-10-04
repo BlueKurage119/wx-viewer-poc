@@ -1,7 +1,7 @@
 import './setupEnv.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import React from 'react';
+import React, { act } from 'react';
 import { flushSync } from 'react-dom';
 import { buildEarlyWarningFixtureResponse } from '../src/map/panels/earlyWarning/earlyWarningFixture.ts';
 import {
@@ -15,15 +15,19 @@ const el = React.createElement;
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
 async function flushEffects(): Promise<void> {
-  await Promise.resolve();
-  await new Promise<void>((resolve) => setTimeout(resolve, 20));
-  await Promise.resolve();
+  // Reactの更新キューと、その中から起動する非同期取得の完了を待つ。
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 async function mountDanger(
   environment: EarlyWarningFixtureEnvironment,
   options: { readonly initialFailure?: boolean; readonly metadataStale?: boolean } = {},
 ) {
+  const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
   const originalLocation = globalThis.window.location;
@@ -153,7 +157,7 @@ async function mountDanger(
   }
   const { createRoot } = await import('react-dom/client');
   const root = createRoot(element as unknown as Element);
-  flushSync(() => root.render(el(TestComponent)));
+  act(() => flushSync(() => root.render(el(TestComponent))));
   return {
     fetches,
     timers,
@@ -164,7 +168,7 @@ async function mountDanger(
       terminalId = params.terminalId ?? terminalId;
       controlStatus = params.controlStatus ?? controlStatus;
       nowMs = params.nowMs ?? nowMs;
-      flushSync(() => root.render(el(TestComponent)));
+      act(() => flushSync(() => root.render(el(TestComponent))));
     },
     clearResponses() {
       empty = true;
@@ -173,14 +177,16 @@ async function mountDanger(
       failFetch = value;
     },
     async advanceOnePeriod() {
-      for (const timer of timers.filter((item) => !item.cleared)) {
-        timer.cleared = true;
-        timer.callback();
-      }
-      await flushEffects();
+      await act(async () => {
+        for (const timer of timers.filter((item) => !item.cleared)) {
+          timer.cleared = true;
+          timer.callback();
+        }
+      });
     },
     cleanup() {
-      root.unmount();
+      act(() => root.unmount());
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment;
       globalThis.fetch = originalFetch;
       globalThis.setTimeout = originalSetTimeout;
       globalThis.clearTimeout = originalClearTimeout;
