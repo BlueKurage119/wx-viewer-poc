@@ -10,6 +10,7 @@ import { fetchStartupNotifications } from '../api/startupNotifications';
 import {
   confirmNotification,
   createNotificationUiState,
+  expireWarningHistory,
   receiveNotifications,
   selectQuestionConfirmation,
   setNotificationCursor,
@@ -31,9 +32,11 @@ type Action =
       readonly type: 'receive';
       readonly items: NotificationUiState['items'];
       readonly mode: TerminalMode;
+      readonly receivedAtMs: number;
     }
   | { readonly type: 'cursor'; readonly cursor: NotificationDeltaCursor; readonly message?: string }
   | { readonly type: 'retry' }
+  | { readonly type: 'expire-history'; readonly nowMs: number }
   | { readonly type: 'select-question-confirmation'; readonly feedKey: string }
   | { readonly type: 'confirm'; readonly feedKey: string; readonly mode: TerminalMode };
 
@@ -42,7 +45,9 @@ function reducer(state: NotificationUiState, action: Action): NotificationUiStat
     case 'reset':
       return createNotificationUiState();
     case 'receive':
-      return receiveNotifications(state, action.items, action.mode).state;
+      return receiveNotifications(state, action.items, action.mode, action.receivedAtMs).state;
+    case 'expire-history':
+      return expireWarningHistory(state, action.nowMs);
     case 'cursor':
       return setNotificationCursor(state, action.cursor, action.message);
     case 'retry':
@@ -59,6 +64,7 @@ export interface UseNotificationFeedOptions {
   readonly mode: TerminalMode;
   readonly enabled?: boolean;
   readonly onChimeRequest?: (request: ChimeRequest) => void;
+  readonly nowMs: number;
 }
 
 /** 起動現況と通常差分を一つのメモリ内通知storeへ合流する。 */
@@ -67,6 +73,7 @@ export function useNotificationFeed({
   mode,
   enabled = true,
   onChimeRequest,
+  nowMs,
 }: UseNotificationFeedOptions): {
   readonly state: NotificationUiState;
   readonly selectQuestionConfirmation: (feedKey: string) => void;
@@ -77,6 +84,10 @@ export function useNotificationFeed({
   stateRef.current = state;
   const chimeRef = useRef(onChimeRequest);
   chimeRef.current = onChimeRequest;
+
+  useEffect(() => {
+    dispatch({ type: 'expire-history', nowMs });
+  }, [nowMs]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -95,10 +106,11 @@ export function useNotificationFeed({
     const receive = (items: NotificationUiState['items']) => {
       // reducerにも同じ純粋遷移を通す。鳴動要求だけは取得単位でここから公開する。
       const current = stateRef.current;
-      const chime = receiveNotifications(current, items, mode).chime;
+      const receivedAtMs = Date.now();
+      const { state: received, chime } = receiveNotifications(current, items, mode, receivedAtMs);
       if (chime) chimeRef.current?.(chime);
-      stateRef.current = receiveNotifications(current, items, mode).state;
-      dispatch({ type: 'receive', items, mode });
+      stateRef.current = received;
+      dispatch({ type: 'receive', items, mode, receivedAtMs });
     };
     const retry = (task: () => void) => {
       if (disposed) return;

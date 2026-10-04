@@ -3,6 +3,11 @@ import type {
   NotificationFeedItem,
   TerminalMode,
 } from '@wx-viewer-poc/shared';
+import {
+  mergeWarningHistory,
+  pruneWarningHistory,
+  type WarningHistoryEntry,
+} from '../warnings/warningListModel';
 
 export type NotificationPhase = 'starting' | 'ready' | 'retrying';
 export type ChimeCategory = 'warning' | 'question' | 'emergency';
@@ -14,6 +19,7 @@ export interface ChimeRequest {
 
 export interface NotificationUiState {
   readonly items: readonly NotificationFeedItem[];
+  readonly warningHistory: readonly WarningHistoryEntry[];
   readonly cursor: NotificationDeltaCursor | null;
   readonly phase: NotificationPhase;
   readonly operationMessage: string;
@@ -29,6 +35,7 @@ export const RETRY_OPERATION_MESSAGE = '通知を受信できません。再試�
 export function createNotificationUiState(): NotificationUiState {
   return {
     items: [],
+    warningHistory: [],
     cursor: null,
     phase: 'starting',
     operationMessage: INITIAL_OPERATION_MESSAGE,
@@ -105,9 +112,11 @@ export function receiveNotifications(
   state: NotificationUiState,
   incoming: readonly NotificationFeedItem[],
   mode: TerminalMode,
+  receivedAtMs: number,
 ): { readonly state: NotificationUiState; readonly chime: ChimeRequest | null } {
   const existing = new Map(state.items.map((item) => [item.feedKey, item]));
   const newItems = incoming.filter((item) => !existing.has(item.feedKey));
+  const newFeedKeys = new Set(newItems.map((item) => item.feedKey));
   for (const item of incoming) existing.set(item.feedKey, item);
   const items = Array.from(existing.values()).sort(compareItems);
   const unreadFeedKeys = new Set(state.unreadFeedKeys);
@@ -119,6 +128,16 @@ export function receiveNotifications(
   const next: NotificationUiState = {
     ...state,
     items,
+    // 件数超過・期限切れで外れた既知通知を再受信しても初回受信を延長しない。
+    warningHistory: mergeWarningHistory(
+      state.warningHistory,
+      incoming.filter(
+        (item) =>
+          newFeedKeys.has(item.feedKey) ||
+          state.warningHistory.some((entry) => entry.item.feedKey === item.feedKey),
+      ),
+      receivedAtMs,
+    ),
     unreadFeedKeys,
     ...(hasQuestionInterruption
       ? { selectedQuestionFeedKey: null, selectedQuestionChoice: null }
@@ -131,6 +150,14 @@ export function receiveNotifications(
     ranked.find((item) => item.category === 'warning');
   const chime = chimeItem ? { category: chimeItem.category, feedKey: chimeItem.feedKey } : null;
   return { state: { ...next, unreadFeedKeys: markDisplayedRowsRead(next, mode) }, chime };
+}
+
+export function expireWarningHistory(
+  state: NotificationUiState,
+  nowMs: number,
+): NotificationUiState {
+  const warningHistory = pruneWarningHistory(state.warningHistory, nowMs);
+  return warningHistory === state.warningHistory ? state : { ...state, warningHistory };
 }
 
 export function setNotificationCursor(
