@@ -13,7 +13,7 @@ export class DatabaseRecoveryNotificationEmitter {
     const transaction = this.connection.transaction(() => {
       recordNotificationOutputHistory(
         this.connection,
-        toNotificationOutputHistoryInput(planned.notification, planned.output),
+        toNotificationOutputHistoryInput(planned.notification, planned.output, null),
       );
     });
     transaction();

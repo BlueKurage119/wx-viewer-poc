@@ -1,3 +1,7 @@
+import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+} from './helpers/databasePair.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -5,7 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { startServer } from '../src/server.js';
-import { initializeDatabase } from '../src/database/index.js';
+
 import type { SignalSource } from '../src/gracefulShutdown.js';
 import { createAlwaysOnTestPollingSchedule } from './helpers/pollingSchedule.js';
 
@@ -62,7 +66,7 @@ test('常時稼働設定では注入時計がJST昼12時・夜22時でも同じ�
 
     try {
       const server = await startServer({
-        config: { databasePath, migrationsDirectory },
+        ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
         port: 0,
         enablePolling: true,
         pollingSchedule: createAlwaysOnTestPollingSchedule(),
@@ -111,7 +115,7 @@ for (const [jstTime, fixedNow] of [
       });
 
       const startPromise = startServer({
-        config: { databasePath, migrationsDirectory },
+        ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
         port: 0,
         enablePolling: true,
         pollingSchedule: createAlwaysOnTestPollingSchedule(),
@@ -179,7 +183,7 @@ for (const [jstTime, fixedNow] of [
       });
 
       const startPromise = startServer({
-        config: { databasePath, migrationsDirectory },
+        ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
         port: 0,
         enablePolling: true,
         pollingSchedule: createAlwaysOnTestPollingSchedule(),
@@ -211,9 +215,9 @@ for (const [jstTime, fixedNow] of [
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       // close 済みのため、別コネクションでDBファイルを開いて検証する。
-      const readback = initializeDatabase({ databasePath, migrationsDirectory });
+      const readback = initializeTestDatabases({ databasePath, migrationsDirectory });
       try {
-        const stopRows = readback.connection
+        const stopRows = readback.retained.connection
           .prepare("SELECT * FROM operation_history WHERE operation_kind = 'stop'")
           .all() as { request_id: string }[];
         assert.equal(
@@ -223,7 +227,7 @@ for (const [jstTime, fixedNow] of [
         );
         assert.match(stopRows[0]!.request_id, /^shutdown-/);
 
-        const notificationRows = readback.connection
+        const notificationRows = readback.retained.connection
           .prepare(
             "SELECT * FROM notification_output_history WHERE message_definition_id = 'system-service-stopped'",
           )

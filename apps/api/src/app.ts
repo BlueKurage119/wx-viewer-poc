@@ -516,6 +516,30 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
     });
 
+    app.get('/api/monitoring/notification-outputs/:id/reception', (req, res) => {
+      const id = parseMonitoringReceptionIdParam(req.params.id);
+      if (id === null || Object.keys(req.query).length > 0) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const result = monitoringHistory.getNotificationReceptionById(id);
+        if (result.kind === 'not_found') {
+          sendJsonNoStore(res, 404, { status: 'error', code: 'notification_output_not_found' });
+        } else if (result.kind === 'unavailable') {
+          sendJsonNoStore(res, 410, {
+            status: 'error',
+            code: 'notification_reception_unavailable',
+            reason: result.reason,
+          });
+        } else {
+          sendJsonNoStore(res, 200, result.response);
+        }
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+      }
+    });
+
     app.get('/api/monitoring/operations', (req, res) => {
       const parsed = parseMonitoringOperationQuery(req.query);
       if (parsed === null) {

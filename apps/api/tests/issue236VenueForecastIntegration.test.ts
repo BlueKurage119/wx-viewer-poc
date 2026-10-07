@@ -1,10 +1,14 @@
+import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+} from './helpers/databasePair.js';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createVenueRegistry, type VenueForecastTargets } from '@wx-viewer-poc/shared';
-import { initializeDatabase } from '../src/database/index.js';
+
 import { loadVenueConfig } from '../src/config/venueConfigLoader.js';
 import { createWeatherApiService } from '../src/services/weatherApiService.js';
 import { startServer } from '../src/server.js';
@@ -20,13 +24,13 @@ import type { TelegramReceptionInput } from '../src/repositories/types.js';
 const receivedAt = '2026-09-09T00:00:01.000Z';
 function setup() {
   const directory = mkdtempSync(join(tmpdir(), 'wx-issue236-'));
-  const database = initializeDatabase({
+  const database = initializeTestDatabases({
     databasePath: join(directory, 'test.sqlite3'),
     migrationsDirectory: join(import.meta.dirname, '../migrations'),
   });
   let databaseClosed = false;
   return {
-    connection: database.connection,
+    connection: database.weather.connection,
     databasePath: join(directory, 'test.sqlite3'),
     migrationsDirectory: join(import.meta.dirname, '../migrations'),
     closeDatabase: () => {
@@ -310,20 +314,25 @@ test('startServer は警報復旧より前に未採用のC5/C6原文を再処理
     db.closeDatabase();
 
     const server = await startServer({
-      config: { databasePath: db.databasePath, migrationsDirectory: db.migrationsDirectory },
+      ...createTestServerDatabaseOptions({
+        databasePath: db.databasePath,
+        migrationsDirectory: db.migrationsDirectory,
+      }),
       enablePolling: false,
       port: 0,
     });
     await server.close();
 
-    const reopened = initializeDatabase({
+    const reopened = initializeTestDatabases({
       databasePath: db.databasePath,
       migrationsDirectory: db.migrationsDirectory,
     });
     try {
       assert.deepEqual(
         [c5, c6].map((saved) =>
-          listTelegramReceptionAdoptions(reopened.connection, saved.id).map((row) => row.venueId),
+          listTelegramReceptionAdoptions(reopened.weather.connection, saved.id).map(
+            (row) => row.venueId,
+          ),
         ),
         [
           ['east', 'trc'],

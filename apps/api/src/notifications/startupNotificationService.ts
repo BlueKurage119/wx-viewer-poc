@@ -70,7 +70,9 @@ export interface StartupNotificationService {
 }
 
 export interface CreateStartupNotificationServiceDependencies {
-  readonly connection: DatabaseConnection;
+  readonly weatherConnection: DatabaseConnection;
+  readonly retainedConnection: DatabaseConnection;
+  readonly weatherDatabaseGenerationId: string;
   readonly venueRegistry: VenueRegistry;
   readonly terminalRegistry: TerminalRegistry;
   readonly initialization: StartupNotificationInitialization;
@@ -108,34 +110,42 @@ export function createStartupNotificationService(
       }
 
       const inquiredAt = input.inquiredAt || now();
-      return dependencies.connection
+      return dependencies.retainedConnection
         .transaction(() => {
           const session = recordTerminalSessionInquiry(
-            dependencies.connection,
+            dependencies.retainedConnection,
             input.sessionId,
             inquiredAt,
           );
           const warningClaimed =
             session.kind === 'startup' &&
-            claimStartupWarning(dependencies.connection, {
+            claimStartupWarning(dependencies.retainedConnection, {
               serverGenerationId: dependencies.serverGenerationId,
               venueId: input.venueId,
               claimedAt: inquiredAt,
               sessionId: input.sessionId,
             });
           const fetchHealth = dependencies.getFetchHealth?.() ?? null;
-          const maxSequence = findMaxNotificationOutputSequence(dependencies.connection);
-          const projection = projector(
-            dependencies.connection,
-            {
-              venueRegistry: dependencies.venueRegistry,
-              venueId: input.venueId,
-              now: inquiredAt,
-              includeWarningCategory: warningClaimed,
-              fetchHealth,
-            },
-            outputIdFactory,
-          );
+          const maxSequence = findMaxNotificationOutputSequence(dependencies.retainedConnection);
+          const projection = dependencies.weatherConnection.transaction(() =>
+            projector(
+              dependencies.weatherConnection,
+              {
+                venueRegistry: dependencies.venueRegistry,
+                venueId: input.venueId,
+                now: inquiredAt,
+                includeWarningCategory: warningClaimed,
+                fetchHealth,
+              },
+              outputIdFactory,
+            ),
+          )();
+          if (
+            projection &&
+            typeof (projection as unknown as { then?: unknown }).then === 'function'
+          ) {
+            throw new Error('起動現況の投影は同期処理である必要があります');
+          }
           const response: StartupNotificationReadyResponse = {
             status: 'ready',
             terminalId: input.terminalId,
@@ -150,7 +160,7 @@ export function createStartupNotificationService(
             notifications: projection.notifications,
             cursor: toNotificationDeltaCursor(maxSequence),
           };
-          recordInquiry(dependencies.connection, {
+          recordInquiry(dependencies.retainedConnection, {
             serverGenerationId: dependencies.serverGenerationId,
             venueId: input.venueId,
             terminalId: input.terminalId,

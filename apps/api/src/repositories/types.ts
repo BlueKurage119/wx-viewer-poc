@@ -982,6 +982,7 @@ export type NotificationOutputOrigin = 'weather' | 'system';
 export type NotificationDetectionContext = 'normal' | 'initial';
 
 export interface NotificationOutputHistoryInput {
+  readonly weatherDatabaseGenerationId: string | null;
   readonly notificationId: string;
   readonly category: string;
   readonly sourceType: string;

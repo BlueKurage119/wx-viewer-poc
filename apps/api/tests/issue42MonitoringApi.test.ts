@@ -19,7 +19,8 @@ import {
   type UtcIso8601String,
   type TerminalDefinition,
 } from '@wx-viewer-poc/shared';
-import { initializeDatabase } from '../src/database/index.js';
+import { type DatabaseConnection } from '../src/database/index.js';
+import { initializeTestDatabases } from './helpers/databasePair.js';
 import { createApp } from '../src/app.js';
 import { createWeatherApiService } from '../src/services/weatherApiService.js';
 import type { WeatherApiService } from '../src/services/weatherApiService.js';
@@ -43,13 +44,25 @@ const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 const FIXED_NOW = '2026-09-15T10:00:00.000Z' as UtcIso8601String;
 
+const retainedByWeather = new WeakMap<DatabaseConnection, DatabaseConnection>();
 function createDb() {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-monitoring-'));
-  const context = initializeDatabase({
+  const pair = initializeTestDatabases({
     databasePath: join(directory, 'test.sqlite3'),
     migrationsDirectory,
   });
-  return { context, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
+  retainedByWeather.set(pair.weather.connection, pair.retained.connection);
+  const context = {
+    connection: pair.weather.connection,
+    retainedConnection: pair.retained.connection,
+  };
+  return {
+    context,
+    cleanup: () => {
+      pair.close();
+      rmSync(directory, { recursive: true, force: true });
+    },
+  };
 }
 
 function startTestServer(app: ReturnType<typeof createApp>): Promise<{
@@ -361,7 +374,7 @@ function fakeStartupStatus(
 }
 
 interface BuildAppOptions {
-  readonly connection: ReturnType<typeof initializeDatabase>['connection'];
+  readonly connection: DatabaseConnection;
   readonly schedulerStatus?: TimeBasedPollingStatus;
   readonly schedulerRunning?: boolean;
   readonly xmlStatus?: JmaXmlPollingStatus;
@@ -416,7 +429,9 @@ function buildApp(options: BuildAppOptions) {
     now: () => FIXED_NOW,
   });
   const monitoringHistory = createMonitoringHistoryService({
-    connection: options.connection,
+    weatherConnection: options.connection,
+    retainedConnection: retainedByWeather.get(options.connection)!,
+    weatherDatabaseGenerationId: 'test-generation',
     now: () => FIXED_NOW,
   });
 
@@ -1095,7 +1110,7 @@ test('AC7 訓練データを既定で除外しないこと（確定事項3）', 
       });
     }
 
-    recordNotificationOutputHistory(context.connection, {
+    recordNotificationOutputHistory(context.retainedConnection, {
       notificationId: 'n1',
       category: 'warning',
       sourceType: 'fetch_health',
@@ -1112,8 +1127,9 @@ test('AC7 訓練データを既定で除外しないこと（確定事項3）', 
       isTraining: true,
       messageDefinitionId: null,
       messageDefinitionVersion: null,
+      weatherDatabaseGenerationId: null,
     });
-    recordNotificationOutputHistory(context.connection, {
+    recordNotificationOutputHistory(context.retainedConnection, {
       notificationId: 'n2',
       category: 'warning',
       sourceType: 'fetch_health',
@@ -1130,6 +1146,7 @@ test('AC7 訓練データを既定で除外しないこと（確定事項3）', 
       isTraining: false,
       messageDefinitionId: null,
       messageDefinitionVersion: null,
+      weatherDatabaseGenerationId: null,
     });
 
     const app = buildApp({ connection: context.connection });
@@ -1256,7 +1273,9 @@ test('削除済み会場 ID は現行レジストリへ解決せず、履歴検�
       .run(reception.id, removedVenueId, '採用', null, FIXED_NOW);
 
     const result = createMonitoringHistoryService({
-      connection: context.connection,
+      weatherConnection: context.connection,
+      retainedConnection: context.retainedConnection,
+      weatherDatabaseGenerationId: 'test-generation',
       now: () => FIXED_NOW,
     }).listReceptions({ adoptionVenueId: removedVenueId, limit: 100, offset: 0 });
     assert.deepEqual(result, {
@@ -1491,7 +1510,7 @@ test('AC10(a) 会場別セクションは全会場分を返す（確定事項6�
       await close();
     }
 
-    recordOperationHistory(context.connection, {
+    recordOperationHistory(context.retainedConnection, {
       requestId: '11111111-1111-4111-8111-111111111111',
       operationKind: 'start',
       targetKind: 'all',
@@ -1503,7 +1522,7 @@ test('AC10(a) 会場別セクションは全会場分を返す（確定事項6�
       errorCode: null,
       errorMessage: null,
     });
-    context.connection
+    context.retainedConnection
       .prepare(
         `INSERT INTO operation_history
          (request_id, operation_kind, target_kind, result, requested_at, completed_at, actor_id, actor_display_name, error_code, error_message)
@@ -1596,7 +1615,14 @@ test('AC12 副作用がないこと・上流へポーリングしないこと', 
       ];
       const before = tables.map(
         (t) =>
-          (context.connection.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c,
+          (
+            (t === 'notification_output_history' || t === 'operation_history'
+              ? context.retainedConnection
+              : context.connection
+            )
+              .prepare(`SELECT COUNT(*) AS c FROM ${t}`)
+              .get() as { c: number }
+          ).c,
       );
 
       for (let i = 0; i < 10; i += 1) {
@@ -1609,7 +1635,14 @@ test('AC12 副作用がないこと・上流へポーリングしないこと', 
 
       const after = tables.map(
         (t) =>
-          (context.connection.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c,
+          (
+            (t === 'notification_output_history' || t === 'operation_history'
+              ? context.retainedConnection
+              : context.connection
+            )
+              .prepare(`SELECT COUNT(*) AS c FROM ${t}`)
+              .get() as { c: number }
+          ).c,
       );
       assert.deepEqual(after, before);
     } finally {

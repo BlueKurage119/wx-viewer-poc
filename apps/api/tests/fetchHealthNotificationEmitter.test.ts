@@ -20,7 +20,7 @@ import {
 import { emitFetchHealthNotification } from '../src/notifications/fetchHealthNotificationEmitter.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
-const migrationsDirectory = join(apiRoot, 'migrations');
+const migrationsDirectory = join(apiRoot, 'migrations/retained');
 
 function createTempDb(): { databasePath: string; cleanup: () => void } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-emitter-test-'));

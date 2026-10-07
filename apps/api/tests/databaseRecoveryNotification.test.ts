@@ -16,7 +16,7 @@ import { createVenueRegistry } from '@wx-viewer-poc/shared';
 import { validateVenueConfig } from '../src/config/venueConfigLoader.js';
 import { resolveNotificationVenueScope } from '../src/notifications/notificationVenueScope.js';
 
-const migrationsDirectory = join(fileURLToPath(import.meta.url), '../../migrations');
+const migrationsDirectory = join(fileURLToPath(import.meta.url), '../../migrations/retained');
 
 test('第3会場の通知対象は追加された区域と会場 ID に限定される', () => {
   const sendai = validateVenueConfig({
@@ -145,7 +145,7 @@ test('復旧候補SQLは部分複合索引を使用し、一時B-treeを作ら�
   const directory = mkdtempSync(join(tmpdir(), 'recovery-index-'));
   const context = initializeDatabase({
     databasePath: join(directory, 'db.sqlite3'),
-    migrationsDirectory,
+    migrationsDirectory: join(migrationsDirectory, '../weather'),
   });
   try {
     context.connection.exec(`

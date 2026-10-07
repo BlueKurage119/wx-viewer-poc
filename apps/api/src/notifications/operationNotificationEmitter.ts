@@ -15,7 +15,7 @@ export function emitOperationNotification(
     return;
   }
   try {
-    const input = toNotificationOutputHistoryInput(planned.notification, planned.output);
+    const input = toNotificationOutputHistoryInput(planned.notification, planned.output, null);
     connection.transaction(() => {
       recordNotificationOutputHistory(connection, input);
     })();

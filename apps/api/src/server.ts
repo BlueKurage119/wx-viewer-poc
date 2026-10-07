@@ -9,7 +9,11 @@ import {
   type UtcIso8601String,
 } from '@wx-viewer-poc/shared';
 import { createApp } from './app.js';
-import { initializeDatabase, type DatabaseConfig } from './database/index.js';
+import {
+  initializeDatabase,
+  initializeDatabases,
+  type DatabasePairConfig,
+} from './database/index.js';
 import {
   DEFAULT_CONFIG_URL,
   LOCAL_CONFIG_URL,
@@ -93,7 +97,7 @@ export interface StartedServer {
 }
 
 export interface StartServerOptions {
-  readonly config?: DatabaseConfig;
+  readonly config?: DatabasePairConfig;
   readonly port?: number;
   readonly enablePolling?: boolean;
   readonly pollingService?: JmaXmlPollingService;
@@ -106,6 +110,8 @@ export interface StartServerOptions {
   readonly terminalConfigUrl?: URL;
   readonly terminalLocalConfigUrl?: URL;
   readonly imageServices?: ImageServices;
+  readonly nowcastCacheRoot?: string;
+  readonly kikikuruCacheRoot?: string;
   /** Issue #43 §6.1: graceful shutdown の検証用。指定すると SIGTERM/SIGINT を購読する。 */
   readonly shutdownSignalSource?: SignalSource;
   readonly fetchControlNotificationIdFactory?: () => string;
@@ -160,21 +166,29 @@ export function createStartupNotificationRuntime(
       }
     | undefined,
   terminalRegistry: TerminalRegistry,
+  retainedConnection: ReturnType<typeof initializeDatabase>['connection'],
+  weatherDatabaseGenerationId: string,
 ) {
   const serverGenerationId = crypto.randomUUID();
   const serverStartedAt = clock() as UtcIso8601String;
   const initialization = new StartupNotificationInitialization();
   const warningEmitDeps: WarningNotificationEmitDeps = {
+    retainedConnection,
+    weatherDatabaseGenerationId,
     tracker: new InitialWarningNotificationTracker(),
     now: clock,
   };
   const bosaiEmitDeps: BosaiNotificationEmitDeps = {
     venueRegistry: registry,
+    retainedConnection,
+    weatherDatabaseGenerationId,
     initialState: new InitialBosaiNotificationTracker(),
     now: clock,
   };
   const startupNotifications = createStartupNotificationService({
-    connection,
+    weatherConnection: connection,
+    retainedConnection,
+    weatherDatabaseGenerationId,
     venueRegistry: registry,
     terminalRegistry,
     initialization,
@@ -183,7 +197,7 @@ export function createStartupNotificationRuntime(
     getFetchHealth,
   });
   const notificationDelta = createNotificationDeltaService({
-    connection,
+    connection: retainedConnection,
     venueRegistry: registry,
     serverGenerationId,
     now: clock,
@@ -193,7 +207,7 @@ export function createStartupNotificationRuntime(
     registry,
   );
   const recoveryTracker = new InMemoryWarningCurrentRecoveryTracker(registry);
-  const recoveryEmitter = new DatabaseRecoveryNotificationEmitter(connection);
+  const recoveryEmitter = new DatabaseRecoveryNotificationEmitter(retainedConnection);
   const setRecoveryTimeout = recoveryInternals?.setTimeout ?? setTimeout;
   const clearRecoveryTimeout = recoveryInternals?.clearTimeout ?? clearTimeout;
   const runRecovery = recoveryInternals?.recover ?? recoverWarningCurrent;
@@ -434,20 +448,22 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const schedule = validatePollingScheduleConfig(options.pollingSchedule ?? loaded?.config);
   logPollingConfig(loaded);
 
-  const database = initializeDatabase(options.config);
+  const database = initializeDatabases(options.config);
   const clock = options.pollingServiceOptions?.clock ?? (() => new Date().toISOString());
   let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
   const startupRuntime = createStartupNotificationRuntime(
-    database.connection,
+    database.weather.connection,
     clock,
     venueConfig.registry,
     () => fetchHealthMonitorService?.getLastAggregate() ?? null,
     options.recoveryInternals,
     terminalConfig.registry,
+    database.retained.connection,
+    database.weatherDatabaseGenerationId,
   );
   let pollingService: JmaXmlPollingService | undefined;
   const weatherApi = createWeatherApiService({
-    connection: database.connection,
+    connection: database.weather.connection,
     venueRegistry: venueConfig.registry,
     getPollingStatus: () => pollingService?.getStatus(),
     now: clock,
@@ -506,24 +522,26 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     : null;
 
   const fetchControlService = createFetchControlService({
-    connection: database.connection,
+    connection: database.retained.connection,
     targets: fetchControlTargets,
     now: () => clock() as UtcIso8601String,
     notificationIdFactory: options.fetchControlNotificationIdFactory,
   });
 
   const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
-    connection: database.connection,
+    weatherConnection: database.weather.connection,
+    retainedConnection: database.retained.connection,
+    weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
     now: () => clock() as UtcIso8601String,
   });
   const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
-    connection: database.connection,
+    connection: database.weather.connection,
     venueRegistry: venueConfig.registry,
     serverGenerationId: startupRuntime.serverGenerationId,
     now: () => clock() as UtcIso8601String,
   });
   const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
-    connection: database.connection,
+    connection: database.weather.connection,
     venueRegistry: venueConfig.registry,
     terminalRegistry: terminalConfig.registry,
     // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
@@ -598,7 +616,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
           imageServices =
             options.imageServices ??
             createImageServices({
-              connection: database.connection,
+              nowcastCacheRoot: options.nowcastCacheRoot,
+              kikikuruCacheRoot: options.kikikuruCacheRoot,
+              connection: database.weather.connection,
               schedule,
               enablePolling,
               now: nowFn,
@@ -606,20 +626,20 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             });
 
           if (enablePolling)
-            recoverLegacyVphwBulletinAreas(database.connection, venueConfig.registry);
+            recoverLegacyVphwBulletinAreas(database.weather.connection, venueConfig.registry);
           reprocessVenueForecastBeforeWarningRecovery(
-            database.connection,
+            database.weather.connection,
             clock() as UtcIso8601String,
             venueConfig.registry,
           );
-          for (const venueId of hasWarningRecoveryTables(database.connection)
+          for (const venueId of hasWarningRecoveryTables(database.weather.connection)
             ? venueConfig.registry.listVenueIds()
             : []) {
             const venue = resolveVenueWarningContext(venueConfig.registry, venueId);
             await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
               if (enablePolling) {
                 await reprocessPendingWarningTelegramReceptions(
-                  database.connection,
+                  database.weather.connection,
                   venue,
                   clock,
                   startupRuntime.warningEmitDeps,
@@ -628,7 +648,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
               }
             });
             emitInitialWarningNotifications(
-              database.connection,
+              database.weather.connection,
               venue.targetArea,
               startupRuntime.warningEmitDeps,
             );
@@ -640,7 +660,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
           pollingService =
             options.pollingService ??
-            new JmaXmlPollingService(database.connection, {
+            new JmaXmlPollingService(database.weather.connection, {
               freshnessPolicy: schedule.freshness.xml,
               venueRegistry: venueConfig.registry,
               warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
@@ -653,7 +673,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
           const adapters =
             options.schedulerOptions?.adapters ??
             createScheduledAdapters({
-              connection: database.connection,
+              connection: database.weather.connection,
               venueRegistry: venueConfig.registry,
               nowcastService: imageServices.nowcast,
               kikikuruService: imageServices.kikikuru,
@@ -673,7 +693,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             });
 
           fetchHealthMonitorService = new FetchHealthMonitorService({
-            connection: database.connection,
+            retainedConnection: database.retained.connection,
+            connection: database.weather.connection,
             statusProvider: scheduler,
             config: schedule.fetchHealth,
           });
@@ -824,20 +845,22 @@ async function main(): Promise<void> {
   logPollingConfig(loaded);
 
   const port = process.env.PORT ? Number(process.env.PORT) : DEFAULT_PORT;
-  const database = initializeDatabase();
+  const database = initializeDatabases();
   const clock = () => new Date().toISOString();
   let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
   const startupRuntime = createStartupNotificationRuntime(
-    database.connection,
+    database.weather.connection,
     clock,
     venueConfig.registry,
     () => fetchHealthMonitorService?.getLastAggregate() ?? null,
     undefined,
     terminalConfig.registry,
+    database.retained.connection,
+    database.weatherDatabaseGenerationId,
   );
   let pollingService: JmaXmlPollingService | undefined;
   const weatherApi = createWeatherApiService({
-    connection: database.connection,
+    connection: database.weather.connection,
     venueRegistry: venueConfig.registry,
     getPollingStatus: () => pollingService?.getStatus(),
     now: clock,
@@ -896,23 +919,25 @@ async function main(): Promise<void> {
     : null;
 
   const fetchControlService = createFetchControlService({
-    connection: database.connection,
+    connection: database.retained.connection,
     targets: fetchControlTargets,
     now: () => clock() as UtcIso8601String,
   });
 
   const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
-    connection: database.connection,
+    weatherConnection: database.weather.connection,
+    retainedConnection: database.retained.connection,
+    weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
     now: () => clock() as UtcIso8601String,
   });
   const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
-    connection: database.connection,
+    connection: database.weather.connection,
     venueRegistry: venueConfig.registry,
     serverGenerationId: startupRuntime.serverGenerationId,
     now: () => clock() as UtcIso8601String,
   });
   const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
-    connection: database.connection,
+    connection: database.weather.connection,
     venueRegistry: venueConfig.registry,
     terminalRegistry: terminalConfig.registry,
     // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
@@ -1003,18 +1028,19 @@ async function main(): Promise<void> {
     // 画像系API（/api/weather/nowcast|kikikuru/...）が 503 image_services_initializing を
     // 返す窓を作らない（既存テスト nowcastApi.test.ts の子プロセス起動テストがこれに依存する）。
     imageServices = createImageServices({
-      connection: database.connection,
+      connection: database.weather.connection,
       schedule,
       enablePolling,
     });
 
-    if (enablePolling) recoverLegacyVphwBulletinAreas(database.connection, venueConfig.registry);
+    if (enablePolling)
+      recoverLegacyVphwBulletinAreas(database.weather.connection, venueConfig.registry);
     reprocessVenueForecastBeforeWarningRecovery(
-      database.connection,
+      database.weather.connection,
       clock() as UtcIso8601String,
       venueConfig.registry,
     );
-    for (const venueId of hasWarningRecoveryTables(database.connection)
+    for (const venueId of hasWarningRecoveryTables(database.weather.connection)
       ? venueConfig.registry.listVenueIds()
       : []) {
       if (closed) {
@@ -1024,7 +1050,7 @@ async function main(): Promise<void> {
       await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
         if (enablePolling) {
           await reprocessPendingWarningTelegramReceptions(
-            database.connection,
+            database.weather.connection,
             venue,
             clock,
             startupRuntime.warningEmitDeps,
@@ -1036,7 +1062,7 @@ async function main(): Promise<void> {
         }
       });
       emitInitialWarningNotifications(
-        database.connection,
+        database.weather.connection,
         venue.targetArea,
         startupRuntime.warningEmitDeps,
       );
@@ -1049,7 +1075,7 @@ async function main(): Promise<void> {
     if (closed) {
       return;
     }
-    pollingService = new JmaXmlPollingService(database.connection, {
+    pollingService = new JmaXmlPollingService(database.weather.connection, {
       freshnessPolicy: schedule.freshness.xml,
       venueRegistry: venueConfig.registry,
       warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
@@ -1059,7 +1085,7 @@ async function main(): Promise<void> {
     startupRuntime.connectPolling(pollingService);
 
     const adapters = createScheduledAdapters({
-      connection: database.connection,
+      connection: database.weather.connection,
       venueRegistry: venueConfig.registry,
       nowcastService: imageServices.nowcast,
       kikikuruService: imageServices.kikikuru,
@@ -1073,7 +1099,8 @@ async function main(): Promise<void> {
     });
 
     fetchHealthMonitorService = new FetchHealthMonitorService({
-      connection: database.connection,
+      retainedConnection: database.retained.connection,
+      connection: database.weather.connection,
       statusProvider: scheduler,
       config: schedule.fetchHealth,
     });
@@ -1157,7 +1184,7 @@ async function main(): Promise<void> {
 
   // (B) 待受ログ（確定事項(2)）
   console.log(
-    `[api] database: ${database.connection.name}, applied migrations: ${database.migrationSummary.appliedVersions.length}`,
+    `[api] database: ${database.weather.connection.name}, applied migrations: ${database.weather.migrationSummary.appliedVersions.length + database.retained.migrationSummary.appliedVersions.length}`,
   );
   console.log(`[api] listening on http://localhost:${port} (initial sync in progress)`);
 

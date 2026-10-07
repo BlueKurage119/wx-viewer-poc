@@ -25,6 +25,8 @@ import { toNotificationOutputHistoryInput } from './notificationOutputHistoryMap
 export interface WarningNotificationEmitDeps {
   readonly tracker: InitialWarningNotificationTracker;
   readonly now: () => UtcIso8601String;
+  readonly retainedConnection: DatabaseConnection;
+  readonly weatherDatabaseGenerationId: string;
   readonly notificationIdFactory?: () => string; // 既定 crypto.randomUUID
 }
 
@@ -43,6 +45,7 @@ export function emitWarningNotificationsForReception(
   parsed: ParsedWarningTelegram,
   deps: WarningNotificationEmitDeps,
 ): WarningNotificationEmitResult {
+  if (connection.inTransaction) throw new Error('気象transaction完了前の通知保存は禁止です');
   const isPending = deps.tracker.isPending(parsed.area.code, parsed.controlStatus);
   const detectionContext = isPending ? 'initial' : 'normal';
 
@@ -74,13 +77,14 @@ export function emitWarningNotificationsForReception(
   // 永続化（C3のトランザクションとは独立して実行し、失敗してもC3を取り消さない）
   if (plan.notifications.length > 0) {
     try {
-      const transaction = connection.transaction(() => {
+      const transaction = deps.retainedConnection.transaction(() => {
         for (const planned of plan.notifications) {
           const recordInput = toNotificationOutputHistoryInput(
             planned.notification,
             planned.output,
+            deps.weatherDatabaseGenerationId,
           );
-          recordNotificationOutputHistory(connection, recordInput);
+          recordNotificationOutputHistory(deps.retainedConnection, recordInput);
         }
       });
       transaction();
@@ -111,6 +115,7 @@ export function emitInitialWarningNotifications(
   targetArea: WarningCurrentTargetArea,
   deps: WarningNotificationEmitDeps,
 ): WarningNotificationEmitResult {
+  if (connection.inTransaction) throw new Error('気象transaction完了前の通知保存は禁止です');
   const targetStatuses: readonly ControlStatus[] = ['normal', 'training'];
   let recordedCount = 0;
   const skipped: WarningNotificationSkip[] = [];
@@ -150,13 +155,14 @@ export function emitInitialWarningNotifications(
 
     if (plan.notifications.length > 0) {
       try {
-        const transaction = connection.transaction(() => {
+        const transaction = deps.retainedConnection.transaction(() => {
           for (const planned of plan.notifications) {
             const recordInput = toNotificationOutputHistoryInput(
               planned.notification,
               planned.output,
+              deps.weatherDatabaseGenerationId,
             );
-            recordNotificationOutputHistory(connection, recordInput);
+            recordNotificationOutputHistory(deps.retainedConnection, recordInput);
           }
         });
         transaction();

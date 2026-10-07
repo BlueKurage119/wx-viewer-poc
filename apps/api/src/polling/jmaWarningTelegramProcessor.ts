@@ -18,7 +18,6 @@ import {
   type WarningNotificationEmitDeps,
   emitWarningNotificationsForReception,
 } from '../notifications/warningNotificationEmitter.js';
-import { InitialWarningNotificationTracker } from '../notifications/initialWarningNotificationTracker.js';
 
 export interface WarningTelegramProcessResult {
   readonly parseResult: WarningTelegramParseResult;
@@ -95,17 +94,13 @@ export function processWarningTelegramReception(
     venue,
   );
 
-  if (parseResult.ok && currentResult?.applied) {
-    const resolvedDeps: WarningNotificationEmitDeps = emitDeps ?? {
-      tracker: new InitialWarningNotificationTracker(),
-      now: () => decidedAt,
-    };
+  if (emitDeps && parseResult.ok && currentResult?.applied) {
     emitWarningNotificationsForReception(
       connection,
       reception,
       currentResult,
       parseResult.value,
-      resolvedDeps,
+      emitDeps,
     );
   }
 
@@ -207,19 +202,14 @@ export async function reprocessPendingWarningTelegramReceptions(
 
     processPageTransaction();
 
-    const resolvedDeps: WarningNotificationEmitDeps = emitDeps ?? {
-      tracker: new InitialWarningNotificationTracker(),
-      now: clock,
-    };
-
     for (const { reception, parseResult, currentResult } of pageResults) {
-      if (parseResult.ok && currentResult?.applied) {
+      if (emitDeps && parseResult.ok && currentResult?.applied) {
         emitWarningNotificationsForReception(
           connection,
           reception,
           currentResult,
           parseResult.value,
-          resolvedDeps,
+          emitDeps,
         );
       }
 
