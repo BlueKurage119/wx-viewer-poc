@@ -71,3 +71,22 @@
 5. 中間のserver回帰でfixture writer未解放3件と非同期サイクル完了前の固定20ms照合1件が失敗した。fixture closeと発火済みpromiseの完了待機へ修正し、195件全成功。追加のサイクル発火は行っていない。
 
 実DB reset/初回導入・push・PR・merge・deployは製造担当の作業範囲に含めていない。検収担当へ渡す。
+
+## PR #248 初回コードレビュー対応
+
+計測用 `measureWarningRecovery.ts` に残っていた単一DB呼び出しを修正した。準備・サーバー起動・事後照合に同じ明示2DB設定を渡し、気象処理は気象接続へ統一した。両DBと両タイルcacheを計測専用一時領域に置く。会場解決の既存引数更新漏れも現行registry経由へ合わせた。既存50000件の性能結果・測定判定条件は変更していない。
+
+新しい `measureWarningRecovery.test.ts` は実スクリプトを合成4件・遅延0で実行する。基準処理8件、両会場の復旧結果一致、20サンプル未達の既存契約による終了コード2、計測一時directoryの削除を確認した。テスト自身は終了コード0で成功する。コメントだけの対照実験は0、準備・起動・事後照合のそれぞれを旧単一DB呼び出しへ戻す3改変は各1、完全復元後は0となった。
+
+`apps/api/scripts` と `apps/api/src` の旧呼び出しを検索し、残存は後方互換schema検証用 `initializeDatabase` の関数定義のみと確認した。今回も通常保存先DB・既存サービスを操作していない。
+
+| 修正後のコマンド | 終了コード・結果 |
+| --- | --- |
+| `npm run build` | 0（既存chunk警告のみ） |
+| `npm run lint` | 0 |
+| `npm run typecheck` | 0 |
+| `npm run format:check` | 0 |
+| `npx tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --esModuleInterop --skipLibCheck --strict --noUnusedLocals --noUnusedParameters --noFallthroughCasesInSwitch --noUncheckedIndexedAccess --isolatedModules --resolveJsonModule apps/api/scripts/measureWarningRecovery.ts` | 0（通常workspace型検査の対象外scriptを明示検査） |
+| `NODE_ENV=production npm run test -w apps/api` | 0、822件全成功、skip/todo/cancel 0、通常並列 |
+
+明示型検査の初回コマンドは既存base設定のstrict指定が不足し、既存parserのunion絞り込みで終了コード2となった。baseのstrict等を付けた上記コマンドで成功した。Web/sharedは今回未変更であり、前節の全回帰結果を維持する。詳細ログはOS専用一時領域（ローカル・Git管理外）へ保存した。
