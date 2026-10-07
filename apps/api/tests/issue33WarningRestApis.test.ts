@@ -1,3 +1,8 @@
+import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+  createTemporaryTestDatabaseFixture,
+} from './helpers/databasePair.js';
 import { testTerminalRegistry } from './helpers/venueConfigPreload.js';
 import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
@@ -49,7 +54,7 @@ function request(app: ReturnType<typeof createApp>) {
 
 import type { VenueId } from '@wx-viewer-poc/shared';
 import type { ControlStatus } from '../src/repositories/types.js';
-import { initializeDatabase } from '../src/database/index.js';
+
 import { createApp } from '../src/app.js';
 import { startServer } from '../src/server.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
@@ -140,16 +145,16 @@ function createAvailablePollingStatus(): JmaXmlPollingStatus {
 function createTestApp(options?: {
   pollingStatus?: JmaXmlPollingStatus;
   nowIso?: string;
-  onInitDb?: (db: ReturnType<typeof initializeDatabase>) => void;
+  onInitDb?: (db: ReturnType<typeof initializeTestDatabases>) => void;
 }) {
-  const db = initializeDatabase({ databasePath: ':memory:', migrationsDirectory });
+  const db = initializeTestDatabases({ databasePath: ':memory:', migrationsDirectory });
   if (options?.onInitDb) {
     options.onInitDb(db);
   }
   const nowIso = options?.nowIso ?? '2026-09-14T06:30:00.000Z';
   const weatherApi = createWeatherApiService({
     venueRegistry: testVenueRegistry,
-    connection: db.connection,
+    connection: db.weather.connection,
     getPollingStatus: () => options?.pollingStatus ?? createAvailablePollingStatus(),
     now: () => nowIso,
   });
@@ -169,7 +174,7 @@ test('A1: 会場別解決 - east (江東区), trc (大田区) のみ返り、他
     ['1311100', '大田区'],
     ['1510000', '新潟市'],
   ] as const) {
-    saveWarningCurrentSnapshot(db.connection, {
+    saveWarningCurrentSnapshot(db.weather.connection, {
       areaCode: code,
       areaName: name,
       metadata: {
@@ -208,7 +213,7 @@ test('A1: 会場別解決 - east (江東区), trc (大田区) のみ返り、他
       ],
     });
 
-    saveWarningTimeseriesSnapshot(db.connection, {
+    saveWarningTimeseriesSnapshot(db.weather.connection, {
       areaCode: code,
       areaName: name,
       metadata: {
@@ -267,7 +272,7 @@ test('A1: 会場別解決 - east (江東区), trc (大田区) のみ返り、他
     ['150000', '新潟県'],
   ] as const) {
     for (const segment of ['near', 'far'] as const) {
-      saveEarlyWarningSnapshot(db.connection, {
+      saveEarlyWarningSnapshot(db.weather.connection, {
         areaCode: code,
         areaName: name,
         segment,
@@ -429,7 +434,7 @@ test('A3: normal/training/test に異なる値を保存し指定領域のみ返�
   const { db, app } = createTestApp();
 
   // normal のみ保存
-  saveWarningCurrentSnapshot(db.connection, {
+  saveWarningCurrentSnapshot(db.weather.connection, {
     areaCode: '1310800',
     areaName: '江東区',
     metadata: {
@@ -522,7 +527,7 @@ test('A4: snapshot なしは data=null・unavailable・日時null。正常空は
 
   // 2. 正常空一覧 (items: [])
   const { db: db2, app: app2 } = createTestApp();
-  saveWarningCurrentSnapshot(db2.connection, {
+  saveWarningCurrentSnapshot(db2.weather.connection, {
     areaCode: '1310800',
     areaName: '江東区',
     metadata: {
@@ -567,7 +572,7 @@ test('A4: snapshot なしは data=null・unavailable・日時null。正常空は
     },
   };
   const { db: db3, app: app3 } = createTestApp({ pollingStatus: failStatus });
-  saveWarningCurrentSnapshot(db3.connection, {
+  saveWarningCurrentSnapshot(db3.weather.connection, {
     areaCode: '1310800',
     areaName: '江東区',
     metadata: {
@@ -623,7 +628,7 @@ test('A4: snapshot なしは data=null・unavailable・日時null。正常空は
 test('A5: #33 の allowlist と capabilities（04, 18 未対応明示、内部IDや未抽出項目の排除）', async () => {
   const { db, app } = createTestApp();
 
-  saveWarningCurrentSnapshot(db.connection, {
+  saveWarningCurrentSnapshot(db.weather.connection, {
     areaCode: '1310800',
     areaName: '江東区',
     metadata: {
@@ -760,7 +765,7 @@ test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険�
     .replaceAll('1510000', eastVenue.targetArea.municipalCode)
     .replaceAll('新潟市', eastVenue.targetArea.displayName);
 
-  const reception = recordTelegramReception(db.connection, {
+  const reception = recordTelegramReception(db.weather.connection, {
     fetchAttemptId: null,
     feedKind: null,
     feedEntryId: null,
@@ -783,11 +788,16 @@ test('A6: 公式 VPWP50 実電文 fixture で新潟市（1510000）の雷危険�
   });
 
   const processedAt = '2026-09-13T21:43:05.000Z';
-  const processResult = processVpwp50Reception(db.connection, reception, processedAt, eastVenue);
+  const processResult = processVpwp50Reception(
+    db.weather.connection,
+    reception,
+    processedAt,
+    eastVenue,
+  );
   assert.equal(processResult.ok, true);
 
   // 受信台帳の採用判定が「警報等時系列として解析済み」になっていること
-  const updatedReception = findTelegramReceptionById(db.connection, reception.id);
+  const updatedReception = findTelegramReceptionById(db.weather.connection, reception.id);
   assert.ok(updatedReception);
   const adoption = updatedReception.adoptions.find((a) => a.venueId === eastVenueId);
   assert.ok(adoption);
@@ -1226,7 +1236,7 @@ test('A8: 異なる名前空間の Addition は非採用。未対応 Note 構造
 test('A9: 単位・condition・空文字・区域区分・duration が保存値と DTO で一致し、同一 block のみに解決', async () => {
   const { db, app } = createTestApp();
 
-  saveWarningTimeseriesSnapshot(db.connection, {
+  saveWarningTimeseriesSnapshot(db.weather.connection, {
     areaCode: '1310800',
     areaName: '江東区',
     metadata: {
@@ -1493,10 +1503,10 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
     ],
   };
 
-  saveWarningTimeseriesSnapshot(db.connection, initialData);
+  saveWarningTimeseriesSnapshot(db.weather.connection, initialData);
 
   // 初期状態を取得して確認
-  const initialSnapshot = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+  const initialSnapshot = findWarningTimeseriesSnapshot(db.weather.connection, '1310800', 'normal');
   assert.ok(initialSnapshot);
   assert.equal(initialSnapshot.metadata.source, 'src_initial');
   assert.equal(initialSnapshot.timeDefines.length, 1);
@@ -1504,7 +1514,7 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
   assert.equal(initialSnapshot.additions?.length, 1);
 
   // 2. 入力バリデーション通過後、保存トランザクションの途中（addition INSERT 時）で失敗する DB トリガーをテストで注入
-  db.connection.exec(`
+  db.weather.connection.exec(`
     CREATE TRIGGER test_injected_tx_failure
     BEFORE INSERT ON warning_timeseries_addition
     BEGIN
@@ -1594,7 +1604,7 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
   // トランザクション途中の DB トリガー例外で失敗することを確認
   assert.throws(
     () => {
-      saveWarningTimeseriesSnapshot(db.connection, validNewData);
+      saveWarningTimeseriesSnapshot(db.weather.connection, validNewData);
     },
     (err: Error) => {
       return err.message.includes('injected transaction failure in warning_timeseries_addition');
@@ -1602,10 +1612,14 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
   );
 
   // 注入したトリガーをクリーンアップ
-  db.connection.exec('DROP TRIGGER test_injected_tx_failure;');
+  db.weather.connection.exec('DROP TRIGGER test_injected_tx_failure;');
 
   // 3. ロールバックにより、既存 snapshot の timeDefines, values, additions, scope が完全に維持されていることを厳密に検証
-  const snapAfterRollback = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+  const snapAfterRollback = findWarningTimeseriesSnapshot(
+    db.weather.connection,
+    '1310800',
+    'normal',
+  );
   assert.ok(snapAfterRollback);
 
   // メタデータが変更されていないこと
@@ -1652,7 +1666,7 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
   });
 
   // 4. stale 保存 -> 明細・Note・scope 全体を保持
-  saveWarningTimeseriesSnapshot(db.connection, {
+  saveWarningTimeseriesSnapshot(db.weather.connection, {
     areaCode: '1310800',
     areaName: '江東区',
     metadata: {
@@ -1677,7 +1691,7 @@ test('A11: 保存トランザクション途中の例外で rollback され既�
     values: [],
   });
 
-  const snapStale = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+  const snapStale = findWarningTimeseriesSnapshot(db.weather.connection, '1310800', 'normal');
   assert.ok(snapStale);
   assert.equal(snapStale.metadata.availability, 'stale');
   assert.equal(snapStale.values.length, 1);
@@ -1806,7 +1820,7 @@ test('A13: #34/#35 timeTo 判定（直前 available、一致・経過後は stal
 test('A14: #35 早期注意 - timeFrom/timeTo と near/far 区分が不変。null rank と condition が維持される', async () => {
   const { db, app } = createTestApp();
 
-  saveEarlyWarningSnapshot(db.connection, {
+  saveEarlyWarningSnapshot(db.weather.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     segment: 'near',
@@ -1882,7 +1896,7 @@ test('A15: GET 前後で DB 件数不変、安全な 500、startServer での結
   const { db, app } = createTestApp();
 
   const countQuery = 'SELECT COUNT(*) as count FROM warning_current_snapshot';
-  const beforeCount = (db.connection.prepare(countQuery).get() as { count: number }).count;
+  const beforeCount = (db.weather.connection.prepare(countQuery).get() as { count: number }).count;
 
   await request(app).get('/api/weather/warnings?terminalId=hkeagh01&controlStatus=normal');
   await request(app).get(
@@ -1890,7 +1904,7 @@ test('A15: GET 前後で DB 件数不変、安全な 500、startServer での結
   );
   await request(app).get('/api/weather/early-warning?terminalId=hkeagh01&controlStatus=normal');
 
-  const afterCount = (db.connection.prepare(countQuery).get() as { count: number }).count;
+  const afterCount = (db.weather.connection.prepare(countQuery).get() as { count: number }).count;
   assert.equal(afterCount, beforeCount);
 
   // 内部障害時の 500 ハンドリング（内部例外やSQLを出さない）
@@ -1928,7 +1942,9 @@ test('A15: GET 前後で DB 件数不変、安全な 500、startServer での結
   db.close();
 
   // startServer での 3 GET 結線確認
+  const serverFixture = createTemporaryTestDatabaseFixture();
   const started = await startServer({
+    ...createTestServerDatabaseOptions(serverFixture.config),
     port: 0,
     enablePolling: false,
     pollingSchedule: createTestPollingSchedule(),
@@ -1951,6 +1967,7 @@ test('A15: GET 前後で DB 件数不変、安全な 500、startServer での結
     assert.equal(resEw.status, 200);
   } finally {
     await started.close();
+    serverFixture.cleanup();
   }
 });
 
@@ -1975,7 +1992,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
     controlDateTime: string;
     adoptionResult?: string;
   }) {
-    const rec = recordTelegramReception(db.connection, {
+    const rec = recordTelegramReception(db.weather.connection, {
       fetchAttemptId: null,
       feedKind: null,
       feedEntryId: null,
@@ -2016,7 +2033,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
     controlDateTime: '2026-09-14T06:00:00Z',
   });
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
@@ -2036,7 +2053,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
     controlDateTime: '2026-09-14T06:00:00.000Z',
   });
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
@@ -2056,7 +2073,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
     controlDateTime: '2026-09-14T05:59:59.999Z',
   });
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
@@ -2076,7 +2093,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
     controlDateTime: '2026-09-14T06:00:00.001Z',
   });
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
@@ -2088,7 +2105,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
 
   // 5. controlDateTime を .001Z まで進めると、同じ reportDateTime の失敗から回復する
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
@@ -2111,7 +2128,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
     controlDateTime: '2026-09-14T06:00:00.000Z',
   });
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
@@ -2124,7 +2141,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
   // 条件の独立性:
   // 別会場 (trc) では false
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: trcVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
@@ -2136,7 +2153,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
 
   // 別領域 (training) では false
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'training',
       telegramType: 'VPWP50',
@@ -2148,7 +2165,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
 
   // 別区域 (1311100) では false
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',
@@ -2160,7 +2177,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
 
   // 別種別 (VPFD61) では false
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPFD61',
@@ -2172,7 +2189,7 @@ test('A17: hasNewerWeatherParseFailure - report/control の時刻比較（.000Z 
 
   // 回復: baseline を失敗時刻以上 ('2026-09-14T06:00:00.001Z') に更新すると false に回復
   assert.equal(
-    hasNewerWeatherParseFailure(db.connection, {
+    hasNewerWeatherParseFailure(db.weather.connection, {
       venueId: eastVenueId,
       controlStatus: 'normal',
       telegramType: 'VPWP50',

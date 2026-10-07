@@ -19,7 +19,7 @@ import {
   type StartupNotificationReadyResponse,
   type UtcIso8601String,
 } from '@wx-viewer-poc/shared';
-import { initializeDatabase } from '../src/database/index.js';
+import { initializeDatabase, initializeDatabases } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
 import {
   createStartupNotificationService,
@@ -35,9 +35,17 @@ const serverGenId = '00000000-0000-4000-8000-000000000001';
 
 function createDb() {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-delta-notification-'));
-  const context = initializeDatabase({
-    databasePath: join(directory, 'test.sqlite3'),
-    migrationsDirectory,
+  const context = initializeDatabases({
+    weather: {
+      databasePath: join(directory, 'weather.sqlite3'),
+      migrationsDirectory: join(migrationsDirectory, 'weather'),
+      role: 'weather',
+    },
+    retained: {
+      databasePath: join(directory, 'retained.sqlite3'),
+      migrationsDirectory: join(migrationsDirectory, 'retained'),
+      role: 'retained',
+    },
   });
   return { context, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
 }
@@ -87,6 +95,7 @@ function insertSampleHistoryRow(
 ) {
   return recordNotificationOutputHistory(connection, {
     notificationId: params.notificationId,
+    weatherDatabaseGenerationId: null,
     category: params.category ?? 'warning',
     sourceType: params.sourceType ?? 'warning_current',
     sourceVersion: params.sourceVersion ?? 'v1',
@@ -122,7 +131,7 @@ test('AC1 cursorの書式と検証', async () => {
   try {
     const deltaService = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: context.connection,
+      connection: context.retained.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
@@ -174,7 +183,7 @@ test('AC1 cursorの書式と検証', async () => {
       );
       assert.equal(validRes0.status, 200);
 
-      insertSampleHistoryRow(context.connection, { notificationId: 'notif-1' });
+      insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-1' });
       const validRes1 = await fetch(
         `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=1`,
       );
@@ -198,7 +207,9 @@ test('AC2 startup応答へのcursor追加', async () => {
     const startupService = createStartupNotificationService({
       venueRegistry: testVenueRegistry,
       terminalRegistry: testTerminalRegistry,
-      connection: context.connection,
+      weatherConnection: context.weather.connection,
+      retainedConnection: context.retained.connection,
+      weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
       initialization,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
@@ -226,9 +237,9 @@ test('AC2 startup応答へのcursor追加', async () => {
       assert.equal(bodyEmpty.cursor, '0');
 
       // 2. B4に n 件仕込んだとき cursor は "n"（MAX(id) の10進文字列表現）
-      insertSampleHistoryRow(context.connection, { notificationId: 'notif-1' });
-      insertSampleHistoryRow(context.connection, { notificationId: 'notif-2' });
-      insertSampleHistoryRow(context.connection, { notificationId: 'notif-3' });
+      insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-1' });
+      insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-2' });
+      insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-3' });
 
       const resN = await fetch(`${baseUrl}/api/notifications/startup`, {
         method: 'POST',
@@ -244,14 +255,14 @@ test('AC2 startup応答へのcursor追加', async () => {
       assert.equal(bodyN.cursor, '3');
 
       // 監査表 startup_notification_inquiry の response_json に cursor が保存されていること
-      const inquiryRow = context.connection
+      const inquiryRow = context.retained.connection
         .prepare('SELECT response_json FROM startup_notification_inquiry WHERE session_id = ?')
         .get('00000000-0000-4000-8000-000000000002') as { response_json: string };
       const parsedAudit = JSON.parse(inquiryRow.response_json);
       assert.equal(parsedAudit.cursor, '3');
 
       // 監査表のスキーマが変わっていないこと
-      const tableInfo = context.connection
+      const tableInfo = context.retained.connection
         .prepare('PRAGMA table_info(startup_notification_inquiry)')
         .all() as { name: string }[];
       const colNames = tableInfo.map((c) => c.name);
@@ -272,7 +283,9 @@ test('AC2 startup応答へのcursor追加', async () => {
       const unreadyService = createStartupNotificationService({
         venueRegistry: testVenueRegistry,
         terminalRegistry: testTerminalRegistry,
-        connection: context.connection,
+        weatherConnection: context.weather.connection,
+        retainedConnection: context.retained.connection,
+        weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
         initialization: unreadyInit,
         serverGenerationId: serverGenId,
         now: () => fixedNow as UtcIso8601String,
@@ -315,20 +328,22 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
     initialization.markVenueEvaluated(eastVenueId);
 
     // B4に既存行を2件登録
-    insertSampleHistoryRow(context.connection, { notificationId: 'notif-1' });
-    insertSampleHistoryRow(context.connection, { notificationId: 'notif-2' });
+    insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-1' });
+    insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-2' });
 
     const startupService = createStartupNotificationService({
       venueRegistry: testVenueRegistry,
       terminalRegistry: testTerminalRegistry,
-      connection: context.connection,
+      weatherConnection: context.weather.connection,
+      retainedConnection: context.retained.connection,
+      weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
       initialization,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
     const deltaService = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: context.connection,
+      connection: context.retained.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
@@ -363,7 +378,7 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
       assert.equal(deltaBodyA.cursor, '2');
 
       // (b) 起動応答の後にB4へ1件INSERTしてから差分を呼ぶと、その1件だけが返り応答cursorが1増える
-      insertSampleHistoryRow(context.connection, { notificationId: 'notif-3' });
+      insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-3' });
       const deltaResB = await fetch(
         `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=2`,
       );
@@ -411,35 +426,35 @@ test('AC4 会場スコープおよび端末モード非依存性', async () => {
   const { context, cleanup } = createDb();
   try {
     // 1. codeType='venue', code=eastVenueId (速報通知 D10形式)
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-venue-east',
       targetAreaJson: JSON.stringify([
         { kind: 'area', codeType: 'venue', code: eastVenueId, name: '東京ビッグサイト' },
       ]),
     });
     // 2. codeType='venue', code=trcVenueId (速報通知 D10形式)
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-venue-trc',
       targetAreaJson: JSON.stringify([
         { kind: 'area', codeType: 'venue', code: trcVenueId, name: '東京流通センター' },
       ]),
     });
     // 3. codeType='jma_municipal_warning_area', code='1310800' (江東区/east)
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-warn-east',
       targetAreaJson: JSON.stringify([
         { kind: 'area', codeType: 'jma_municipal_warning_area', code: '1310800', name: '江東区' },
       ]),
     });
     // 4. codeType='jma_municipal_warning_area', code='1311100' (大田区/trc)
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-warn-trc',
       targetAreaJson: JSON.stringify([
         { kind: 'area', codeType: 'jma_municipal_warning_area', code: '1311100', name: '大田区' },
       ]),
     });
     // 5. kind='equipment' (system通知 D7形式)
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-sys-global',
       origin: 'system',
       targetAreaJson: JSON.stringify([
@@ -452,14 +467,14 @@ test('AC4 会場スコープおよび端末モード非依存性', async () => {
       ]),
     });
     // 6. 未知 codeType
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-unresolved',
       targetAreaJson: JSON.stringify([
         { kind: 'area', codeType: 'unknown_type', code: '999999', name: '未知' },
       ]),
     });
     // 7. 末尾に trc のみの速報通知（east 端末から見て末尾が他会場）
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-venue-trc-tail',
       targetAreaJson: JSON.stringify([
         { kind: 'area', codeType: 'venue', code: trcVenueId, name: '東京流通センター' },
@@ -468,7 +483,7 @@ test('AC4 会場スコープおよび端末モード非依存性', async () => {
 
     const deltaService = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: context.connection,
+      connection: context.retained.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
@@ -593,17 +608,17 @@ test('AC5 origin/detectionContextの2軸独立（AD-H069）', async () => {
   const { context, cleanup } = createDb();
   try {
     // 4通りの通知を行として準備
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-weather-normal',
       origin: 'weather',
       detectionContext: 'normal',
     });
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-weather-initial',
       origin: 'weather',
       detectionContext: 'initial',
     });
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-system-normal',
       origin: 'system',
       detectionContext: 'normal',
@@ -611,7 +626,7 @@ test('AC5 origin/detectionContextの2軸独立（AD-H069）', async () => {
         { kind: 'equipment', codeType: 'wx-viewer-poc/fetch-source', code: 'jma-xml', name: 'JMA' },
       ]),
     });
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-system-initial',
       origin: 'system',
       detectionContext: 'initial',
@@ -622,7 +637,7 @@ test('AC5 origin/detectionContextの2軸独立（AD-H069）', async () => {
 
     // さらに system を 100 件挟む
     for (let i = 1; i <= 100; i++) {
-      insertSampleHistoryRow(context.connection, {
+      insertSampleHistoryRow(context.retained.connection, {
         notificationId: `notif-sys-bulk-${i}`,
         origin: 'system',
         detectionContext: 'normal',
@@ -638,7 +653,7 @@ test('AC5 origin/detectionContextの2軸独立（AD-H069）', async () => {
     }
 
     // 最後に weather を 1 件
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-weather-after-bulk',
       origin: 'weather',
       detectionContext: 'normal',
@@ -646,7 +661,7 @@ test('AC5 origin/detectionContextの2軸独立（AD-H069）', async () => {
 
     const deltaService = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: context.connection,
+      connection: context.retained.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
@@ -691,9 +706,9 @@ test('AC6 件数上限なし（確定事項2）', async () => {
   const { context, cleanup } = createDb();
   try {
     // 1000件仕込む
-    context.connection.transaction(() => {
+    context.retained.connection.transaction(() => {
       for (let i = 1; i <= 1000; i++) {
-        insertSampleHistoryRow(context.connection, {
+        insertSampleHistoryRow(context.retained.connection, {
           notificationId: `notif-1000-${i}`,
           targetAreaJson: JSON.stringify([
             {
@@ -709,7 +724,7 @@ test('AC6 件数上限なし（確定事項2）', async () => {
 
     const deltaService = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: context.connection,
+      connection: context.retained.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
@@ -743,13 +758,13 @@ test('AC7 表示3要素の配信方式（AD-H024・確定事項4）', async () =
   const { context, cleanup } = createDb();
   try {
     const rawSummary = '大雨警報\n江東区\n詳細な警報本文テキスト';
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-summary-test',
       summary: rawSummary,
       messageDefinitionId: 'warn-def-01',
       messageDefinitionVersion: '2.1',
     });
-    insertSampleHistoryRow(context.connection, {
+    insertSampleHistoryRow(context.retained.connection, {
       notificationId: 'notif-null-msg-def',
       summary: '文面のみ',
       messageDefinitionId: null,
@@ -758,7 +773,7 @@ test('AC7 表示3要素の配信方式（AD-H024・確定事項4）', async () =
 
     const deltaService = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: context.connection,
+      connection: context.retained.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
@@ -798,12 +813,12 @@ test('AC7 表示3要素の配信方式（AD-H024・確定事項4）', async () =
 test('AC8 cursor_out_of_range と破損行', async () => {
   const { context, cleanup } = createDb();
   try {
-    insertSampleHistoryRow(context.connection, { notificationId: 'notif-1' });
-    insertSampleHistoryRow(context.connection, { notificationId: 'notif-2' });
+    insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-1' });
+    insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-2' });
 
     const deltaService = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: context.connection,
+      connection: context.retained.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
@@ -828,7 +843,7 @@ test('AC8 cursor_out_of_range と破損行', async () => {
 
       // (b) target_area_json を壊した行を1件挿入
       // 直接 SQL で壊れた JSON を INSERT する
-      context.connection
+      context.retained.connection
         .prepare(
           `INSERT INTO notification_output_history (
             notification_id, category, source_type, source_version, target_area_json,
@@ -854,10 +869,10 @@ test('AC8 cursor_out_of_range と破損行', async () => {
         );
 
       // さらに正常行を1件挿入
-      insertSampleHistoryRow(context.connection, { notificationId: 'notif-4' });
+      insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-4' });
 
       // さらに末尾に破損行をもう1件挿入 (id=5)
-      context.connection
+      context.retained.connection
         .prepare(
           `INSERT INTO notification_output_history (
             notification_id, category, source_type, source_version, target_area_json,
@@ -884,7 +899,7 @@ test('AC8 cursor_out_of_range と破損行', async () => {
 
       // さらに、JSON構文としては正しいが要素が不正な行を追加 (id=6)
       // 例: [null] は Array.isArray かつ非空だが、要素が NotificationTarget の形をしていない
-      context.connection
+      context.retained.connection
         .prepare(
           `INSERT INTO notification_output_history (
             notification_id, category, source_type, source_version, target_area_json,
@@ -939,19 +954,21 @@ test('AC9 副作用がないこと（確定事項1）', async () => {
     initialization.setInitialFetchPhase('completed');
     initialization.markVenueEvaluated(eastVenueId);
 
-    insertSampleHistoryRow(context.connection, { notificationId: 'notif-1' });
+    insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-1' });
 
     const startupService = createStartupNotificationService({
       venueRegistry: testVenueRegistry,
       terminalRegistry: testTerminalRegistry,
-      connection: context.connection,
+      weatherConnection: context.weather.connection,
+      retainedConnection: context.retained.connection,
+      weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
       initialization,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
     const deltaService = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: context.connection,
+      connection: context.retained.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });
@@ -965,16 +982,16 @@ test('AC9 副作用がないこと（確定事項1）', async () => {
 
     try {
       const getCounts = () => ({
-        terminalSession: context.connection
+        terminalSession: context.retained.connection
           .prepare('SELECT COUNT(*) as c FROM terminal_session')
           .get() as { c: number },
-        startupWarningClaim: context.connection
+        startupWarningClaim: context.retained.connection
           .prepare('SELECT COUNT(*) as c FROM startup_warning_claim')
           .get() as { c: number },
-        startupNotificationInquiry: context.connection
+        startupNotificationInquiry: context.retained.connection
           .prepare('SELECT COUNT(*) as c FROM startup_notification_inquiry')
           .get() as { c: number },
-        notificationOutputHistory: context.connection
+        notificationOutputHistory: context.retained.connection
           .prepare('SELECT COUNT(*) as c FROM notification_output_history')
           .get() as { c: number },
       });
@@ -1014,7 +1031,7 @@ test('AC11 HTTP実挙動', async () => {
   try {
     const deltaService = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: context.connection,
+      connection: context.retained.connection,
       serverGenerationId: serverGenId,
       now: () => fixedNow as UtcIso8601String,
     });

@@ -21,7 +21,7 @@ import {
 } from '../src/repositories/index.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
-const migrationsDirectory = join(apiRoot, 'migrations');
+const migrationsDirectory = join(apiRoot, 'migrations/retained');
 
 function createTempDbPath(): { databasePath: string; cleanup: () => void } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-notification-repo-test-'));
@@ -49,6 +49,7 @@ const sampleWeatherNotificationInput: NotificationOutputHistoryInput = {
   isTraining: false,
   messageDefinitionId: 'msg-weather-warn-001',
   messageDefinitionVersion: 'v1.0.0',
+  weatherDatabaseGenerationId: null,
 };
 
 const sampleSystemNotificationInput: NotificationOutputHistoryInput = {
@@ -68,6 +69,7 @@ const sampleSystemNotificationInput: NotificationOutputHistoryInput = {
   isTraining: false,
   messageDefinitionId: null,
   messageDefinitionVersion: null,
+  weatherDatabaseGenerationId: null,
 };
 
 test('1. 全列を埋めた気象通知（weather + normal、定義 ID／版あり）を記録し、数値 id と notificationId の両方から完全一致で取得できる', () => {
@@ -285,6 +287,7 @@ test('5. summary に完成済み文言 気象警報発表　レベル3大雨警�
       summary: firstSummary,
       messageDefinitionId: 'msg-def-shared',
       messageDefinitionVersion: 'v1.0.0',
+      weatherDatabaseGenerationId: null,
     });
 
     const notif2 = recordNotificationOutputHistory(context.connection, {
@@ -293,6 +296,7 @@ test('5. summary に完成済み文言 気象警報発表　レベル3大雨警�
       summary: secondSummary,
       messageDefinitionId: 'msg-def-shared',
       messageDefinitionVersion: 'v1.0.0',
+      weatherDatabaseGenerationId: null,
     });
 
     const fetched1 = findNotificationOutputHistoryById(context.connection, notif1.id);
@@ -699,6 +703,7 @@ test('11. 非 ISO 時刻、空の必須文字列、不正 origin / detectionCont
           ...sampleWeatherNotificationInput,
           messageDefinitionId: 'def-001',
           messageDefinitionVersion: null,
+          weatherDatabaseGenerationId: null,
         });
       },
       {
@@ -714,6 +719,7 @@ test('11. 非 ISO 時刻、空の必須文字列、不正 origin / detectionCont
           ...sampleWeatherNotificationInput,
           messageDefinitionId: null,
           messageDefinitionVersion: 'v1.0.0',
+          weatherDatabaseGenerationId: null,
         });
       },
       {

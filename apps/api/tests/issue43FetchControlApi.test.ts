@@ -14,7 +14,7 @@ import {
   type FetchControlInProgressResponse,
   type UtcIso8601String,
 } from '@wx-viewer-poc/shared';
-import { initializeDatabase } from '../src/database/index.js';
+import { initializeDatabases } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
 import {
   createFetchControlService,
@@ -41,15 +41,34 @@ import { resolvePollingPeriod, type PollingScheduleConfig } from '../src/config/
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
-const migrationsDirectory = join(apiRoot, 'migrations');
+const migrationsDirectory = join(apiRoot, 'migrations/retained');
 
 function createDb() {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-fetchcontrol-'));
-  const context = initializeDatabase({
-    databasePath: join(directory, 'test.sqlite3'),
-    migrationsDirectory,
+  const pair = initializeDatabases({
+    weather: {
+      databasePath: join(directory, 'weather.sqlite3'),
+      migrationsDirectory: join(apiRoot, 'migrations/weather'),
+      role: 'weather',
+    },
+    retained: {
+      databasePath: join(directory, 'retained.sqlite3'),
+      migrationsDirectory,
+      role: 'retained',
+    },
   });
-  return { context, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
+  const context = {
+    connection: pair.retained.connection,
+    weatherConnection: pair.weather.connection,
+    close: () => pair.close(),
+  };
+  return {
+    context,
+    cleanup: () => {
+      context.close();
+      rmSync(directory, { recursive: true, force: true });
+    },
+  };
 }
 
 const UUID_A = '11111111-1111-4111-8111-111111111111';
@@ -767,7 +786,7 @@ test('受け入れ条件8: バックオフ割り込み（manual固有）', async
       return new Response('', { status: 500 });
     };
 
-    const xmlService = new JmaXmlPollingService(context.connection, {
+    const xmlService = new JmaXmlPollingService(context.weatherConnection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn,
@@ -800,7 +819,7 @@ test('受け入れ条件9: 強制更新の実行前後で定期予定(nextRunAt�
     ] as const) {
       const fetchFn: typeof fetch = async () => new Response('', { status: 500 });
       const nowFn = () => new Date(iso);
-      const xmlService = new JmaXmlPollingService(context.connection, {
+      const xmlService = new JmaXmlPollingService(context.weatherConnection, {
         venueRegistry: testVenueRegistry,
         freshnessPolicy: defaultXmlFreshnessPolicy,
         fetchFn,
@@ -846,7 +865,7 @@ test('レビュー指摘#1: XML取得が例外を投げず失敗結果を返す�
     // 上流が常に500を返す。JmaXmlPollingService.pollOnce は例外を投げず、
     // feedResults に feedFetchOutcome: 'failure' を記録するだけで正常終了する。
     const fetchFn: typeof fetch = async () => new Response('', { status: 500 });
-    const xmlService = new JmaXmlPollingService(context.connection, {
+    const xmlService = new JmaXmlPollingService(context.weatherConnection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn,
@@ -903,7 +922,7 @@ test('Codexレビュー指摘#1（2回目レビュー）: 強制更新が実行�
   try {
     const now = () => '2026-09-15T10:00:00.000Z';
     const fetchFn: typeof fetch = async () => new Response('{}', { status: 200 });
-    const xmlService = new JmaXmlPollingService(context.connection, {
+    const xmlService = new JmaXmlPollingService(context.weatherConnection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn,
@@ -952,7 +971,7 @@ test('レビュー指摘#1: nowcast/kikikuru の取得失敗時は runManual() �
     const clock = () => '2026-09-15T10:00:00.000Z' as UtcIso8601String;
     const failFetch: typeof fetch = async () => new Response('Error', { status: 500 });
 
-    const nowcastService = new NowcastService(context.connection, {
+    const nowcastService = new NowcastService(context.weatherConnection, {
       cacheRoot: nowcastCacheRoot,
       allowedZooms: [10],
       getCatalogAccess: () => ({ allowed: true, period: {} as never, nextAllowedAt: null }),
@@ -964,7 +983,7 @@ test('レビュー指摘#1: nowcast/kikikuru の取得失敗時は runManual() �
     const nowcastAdapter = new NowcastScheduledAdapter(nowcastService);
     await assert.rejects(() => nowcastAdapter.runManual());
 
-    const kikikuruService = new KikikuruService(context.connection, {
+    const kikikuruService = new KikikuruService(context.weatherConnection, {
       cacheRoot: kikikuruCacheRoot,
       allowedZooms: [10],
       getCatalogAccess: () => ({ allowed: true, period: {} as never, nextAllowedAt: null }),
@@ -992,7 +1011,7 @@ test('受け入れ条件23(c): 復旧は長期フィード(regular_l/extra_l)を
       recoveryUrls.push(String(url));
       return new Response('', { status: 500 });
     };
-    const recoveryXmlService = new JmaXmlPollingService(context.connection, {
+    const recoveryXmlService = new JmaXmlPollingService(context.weatherConnection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: recoveryFetchFn,
@@ -1013,7 +1032,7 @@ test('受け入れ条件23(c): 復旧は長期フィード(regular_l/extra_l)を
       manualUrls.push(String(url));
       return new Response('', { status: 500 });
     };
-    const manualXmlService = new JmaXmlPollingService(context.connection, {
+    const manualXmlService = new JmaXmlPollingService(context.weatherConnection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: manualFetchFn,
@@ -1037,7 +1056,7 @@ test('受け入れ条件11: 手動停止は時間帯境界を跨いでも維持�
     let nowIso = '2026-09-15T19:59:50+09:00';
     const nowFn = () => new Date(nowIso);
     const fetchFn: typeof fetch = async () => new Response('', { status: 500 });
-    const xmlService = new JmaXmlPollingService(context.connection, {
+    const xmlService = new JmaXmlPollingService(context.weatherConnection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn,
@@ -1147,7 +1166,7 @@ test('受け入れ条件21・22: 夜間帯の強制更新は索引を迂回し�
         return { allowed: false, period, nextAllowedAt: null };
       };
 
-      const nowcastService = new NowcastService(context.connection, {
+      const nowcastService = new NowcastService(context.weatherConnection, {
         cacheRoot: join(directory, 'nowcast'),
         allowedZooms: [10],
         getCatalogAccess,
@@ -1158,7 +1177,7 @@ test('受け入れ条件21・22: 夜間帯の強制更新は索引を迂回し�
         getManualCatalogAccess,
       });
 
-      const kikikuruService = new KikikuruService(context.connection, {
+      const kikikuruService = new KikikuruService(context.weatherConnection, {
         cacheRoot: join(directory, 'kikikuru'),
         allowedZooms: [10],
         getCatalogAccess,
@@ -1190,7 +1209,7 @@ test('受け入れ条件21・22: 夜間帯の強制更新は索引を迂回し�
         disabledUrls.push(String(url));
         return new Response('{}', { status: 200 });
       };
-      const disabledNowcast = new NowcastService(context.connection, {
+      const disabledNowcast = new NowcastService(context.weatherConnection, {
         cacheRoot: join(directory, 'nowcast-disabled'),
         allowedZooms: [10],
         getCatalogAccess,
@@ -1209,6 +1228,62 @@ test('受け入れ条件21・22: 夜間帯の強制更新は索引を迂回し�
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  } finally {
+    cleanup();
+  }
+});
+
+test('Issue #247 AC12: 保持write失敗は既存memory照合を維持しread失敗は500となる', async () => {
+  const { context, cleanup } = createDb();
+  try {
+    const originalPrepare = context.connection.prepare.bind(context.connection);
+    let failRead = false;
+    Object.defineProperty(context.connection, 'prepare', {
+      value: (sql: string) => {
+        if (sql.includes('INSERT INTO operation_history')) throw new Error('保持write障害fixture');
+        if (failRead && sql.includes('FROM operation_history'))
+          throw new Error('保持read障害fixture');
+        return originalPrepare(sql);
+      },
+    });
+    const targets = createStubTargets();
+    const deps = {
+      connection: context.connection,
+      targets,
+      now: () => '2026-10-07T12:00:00.000Z' as UtcIso8601String,
+    };
+    const service = createFetchControlService(deps);
+    const first = assertCompleted(await service.request('start', UUID_A));
+    const second = assertCompleted(await service.request('start', UUID_A));
+    assert.equal(first.result, 'success');
+    assert.equal(second.result, 'success');
+    assert.equal(targets.startCalls, 1);
+    assert.equal((await service.request('stop', UUID_A)).kind, 'conflict');
+    const restarted = createFetchControlService(deps);
+    assert.equal(restarted.find(UUID_A).kind, 'not_found');
+    for (let i = 0; i < 200; i++)
+      await service.request('stop', `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    assert.equal(service.find(UUID_A).kind, 'not_found');
+    assert.equal(service.find('00000000-0000-4000-8000-000000000199').kind, 'completed');
+    const server = createApp({ fetchControl: service }).listen(0);
+    await new Promise<void>((resolve, reject) => {
+      server.once('listening', resolve);
+      server.once('error', reject);
+    });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('待受portなし');
+      failRead = true;
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/control/operations/00000000-0000-4000-8000-000000000199`,
+      );
+      assert.equal(response.status, 500);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+    assert.deepEqual(context.weatherConnection.prepare('SELECT * FROM fetch_attempt').all(), []);
   } finally {
     cleanup();
   }

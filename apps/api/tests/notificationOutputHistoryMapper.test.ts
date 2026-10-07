@@ -21,7 +21,7 @@ import {
 } from '../src/repositories/index.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
-const migrationsDirectory = join(apiRoot, 'migrations');
+const migrationsDirectory = join(apiRoot, 'migrations/retained');
 
 function createTempDbPath(): { databasePath: string; cleanup: () => void } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-notification-mapper-test-'));
@@ -80,7 +80,7 @@ test('受け入れ条件 2: 大田区・江東区を含む気象通知を mapper
     },
   };
 
-  const input = toNotificationOutputHistoryInput(notification, output);
+  const input = toNotificationOutputHistoryInput(notification, output, null);
 
   assert.equal(input.notificationId, 'notif-weather-c2-001');
   assert.equal(input.category, 'warning');
@@ -129,7 +129,7 @@ test('受け入れ条件 3: 単一の設備 target を持つ装置通知を mapp
     messageDefinition: null,
   };
 
-  const input = toNotificationOutputHistoryInput(notification, output);
+  const input = toNotificationOutputHistoryInput(notification, output, null);
 
   assert.equal(input.notificationId, 'notif-system-c3-001');
   assert.equal(input.category, 'emergency');
@@ -188,7 +188,7 @@ test('受け入れ条件 4: detectionContext: "initial" の気象通知で、cha
     messageDefinition: null,
   };
 
-  const input = toNotificationOutputHistoryInput(notification, output);
+  const input = toNotificationOutputHistoryInput(notification, output, null);
 
   assert.equal(input.changeType, 'new');
   assert.equal(input.detectionContext, 'initial');
@@ -223,7 +223,7 @@ test('受け入れ条件 5: isTraining: true が mapper を通過して B4 入�
     messageDefinition: null,
   };
 
-  const input = toNotificationOutputHistoryInput(notification, output);
+  const input = toNotificationOutputHistoryInput(notification, output, null);
 
   assert.equal(input.isTraining, true);
 });
@@ -257,7 +257,7 @@ test('受け入れ条件 6: messageDefinition: null の出力スナップショ�
     messageDefinition: null,
   };
 
-  const input = toNotificationOutputHistoryInput(notification, output);
+  const input = toNotificationOutputHistoryInput(notification, output, null);
 
   assert.equal(input.messageDefinitionId, null);
   assert.equal(input.messageDefinitionVersion, null);
@@ -295,7 +295,7 @@ test('受け入れ条件 7: messageDefinition がある出力スナップショ�
     },
   };
 
-  const input = toNotificationOutputHistoryInput(notification, output);
+  const input = toNotificationOutputHistoryInput(notification, output, null);
 
   assert.equal(input.messageDefinitionId, 'msg-emergency-001');
   assert.equal(input.messageDefinitionVersion, 'v2.1.0');
@@ -331,7 +331,7 @@ test('受け入れ条件 8: summary と ackRequired が NotificationOutputSnapsh
     messageDefinition: null,
   };
 
-  const input = toNotificationOutputHistoryInput(notification, output);
+  const input = toNotificationOutputHistoryInput(notification, output, null);
 
   assert.equal(input.summary, rawSummary);
   assert.equal(input.ackRequired, false);
@@ -375,7 +375,7 @@ test('受け入れ条件 2〜8 のインテグレーション: mapper の出力�
       },
     };
 
-    const weatherInput = toNotificationOutputHistoryInput(weatherNotification, weatherOutput);
+    const weatherInput = toNotificationOutputHistoryInput(weatherNotification, weatherOutput, null);
     const recordedWeather = recordNotificationOutputHistory(context.connection, weatherInput);
     assert.ok(recordedWeather.id > 0);
 
@@ -424,7 +424,7 @@ test('受け入れ条件 2〜8 のインテグレーション: mapper の出力�
       messageDefinition: null,
     };
 
-    const systemInput = toNotificationOutputHistoryInput(systemNotification, systemOutput);
+    const systemInput = toNotificationOutputHistoryInput(systemNotification, systemOutput, null);
     const recordedSystem = recordNotificationOutputHistory(context.connection, systemInput);
     assert.ok(recordedSystem.id > 0);
 
@@ -471,7 +471,7 @@ test('受け入れ条件 12: 生成結果を toNotificationOutputHistoryInput �
     detail: 'レベル3大雨警報',
   });
 
-  const input = toNotificationOutputHistoryInput(notification, resolvedOutput);
+  const input = toNotificationOutputHistoryInput(notification, resolvedOutput, null);
 
   assert.equal(input.summary, '気象警報発表\n江東区\nレベル3大雨警報');
   assert.equal(input.ackRequired, true);

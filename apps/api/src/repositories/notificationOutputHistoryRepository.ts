@@ -11,6 +11,7 @@ import type {
 interface NotificationOutputHistoryRow {
   readonly id: number;
   readonly notification_id: string;
+  readonly weather_database_generation_id: string | null;
   readonly category: string;
   readonly source_type: string;
   readonly source_version: string | null;
@@ -56,6 +57,9 @@ function validateJson(value: string, fieldName: string): void {
 
 function validateNotificationOutputHistoryInput(input: NotificationOutputHistoryInput): void {
   validateNonEmptyString(input.notificationId, 'notificationId');
+  if (input.weatherDatabaseGenerationId !== null) {
+    validateNonEmptyString(input.weatherDatabaseGenerationId, 'weatherDatabaseGenerationId');
+  }
   validateNonEmptyString(input.category, 'category');
   validateNonEmptyString(input.sourceType, 'sourceType');
 
@@ -133,6 +137,7 @@ function mapNotificationOutputHistoryRow(
   return {
     id: row.id,
     notificationId: row.notification_id,
+    weatherDatabaseGenerationId: row.weather_database_generation_id,
     category: row.category,
     sourceType: row.source_type,
     sourceVersion: row.source_version,
@@ -218,8 +223,8 @@ export function recordNotificationOutputHistory(
       notification_id, category, source_type, source_version, target_area_json,
       occurred_at, detected_at, change_type, ack_required, summary,
       related_refs_json, origin, detection_context, is_training,
-      message_definition_id, message_definition_version
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      message_definition_id, message_definition_version, weather_database_generation_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     RETURNING id
   `);
 
@@ -240,6 +245,7 @@ export function recordNotificationOutputHistory(
     input.isTraining ? 1 : 0,
     input.messageDefinitionId,
     input.messageDefinitionVersion,
+    input.weatherDatabaseGenerationId,
   ) as { id: number };
 
   return {

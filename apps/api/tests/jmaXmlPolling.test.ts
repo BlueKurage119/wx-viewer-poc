@@ -1,3 +1,7 @@
+import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+} from './helpers/databasePair.js';
 import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +12,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { initializeDatabase } from '../src/database/index.js';
 import {
   listFetchAttempts,
   listTelegramReceptions,
@@ -320,7 +323,7 @@ test('2. Atom エントリの link.href でだけ個別電文を取得する。�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const arbitraryDocPath = '/arbitrary-opaque-token_VPWW55_not-constructible-from-metadata.xml';
     const docUrl = `${server.baseUrl}${arbitraryDocPath}`;
 
@@ -365,7 +368,7 @@ test('2. Atom エントリの link.href でだけ個別電文を取得する。�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -381,7 +384,7 @@ test('2. Atom エントリの link.href でだけ個別電文を取得する。�
     assert.equal(server.requestCounts.get(arbitraryDocPath), 1);
 
     // telegram_reception に保存された document_url が完全一致すること
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 1);
     assert.equal(receptions[0]!.documentUrl, docUrl);
     assert.equal(receptions[0]!.title, '東京都気象警報・注意報（自作不可能フィクスチャ）');
@@ -399,7 +402,7 @@ test('3. 同じ document_url が複数フィードまたは同一フィードに
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const sharedDocPath = '/data/shared-20260909_0_VPWW55_130000.xml';
     const sharedDocUrl = `${server.baseUrl}${sharedDocPath}`;
     const telegramXml = createSampleTelegramXml();
@@ -444,7 +447,7 @@ test('3. 同じ document_url が複数フィードまたは同一フィードに
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -481,7 +484,7 @@ test('3. 同じ document_url が複数フィードまたは同一フィードに
     assert.equal(server.requestCounts.get(sharedDocPath), 1);
 
     // telegram_reception テーブルへの追記も 1 回だけ
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 1);
     assert.equal(receptions[0]!.documentUrl, sharedDocUrl);
   } finally {
@@ -498,7 +501,7 @@ test('4. 前サイクルで受信済みの URL は、次サイクルで個別 GE
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const docPath = '/data/test_doc_20260909_0_VPWW55_130000.xml';
     const docUrl = `${server.baseUrl}${docPath}`;
     const telegramXml = createSampleTelegramXml();
@@ -532,7 +535,7 @@ test('4. 前サイクルで受信済みの URL は、次サイクルで個別 GE
     };
 
     let currentTime = '2026-09-09T01:00:00Z';
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -548,10 +551,10 @@ test('4. 前サイクルで受信済みの URL は、次サイクルで個別 GE
     assert.equal(regularResult1?.downloadedCount, 1);
     assert.equal(regularResult1?.skippedDuplicateCount, 0);
 
-    const receptions1 = listTelegramReceptions(db.connection);
+    const receptions1 = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions1.length, 1);
 
-    const fetchAttempts1 = listFetchAttempts(db.connection);
+    const fetchAttempts1 = listFetchAttempts(db.weather.connection);
     // regular(feed), doc, extra(feed) => 計 3 件
     assert.equal(fetchAttempts1.length, 3);
 
@@ -566,11 +569,11 @@ test('4. 前サイクルで受信済みの URL は、次サイクルで個別 GE
     assert.equal(regularResult2?.skippedDuplicateCount, 1);
 
     // telegram_reception も増えない
-    const receptions2 = listTelegramReceptions(db.connection);
+    const receptions2 = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions2.length, 1);
 
     // フィードの fetch_attempt だけが追記される（regular, extra の2件追加で計 5 件）
-    const fetchAttempts2 = listFetchAttempts(db.connection);
+    const fetchAttempts2 = listFetchAttempts(db.weather.connection);
     assert.equal(fetchAttempts2.length, 5);
   } finally {
     await server.close();
@@ -586,7 +589,7 @@ test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const docPath = '/data/20260909000000_0_VPWW55_130000.xml';
     const docUrl = `${server.baseUrl}${docPath}`;
 
@@ -632,7 +635,7 @@ test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -643,9 +646,9 @@ test('5. 正常な名前空間、Control、Head、地域要素を持つ本文が
 
     await service.pollOnce('scheduled');
 
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 1);
-    const reception = findTelegramReceptionById(db.connection, receptions[0]!.id);
+    const reception = findTelegramReceptionById(db.weather.connection, receptions[0]!.id);
     assert.ok(reception);
 
     // 完全一致検証
@@ -703,7 +706,7 @@ test('6. title だけが対象らしく見えても、本文の名前空間・�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     // 不正な3つの電文
     // doc1: 名前空間不正
     // doc2: Control 要素なし
@@ -758,7 +761,7 @@ test('6. title だけが対象らしく見えても、本文の名前空間・�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -769,7 +772,7 @@ test('6. title だけが対象らしく見えても、本文の名前空間・�
 
     await service.pollOnce('scheduled');
 
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 3);
 
     // 3件とも C2 の種別固有検証で未対応構造として記録されていること（会場に依存しない構造不正のため east/trc 両方）
@@ -781,7 +784,7 @@ test('6. title だけが対象らしく見えても、本文の名前空間・�
       for (const adoption of rSummary.adoptions) {
         assert.ok(adoption.adoptionReason && adoption.adoptionReason.length > 0);
       }
-      const detail = findTelegramReceptionById(db.connection, rSummary.id);
+      const detail = findTelegramReceptionById(db.weather.connection, rSummary.id);
       assert.ok(detail?.rawBody); // 原文が保持されていること
     }
 
@@ -814,7 +817,7 @@ test('7. フィード・個別電文の HTTP 非成功、ネットワーク例�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const docPathTimeout = '/data/20260909_0_VPWW55_timeout.xml';
     const docPath500 = '/data/20260909_0_VPWW55_500.xml';
 
@@ -864,7 +867,7 @@ test('7. フィード・個別電文の HTTP 非成功、ネットワーク例�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -875,7 +878,7 @@ test('7. フィード・個別電文の HTTP 非成功、ネットワーク例�
 
     await service.pollOnce('scheduled');
 
-    const attempts = listFetchAttempts(db.connection);
+    const attempts = listFetchAttempts(db.weather.connection);
 
     // 1. extra.xml の HTTP 503
     const extraAttempt = attempts.find((a) => a.sourceKind === 'xml_feed_extra');
@@ -899,7 +902,7 @@ test('7. フィード・個別電文の HTTP 非成功、ネットワーク例�
     assert.equal(serverErrAttempt.errorKind, 'http_status');
 
     // 失敗した電文の telegram_reception 空行は作られないこと
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 0);
   } finally {
     await server.close();
@@ -981,7 +984,7 @@ test('9. 同時の pollOnce は同一 Promise を共有し、上流のフィー�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
 
     server.setHandler((req, res) => {
@@ -1008,7 +1011,7 @@ test('9. 同時の pollOnce は同一 Promise を共有し、上流のフィー�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -1047,7 +1050,7 @@ test('10. start() の複数呼出しがタイマーを増やさず、stop() 後�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
 
     server.setHandler((req, res) => {
@@ -1082,7 +1085,7 @@ test('10. start() の複数呼出しがタイマーを増やさず、stop() 後�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -1167,7 +1170,7 @@ test('11. startServer() の既定起動で 4 フィードの初期サイクル�
 
     // enablePolling を明示指定せず（既定値で起動）テストダブル fetch を注入
     const apiServer = await startServer({
-      config,
+      ...createTestServerDatabaseOptions(config),
       port: 0,
       pollingSchedule: createAlwaysOnTestPollingSchedule(),
       pollingServiceOptions: {
@@ -1199,7 +1202,7 @@ test('11. startServer() の既定起動で 4 フィードの初期サイクル�
     // enablePolling=false の場合
     server.requestCounts.clear();
     const disabledServer = await startServer({
-      config,
+      ...createTestServerDatabaseOptions(config),
       port: 0,
       enablePolling: false,
       pollingSchedule: createAlwaysOnTestPollingSchedule(),
@@ -1224,7 +1227,7 @@ test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const vpwwUrl = `${server.baseUrl}/data/20260909_0_VPWW55_130000.xml`;
     const vpwpUrl = `${server.baseUrl}/data/20260909_0_VPWP50_130000.xml`;
 
@@ -1301,7 +1304,7 @@ test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -1314,7 +1317,7 @@ test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき�
     assert.equal(result.feedResults[0]!.downloadedCount, 2);
 
     // telegram_reception に 2 件保存されていること
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 2);
 
     const vpwwReception = receptions.find((r) => r.telegramType === 'VPWW55');
@@ -1332,12 +1335,12 @@ test('15. VPWP50 と VPWW55 の混在フィードをポーリングしたとき�
     );
 
     // 警報ストリームが保存されていること（個別報のため未初期化ストリームとして保存）
-    const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
+    const streams = listWarningCurrentStreams(db.weather.connection, '130000', '1310800', 'normal');
     assert.equal(streams.length, 1);
     assert.equal(streams[0]!.telegramType, 'VPWW55');
 
     // 時系列スナップショットが保存されていること
-    const timeseries = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+    const timeseries = findWarningTimeseriesSnapshot(db.weather.connection, '1310800', 'normal');
     assert.ok(timeseries);
     assert.equal(timeseries.values.length, 1);
     assert.equal(timeseries.values[0]!.valueText, '警戒レベル２未満');
@@ -1357,7 +1360,7 @@ test('16. 混在フィードで VPFD61/VPFW60 は早期注意 processor にだ�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const vpwwUrl = `${server.baseUrl}/data/20260909_0_VPWW55_130000.xml`;
     const vpwpUrl = `${server.baseUrl}/data/20260909_0_VPWP50_130000.xml`;
     const vpfdUrl = `${server.baseUrl}/data/20260909_0_VPFD61_130000.xml`;
@@ -1486,7 +1489,7 @@ test('16. 混在フィードで VPFD61/VPFW60 は早期注意 processor にだ�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -1503,7 +1506,7 @@ test('16. 混在フィードで VPFD61/VPFW60 は早期注意 processor にだ�
     assert.equal(result.feedResults[1]!.downloadedCount, 0);
 
     // telegram_reception に 4 件保存されていること
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 4);
 
     const vpwwReception = receptions.find((r) => r.telegramType === 'VPWW55');
@@ -1535,29 +1538,29 @@ test('16. 混在フィードで VPFD61/VPFW60 は早期注意 processor にだ�
     );
 
     // 早期注意スナップショット (near) が保存されていること
-    const nearSnap = findEarlyWarningSnapshot(db.connection, '130010', 'near', 'normal');
+    const nearSnap = findEarlyWarningSnapshot(db.weather.connection, '130010', 'near', 'normal');
     assert.ok(nearSnap);
     assert.equal(nearSnap.telegramType, 'VPFD61');
     assert.equal(nearSnap.cells[0]!.phenomenonCode, '大雨の警報級の可能性');
     assert.equal(nearSnap.cells[0]!.rankValue, '中');
 
     // 早期注意スナップショット (far) が保存されていること
-    const farSnap = findEarlyWarningSnapshot(db.connection, '130010', 'far', 'normal');
+    const farSnap = findEarlyWarningSnapshot(db.weather.connection, '130010', 'far', 'normal');
     assert.ok(farSnap);
     assert.equal(farSnap.telegramType, 'VPFW60');
     assert.equal(farSnap.cells[0]!.phenomenonCode, '雨の警報級の可能性');
     assert.equal(farSnap.cells[0]!.rankValue, '高');
 
     // 現況警報・時系列・通知出力表への非干渉
-    const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
+    const streams = listWarningCurrentStreams(db.weather.connection, '130000', '1310800', 'normal');
     assert.equal(streams.length, 1);
     assert.equal(streams[0]!.telegramType, 'VPWW55');
 
-    const timeseries = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+    const timeseries = findWarningTimeseriesSnapshot(db.weather.connection, '1310800', 'normal');
     assert.ok(timeseries);
     assert.equal(timeseries.values[0]!.valueText, '警戒レベル２未満');
 
-    const notifications = listNotificationOutputHistory(db.connection);
+    const notifications = listNotificationOutputHistory(db.retained.connection);
     assert.equal(notifications.length, 0);
 
     // サーバーへのリクエスト回数: vpfdUrl は1回のみ（重複抑止）
@@ -1577,7 +1580,7 @@ test('17. 混在フィードで VPFD51 は地域時系列予報 processor にだ
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const vpwwUrl = `${server.baseUrl}/data/20260909_0_VPWW55_130000.xml`;
     const vpwpUrl = `${server.baseUrl}/data/20260909_0_VPWP50_130000.xml`;
     const vpfd61Url = `${server.baseUrl}/data/20260909_0_VPFD61_130000.xml`;
@@ -1740,7 +1743,7 @@ test('17. 混在フィードで VPFD51 は地域時系列予報 processor にだ
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -1757,7 +1760,7 @@ test('17. 混在フィードで VPFD51 は地域時系列予報 processor にだ
     assert.equal(result.feedResults[1]!.downloadedCount, 0);
 
     // telegram_reception に 5 件保存されていること
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 5);
 
     const vpfd51Reception = receptions.find((r) => r.telegramType === 'VPFD51');
@@ -1768,7 +1771,7 @@ test('17. 混在フィードで VPFD51 は地域時系列予報 processor にだ
     );
 
     // 地域時系列予報スナップショットが保存されていること
-    const areaSnap = findAreaTimeseriesSnapshot(db.connection, '130010', '44132', 'normal');
+    const areaSnap = findAreaTimeseriesSnapshot(db.weather.connection, '130010', '44132', 'normal');
     assert.ok(areaSnap);
     assert.equal(areaSnap.areaCode, '130010');
     assert.equal(areaSnap.stationCode, '44132');
@@ -1776,19 +1779,19 @@ test('17. 混在フィードで VPFD51 は地域時系列予報 processor にだ
     assert.equal(areaSnap.values.length, 4);
 
     // 早期注意・現況警報・時系列・通知出力表への非干渉
-    const nearSnap = findEarlyWarningSnapshot(db.connection, '130010', 'near', 'normal');
+    const nearSnap = findEarlyWarningSnapshot(db.weather.connection, '130010', 'near', 'normal');
     assert.ok(nearSnap);
 
-    const farSnap = findEarlyWarningSnapshot(db.connection, '130010', 'far', 'normal');
+    const farSnap = findEarlyWarningSnapshot(db.weather.connection, '130010', 'far', 'normal');
     assert.ok(farSnap);
 
-    const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
+    const streams = listWarningCurrentStreams(db.weather.connection, '130000', '1310800', 'normal');
     assert.equal(streams.length, 1);
 
-    const timeseries = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+    const timeseries = findWarningTimeseriesSnapshot(db.weather.connection, '1310800', 'normal');
     assert.ok(timeseries);
 
-    const notifications = listNotificationOutputHistory(db.connection);
+    const notifications = listNotificationOutputHistory(db.retained.connection);
     assert.equal(notifications.length, 0);
 
     // サーバーへのリクエスト回数: vpfd51Url は1回のみ（重複抑止）
@@ -1801,7 +1804,7 @@ test('17. 混在フィードで VPFD51 は地域時系列予報 processor にだ
 
 test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気象防災速報）が C7 processor にのみ dispatch され、他テーブルを変更せず重複 URL が 1 回だけ処理される', async () => {
   const { databasePath, cleanup } = createTempDb();
-  const db = initializeDatabase({ databasePath, migrationsDirectory });
+  const db = initializeTestDatabases({ databasePath, migrationsDirectory });
   const server = await createTestHttpServer();
 
   try {
@@ -1972,7 +1975,7 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -1989,7 +1992,7 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
     assert.equal(result.feedResults[1]!.downloadedCount, 0);
 
     // telegram_reception に 3 件保存されていること
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 3);
 
     const vpbs50Reception = receptions.find((r) => r.telegramType === 'VPBS50');
@@ -2000,7 +2003,11 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
     );
 
     // bosai_bulletin が保存されていること
-    const bulletin = findBosaiBulletin(db.connection, 'JPTE202609090001_202609090001', 'normal');
+    const bulletin = findBosaiBulletin(
+      db.weather.connection,
+      'JPTE202609090001_202609090001',
+      'normal',
+    );
     assert.ok(bulletin);
     assert.equal(bulletin.headlineText, '東京都江東区で線状降水帯が発生しました。');
     assert.equal(bulletin.informationTag, '線状降水帯発生');
@@ -2008,20 +2015,20 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
     assert.equal(bulletin.areas[0]!.areaCode, '1310800');
 
     // 地域時系列予報スナップショットが保存されていること
-    const areaSnap = findAreaTimeseriesSnapshot(db.connection, '130010', '44132', 'normal');
+    const areaSnap = findAreaTimeseriesSnapshot(db.weather.connection, '130010', '44132', 'normal');
     assert.ok(areaSnap);
 
     // 他テーブルへの非干渉
-    const earlyNear = findEarlyWarningSnapshot(db.connection, '130010', 'near', 'normal');
+    const earlyNear = findEarlyWarningSnapshot(db.weather.connection, '130010', 'near', 'normal');
     assert.equal(earlyNear, null);
 
-    const earlyFar = findEarlyWarningSnapshot(db.connection, '130010', 'far', 'normal');
+    const earlyFar = findEarlyWarningSnapshot(db.weather.connection, '130010', 'far', 'normal');
     assert.equal(earlyFar, null);
 
-    const timeseries = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+    const timeseries = findWarningTimeseriesSnapshot(db.weather.connection, '1310800', 'normal');
     assert.equal(timeseries, null);
 
-    const notifications = listNotificationOutputHistory(db.connection);
+    const notifications = listNotificationOutputHistory(db.retained.connection);
     assert.equal(notifications.length, 0);
 
     // サーバーへのリクエスト回数: vpbs50Url は1回のみ（重複抑止）
@@ -2034,7 +2041,7 @@ test('7. 混在フィード（regular + extra）ポーリングで VPBS50（気�
 
 test('8. 混在フィード（regular + extra）ポーリングで VPHW50/51（竜巻注意情報）が C8 processor にのみ dispatch され、他テーブルを変更せず重複 URL が 1 回だけ処理される', async () => {
   const { databasePath, cleanup } = createTempDb();
-  const db = initializeDatabase({ databasePath, migrationsDirectory });
+  const db = initializeTestDatabases({ databasePath, migrationsDirectory });
   const server = await createTestHttpServer();
 
   try {
@@ -2301,7 +2308,7 @@ test('8. 混在フィード（regular + extra）ポーリングで VPHW50/51（�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -2318,7 +2325,7 @@ test('8. 混在フィード（regular + extra）ポーリングで VPHW50/51（�
     assert.equal(result.feedResults[1]!.downloadedCount, 0);
 
     // telegram_reception に 4 件保存されていること
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 4);
 
     const vphw50Reception = receptions.find((r) => r.telegramType === 'VPHW50');
@@ -2343,37 +2350,41 @@ test('8. 混在フィード（regular + extra）ポーリングで VPHW50/51（�
     );
 
     // bosai_bulletin に VPHW50, VPHW51, VPBS50 の3件が保存されていること
-    const allBulletins = listBosaiBulletins(db.connection, { controlStatus: 'normal' });
+    const allBulletins = listBosaiBulletins(db.weather.connection, { controlStatus: 'normal' });
     assert.equal(allBulletins.length, 3);
 
-    const b50 = findBosaiBulletin(db.connection, 'VPHW50:130010', 'normal');
+    const b50 = findBosaiBulletin(db.weather.connection, 'VPHW50:130010', 'normal');
     assert.ok(b50);
     assert.equal(b50.hasSighting, null);
     assert.equal(b50.metadata.validTo, null);
     assert.equal(b50.metadata.validAt, '2026-09-09T01:10:00.000Z');
 
-    const b51 = findBosaiBulletin(db.connection, 'VPHW51:130010', 'normal');
+    const b51 = findBosaiBulletin(db.weather.connection, 'VPHW51:130010', 'normal');
     assert.ok(b51);
     assert.equal(b51.hasSighting, true);
     assert.equal(b51.metadata.validTo, null);
     assert.equal(b51.metadata.validAt, '2026-09-09T01:10:00.000Z');
 
-    const bVpbs = findBosaiBulletin(db.connection, 'JPTE202609090001_202609090001', 'normal');
+    const bVpbs = findBosaiBulletin(
+      db.weather.connection,
+      'JPTE202609090001_202609090001',
+      'normal',
+    );
     assert.ok(bVpbs);
     assert.equal(bVpbs.hasSighting, null);
 
     // 地域時系列予報スナップショットが保存されていること
-    const areaSnap = findAreaTimeseriesSnapshot(db.connection, '130010', '44132', 'normal');
+    const areaSnap = findAreaTimeseriesSnapshot(db.weather.connection, '130010', '44132', 'normal');
     assert.ok(areaSnap);
 
     // 他テーブルへの非干渉
-    const earlyNear = findEarlyWarningSnapshot(db.connection, '130010', 'near', 'normal');
+    const earlyNear = findEarlyWarningSnapshot(db.weather.connection, '130010', 'near', 'normal');
     assert.equal(earlyNear, null);
 
-    const timeseries = findWarningTimeseriesSnapshot(db.connection, '1310800', 'normal');
+    const timeseries = findWarningTimeseriesSnapshot(db.weather.connection, '1310800', 'normal');
     assert.equal(timeseries, null);
 
-    const notifications = listNotificationOutputHistory(db.connection);
+    const notifications = listNotificationOutputHistory(db.retained.connection);
     assert.equal(notifications.length, 0);
 
     // サーバーへのリクエスト回数: vphw50Url は1回のみ（重複抑止）
@@ -2394,8 +2405,8 @@ test('8. 混在フィード（regular + extra）ポーリングで VPHW50/51（�
 test('22-1. 新規 JmaXmlPollingService の initialFetch は not_started / result=null であり、DB に初期取得状態を保存するテーブルや列が存在しない', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
-    const service = new JmaXmlPollingService(db.connection, {
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
     });
@@ -2409,7 +2420,7 @@ test('22-1. 新規 JmaXmlPollingService の initialFetch は not_started / resul
     assert.equal(status.lastCycleResult, null);
 
     // DB に initial_fetch 関連テーブルや列が存在しないことを確認
-    const tables = db.connection
+    const tables = db.weather.connection
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all() as Array<{ name: string }>;
     const tableNames = tables.map((t) => t.name);
@@ -2430,7 +2441,7 @@ test('22-2. start() で regular, extra, regular_l, extra_l が各 1 回要求さ
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
     const requestedFeeds: string[] = [];
 
@@ -2468,7 +2479,7 @@ test('22-2. start() で regular, extra, regular_l, extra_l が各 1 回要求さ
     };
 
     let fakeNow = '2026-09-09T01:00:00.000Z';
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -2545,7 +2556,7 @@ test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本す�
     const server = await createTestHttpServer();
 
     try {
-      const db = initializeDatabase({ databasePath, migrationsDirectory });
+      const db = initializeTestDatabases({ databasePath, migrationsDirectory });
       const feedXml = createSampleAtomFeed([]);
       const triedFeeds: string[] = [];
 
@@ -2587,7 +2598,7 @@ test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本す�
         return fetch(input, init);
       };
 
-      const service = new JmaXmlPollingService(db.connection, {
+      const service = new JmaXmlPollingService(db.weather.connection, {
         venueRegistry: testVenueRegistry,
         freshnessPolicy: defaultXmlFreshnessPolicy,
         fetchFn: customFetch,
@@ -2613,7 +2624,7 @@ test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本す�
       assert.equal(status.initialFetch.result?.completed, false);
 
       // fetch_attempt に失敗が記録されていること
-      const attempts = listFetchAttempts(db.connection);
+      const attempts = listFetchAttempts(db.weather.connection);
       const failAttempt = attempts.find(
         (a) => a.outcome === 'failure' && a.targetRef === pattern.failKind,
       );
@@ -2647,7 +2658,7 @@ test('22-4. 正常な空 Atom と取得失敗が feedFetchOutcome で区別さ�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const emptyFeedXml = createSampleAtomFeed([]);
 
     server.setHandler((req, res) => {
@@ -2682,7 +2693,7 @@ test('22-4. 正常な空 Atom と取得失敗が feedFetchOutcome で区別さ�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -2716,7 +2727,7 @@ test('22-5. フィードは成功し個別電文 GET だけが失敗した場合
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const failDocUrl = `${server.baseUrl}/data/20260909_0_VPWW55_130000_fail_doc.xml`;
     const feedWithDocXml = createSampleAtomFeed([
       { id: 'urn:entry-fail-doc', title: '警報', href: failDocUrl },
@@ -2768,7 +2779,7 @@ test('22-5. フィードは成功し個別電文 GET だけが失敗した場合
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -2792,7 +2803,7 @@ test('22-5. フィードは成功し個別電文 GET だけが失敗した場合
     assert.equal(regResult?.failedDocumentCount, 1);
 
     // fetch_attempt に個別電文の失敗が記録されていること
-    const attempts = listFetchAttempts(db.connection);
+    const attempts = listFetchAttempts(db.weather.connection);
     const docFailAttempt = attempts.find(
       (a) => a.sourceKind === 'xml_document' && a.outcome === 'failure',
     );
@@ -2800,7 +2811,7 @@ test('22-5. フィードは成功し個別電文 GET だけが失敗した場合
     assert.equal(docFailAttempt.httpStatus, 500);
 
     // telegram_reception に空行などは作られていないこと
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 0);
   } finally {
     await server.close();
@@ -2816,7 +2827,7 @@ test('22-6. 同時複数 start() で 4 フィードは各 1 回のみ要求さ�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
 
     server.setHandler((req, res) => {
@@ -2851,7 +2862,7 @@ test('22-6. 同時複数 start() で 4 フィードは各 1 回のみ要求さ�
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -2909,7 +2920,7 @@ test('22-7. 同じ DB で新しいサービスインスタンスを作成する�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const docPath = '/data/20260909_0_VPWW55_130000_doc_22_7.xml';
     const docUrl = `${server.baseUrl}${docPath}`;
     const docXml = createSampleTelegramXml();
@@ -2957,7 +2968,7 @@ test('22-7. 同じ DB で新しいサービスインスタンスを作成する�
     };
 
     // サービス 1 回目
-    const service1 = new JmaXmlPollingService(db.connection, {
+    const service1 = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -2972,7 +2983,7 @@ test('22-7. 同じ DB で新しいサービスインスタンスを作成する�
     assert.equal(server.requestCounts.get(docPath), 1);
 
     // 同じ DB を使って新しいサービスインスタンスを作成
-    const service2 = new JmaXmlPollingService(db.connection, {
+    const service2 = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -3014,7 +3025,7 @@ test('22-8. pollOnce(trigger) の直接呼出しは initialFetch を変更せず
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
 
     server.setHandler((req, res) => {
@@ -3049,7 +3060,7 @@ test('22-8. pollOnce(trigger) の直接呼出しは initialFetch を変更せず
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -3114,10 +3125,10 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
     const config = { databasePath, migrationsDirectory };
 
     // 1. JmaXmlPollingService 自体が内部例外時に phase=failed を記録して再 throw することの検証
-    const db = initializeDatabase(config);
-    db.connection.prepare('DROP TABLE fetch_attempt').run();
+    const db = initializeTestDatabases(config);
+    db.weather.connection.prepare('DROP TABLE fetch_attempt').run();
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       allowedUrlPrefixes: [server.baseUrl],
@@ -3144,11 +3155,11 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
     // 2. startServer() が start() の内部例外で reject され、HTTP サーバーや DB を閉じることの検証
     const fresh = createTempDb();
     try {
-      const freshDb = initializeDatabase({
+      const freshDb = initializeTestDatabases({
         databasePath: fresh.databasePath,
         migrationsDirectory,
       });
-      const crashingService = new JmaXmlPollingService(freshDb.connection, {
+      const crashingService = new JmaXmlPollingService(freshDb.weather.connection, {
         venueRegistry: testVenueRegistry,
         freshnessPolicy: defaultXmlFreshnessPolicy,
       });
@@ -3156,10 +3167,14 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
         throw new Error('Database/Internal fatal invariant violation');
       };
 
+      freshDb.close();
       await assert.rejects(
         () =>
           startServer({
-            config: { databasePath: fresh.databasePath, migrationsDirectory },
+            ...createTestServerDatabaseOptions({
+              databasePath: fresh.databasePath,
+              migrationsDirectory,
+            }),
             port: 0,
             pollingSchedule: createAlwaysOnTestPollingSchedule(),
             pollingService: crashingService,
@@ -3202,7 +3217,7 @@ test('22-9b. HTTP待受失敗時は初期取得を開始せず、DBを解放し�
     await assert.rejects(
       () =>
         startServer({
-          config: { databasePath, migrationsDirectory },
+          ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
           port: address.port,
           pollingSchedule: createAlwaysOnTestPollingSchedule(),
           pollingService,
@@ -3211,7 +3226,7 @@ test('22-9b. HTTP待受失敗時は初期取得を開始せず、DBを解放し�
     );
     assert.equal(initialFetchStarted, false);
 
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = initializeTestDatabases({ databasePath, migrationsDirectory });
     database.close();
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -3229,7 +3244,7 @@ test('22-10. 保存済み履歴の C3 再構成後に初期サイクルが未受
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     // 初期サイクルで届く新しい電文
     const docPath = '/data/20260909000000_0_VPWW55_130000.xml';
     const docUrl = `${server.baseUrl}${docPath}`;
@@ -3296,10 +3311,10 @@ test('22-10. 保存済み履歴の C3 再構成後に初期サイクルが未受
       return fetch(input, init);
     };
 
-    const notificationsBefore = listNotificationOutputHistory(db.connection);
+    const notificationsBefore = listNotificationOutputHistory(db.retained.connection);
     assert.equal(notificationsBefore.length, 0);
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -3314,12 +3329,12 @@ test('22-10. 保存済み履歴の C3 再構成後に初期サイクルが未受
     assert.equal(initResult.completed, true);
 
     // C3 の現況ストリームに大雨注意報が反映されていること
-    const streams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
+    const streams = listWarningCurrentStreams(db.weather.connection, '130000', '1310800', 'normal');
     assert.equal(streams.length, 1);
     assert.equal(streams[0]!.telegramType, 'VPWW55');
 
     // notification_output_history が 0 件のままであること（通知は生成されない）
-    const notificationsAfter = listNotificationOutputHistory(db.connection);
+    const notificationsAfter = listNotificationOutputHistory(db.retained.connection);
     assert.equal(notificationsAfter.length, 0);
   } finally {
     await server.close();
@@ -3391,11 +3406,11 @@ class ManualTimerScheduler implements PollingTimerScheduler {
 
 test('初期取得完了 listener が失敗した場合、completed を維持したまま次周期で再試行する', async () => {
   const { databasePath, cleanup } = createTempDb();
-  const db = initializeDatabase({ databasePath, migrationsDirectory });
+  const db = initializeTestDatabases({ databasePath, migrationsDirectory });
   const initialTimeMs = new Date('2026-09-09T01:00:00.000Z').getTime();
   const scheduler = new ManualTimerScheduler(initialTimeMs);
   const emptyFeedXml = createSampleAtomFeed([]);
-  const service = new JmaXmlPollingService(db.connection, {
+  const service = new JmaXmlPollingService(db.weather.connection, {
     venueRegistry: testVenueRegistry,
     freshnessPolicy: defaultXmlFreshnessPolicy,
     fetchFn: async () => new Response(emptyFeedXml, { status: 200 }),
@@ -3599,7 +3614,7 @@ test('23-3. 一方のフィードが再試行待ちでも他方は通常周期�
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
 
     server.setHandler((req, res) => {
@@ -3629,7 +3644,7 @@ test('23-3. 一方のフィードが再試行待ちでも他方は通常周期�
     };
 
     let currentTime = '2026-09-09T01:00:00.000Z';
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -3661,7 +3676,7 @@ test('23-3. 一方のフィードが再試行待ちでも他方は通常周期�
     assert.equal(server.requestCounts.get('/feed/extra.xml'), 2); // extra は正常取得
 
     // fetch_attempt を確認: regular の試行は増えていないこと
-    const attempts = listFetchAttempts(db.connection);
+    const attempts = listFetchAttempts(db.weather.connection);
     const regularAttempts = attempts.filter((a) => a.targetRef === 'regular');
     assert.equal(regularAttempts.length, 1); // 1回目の失敗のみ
   } finally {
@@ -3676,7 +3691,7 @@ test('23-3b. 再試行時刻が通常周期より早い場合、失敗してい�
   let service: JmaXmlPollingService | null = null;
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
     let regularStatus = 200;
     server.setHandler((req, res) => {
@@ -3707,7 +3722,7 @@ test('23-3b. 再試行時刻が通常周期より早い場合、失敗してい�
       return fetch(input, init);
     };
     const scheduler = new ManualTimerScheduler(new Date('2026-09-09T01:00:00.000Z').getTime());
-    service = new JmaXmlPollingService(db.connection, {
+    service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -3723,10 +3738,15 @@ test('23-3b. 再試行時刻が通常周期より早い場合、失敗してい�
     regularStatus = 503;
 
     await scheduler.advanceTime(300_000);
+    // 並列テストの実行負荷に依存せず、発火したサイクルの全フィード完了を待つ。
+    await (service as unknown as { inFlightPollPromise: Promise<unknown> | null })
+      .inFlightPollPromise;
     assert.equal(server.requestCounts.get('/feed/regular.xml'), 2);
     assert.equal(server.requestCounts.get('/feed/extra.xml'), 2);
 
     await scheduler.advanceTime(60_000);
+    await (service as unknown as { inFlightPollPromise: Promise<unknown> | null })
+      .inFlightPollPromise;
     assert.equal(server.requestCounts.get('/feed/regular.xml'), 3);
     assert.equal(server.requestCounts.get('/feed/extra.xml'), 2);
 
@@ -3764,7 +3784,7 @@ test('23-4. フィード取得失敗およびAtom構造不正時に既存の正�
   let service: JmaXmlPollingService | null = null;
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const docPath = '/data/20260909000000_0_VPWW55_130000.xml';
     const docUrl = `${server.baseUrl}${docPath}`;
     const telegramXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -3813,7 +3833,7 @@ test('23-4. フィード取得失敗およびAtom構造不正時に既存の正�
     };
 
     let currentTime = '2026-09-09T01:00:00.000Z';
-    service = new JmaXmlPollingService(db.connection, {
+    service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -3824,9 +3844,14 @@ test('23-4. フィード取得失敗およびAtom構造不正時に既存の正�
 
     // 1. 初回ポーリングで正常に電文を受信
     await service.pollOnce('scheduled');
-    const initialReceptions = listTelegramReceptions(db.connection);
+    const initialReceptions = listTelegramReceptions(db.weather.connection);
     assert.equal(initialReceptions.length, 1);
-    const initialStreams = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
+    const initialStreams = listWarningCurrentStreams(
+      db.weather.connection,
+      '130000',
+      '1310800',
+      'normal',
+    );
     assert.equal(initialStreams.length, 1);
 
     // 2. 次のサイクルで HTTP 503 エラー（フィード取得失敗）
@@ -3836,10 +3861,15 @@ test('23-4. フィード取得失敗およびAtom構造不正時に既存の正�
     await service.pollOnce('scheduled');
 
     // 既存の受信履歴・スナップショットが保持されていること（空で上書きされていない）
-    const receptionsAfter503 = listTelegramReceptions(db.connection);
+    const receptionsAfter503 = listTelegramReceptions(db.weather.connection);
     assert.equal(receptionsAfter503.length, 1);
     assert.deepEqual(receptionsAfter503[0], initialReceptions[0]);
-    const streamsAfter503 = listWarningCurrentStreams(db.connection, '130000', '1310800', 'normal');
+    const streamsAfter503 = listWarningCurrentStreams(
+      db.weather.connection,
+      '130000',
+      '1310800',
+      'normal',
+    );
     assert.equal(streamsAfter503.length, 1);
 
     // 3. その次のサイクルで 不正XML（Atomパース失敗）
@@ -3849,10 +3879,10 @@ test('23-4. フィード取得失敗およびAtom構造不正時に既存の正�
     await service.pollOnce('scheduled');
 
     // 既存の受信履歴・スナップショットが依然として保持されていること
-    const receptionsAfterParseErr = listTelegramReceptions(db.connection);
+    const receptionsAfterParseErr = listTelegramReceptions(db.weather.connection);
     assert.equal(receptionsAfterParseErr.length, 1);
     const streamsAfterParseErr = listWarningCurrentStreams(
-      db.connection,
+      db.weather.connection,
       '130000',
       '1310800',
       'normal',
@@ -3876,7 +3906,7 @@ test('23-5. 個別電文のHTTP失敗・未対応構造・未対応コードは�
   let service: JmaXmlPollingService | null = null;
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const docPath500 = '/data/20260909_0_VPWW55_130000_doc-500.xml';
     const docPathBadNs = '/data/20260909_0_VPWW55_130000_doc-bad-ns.xml';
 
@@ -3920,7 +3950,7 @@ test('23-5. 個別電文のHTTP失敗・未対応構造・未対応コードは�
       return fetch(input, init);
     };
 
-    service = new JmaXmlPollingService(db.connection, {
+    service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -3943,7 +3973,7 @@ test('23-5. 個別電文のHTTP失敗・未対応構造・未対応コードは�
     assert.equal(status.feedStatuses.regular.isWaiting, false);
 
     // 個別電文の 500 失敗は fetch_attempt に記録
-    const attempts = listFetchAttempts(db.connection);
+    const attempts = listFetchAttempts(db.weather.connection);
     const docAttemptFail = attempts.find(
       (a) => a.sourceKind === 'xml_document' && a.outcome === 'failure',
     );
@@ -3951,7 +3981,7 @@ test('23-5. 個別電文のHTTP失敗・未対応構造・未対応コードは�
     assert.equal(docAttemptFail.httpStatus, 500);
 
     // 未対応構造は telegram_reception に記録
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 1);
     assert.deepEqual(
       receptions[0]!.adoptions.map((a) => a.adoptionResult),
@@ -3974,7 +4004,7 @@ test('23-6. 失敗分類に応じた通知レベル案（警報/問いかけ/非
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
 
     // 1. classifyNotificationLevel の完全一致検証
     assert.equal(classifyNotificationLevel({ scope: 'feed', errorKind: 'timeout' }), '警報（案）');
@@ -4029,7 +4059,7 @@ test('23-6. 失敗分類に応じた通知レベル案（警報/問いかけ/非
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -4041,7 +4071,7 @@ test('23-6. 失敗分類に応じた通知レベル案（警報/問いかけ/非
     await service.pollOnce('scheduled');
 
     // notification_output_history は 0 件のまま！
-    const notifications = listNotificationOutputHistory(db.connection);
+    const notifications = listNotificationOutputHistory(db.retained.connection);
     assert.equal(notifications.length, 0);
   } finally {
     await server.close();
@@ -4058,7 +4088,7 @@ test('23-7. 初期取得失敗時に待機終了後に失敗フィードだけ�
   let service: JmaXmlPollingService | null = null;
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
 
     let extraLStatus = 500; // 初回は extra_l のみ失敗
@@ -4106,7 +4136,7 @@ test('23-7. 初期取得失敗時に待機終了後に失敗フィードだけ�
     const initialTimeMs = new Date('2026-09-09T01:00:00.000Z').getTime();
     const scheduler = new ManualTimerScheduler(initialTimeMs);
 
-    service = new JmaXmlPollingService(db.connection, {
+    service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -4169,7 +4199,7 @@ test('23-8. 初期取得失敗の再試行が再度失敗した場合の指数�
   let service: JmaXmlPollingService | null = null;
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
 
     let extraLStatus = 500;
@@ -4217,7 +4247,7 @@ test('23-8. 初期取得失敗の再試行が再度失敗した場合の指数�
     const initialTimeMs = new Date('2026-09-09T01:00:00.000Z').getTime();
     const scheduler = new ManualTimerScheduler(initialTimeMs);
 
-    service = new JmaXmlPollingService(db.connection, {
+    service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -4272,7 +4302,7 @@ test('23-9. stop() 後の通常・再試行取得停止と、重複 start によ
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     const feedXml = createSampleAtomFeed([]);
 
     server.setHandler((_req, res) => {
@@ -4300,7 +4330,7 @@ test('23-9. stop() 後の通常・再試行取得停止と、重複 start によ
     const initialTimeMs = new Date('2026-09-09T01:00:00.000Z').getTime();
     const scheduler = new ManualTimerScheduler(initialTimeMs);
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -4339,7 +4369,7 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
   let service: JmaXmlPollingService | null = null;
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
     let regularLStatus = 500;
 
     server.setHandler((req, res) => {
@@ -4365,7 +4395,7 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
     };
 
     let currentTime = '2026-09-09T01:00:00.000Z';
-    service = new JmaXmlPollingService(db.connection, {
+    service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -4376,7 +4406,7 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
 
     // 1. regular_l のみ取得 (1回目失敗 -> attemptNo=1)
     await service.pollFeeds('recovery', ['regular_l']);
-    let attempts = listFetchAttempts(db.connection);
+    let attempts = listFetchAttempts(db.weather.connection);
     assert.equal(attempts.length, 1);
     assert.equal(attempts[0]!.attemptNo, 1);
     assert.equal(attempts[0]!.targetRef, 'regular_l');
@@ -4385,7 +4415,7 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
     // 2. 60秒後、2回目失敗 -> attemptNo=2
     currentTime = '2026-09-09T01:01:00.000Z';
     await service.pollFeeds('recovery', ['regular_l']);
-    attempts = listFetchAttempts(db.connection);
+    attempts = listFetchAttempts(db.weather.connection);
     assert.equal(attempts.length, 2);
     // listFetchAttempts は降順 (DESC) のため attempts[0] が最新
     assert.equal(attempts[0]!.attemptNo, 2);
@@ -4395,7 +4425,7 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
     regularLStatus = 200;
     currentTime = '2026-09-09T01:03:00.000Z';
     await service.pollFeeds('recovery', ['regular_l']);
-    attempts = listFetchAttempts(db.connection);
+    attempts = listFetchAttempts(db.weather.connection);
     assert.equal(attempts.length, 3);
     assert.equal(attempts[0]!.attemptNo, 3);
     assert.equal(attempts[0]!.outcome, 'success');
@@ -4403,7 +4433,7 @@ test('23-10. pollFeeds による型安全なフィード限定取得と attemptN
     // 4. その後の試行は attemptNo=1 に戻る
     currentTime = '2026-09-09T01:04:00.000Z';
     await service.pollFeeds('recovery', ['regular_l']);
-    attempts = listFetchAttempts(db.connection);
+    attempts = listFetchAttempts(db.weather.connection);
     assert.equal(attempts.length, 4);
     assert.equal(attempts[0]!.attemptNo, 1);
   } finally {
@@ -4478,7 +4508,7 @@ test('取得前電文種別フィルタ: 対象電文のみ個別GET・保存・
   const server = await createTestHttpServer();
 
   try {
-    const db = initializeDatabase({ databasePath, migrationsDirectory });
+    const db = initializeTestDatabases({ databasePath, migrationsDirectory });
 
     // 対象電文1: VPWW55 (対象会場: 江東区 1310800) -> east会場で「警報・注意報として解析済み」
     const targetDocPath1 = '/data/20260909000000_0_VPWW55_130000.xml';
@@ -4636,7 +4666,7 @@ test('取得前電文種別フィルタ: 対象電文のみ個別GET・保存・
       return fetch(input, init);
     };
 
-    const service = new JmaXmlPollingService(db.connection, {
+    const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
@@ -4669,7 +4699,7 @@ test('取得前電文種別フィルタ: 対象電文のみ個別GET・保存・
     assert.equal(server.requestCounts.get(unextractableDocPath) ?? 0, 0);
 
     // AC2: fetch_attempt の件数と内容（xml_document は対象4件のみ）
-    const attempts = listFetchAttempts(db.connection);
+    const attempts = listFetchAttempts(db.weather.connection);
     const docAttempts = attempts.filter((a) => a.sourceKind === 'xml_document');
     assert.equal(docAttempts.length, 4);
     const docAttemptUrls = docAttempts.map((a) => a.requestUrl).sort();
@@ -4677,7 +4707,7 @@ test('取得前電文種別フィルタ: 対象電文のみ個別GET・保存・
     assert.deepEqual(docAttemptUrls, expectedDocUrls);
 
     // AC2: telegram_reception は成功した対象3件のみ
-    const receptions = listTelegramReceptions(db.connection);
+    const receptions = listTelegramReceptions(db.weather.connection);
     assert.equal(receptions.length, 3);
     const receptionUrls = receptions.map((r) => r.documentUrl).sort();
     const expectedReceptionUrls = [targetDocUrl1, targetDocUrl2, targetDocUrl3].sort();
@@ -4724,7 +4754,7 @@ test('取得前電文種別フィルタ: 全トリガ(scheduled, manual, initial
     const server = await createTestHttpServer();
 
     try {
-      const db = initializeDatabase({ databasePath, migrationsDirectory });
+      const db = initializeTestDatabases({ databasePath, migrationsDirectory });
 
       const targetDocPath = `/data/20260909000000_0_VPWW55_130000_${trigger}.xml`;
       const targetDocUrl = `${server.baseUrl}${targetDocPath}`;
@@ -4801,7 +4831,7 @@ test('取得前電文種別フィルタ: 全トリガ(scheduled, manual, initial
         return fetch(input, init);
       };
 
-      const service = new JmaXmlPollingService(db.connection, {
+      const service = new JmaXmlPollingService(db.weather.connection, {
         venueRegistry: testVenueRegistry,
         freshnessPolicy: defaultXmlFreshnessPolicy,
         fetchFn: customFetch,
@@ -4854,13 +4884,13 @@ test('取得前電文種別フィルタ: 全トリガ(scheduled, manual, initial
       assert.equal(server.requestCounts.get(targetDocPath), 1);
 
       // 6. DB記録の検証: fetch_attempt（xml_document）および telegram_reception は対象URLの1件のみ
-      const attempts = listFetchAttempts(db.connection);
+      const attempts = listFetchAttempts(db.weather.connection);
       const docAttempts = attempts.filter((a) => a.sourceKind === 'xml_document');
       assert.equal(docAttempts.length, 1);
       assert.equal(docAttempts[0]?.requestUrl, targetDocUrl);
       assert.equal(docAttempts[0]?.outcome, 'success');
 
-      const receptions = listTelegramReceptions(db.connection);
+      const receptions = listTelegramReceptions(db.weather.connection);
       assert.equal(receptions.length, 1);
       assert.equal(receptions[0]?.documentUrl, targetDocUrl);
       assert.equal(receptions[0]?.telegramType, 'VPWW55');

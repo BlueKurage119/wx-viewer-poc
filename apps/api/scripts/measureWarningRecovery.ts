@@ -3,7 +3,8 @@ import { cpus, freemem, totalmem, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
-import { initializeDatabase } from '../src/database/index.js';
+import { initializeDatabases, type DatabasePairConfig } from '../src/database/index.js';
+import { loadVenueConfig } from '../src/config/venueConfigLoader.js';
 import { startServer } from '../src/server.js';
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { applyWarningCurrentReception } from '../src/polling/jmaWarningCurrentProcessor.js';
@@ -26,16 +27,29 @@ const migrationsDirectory = join(apiRoot, 'migrations');
 const directory = mkdtempSync(join(tmpdir(), 'wx-recovery-benchmark-'));
 const databasePath = join(directory, 'benchmark.sqlite3');
 const port = 32000 + Math.floor(Math.random() * 1000);
-const context = initializeDatabase({ databasePath, migrationsDirectory });
+const config: DatabasePairConfig = {
+  weather: {
+    databasePath,
+    migrationsDirectory: join(migrationsDirectory, 'weather'),
+    role: 'weather',
+  },
+  retained: {
+    databasePath: join(directory, 'retained.sqlite3'),
+    migrationsDirectory: join(migrationsDirectory, 'retained'),
+    role: 'retained',
+  },
+};
+const venueRegistry = loadVenueConfig().registry;
+const context = initializeDatabases(config);
 
 const rawBodyTemplate = `<?xml version="1.0"?><Report xmlns="http://xml.kishou.go.jp/jmaxml1/"><Control><Title>気象警報・注意報</Title><DateTime>__DATETIME__</DateTime><Status>通常</Status><EditorialOffice>気象庁本庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control><Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都気象警報・注意報</Title><ReportDateTime>__DATETIME__</ReportDateTime><TargetDateTime>__DATETIME__</TargetDateTime><EventID>BENCH</EventID><InfoType>発表</InfoType><Serial>1</Serial><InfoKind>気象警報・注意報</InfoKind><InfoKindVersion>1.0_1</InfoKindVersion><Headline><Text>benchmark</Text></Headline></Head><Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/"><Warning type="気象警報・注意報（市町村等）"><Item><Area><Name>__AREA_NAME__</Name><Code>__AREA_CODE__</Code></Area><Kind><Name>大雨警報</Name><Code>03</Code><Status>発表</Status></Kind></Item></Warning></Body></Report>`;
-const insert = context.connection.prepare(`INSERT INTO telegram_reception (
+const insert = context.weather.connection.prepare(`INSERT INTO telegram_reception (
   fetch_attempt_id, feed_kind, feed_entry_id, document_url, telegram_type, title,
   control_status, info_type, event_id, serial, control_datetime, report_datetime,
   target_datetime, received_at, raw_body, body_bytes, content_hash
 ) VALUES (NULL, 'extra', ?, ?, 'VPWS50', 'benchmark', 'normal', '発表', 'BENCH', '1',
   ?, ?, ?, ?, ?, ?, ?)`);
-context.connection.transaction(() => {
+context.weather.connection.transaction(() => {
   for (let i = 0; i < rowCount; i += 1) {
     const dateTime = new Date(Date.UTC(2026, 8, 1) + i * 1000).toISOString();
     const east = i % 2 === 0;
@@ -61,14 +75,14 @@ context.connection.transaction(() => {
 
 const dumpCurrent = () =>
   JSON.stringify({
-    streams: context.connection
+    streams: context.weather.connection
       .prepare(
         `SELECT prefecture_code, area_code, control_status, telegram_type,
          report_datetime, control_datetime, received_at, content_hash
          FROM warning_current_stream ORDER BY prefecture_code, area_code, control_status, telegram_type`,
       )
       .all(),
-    snapshots: context.connection
+    snapshots: context.weather.connection
       .prepare(
         `SELECT area_code, area_name, control_status, info_type, event_id, report_datetime,
          control_datetime, source, issued_at, valid_at, valid_from, valid_to, fetched_at,
@@ -76,7 +90,7 @@ const dumpCurrent = () =>
          FROM warning_current_snapshot ORDER BY area_code, control_status`,
       )
       .all(),
-    items: context.connection
+    items: context.weather.connection
       .prepare(
         `SELECT s.area_code, s.control_status, i.sequence, i.kind_code, i.kind_name,
          i.kind_status, i.last_kind_code, i.last_kind_name, i.significancy_code,
@@ -93,8 +107,8 @@ const baselineStartedAt = performance.now();
 let baselineParsedReceptionCount = 0;
 let singleXmlParseReduceMaxMs = 0;
 for (const venueId of ['east', 'trc'] as const) {
-  const venue = resolveVenueWarningContext(venueId);
-  const ids = context.connection
+  const venue = resolveVenueWarningContext(venueRegistry, venueRegistry.resolveVenueId(venueId)!);
+  const ids = context.weather.connection
     .prepare(
       `SELECT id FROM telegram_reception
        WHERE raw_body IS NOT NULL AND report_datetime IS NOT NULL AND control_datetime IS NOT NULL
@@ -102,12 +116,17 @@ for (const venueId of ['east', 'trc'] as const) {
     )
     .all() as Array<{ id: number }>;
   for (const { id } of ids) {
-    const reception = findTelegramReceptionById(context.connection, id)!;
+    const reception = findTelegramReceptionById(context.weather.connection, id)!;
     baselineParsedReceptionCount += 1;
     const singleStartedAt = performance.now();
     const parsed = parseWarningTelegram(reception.rawBody!, reception, venue.targetArea);
     if (parsed.ok)
-      applyWarningCurrentReception(context.connection, reception, parsed.value, venue.targetArea);
+      applyWarningCurrentReception(
+        context.weather.connection,
+        reception,
+        parsed.value,
+        venue.targetArea,
+      );
     singleXmlParseReduceMaxMs = Math.max(
       singleXmlParseReduceMaxMs,
       performance.now() - singleStartedAt,
@@ -117,18 +136,21 @@ for (const venueId of ['east', 'trc'] as const) {
 const baselineWallMs = performance.now() - baselineStartedAt;
 const baselineDump = dumpCurrent();
 for (const venueId of ['east', 'trc'] as const) {
-  const target = resolveVenueWarningContext(venueId).targetArea;
+  const target = resolveVenueWarningContext(
+    venueRegistry,
+    venueRegistry.resolveVenueId(venueId)!,
+  ).targetArea;
   for (const status of ['normal', 'training', 'test'] as const) {
     deleteWarningCurrentStreams(
-      context.connection,
+      context.weather.connection,
       target.prefectureCode,
       target.municipalCode,
       status,
     );
-    deleteWarningCurrentSnapshot(context.connection, target.municipalCode, status);
+    deleteWarningCurrentSnapshot(context.weather.connection, target.municipalCode, status);
   }
 }
-const receptionDistribution = context.connection
+const receptionDistribution = context.weather.connection
   .prepare(
     `SELECT control_status AS controlStatus, telegram_type AS telegramType, COUNT(*) AS count
      FROM telegram_reception GROUP BY control_status, telegram_type ORDER BY control_status, telegram_type`,
@@ -142,7 +164,9 @@ let optimizedYieldCount = 0;
 let completed = false;
 const startedAt = performance.now();
 const startedPromise = startServer({
-  config: { databasePath, migrationsDirectory },
+  config,
+  nowcastCacheRoot: join(directory, 'cache/nowcast'),
+  kikikuruCacheRoot: join(directory, 'cache/kikikuru'),
   port,
   enablePolling: false,
   recoveryInternals: {
@@ -197,16 +221,16 @@ try {
   }
   const server = await startedPromise;
   await server.close();
-  const verify = initializeDatabase({ databasePath, migrationsDirectory });
+  const verify = initializeDatabases(config);
   const optimizedDump = JSON.stringify({
-    streams: verify.connection
+    streams: verify.weather.connection
       .prepare(
         `SELECT prefecture_code, area_code, control_status, telegram_type,
          report_datetime, control_datetime, received_at, content_hash
          FROM warning_current_stream ORDER BY prefecture_code, area_code, control_status, telegram_type`,
       )
       .all(),
-    snapshots: verify.connection
+    snapshots: verify.weather.connection
       .prepare(
         `SELECT area_code, area_name, control_status, info_type, event_id, report_datetime,
          control_datetime, source, issued_at, valid_at, valid_from, valid_to, fetched_at,
@@ -214,7 +238,7 @@ try {
          FROM warning_current_snapshot ORDER BY area_code, control_status`,
       )
       .all(),
-    items: verify.connection
+    items: verify.weather.connection
       .prepare(
         `SELECT s.area_code, s.control_status, i.sequence, i.kind_code, i.kind_name,
          i.kind_status, i.last_kind_code, i.last_kind_name, i.significancy_code,

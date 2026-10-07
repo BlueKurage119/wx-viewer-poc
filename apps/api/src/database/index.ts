@@ -38,3 +38,10 @@ export function initializeDatabase(
     throw error;
   }
 }
+
+export { initializeDatabases, type DatabasePairContext } from './pair.js';
+export {
+  resolveDatabasePairConfig,
+  type DatabasePairConfig,
+  type RoleDatabaseConfig,
+} from './pairConfig.js';

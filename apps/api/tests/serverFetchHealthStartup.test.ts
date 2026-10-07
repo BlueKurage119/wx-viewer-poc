@@ -1,3 +1,8 @@
+import {
+  initializeTestDatabases,
+  readTestDatabases,
+  createTestServerDatabaseOptions,
+} from './helpers/databasePair.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -5,7 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
-import { initializeDatabase } from '../src/database/index.js';
+
 import { recordFetchAttempt, listNotificationOutputHistory } from '../src/repositories/index.js';
 import { startServer } from '../src/server.js';
 import { createAlwaysOnTestPollingSchedule } from './helpers/pollingSchedule.js';
@@ -41,9 +46,9 @@ for (const [jstTime, fixedNow] of [
       // 残っている。この取得元は下記の dummy adapter が何もしないため、実際の
       // ポーリング活動による fetch_attempt 行の混入がなく、判定結果を汚染しない。
       {
-        const seedDb = initializeDatabase({ databasePath, migrationsDirectory });
+        const seedDb = initializeTestDatabases({ databasePath, migrationsDirectory });
         for (let i = 0; i < 5; i++) {
-          recordFetchAttempt(seedDb.connection, {
+          recordFetchAttempt(seedDb.weather.connection, {
             sourceKind: 'risk_target_times',
             targetRef: null,
             requestUrl: 'https://example.com/risk_target_times',
@@ -74,7 +79,7 @@ for (const [jstTime, fixedNow] of [
       });
 
       const server = await startServer({
-        config: { databasePath, migrationsDirectory },
+        ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
         port: 0,
         enablePolling: true,
         pollingSchedule: createAlwaysOnTestPollingSchedule(),
@@ -104,9 +109,11 @@ for (const [jstTime, fixedNow] of [
 
         // startServer() は接続をテストへ公開しないため、同じDBファイルへ別接続で
         // 検証する(SQLiteは複数接続からの読み取りを許す。#29 AC8 が前提とする性質と同じ)。
-        const verifyDb = initializeDatabase({ databasePath, migrationsDirectory });
+        const verifyDb = readTestDatabases({ databasePath, migrationsDirectory });
         try {
-          const history = listNotificationOutputHistory(verifyDb.connection, { origin: 'system' });
+          const history = listNotificationOutputHistory(verifyDb.retained.connection, {
+            origin: 'system',
+          });
           const kikikuruNotification = history.find((h) =>
             (JSON.parse(h.relatedRefsJson) as Array<{ type: string; ref: string }>).some(
               (ref) => ref.ref === 'kikikuru_target_times',

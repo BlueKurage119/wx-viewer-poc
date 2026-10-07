@@ -1,3 +1,7 @@
+import {
+  createTestServerDatabaseOptions,
+  createTestServerProcessEnv,
+} from './helpers/databasePair.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -86,10 +90,10 @@ async function captureStartup(options: Parameters<typeof startServer>[0]): Promi
   try {
     const server = await startServer({
       ...options,
-      config: {
+      ...createTestServerDatabaseOptions({
         databasePath: path.join(directory, 'test.sqlite3'),
         migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
-      },
+      }),
       port: 0,
       enablePolling: false,
     });
@@ -152,10 +156,10 @@ test('不正なローカル設定はDB初期化と待受より前に拒否する
   try {
     await assert.rejects(
       startServer({
-        config: {
+        ...createTestServerDatabaseOptions({
           databasePath,
           migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
-        },
+        }),
         port: 0,
         enablePolling: false,
       }),
@@ -178,14 +182,24 @@ test('実プロセスの不正設定はDB生成と待受より前に失敗する
   try {
     const child = spawn(
       process.execPath,
-      ['--import', 'tsx', '--import', './tests/helpers/pollingConfigPreload.mjs', 'src/server.ts'],
+      [
+        '--import',
+        import.meta.resolve('tsx'),
+        '--import',
+        new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
+        new URL('../src/server.ts', import.meta.url).pathname,
+      ],
       {
-        cwd: path.join(import.meta.dirname, '..'),
+        cwd: directory,
         env: {
-          ...process.env,
+          ...createTestServerProcessEnv({
+            databasePath,
+            migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
+          }),
           NODE_ENV: 'development',
           DISABLE_POLLING: 'true',
-          WX_VIEWER_DB_PATH: databasePath,
+          WX_VIEWER_WEATHER_DB_PATH: databasePath,
+          WX_VIEWER_RETAINED_DB_PATH: `${databasePath}.retained`,
           WX_TEST_LOCAL_POLLING_YAML: 'unknown: 1',
           WX_TEST_UPSTREAM_MARKER: path.join(directory, 'upstream-called'),
         },
@@ -213,14 +227,24 @@ test('実プロセスも同じ形式の成功ログを一度表示する', async
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'polling-child-success-'));
   const child = spawn(
     process.execPath,
-    ['--import', 'tsx', '--import', './tests/helpers/pollingConfigPreload.mjs', 'src/server.ts'],
+    [
+      '--import',
+      import.meta.resolve('tsx'),
+      '--import',
+      new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
+      new URL('../src/server.ts', import.meta.url).pathname,
+    ],
     {
-      cwd: path.join(import.meta.dirname, '..'),
+      cwd: directory,
       env: {
-        ...process.env,
+        ...createTestServerProcessEnv({
+          databasePath: path.join(directory, 'test.sqlite3'),
+          migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
+        }),
         NODE_ENV: 'development',
         DISABLE_POLLING: 'true',
-        WX_VIEWER_DB_PATH: path.join(directory, 'test.sqlite3'),
+        WX_VIEWER_WEATHER_DB_PATH: path.join(directory, 'test.sqlite3'),
+        WX_VIEWER_RETAINED_DB_PATH: path.join(directory, 'retained.sqlite3'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },

@@ -1,3 +1,7 @@
+import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+} from './helpers/databasePair.js';
 import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +15,7 @@ import {
   getNextEnabledAt,
   type PollingScheduleConfig,
 } from '../src/config/index.js';
-import { initializeDatabase } from '../src/database/index.js';
+
 import { NowcastService, JmaXmlPollingService, createImageServices } from '../src/polling/index.js';
 import { FeedBackoffManager } from '../src/polling/retryBackoff.js';
 import { startServer } from '../src/server.js';
@@ -34,7 +38,7 @@ const n2SyntheticJson = fs.readFileSync(
 function setupTestDb() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acceptance-test-'));
   const databasePath = path.join(tmpDir, 'test.sqlite3');
-  const database = initializeDatabase({
+  const database = initializeTestDatabases({
     databasePath,
     migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
   });
@@ -235,10 +239,10 @@ test('注入された不正な設定は DB 初期化・HTTP 待受より前に�
     await assert.rejects(
       () =>
         startServer({
-          config: {
+          ...createTestServerDatabaseOptions({
             databasePath,
             migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
-          },
+          }),
           port: 0,
           enablePolling: false,
           pollingSchedule: invalidSchedule,
@@ -275,7 +279,7 @@ test('受け入れ条件 9: 閲覧readCatalog複数回呼出で索引HTTP不変�
 
     const currentTime = new Date('2026-09-07T03:00:00.000Z');
     const imageServices = createImageServices({
-      connection: database.connection,
+      connection: database.weather.connection,
       nowcastCacheRoot: tmpDir,
       kikikuruCacheRoot: tmpDir,
       schedule: createTestPollingSchedule(),
@@ -323,7 +327,7 @@ test('受け入れ条件 11: 実インスタンスでのXMLおよび索引の鮮
     const clock = () => currentTimeIso;
 
     // --- XML 実インスタンス検証 ---
-    const xmlService = new JmaXmlPollingService(database.connection, {
+    const xmlService = new JmaXmlPollingService(database.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: { staleAfterSeconds: 300 },
       clock,
@@ -399,7 +403,7 @@ test('受け入れ条件 11: 実インスタンスでのXMLおよび索引の鮮
     // --- 索引 (NowcastService) 実インスタンス検証 ---
     let nowcastFetchSuccess = true;
     const defaultSchedule = createTestPollingSchedule();
-    const nowcastService = new NowcastService(database.connection, {
+    const nowcastService = new NowcastService(database.weather.connection, {
       cacheRoot: tmpDir,
       allowedZooms: [10],
       freshnessPolicy: { staleAfterSeconds: 300 },
@@ -503,10 +507,10 @@ test('受け入れ条件 15: startServer経由のimageServices結線、日中/�
       },
     };
     const dayServer = await startServer({
-      config: {
+      ...createTestServerDatabaseOptions({
         databasePath,
         migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
-      },
+      }),
       port: 0,
       enablePolling: true,
       pollingSchedule: dayScheduleWithCustomFreshness,
@@ -529,10 +533,10 @@ test('受け入れ条件 15: startServer経由のimageServices結線、日中/�
     // 2. 夜間時刻（22:00 JST）での起動
     clockTime = new Date('2026-09-07T22:00:00+09:00');
     const nightServer = await startServer({
-      config: {
+      ...createTestServerDatabaseOptions({
         databasePath,
         migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
-      },
+      }),
       port: 0,
       enablePolling: true,
       pollingSchedule: baseSchedule,
@@ -566,10 +570,10 @@ test('受け入れ条件 15: startServer経由のimageServices結線、日中/�
       ),
     };
     const customNightServer = await startServer({
-      config: {
+      ...createTestServerDatabaseOptions({
         databasePath,
         migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
-      },
+      }),
       port: 0,
       enablePolling: true,
       pollingSchedule: customNightSchedule,
@@ -588,10 +592,10 @@ test('受け入れ条件 15: startServer経由のimageServices結線、日中/�
 
     // 4. enablePolling: false での無通信起動
     const disabledServer = await startServer({
-      config: {
+      ...createTestServerDatabaseOptions({
         databasePath,
         migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
-      },
+      }),
       port: 0,
       enablePolling: false,
       pollingSchedule: baseSchedule,

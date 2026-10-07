@@ -1,3 +1,8 @@
+import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+  createTemporaryTestDatabaseFixture,
+} from './helpers/databasePair.js';
 import { testTerminalRegistry } from './helpers/venueConfigPreload.js';
 import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
@@ -13,7 +18,7 @@ import type {
   BulletinDto as BulletinDetail,
   VenueId,
 } from '@wx-viewer-poc/shared';
-import { initializeDatabase } from '../src/database/index.js';
+
 import { createApp } from '../src/app.js';
 import { createWeatherApiService } from '../src/services/weatherApiService.js';
 import { saveAreaTimeseriesSnapshot } from '../src/repositories/areaTimeseriesRepository.js';
@@ -131,17 +136,17 @@ function createAvailablePollingStatus(): JmaXmlPollingStatus {
 function createTestApp(options?: {
   pollingStatus?: JmaXmlPollingStatus;
   nowIso?: string;
-  onInitDb?: (db: ReturnType<typeof initializeDatabase>) => void;
+  onInitDb?: (db: ReturnType<typeof initializeTestDatabases>) => void;
   resolveAmedasTarget?: (venueId: VenueId) => AmedasTarget;
 }) {
-  const db = initializeDatabase({ databasePath: ':memory:', migrationsDirectory });
+  const db = initializeTestDatabases({ databasePath: ':memory:', migrationsDirectory });
   if (options?.onInitDb) {
     options.onInitDb(db);
   }
   const nowIso = options?.nowIso ?? '2026-09-14T06:30:00.000Z';
   const weatherApi = createWeatherApiService({
     venueRegistry: testVenueRegistry,
-    connection: db.connection,
+    connection: db.weather.connection,
     getPollingStatus: () => options?.pollingStatus ?? createAvailablePollingStatus(),
     now: () => nowIso,
     resolveAmedasTarget: options?.resolveAmedasTarget,
@@ -157,7 +162,7 @@ test('B1 端末と対象解決: 3 GET で east / trc の端末解決。他区域
   const { db, app } = createTestApp();
 
   // #36 地域時系列予報: 東京地方 130010 / 気温 44132 (east/trc共通)
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     stationCode: '44132',
@@ -206,7 +211,7 @@ test('B1 端末と対象解決: 3 GET で east / trc の端末解決。他区域
   });
 
   // sentinel: 新潟地方 150010
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     areaCode: '150010',
     areaName: '新潟地方',
     stationCode: '54232',
@@ -234,7 +239,7 @@ test('B1 端末と対象解決: 3 GET で east / trc の端末解決。他区域
   });
 
   // #37 アメダス: east=44136(江戸川臨海), trc=44166(羽田), sentinel=44132(東京)
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44136',
     stationName: '江戸川臨海',
     metadata: {
@@ -260,7 +265,7 @@ test('B1 端末と対象解決: 3 GET で east / trc の端末解決。他区域
     ],
   });
 
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44132',
     stationName: '東京',
     metadata: {
@@ -290,7 +295,7 @@ test('B1 端末と対象解決: 3 GET で east / trc の端末解決。他区域
   // east: includedAreaCodes = ['1310800', '130012', '130010']
   // trc: includedAreaCodes = ['1311100', '130011', '130010']
   // sentinel: '1500000' (新潟)
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'bulletin-east-only',
     controlStatus: 'normal',
     infoType: '発表',
@@ -323,7 +328,7 @@ test('B1 端末と対象解決: 3 GET で east / trc の端末解決。他区域
     ],
   });
 
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'bulletin-trc-only',
     controlStatus: 'normal',
     infoType: '発表',
@@ -356,7 +361,7 @@ test('B1 端末と対象解決: 3 GET で east / trc の端末解決。他区域
     ],
   });
 
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'bulletin-sentinel',
     controlStatus: 'normal',
     infoType: '発表',
@@ -503,7 +508,7 @@ test('B3 controlStatus 分離: #36/#38 で normal/training/test 領域が完全�
   const statuses: ControlStatus[] = ['normal', 'training', 'test'];
 
   for (const cs of statuses) {
-    saveAreaTimeseriesSnapshot(db.connection, {
+    saveAreaTimeseriesSnapshot(db.weather.connection, {
       areaCode: '130010',
       areaName: '東京地方',
       stationCode: '44132',
@@ -551,7 +556,7 @@ test('B3 controlStatus 分離: #36/#38 で normal/training/test 領域が完全�
       ],
     });
 
-    saveBosaiBulletin(db.connection, {
+    saveBosaiBulletin(db.weather.connection, {
       eventId: `bulletin-${cs}`,
       controlStatus: cs,
       infoType: '発表',
@@ -616,7 +621,7 @@ test('B3b #37 controlStatus 非対応: training/test 指定時は常に data: nu
   const { db, app } = createTestApp();
 
   // normal で観測値を保存
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44136',
     stationName: '江戸川臨海',
     metadata: {
@@ -721,7 +726,7 @@ test('B4 未取得・正常空・保持値: snapshotなしは unavailable、明�
   assert.equal(res37NoSnap.body.metadata.issuedAt, null);
 
   // 2. 明細0件の snapshot -> data が存在して空配列
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     stationCode: '44132',
@@ -748,7 +753,7 @@ test('B4 未取得・正常空・保持値: snapshotなしは unavailable、明�
     values: [],
   });
 
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44136',
     stationName: '江戸川臨海',
     metadata: {
@@ -785,7 +790,7 @@ test('B4 未取得・正常空・保持値: snapshotなしは unavailable、明�
 
   // 3. 保存 availability が stale の snapshot -> 保持値と出所時刻をそのまま返し stale
   // まず available で保持値を保存
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     stationCode: '44132',
@@ -834,7 +839,7 @@ test('B4 未取得・正常空・保持値: snapshotなしは unavailable、明�
   });
 
   // stale で更新（明細は再利用される）
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     stationCode: '44132',
@@ -862,7 +867,7 @@ test('B4 未取得・正常空・保持値: snapshotなしは unavailable、明�
   });
 
   // アメダスも同様に available で保存してから stale で更新
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44136',
     stationName: '江戸川臨海',
     metadata: {
@@ -888,7 +893,7 @@ test('B4 未取得・正常空・保持値: snapshotなしは unavailable、明�
     ],
   });
 
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44136',
     stationName: '江戸川臨海',
     metadata: {
@@ -928,7 +933,7 @@ test('B4 未取得・正常空・保持値: snapshotなしは unavailable、明�
 test('B5 #36 ブロック分離: region-3hour と temperature-3hour が同じ timeId・開始時刻を持っても分離され、temperature-3hour は duration: null かつ timeFrom === timeTo', async () => {
   const { db, app } = createTestApp();
 
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     stationCode: '44132',
@@ -1039,7 +1044,7 @@ test('B5 #36 ブロック分離: region-3hour と temperature-3hour が同じ ti
 test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, temperature の各項目が完全一致し置換されない', async () => {
   const { db, app } = createTestApp();
 
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     stationCode: '44132',
@@ -1185,7 +1190,7 @@ test('B6 #36 値の完全一致: weather, wind_direction, wind_speed_rank, tempe
 
 test('B6追加 #229: 空風向とconditionをRESTで保持する', async () => {
   const { db, app } = createTestApp();
-  const saved = saveAreaTimeseriesSnapshot(db.connection, {
+  const saved = saveAreaTimeseriesSnapshot(db.weather.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     stationCode: '44132',
@@ -1249,7 +1254,7 @@ test('B6追加 #229: 空風向とconditionをRESTで保持する', async () => {
       sequence: 1,
     },
   ]);
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     ...saved,
     telegram: { ...saved.telegram, controlStatus: 'training' },
     values: saved.values.map((value) => ({ ...value, valueText: '北', condition: '強く' })),
@@ -1266,7 +1271,7 @@ test('B6追加 #229: 空風向とconditionをRESTで保持する', async () => {
       condition: '強く',
     })),
   );
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     ...saved,
     metadata: { ...saved.metadata, availability: 'stale' },
     values: [],
@@ -1310,7 +1315,7 @@ test('B7 #36 capabilities: data: null でも capabilities が返り、unsupporte
 test('B8 #37 公開要素の限定: 公開6要素以外(maxTemp, minTemp, maxTempTime, sun1h, snow, pressure等)はDTOに現れず、quality_flag, is_estimated も存在しない', async () => {
   const { db, app } = createTestApp();
 
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44136',
     stationName: '江戸川臨海',
     metadata: {
@@ -1404,7 +1409,7 @@ test('B9 #37 非対応要素と欠測の区別: trc では humidity キーがな
   const { db, app } = createTestApp();
 
   // east (44136, elems='11112010'): humidity は 1 で対応。temp は欠測 (null)
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44136',
     stationName: '江戸川臨海',
     metadata: {
@@ -1455,7 +1460,7 @@ test('B9 #37 非対応要素と欠測の区別: trc では humidity キーがな
   });
 
   // trc (44166, elems='11110000'): humidity は 0 で非対応（保存行なし）
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44166',
     stationName: '羽田',
     metadata: {
@@ -1512,7 +1517,7 @@ test('B9 #37 非対応要素と欠測の区別: trc では humidity キーがな
     resolveAmedasTarget: () => syntheticTarget,
   });
 
-  saveAmedasSnapshot(dbSynth.connection, {
+  saveAmedasSnapshot(dbSynth.weather.connection, {
     stationCode: '44136',
     stationName: '合成地点',
     metadata: {
@@ -1560,7 +1565,7 @@ test('#37 複数観測時点: observations が observedAt 昇順で返り、late
   const { db, app } = createTestApp();
 
   // 3つの観測時点（05:00, 05:30, 06:00）を持つ snapshot を保存
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44136',
     stationName: '江戸川臨海',
     metadata: {
@@ -1703,7 +1708,7 @@ test('B10 #37 鮮度: XMLフィードが unavailable でも #37 の鮮度は変�
   });
 
   // #36 snapshot (2026-09-14T06:00:00.000Z)
-  saveAreaTimeseriesSnapshot(db.connection, {
+  saveAreaTimeseriesSnapshot(db.weather.connection, {
     areaCode: '130010',
     areaName: '東京地方',
     stationCode: '44132',
@@ -1740,7 +1745,7 @@ test('B10 #37 鮮度: XMLフィードが unavailable でも #37 の鮮度は変�
   });
 
   // #37 snapshot (夜間停止相当で観測時刻が昔)
-  saveAmedasSnapshot(db.connection, {
+  saveAmedasSnapshot(db.weather.connection, {
     stationCode: '44136',
     stationName: '江戸川臨海',
     metadata: {
@@ -1788,7 +1793,7 @@ test('B11 #38 統合配列と区別: VPBS50・VPHW50・VPHW51 が単一配列で
   const { db, app } = createTestApp();
 
   // 1. source URL から VPBS50
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'event-vpbs',
     controlStatus: 'normal',
     infoType: '発表',
@@ -1822,7 +1827,7 @@ test('B11 #38 統合配列と区別: VPBS50・VPHW50・VPHW51 が単一配列で
   });
 
   // 2. source URL から VPHW50
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'event-vphw50',
     controlStatus: 'normal',
     infoType: '発表',
@@ -1856,7 +1861,7 @@ test('B11 #38 統合配列と区別: VPBS50・VPHW50・VPHW51 が単一配列で
   });
 
   // 3. source が解決不能で eventId が VPHW51:130010
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'VPHW51:130010',
     controlStatus: 'normal',
     infoType: '発表',
@@ -1890,7 +1895,7 @@ test('B11 #38 統合配列と区別: VPBS50・VPHW50・VPHW51 が単一配列で
   });
 
   // 4. source も eventId も推測不能なもの -> telegramType: null (タイトルから推測しない)
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'custom-event-99',
     controlStatus: 'normal',
     infoType: '発表',
@@ -1955,7 +1960,7 @@ test('B12 #38 isDirect / matchedAreaCodes: 会場市区町村等コード一致�
   const { db, app } = createTestApp();
 
   // 1. 江東区 (1310800) + 東京地方 (130010) を含む速報
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'event-koto',
     controlStatus: 'normal',
     infoType: '発表',
@@ -1996,7 +2001,7 @@ test('B12 #38 isDirect / matchedAreaCodes: 会場市区町村等コード一致�
   });
 
   // 2. 東京地方 (130010) のみを含む速報 (広域)
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'event-tokyo-broad',
     controlStatus: 'normal',
     infoType: '発表',
@@ -2030,7 +2035,7 @@ test('B12 #38 isDirect / matchedAreaCodes: 会場市区町村等コード一致�
   });
 
   // 3. 大田区 (1311100) のみを含む速報
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'event-ota',
     controlStatus: 'normal',
     infoType: '発表',
@@ -2102,7 +2107,7 @@ test('B12 #38 isDirect / matchedAreaCodes: 会場市区町村等コード一致�
   assert.deepEqual(trcBOta.matchedAreaCodes, ['1311100']);
 
   // DB スキーマ確認: bosai_bulletin テーブルに is_direct や direct 等の列が追加されていないこと
-  const columns = db.connection.prepare("PRAGMA table_info('bosai_bulletin')").all() as {
+  const columns = db.weather.connection.prepare("PRAGMA table_info('bosai_bulletin')").all() as {
     name: string;
   }[];
   const columnNames = columns.map((c) => c.name);
@@ -2118,7 +2123,7 @@ test('B13 #38 目撃・並存・期限: VPHW51 の hasSighting boolean, VPHW50/V
   const { db, app } = createTestApp();
 
   // 1. VPHW50 (hasSighting: null)
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'VPHW50:130010',
     controlStatus: 'normal',
     infoType: '発表',
@@ -2152,7 +2157,7 @@ test('B13 #38 目撃・並存・期限: VPHW51 の hasSighting boolean, VPHW50/V
   });
 
   // 2. VPHW51 (同一細分区域 130010 に並存, hasSighting: true)
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'VPHW51:130010',
     controlStatus: 'normal',
     infoType: '発表',
@@ -2186,7 +2191,7 @@ test('B13 #38 目撃・並存・期限: VPHW51 の hasSighting boolean, VPHW50/V
   });
 
   // 3. VPBS50 (validAt: null, validTo: null)
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'event-vpbs50',
     controlStatus: 'normal',
     infoType: '発表',
@@ -2220,7 +2225,7 @@ test('B13 #38 目撃・並存・期限: VPHW51 の hasSighting boolean, VPHW50/V
   });
 
   // 4. VPHW51 (目撃なし, hasSighting: false)
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'VPHW51:130010:no-sighting',
     controlStatus: 'normal',
     infoType: '発表',
@@ -2298,7 +2303,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
   assert.equal(resEmpty.body.availability, 'available');
 
   // 2. 行が存在する状態でフィード片側 unavailable -> stale
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'event-1',
     controlStatus: 'normal',
     infoType: '発表',
@@ -2347,7 +2352,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
     terminalRegistry: testTerminalRegistry,
     weatherApi: createWeatherApiService({
       venueRegistry: testVenueRegistry,
-      connection: db.connection,
+      connection: db.weather.connection,
       getPollingStatus: () => stalePollingStatus,
       now: () => '2026-09-14T06:30:00.000Z',
     }),
@@ -2360,7 +2365,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
   assert.equal(resStaleFeed.body.availability, 'stale');
 
   // 3. 保存 availability が stale の行を1件混ぜると一覧全体も stale
-  saveBosaiBulletin(db.connection, {
+  saveBosaiBulletin(db.weather.connection, {
     eventId: 'event-stale-row',
     controlStatus: 'normal',
     infoType: '発表',
@@ -2402,7 +2407,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
   // 4. 解析失敗の検証
   // 新しい DB で正常 available な状態を作成
   const { db: db2, app: app2 } = createTestApp();
-  saveBosaiBulletin(db2.connection, {
+  saveBosaiBulletin(db2.weather.connection, {
     eventId: 'event-vpbs-clean',
     controlStatus: 'normal',
     infoType: '発表',
@@ -2436,7 +2441,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
   });
 
   // 未対応構造の失敗を telegram_reception に投入 (VPBS50, 江東区 1310800, baseline 06:00 より新しい 06:10)
-  recordTelegramReception(db2.connection, {
+  recordTelegramReception(db2.weather.connection, {
     fetchAttemptId: null,
     feedKind: null,
     feedEntryId: null,
@@ -2473,7 +2478,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
 
   // 該当種別の行が0件のとき（例: VPHW50 の行が0件）は、古い VPHW50 の失敗があっても stale にならないことを確認
   const { db: db3, app: app3 } = createTestApp();
-  recordTelegramReception(db3.connection, {
+  recordTelegramReception(db3.weather.connection, {
     fetchAttemptId: null,
     feedKind: null,
     feedEntryId: null,
@@ -2511,7 +2516,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
   // 5. 否定条件の検証: 別種別・別区域・別会場・過去時刻の解析失敗では availability が変化しない
   const createBaseBulletinDb = () => {
     const instance = createTestApp();
-    saveBosaiBulletin(instance.db.connection, {
+    saveBosaiBulletin(instance.db.weather.connection, {
       eventId: 'event-base-vpbs',
       controlStatus: 'normal',
       infoType: '発表',
@@ -2548,7 +2553,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
 
   // 否定条件(a): 別種別 (VPFD51) の未対応構造失敗 -> available
   const { db: dbDiffType, app: appDiffType } = createBaseBulletinDb();
-  recordTelegramReception(dbDiffType.connection, {
+  recordTelegramReception(dbDiffType.weather.connection, {
     fetchAttemptId: null,
     feedKind: null,
     feedEntryId: null,
@@ -2584,7 +2589,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
 
   // 否定条件(b): 別区域 (新潟地方 150010) の未対応構造失敗 -> available
   const { db: dbDiffArea, app: appDiffArea } = createBaseBulletinDb();
-  recordTelegramReception(dbDiffArea.connection, {
+  recordTelegramReception(dbDiffArea.weather.connection, {
     fetchAttemptId: null,
     feedKind: null,
     feedEntryId: null,
@@ -2620,7 +2625,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
 
   // 否定条件(c): 別会場 (trc) の未対応構造失敗 (east端末からリクエスト) -> available
   const { db: dbDiffVenue, app: appDiffVenue } = createBaseBulletinDb();
-  recordTelegramReception(dbDiffVenue.connection, {
+  recordTelegramReception(dbDiffVenue.weather.connection, {
     fetchAttemptId: null,
     feedKind: null,
     feedEntryId: null,
@@ -2656,7 +2661,7 @@ test('B14 #38 鮮度と正常空: 0件は bulletins: [] かつ available。フ�
 
   // 否定条件(d): 過去時刻 (baseline 06:00 より前 05:00) の未対応構造失敗 -> available
   const { db: dbPast, app: appPast } = createBaseBulletinDb();
-  recordTelegramReception(dbPast.connection, {
+  recordTelegramReception(dbPast.weather.connection, {
     fetchAttemptId: null,
     feedKind: null,
     feedEntryId: null,
@@ -2700,13 +2705,15 @@ test('B15 副作用なしと結線: GET 前後で行数・通知件数変化な�
 
   // 1. GET 前後のテーブル行数
   const countTables = () => {
-    const rows = db.connection
+    const rows = db.weather.connection
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all() as { name: string }[];
     let total = 0;
     for (const r of rows) {
       if (r.name.startsWith('sqlite_')) continue;
-      const countRow = db.connection.prepare(`SELECT count(*) as c FROM ${r.name}`).get() as {
+      const countRow = db.weather.connection
+        .prepare(`SELECT count(*) as c FROM ${r.name}`)
+        .get() as {
         c: number;
       };
       total += countRow.c;
@@ -2760,9 +2767,10 @@ test('B15 副作用なしと結線: GET 前後で行数・通知件数変化な�
   }
 
   // 3. startServer 経由で全6 GET が登録されていること
+  const serverFixture = createTemporaryTestDatabaseFixture();
   const serverInstance = await startServer({
+    ...createTestServerDatabaseOptions(serverFixture.config),
     port: 0,
-    config: { databasePath: ':memory:', migrationsDirectory },
     enablePolling: false,
     pollingSchedule: createTestPollingSchedule(),
   });
@@ -2784,5 +2792,6 @@ test('B15 副作用なしと結線: GET 前後で行数・通知件数変化な�
     }
   } finally {
     await serverInstance.close();
+    serverFixture.cleanup();
   }
 });

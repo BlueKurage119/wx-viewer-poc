@@ -10,9 +10,12 @@ import type { NotificationOutputHistoryInput } from '../repositories/types.js';
 export function toNotificationOutputHistoryInput(
   notification: Notification,
   output: NotificationOutputSnapshot,
+  weatherDatabaseGenerationId: string | null,
 ): NotificationOutputHistoryInput {
   return {
     notificationId: notification.notificationId,
+    weatherDatabaseGenerationId:
+      notification.origin === 'weather' ? weatherDatabaseGenerationId : null,
     category: notification.category,
     sourceType: notification.sourceType,
     sourceVersion: notification.sourceVersion,
