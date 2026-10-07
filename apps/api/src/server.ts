@@ -120,6 +120,13 @@ export interface StartServerOptions {
 
 const DEFAULT_PORT = 3001;
 
+function validatePort(port: number): number {
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new RangeError('ポートは0以上65535以下の整数で指定してください。');
+  }
+  return port;
+}
+
 function hasWarningRecoveryTables(
   connection: ReturnType<typeof initializeDatabase>['connection'],
 ): boolean {
@@ -448,318 +455,277 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
   const schedule = validatePollingScheduleConfig(options.pollingSchedule ?? loaded?.config);
   logPollingConfig(loaded);
 
+  const port = validatePort(options.port ?? DEFAULT_PORT);
   const database = initializeDatabases(options.config);
-  const clock = options.pollingServiceOptions?.clock ?? (() => new Date().toISOString());
-  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
-  const startupRuntime = createStartupNotificationRuntime(
-    database.weather.connection,
-    clock,
-    venueConfig.registry,
-    () => fetchHealthMonitorService?.getLastAggregate() ?? null,
-    options.recoveryInternals,
-    terminalConfig.registry,
-    database.retained.connection,
-    database.weatherDatabaseGenerationId,
-  );
-  let pollingService: JmaXmlPollingService | undefined;
-  const weatherApi = createWeatherApiService({
-    connection: database.weather.connection,
-    venueRegistry: venueConfig.registry,
-    getPollingStatus: () => pollingService?.getStatus(),
-    now: clock,
-  });
-  const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
-  let imageServices: ImageServices | undefined;
-  let scheduler: TimeBasedPollingScheduler | undefined;
-  let nowFnHolder: () => Date = () => new Date();
-  const tileDeliveryProfileService = createStaticTileDeliveryProfileService(
-    schedule.tileDeliveryProfile,
-  );
-
-  const nowcastApi = createNowcastApiService({
-    venueRegistry: venueConfig.registry,
-    getService: () => imageServices?.nowcast ?? null,
-    enablePolling,
-    tileDeliveryProfileService,
-    clock,
-  });
-  const kikikuruApi = createKikikuruApiService({
-    venueRegistry: venueConfig.registry,
-    getService: () => imageServices?.kikikuru ?? null,
-    enablePolling,
-    tileDeliveryProfileService,
-    clock,
-  });
-
-  const fetchControlTargets: FetchControlTargets | null = enablePolling
-    ? {
-        start: () => {
-          if (!scheduler) throw new Error('scheduler is not ready');
-          return scheduler.start();
-        },
-        stop: () => {
-          if (!scheduler) throw new Error('scheduler is not ready');
-          return scheduler.stop();
-        },
-        forceRefresh: async () => {
-          if (!scheduler) throw new Error('scheduler is not ready');
-          const result = await scheduler.runManualOnce();
-          if (result.failedSources.length > 0) {
-            throw new ForceRefreshFailedError(result.failedSources);
-          }
-          if (result.abortedSources.length > 0) {
-            throw new ForceRefreshAbortedError(result.abortedSources);
-          }
-        },
-        runRecovery: () => {
-          if (!scheduler) throw new Error('scheduler is not ready');
-          return scheduler.runRecoveryOnce();
-        },
-        isRunning: () => (scheduler ? scheduler.isRunningNow() : false),
-        isUpstreamAllowedNow: () =>
-          resolvePollingPeriod(nowFnHolder(), schedule).xmlSeconds !== null,
-      }
-    : null;
-
-  const fetchControlService = createFetchControlService({
-    connection: database.retained.connection,
-    targets: fetchControlTargets,
-    now: () => clock() as UtcIso8601String,
-    notificationIdFactory: options.fetchControlNotificationIdFactory,
-  });
-
-  const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
-    weatherConnection: database.weather.connection,
-    retainedConnection: database.retained.connection,
-    weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
-    now: () => clock() as UtcIso8601String,
-  });
-  const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
-    connection: database.weather.connection,
-    venueRegistry: venueConfig.registry,
-    serverGenerationId: startupRuntime.serverGenerationId,
-    now: () => clock() as UtcIso8601String,
-  });
-  const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
-    connection: database.weather.connection,
-    venueRegistry: venueConfig.registry,
-    terminalRegistry: terminalConfig.registry,
-    // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
-    // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
-    // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
-    scheduler: {
-      getStatus: () => scheduler?.getStatus() ?? buildStoppedPollingStatus(nowFnHolder(), schedule),
-      isRunningNow: () => scheduler?.isRunningNow() ?? false,
-    },
-    xmlPollingService: {
-      getStatus: () => ({
-        initialFetch: pollingService?.getStatus().initialFetch ?? {
-          phase: 'not_started',
-          result: null,
-        },
-      }),
-    },
-    fetchHealthMonitor: {
-      getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
-    },
-    startupInitialization: startupRuntime.initialization,
-    progressTracker: startupRuntime.progressTracker,
-    recoveryTracker: startupRuntime.recoveryTracker,
-    weatherApi,
-    nowcastApi,
-    kikikuruApi,
-    fetchHealthConfig: schedule.fetchHealth,
-    serverGenerationId: startupRuntime.serverGenerationId,
-    serverStartedAt: startupRuntime.serverStartedAt,
-    now: () => clock() as UtcIso8601String,
-  });
-
-  const app = createApp({
-    venueConfig: venueConfig.response,
-    venueRegistry: venueConfig.registry,
-    terminalConfig: terminalConfig.response,
-    terminalRegistry: terminalConfig.registry,
-    startupNotifications: startupRuntime.startupNotifications,
-    notificationDelta: startupRuntime.notificationDelta,
-    weatherApi,
-    nowcastApi,
-    kikikuruApi,
-    monitoringStatus,
-    monitoringProcessing,
-    monitoringHistory,
-    fetchControl: fetchControlService,
-  });
-  const actualServer = app.listen(options.port ?? DEFAULT_PORT);
-
-  const serverListeningPromise = waitForServerListening(actualServer);
-
   try {
-    // 初期取得より先に待受失敗を監視する。失敗時は直ちに catch で全資源を解放する。
-    await serverListeningPromise;
+    const clock = options.pollingServiceOptions?.clock ?? (() => new Date().toISOString());
+    let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
+    const startupRuntime = createStartupNotificationRuntime(
+      database.weather.connection,
+      clock,
+      venueConfig.registry,
+      () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+      options.recoveryInternals,
+      terminalConfig.registry,
+      database.retained.connection,
+      database.weatherDatabaseGenerationId,
+    );
+    let pollingService: JmaXmlPollingService | undefined;
+    const weatherApi = createWeatherApiService({
+      connection: database.weather.connection,
+      venueRegistry: venueConfig.registry,
+      getPollingStatus: () => pollingService?.getStatus(),
+      now: clock,
+    });
+    const enablePolling = options.enablePolling ?? process.env.DISABLE_POLLING !== 'true';
+    let imageServices: ImageServices | undefined;
+    let scheduler: TimeBasedPollingScheduler | undefined;
+    let nowFnHolder: () => Date = () => new Date();
+    const tileDeliveryProfileService = createStaticTileDeliveryProfileService(
+      schedule.tileDeliveryProfile,
+    );
 
-    const serverErrorMonitor = monitorServerErrors(actualServer);
+    const nowcastApi = createNowcastApiService({
+      venueRegistry: venueConfig.registry,
+      getService: () => imageServices?.nowcast ?? null,
+      enablePolling,
+      tileDeliveryProfileService,
+      clock,
+    });
+    const kikikuruApi = createKikikuruApiService({
+      venueRegistry: venueConfig.registry,
+      getService: () => imageServices?.kikikuru ?? null,
+      enablePolling,
+      tileDeliveryProfileService,
+      clock,
+    });
+
+    const fetchControlTargets: FetchControlTargets | null = enablePolling
+      ? {
+          start: () => {
+            if (!scheduler) throw new Error('scheduler is not ready');
+            return scheduler.start();
+          },
+          stop: () => {
+            if (!scheduler) throw new Error('scheduler is not ready');
+            return scheduler.stop();
+          },
+          forceRefresh: async () => {
+            if (!scheduler) throw new Error('scheduler is not ready');
+            const result = await scheduler.runManualOnce();
+            if (result.failedSources.length > 0) {
+              throw new ForceRefreshFailedError(result.failedSources);
+            }
+            if (result.abortedSources.length > 0) {
+              throw new ForceRefreshAbortedError(result.abortedSources);
+            }
+          },
+          runRecovery: () => {
+            if (!scheduler) throw new Error('scheduler is not ready');
+            return scheduler.runRecoveryOnce();
+          },
+          isRunning: () => (scheduler ? scheduler.isRunningNow() : false),
+          isUpstreamAllowedNow: () =>
+            resolvePollingPeriod(nowFnHolder(), schedule).xmlSeconds !== null,
+        }
+      : null;
+
+    const fetchControlService = createFetchControlService({
+      connection: database.retained.connection,
+      targets: fetchControlTargets,
+      now: () => clock() as UtcIso8601String,
+      notificationIdFactory: options.fetchControlNotificationIdFactory,
+    });
+
+    const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
+      weatherConnection: database.weather.connection,
+      retainedConnection: database.retained.connection,
+      weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
+      now: () => clock() as UtcIso8601String,
+    });
+    const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
+      connection: database.weather.connection,
+      venueRegistry: venueConfig.registry,
+      serverGenerationId: startupRuntime.serverGenerationId,
+      now: () => clock() as UtcIso8601String,
+    });
+    const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
+      connection: database.weather.connection,
+      venueRegistry: venueConfig.registry,
+      terminalRegistry: terminalConfig.registry,
+      // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
+      // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
+      // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
+      scheduler: {
+        getStatus: () =>
+          scheduler?.getStatus() ?? buildStoppedPollingStatus(nowFnHolder(), schedule),
+        isRunningNow: () => scheduler?.isRunningNow() ?? false,
+      },
+      xmlPollingService: {
+        getStatus: () => ({
+          initialFetch: pollingService?.getStatus().initialFetch ?? {
+            phase: 'not_started',
+            result: null,
+          },
+        }),
+      },
+      fetchHealthMonitor: {
+        getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+      },
+      startupInitialization: startupRuntime.initialization,
+      progressTracker: startupRuntime.progressTracker,
+      recoveryTracker: startupRuntime.recoveryTracker,
+      weatherApi,
+      nowcastApi,
+      kikikuruApi,
+      fetchHealthConfig: schedule.fetchHealth,
+      serverGenerationId: startupRuntime.serverGenerationId,
+      serverStartedAt: startupRuntime.serverStartedAt,
+      now: () => clock() as UtcIso8601String,
+    });
+
+    const app = createApp({
+      venueConfig: venueConfig.response,
+      venueRegistry: venueConfig.registry,
+      terminalConfig: terminalConfig.response,
+      terminalRegistry: terminalConfig.registry,
+      startupNotifications: startupRuntime.startupNotifications,
+      notificationDelta: startupRuntime.notificationDelta,
+      weatherApi,
+      nowcastApi,
+      kikikuruApi,
+      monitoringStatus,
+      monitoringProcessing,
+      monitoringHistory,
+      fetchControl: fetchControlService,
+    });
+    const actualServer = app.listen(port);
+
+    const serverListeningPromise = waitForServerListening(actualServer);
+
     try {
-      // Issue #171: main() は待受直後に listening ログを出力し初回同期をバックグラウンド化したが、
-      // startServer() は初回同期の完了を待って resolve する契約を維持する。
-      // 既存テストが「resolve 時点で初回取得・再処理が完了している」ことに依存しているため、
-      // 意図的に main() と構造が異なる。
-      await Promise.race([
-        serverErrorMonitor.promise,
-        (async () => {
-          const defaultNow = options.pollingServiceOptions?.clock
-            ? () => new Date(options.pollingServiceOptions!.clock!())
-            : () => new Date();
-          const nowFn = options.schedulerOptions?.now ?? defaultNow;
-          nowFnHolder = nowFn;
+      // 初期取得より先に待受失敗を監視する。失敗時は直ちに catch で全資源を解放する。
+      await serverListeningPromise;
 
-          // 索引・画像共用サービスの作成（テスト等で注入がない場合）
-          imageServices =
-            options.imageServices ??
-            createImageServices({
-              nowcastCacheRoot: options.nowcastCacheRoot,
-              kikikuruCacheRoot: options.kikikuruCacheRoot,
-              connection: database.weather.connection,
-              schedule,
-              enablePolling,
-              now: nowFn,
-              fetchFn: options.pollingServiceOptions?.fetchFn,
-            });
+      const serverErrorMonitor = monitorServerErrors(actualServer);
+      try {
+        // Issue #171: main() は待受直後に listening ログを出力し初回同期をバックグラウンド化したが、
+        // startServer() は初回同期の完了を待って resolve する契約を維持する。
+        // 既存テストが「resolve 時点で初回取得・再処理が完了している」ことに依存しているため、
+        // 意図的に main() と構造が異なる。
+        await Promise.race([
+          serverErrorMonitor.promise,
+          (async () => {
+            const defaultNow = options.pollingServiceOptions?.clock
+              ? () => new Date(options.pollingServiceOptions!.clock!())
+              : () => new Date();
+            const nowFn = options.schedulerOptions?.now ?? defaultNow;
+            nowFnHolder = nowFn;
 
-          if (enablePolling)
-            recoverLegacyVphwBulletinAreas(database.weather.connection, venueConfig.registry);
-          reprocessVenueForecastBeforeWarningRecovery(
-            database.weather.connection,
-            clock() as UtcIso8601String,
-            venueConfig.registry,
-          );
-          for (const venueId of hasWarningRecoveryTables(database.weather.connection)
-            ? venueConfig.registry.listVenueIds()
-            : []) {
-            const venue = resolveVenueWarningContext(venueConfig.registry, venueId);
-            await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
-              if (enablePolling) {
-                await reprocessPendingWarningTelegramReceptions(
-                  database.weather.connection,
-                  venue,
-                  clock,
-                  startupRuntime.warningEmitDeps,
-                  { logger: console.log, progressTracker: startupRuntime.progressTracker },
-                );
-              }
-            });
-            emitInitialWarningNotifications(
+            // 索引・画像共用サービスの作成（テスト等で注入がない場合）
+            imageServices =
+              options.imageServices ??
+              createImageServices({
+                nowcastCacheRoot: options.nowcastCacheRoot,
+                kikikuruCacheRoot: options.kikikuruCacheRoot,
+                connection: database.weather.connection,
+                schedule,
+                enablePolling,
+                now: nowFn,
+                fetchFn: options.pollingServiceOptions?.fetchFn,
+              });
+
+            if (enablePolling)
+              recoverLegacyVphwBulletinAreas(database.weather.connection, venueConfig.registry);
+            reprocessVenueForecastBeforeWarningRecovery(
               database.weather.connection,
-              venue.targetArea,
-              startupRuntime.warningEmitDeps,
+              clock() as UtcIso8601String,
+              venueConfig.registry,
             );
-          }
+            for (const venueId of hasWarningRecoveryTables(database.weather.connection)
+              ? venueConfig.registry.listVenueIds()
+              : []) {
+              const venue = resolveVenueWarningContext(venueConfig.registry, venueId);
+              await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
+                if (enablePolling) {
+                  await reprocessPendingWarningTelegramReceptions(
+                    database.weather.connection,
+                    venue,
+                    clock,
+                    startupRuntime.warningEmitDeps,
+                    { logger: console.log, progressTracker: startupRuntime.progressTracker },
+                  );
+                }
+              });
+              emitInitialWarningNotifications(
+                database.weather.connection,
+                venue.targetArea,
+                startupRuntime.warningEmitDeps,
+              );
+            }
 
-          if (!enablePolling) {
-            return;
-          }
+            if (!enablePolling) {
+              return;
+            }
 
-          pollingService =
-            options.pollingService ??
-            new JmaXmlPollingService(database.weather.connection, {
-              freshnessPolicy: schedule.freshness.xml,
-              venueRegistry: venueConfig.registry,
-              warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
-              bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
-              ...options.pollingServiceOptions,
-            });
+            pollingService =
+              options.pollingService ??
+              new JmaXmlPollingService(database.weather.connection, {
+                freshnessPolicy: schedule.freshness.xml,
+                venueRegistry: venueConfig.registry,
+                warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
+                bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
+                ...options.pollingServiceOptions,
+              });
 
-          startupRuntime.connectPolling(pollingService);
+            startupRuntime.connectPolling(pollingService);
 
-          const adapters =
-            options.schedulerOptions?.adapters ??
-            createScheduledAdapters({
+            const adapters =
+              options.schedulerOptions?.adapters ??
+              createScheduledAdapters({
+                connection: database.weather.connection,
+                venueRegistry: venueConfig.registry,
+                nowcastService: imageServices.nowcast,
+                kikikuruService: imageServices.kikikuru,
+                now: nowFn,
+                amedasPointRecheckSeconds: schedule.amedasPointRecheckSeconds,
+              });
+
+            scheduler =
+              options.scheduler ??
+              new TimeBasedPollingScheduler({
+                schedule,
+                adapters,
+                xmlPollingService: pollingService,
+                now: nowFn,
+                setTimer: options.schedulerOptions?.setTimer,
+                clearTimer: options.schedulerOptions?.clearTimer,
+              });
+
+            fetchHealthMonitorService = new FetchHealthMonitorService({
+              retainedConnection: database.retained.connection,
               connection: database.weather.connection,
-              venueRegistry: venueConfig.registry,
-              nowcastService: imageServices.nowcast,
-              kikikuruService: imageServices.kikikuru,
-              now: nowFn,
-              amedasPointRecheckSeconds: schedule.amedasPointRecheckSeconds,
+              statusProvider: scheduler,
+              config: schedule.fetchHealth,
             });
 
-          scheduler =
-            options.scheduler ??
-            new TimeBasedPollingScheduler({
-              schedule,
-              adapters,
-              xmlPollingService: pollingService,
-              now: nowFn,
-              setTimer: options.schedulerOptions?.setTimer,
-              clearTimer: options.schedulerOptions?.clearTimer,
-            });
-
-          fetchHealthMonitorService = new FetchHealthMonitorService({
-            retainedConnection: database.retained.connection,
-            connection: database.weather.connection,
-            statusProvider: scheduler,
-            config: schedule.fetchHealth,
-          });
-
-          // 順序が重要(PRレビュー指摘 #141): scheduler.start() は isRunning=true を
-          // 設定した直後、最初の await(XML初期取得)まで同期的に進む。await せず呼び出して
-          // から fetchHealthMonitorService.start() を呼ぶことで、isRunning=true の状態で
-          // 初回健全性評価が走る。先に await すると初回XML取得完了(実測17分超)まで健全性
-          // 判定が始まらず(D7 AC12回帰)、逆に isRunning=false のまま初回評価すると
-          // 全取得元が suspended と誤記録され、再起動時の検知が initial ではなくなる。
-          const schedulerStartPromise = scheduler.start(); // XML開始責務は scheduler に集約し、二重起動を防止する
-          fetchHealthMonitorService.start();
-          await schedulerStartPromise;
-        })(),
-      ]);
-    } finally {
-      serverErrorMonitor.dispose();
-    }
-  } catch (error) {
-    if (fetchHealthMonitorService) {
-      fetchHealthMonitorService.stop();
-    }
-    if (scheduler) {
-      await scheduler.stop();
-    }
-    if (imageServices) {
-      await imageServices.close();
-    }
-    if (pollingService) {
-      await pollingService.stop();
-    }
-    await closeServer(actualServer);
-    database.close();
-    throw error;
-  }
-
-  const address = actualServer.address();
-  if (address === null || typeof address === 'string') {
-    if (fetchHealthMonitorService) {
-      fetchHealthMonitorService.stop();
-    }
-    if (scheduler) {
-      await scheduler.stop();
-    }
-    if (imageServices) {
-      await imageServices.close();
-    }
-    if (pollingService) {
-      await pollingService.stop();
-    }
-    database.close();
-    await closeServer(actualServer);
-    throw new Error('HTTP server did not provide a TCP port.');
-  }
-
-  let closed = false;
-  const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
-    if (!closed) {
-      closed = true;
+            // 順序が重要(PRレビュー指摘 #141): scheduler.start() は isRunning=true を
+            // 設定した直後、最初の await(XML初期取得)まで同期的に進む。await せず呼び出して
+            // から fetchHealthMonitorService.start() を呼ぶことで、isRunning=true の状態で
+            // 初回健全性評価が走る。先に await すると初回XML取得完了(実測17分超)まで健全性
+            // 判定が始まらず(D7 AC12回帰)、逆に isRunning=false のまま初回評価すると
+            // 全取得元が suspended と誤記録され、再起動時の検知が initial ではなくなる。
+            const schedulerStartPromise = scheduler.start(); // XML開始責務は scheduler に集約し、二重起動を防止する
+            fetchHealthMonitorService.start();
+            await schedulerStartPromise;
+          })(),
+        ]);
+      } finally {
+        serverErrorMonitor.dispose();
+      }
+    } catch (error) {
       if (fetchHealthMonitorService) {
         fetchHealthMonitorService.stop();
-      }
-      // scheduler.stop() は既定理由 'stop' で abort するため、シャットダウン理由はその前に伝える
-      if (pollingService && closeOptions?.reason === 'signal') {
-        await pollingService.stop('shutdown');
       }
       if (scheduler) {
         await scheduler.stop();
@@ -770,50 +736,103 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       if (pollingService) {
         await pollingService.stop();
       }
-      // Issue #43 §6.1: シグナル由来の停止のときだけB5記録+サービス停止通知を行う。
-      // 既存テストのDBに停止行が混ざるのを避けるため、programmatic な close では記録しない。
-      if (closeOptions?.reason === 'signal') {
-        try {
-          await fetchControlService.recordShutdown();
-        } catch (error) {
-          console.error('graceful shutdown の記録に失敗しました:', error);
-        }
-      }
       await closeServer(actualServer);
       database.close();
+      throw error;
     }
-  };
-  actualServer.once('error', (error) => {
-    void close().catch((closeError: unknown) => {
-      console.error('Failed to close API server after an error:', closeError);
-    });
-    console.error(error);
-  });
 
-  // Codexレビュー指摘#6（2回目レビュー）: シグナル購読自体は関数冒頭で既に行っている。
-  // ここでは close の実体を確定させ、初期化中に届いていたシグナル（shutdownSignalPending）が
-  // あれば直ちに反映する。
-  deferredCloseRef.current = close;
-  if (shutdownSignalPending) {
-    void close({ reason: 'signal' }).catch((closeError: unknown) => {
-      console.error('保留していたgraceful shutdownの処理に失敗しました:', closeError);
-    });
-  }
+    const address = actualServer.address();
+    if (address === null || typeof address === 'string') {
+      if (fetchHealthMonitorService) {
+        fetchHealthMonitorService.stop();
+      }
+      if (scheduler) {
+        await scheduler.stop();
+      }
+      if (imageServices) {
+        await imageServices.close();
+      }
+      if (pollingService) {
+        await pollingService.stop();
+      }
+      database.close();
+      await closeServer(actualServer);
+      throw new Error('HTTP server did not provide a TCP port.');
+    }
 
-  return {
-    port: address.port,
-    pollingService,
-    scheduler,
-    fetchHealthMonitorService,
-    fetchControlService,
-    imageServices: imageServices
-      ? {
-          nowcast: imageServices.nowcast,
-          kikikuru: imageServices.kikikuru,
+    let closed = false;
+    const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
+      if (!closed) {
+        closed = true;
+        if (fetchHealthMonitorService) {
+          fetchHealthMonitorService.stop();
         }
-      : undefined,
-    close,
-  };
+        // scheduler.stop() は既定理由 'stop' で abort するため、シャットダウン理由はその前に伝える
+        if (pollingService && closeOptions?.reason === 'signal') {
+          await pollingService.stop('shutdown');
+        }
+        if (scheduler) {
+          await scheduler.stop();
+        }
+        if (imageServices) {
+          await imageServices.close();
+        }
+        if (pollingService) {
+          await pollingService.stop();
+        }
+        // Issue #43 §6.1: シグナル由来の停止のときだけB5記録+サービス停止通知を行う。
+        // 既存テストのDBに停止行が混ざるのを避けるため、programmatic な close では記録しない。
+        if (closeOptions?.reason === 'signal') {
+          try {
+            await fetchControlService.recordShutdown();
+          } catch (error) {
+            console.error('graceful shutdown の記録に失敗しました:', error);
+          }
+        }
+        await closeServer(actualServer);
+        database.close();
+      }
+    };
+    actualServer.once('error', (error) => {
+      void close().catch((closeError: unknown) => {
+        console.error('Failed to close API server after an error:', closeError);
+      });
+      console.error(error);
+    });
+
+    // Codexレビュー指摘#6（2回目レビュー）: シグナル購読自体は関数冒頭で既に行っている。
+    // ここでは close の実体を確定させ、初期化中に届いていたシグナル（shutdownSignalPending）が
+    // あれば直ちに反映する。
+    deferredCloseRef.current = close;
+    if (shutdownSignalPending) {
+      void close({ reason: 'signal' }).catch((closeError: unknown) => {
+        console.error('保留していたgraceful shutdownの処理に失敗しました:', closeError);
+      });
+    }
+
+    return {
+      port: address.port,
+      pollingService,
+      scheduler,
+      fetchHealthMonitorService,
+      fetchControlService,
+      imageServices: imageServices
+        ? {
+            nowcast: imageServices.nowcast,
+            kikikuru: imageServices.kikikuru,
+          }
+        : undefined,
+      close,
+    };
+  } catch (error) {
+    // 構成・待受開始の同期例外と既存cleanupの失敗でもDB/leaseを解放する。
+    try {
+      database.close();
+    } catch (closeError) {
+      console.error('起動失敗後のDBクローズに失敗しました:', closeError);
+    }
+    throw error;
+  }
 }
 
 async function main(): Promise<void> {
@@ -844,360 +863,370 @@ async function main(): Promise<void> {
   const schedule = loaded.config;
   logPollingConfig(loaded);
 
-  const port = process.env.PORT ? Number(process.env.PORT) : DEFAULT_PORT;
+  const port = validatePort(process.env.PORT ? Number(process.env.PORT) : DEFAULT_PORT);
   const database = initializeDatabases();
-  const clock = () => new Date().toISOString();
-  let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
-  const startupRuntime = createStartupNotificationRuntime(
-    database.weather.connection,
-    clock,
-    venueConfig.registry,
-    () => fetchHealthMonitorService?.getLastAggregate() ?? null,
-    undefined,
-    terminalConfig.registry,
-    database.retained.connection,
-    database.weatherDatabaseGenerationId,
-  );
-  let pollingService: JmaXmlPollingService | undefined;
-  const weatherApi = createWeatherApiService({
-    connection: database.weather.connection,
-    venueRegistry: venueConfig.registry,
-    getPollingStatus: () => pollingService?.getStatus(),
-    now: clock,
-  });
-  const enablePolling = process.env.DISABLE_POLLING !== 'true';
-  let imageServices: ImageServices | undefined;
-  let scheduler: TimeBasedPollingScheduler | undefined;
-  const nowFnHolder: () => Date = () => new Date();
-  const tileDeliveryProfileService = createStaticTileDeliveryProfileService(
-    schedule.tileDeliveryProfile,
-  );
-
-  const nowcastApi = createNowcastApiService({
-    venueRegistry: venueConfig.registry,
-    getService: () => imageServices?.nowcast ?? null,
-    enablePolling,
-    tileDeliveryProfileService,
-    clock,
-  });
-  const kikikuruApi = createKikikuruApiService({
-    venueRegistry: venueConfig.registry,
-    getService: () => imageServices?.kikikuru ?? null,
-    enablePolling,
-    tileDeliveryProfileService,
-    clock,
-  });
-
-  const fetchControlTargets: FetchControlTargets | null = enablePolling
-    ? {
-        start: () => {
-          if (!scheduler) throw new Error('scheduler is not ready');
-          return scheduler.start();
-        },
-        stop: () => {
-          if (!scheduler) throw new Error('scheduler is not ready');
-          return scheduler.stop();
-        },
-        forceRefresh: async () => {
-          if (!scheduler) throw new Error('scheduler is not ready');
-          const result = await scheduler.runManualOnce();
-          if (result.failedSources.length > 0) {
-            throw new ForceRefreshFailedError(result.failedSources);
-          }
-          if (result.abortedSources.length > 0) {
-            throw new ForceRefreshAbortedError(result.abortedSources);
-          }
-        },
-        runRecovery: () => {
-          if (!scheduler) throw new Error('scheduler is not ready');
-          return scheduler.runRecoveryOnce();
-        },
-        isRunning: () => (scheduler ? scheduler.isRunningNow() : false),
-        isUpstreamAllowedNow: () =>
-          resolvePollingPeriod(nowFnHolder(), schedule).xmlSeconds !== null,
-      }
-    : null;
-
-  const fetchControlService = createFetchControlService({
-    connection: database.retained.connection,
-    targets: fetchControlTargets,
-    now: () => clock() as UtcIso8601String,
-  });
-
-  const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
-    weatherConnection: database.weather.connection,
-    retainedConnection: database.retained.connection,
-    weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
-    now: () => clock() as UtcIso8601String,
-  });
-  const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
-    connection: database.weather.connection,
-    venueRegistry: venueConfig.registry,
-    serverGenerationId: startupRuntime.serverGenerationId,
-    now: () => clock() as UtcIso8601String,
-  });
-  const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
-    connection: database.weather.connection,
-    venueRegistry: venueConfig.registry,
-    terminalRegistry: terminalConfig.registry,
-    // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
-    // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
-    // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
-    scheduler: {
-      getStatus: () => scheduler?.getStatus() ?? buildStoppedPollingStatus(nowFnHolder(), schedule),
-      isRunningNow: () => scheduler?.isRunningNow() ?? false,
-    },
-    xmlPollingService: {
-      getStatus: () => ({
-        initialFetch: pollingService?.getStatus().initialFetch ?? {
-          phase: 'not_started',
-          result: null,
-        },
-      }),
-    },
-    fetchHealthMonitor: {
-      getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
-    },
-    startupInitialization: startupRuntime.initialization,
-    progressTracker: startupRuntime.progressTracker,
-    recoveryTracker: startupRuntime.recoveryTracker,
-    weatherApi,
-    nowcastApi,
-    kikikuruApi,
-    fetchHealthConfig: schedule.fetchHealth,
-    serverGenerationId: startupRuntime.serverGenerationId,
-    serverStartedAt: startupRuntime.serverStartedAt,
-    now: () => clock() as UtcIso8601String,
-  });
-
-  const app = createApp({
-    venueConfig: venueConfig.response,
-    venueRegistry: venueConfig.registry,
-    terminalConfig: terminalConfig.response,
-    terminalRegistry: terminalConfig.registry,
-    startupNotifications: startupRuntime.startupNotifications,
-    notificationDelta: startupRuntime.notificationDelta,
-    weatherApi,
-    nowcastApi,
-    kikikuruApi,
-    monitoringStatus,
-    monitoringProcessing,
-    monitoringHistory,
-    fetchControl: fetchControlService,
-  });
-  const server = app.listen(port);
-
-  let closed = false;
-  const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
-    if (closed) {
-      return;
-    }
-    closed = true;
-    if (fetchHealthMonitorService) {
-      fetchHealthMonitorService.stop();
-    }
-    if (pollingService && closeOptions?.reason === 'signal') {
-      await pollingService.stop('shutdown');
-    }
-    if (scheduler) {
-      await scheduler.stop();
-    }
-    if (imageServices) {
-      await imageServices.close();
-    }
-    if (pollingService) {
-      await pollingService.stop();
-    }
-    if (closeOptions?.reason === 'signal') {
-      try {
-        await fetchControlService.recordShutdown();
-      } catch (error) {
-        console.error('graceful shutdown の記録に失敗しました:', error);
-      }
-    }
-    await closeServer(server);
-    database.close();
-  };
-
-  const runInitialSync = async (): Promise<void> => {
-    const enablePolling = process.env.DISABLE_POLLING !== 'true';
-
-    // 【必須】この行より前に await を置かないこと。
-    // createImageServices は同期関数であり、ここまでは Promise 生成と同じターンで実行される。
-    // これにより待受ログ出力時点で imageServices は必ず生成済みとなり、
-    // 画像系API（/api/weather/nowcast|kikikuru/...）が 503 image_services_initializing を
-    // 返す窓を作らない（既存テスト nowcastApi.test.ts の子プロセス起動テストがこれに依存する）。
-    imageServices = createImageServices({
+  try {
+    const clock = () => new Date().toISOString();
+    let fetchHealthMonitorService: FetchHealthMonitorService | undefined;
+    const startupRuntime = createStartupNotificationRuntime(
+      database.weather.connection,
+      clock,
+      venueConfig.registry,
+      () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+      undefined,
+      terminalConfig.registry,
+      database.retained.connection,
+      database.weatherDatabaseGenerationId,
+    );
+    let pollingService: JmaXmlPollingService | undefined;
+    const weatherApi = createWeatherApiService({
       connection: database.weather.connection,
-      schedule,
+      venueRegistry: venueConfig.registry,
+      getPollingStatus: () => pollingService?.getStatus(),
+      now: clock,
+    });
+    const enablePolling = process.env.DISABLE_POLLING !== 'true';
+    let imageServices: ImageServices | undefined;
+    let scheduler: TimeBasedPollingScheduler | undefined;
+    const nowFnHolder: () => Date = () => new Date();
+    const tileDeliveryProfileService = createStaticTileDeliveryProfileService(
+      schedule.tileDeliveryProfile,
+    );
+
+    const nowcastApi = createNowcastApiService({
+      venueRegistry: venueConfig.registry,
+      getService: () => imageServices?.nowcast ?? null,
       enablePolling,
+      tileDeliveryProfileService,
+      clock,
+    });
+    const kikikuruApi = createKikikuruApiService({
+      venueRegistry: venueConfig.registry,
+      getService: () => imageServices?.kikikuru ?? null,
+      enablePolling,
+      tileDeliveryProfileService,
+      clock,
     });
 
-    if (enablePolling)
-      recoverLegacyVphwBulletinAreas(database.weather.connection, venueConfig.registry);
-    reprocessVenueForecastBeforeWarningRecovery(
-      database.weather.connection,
-      clock() as UtcIso8601String,
-      venueConfig.registry,
-    );
-    for (const venueId of hasWarningRecoveryTables(database.weather.connection)
-      ? venueConfig.registry.listVenueIds()
-      : []) {
+    const fetchControlTargets: FetchControlTargets | null = enablePolling
+      ? {
+          start: () => {
+            if (!scheduler) throw new Error('scheduler is not ready');
+            return scheduler.start();
+          },
+          stop: () => {
+            if (!scheduler) throw new Error('scheduler is not ready');
+            return scheduler.stop();
+          },
+          forceRefresh: async () => {
+            if (!scheduler) throw new Error('scheduler is not ready');
+            const result = await scheduler.runManualOnce();
+            if (result.failedSources.length > 0) {
+              throw new ForceRefreshFailedError(result.failedSources);
+            }
+            if (result.abortedSources.length > 0) {
+              throw new ForceRefreshAbortedError(result.abortedSources);
+            }
+          },
+          runRecovery: () => {
+            if (!scheduler) throw new Error('scheduler is not ready');
+            return scheduler.runRecoveryOnce();
+          },
+          isRunning: () => (scheduler ? scheduler.isRunningNow() : false),
+          isUpstreamAllowedNow: () =>
+            resolvePollingPeriod(nowFnHolder(), schedule).xmlSeconds !== null,
+        }
+      : null;
+
+    const fetchControlService = createFetchControlService({
+      connection: database.retained.connection,
+      targets: fetchControlTargets,
+      now: () => clock() as UtcIso8601String,
+    });
+
+    const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
+      weatherConnection: database.weather.connection,
+      retainedConnection: database.retained.connection,
+      weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
+      now: () => clock() as UtcIso8601String,
+    });
+    const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
+      connection: database.weather.connection,
+      venueRegistry: venueConfig.registry,
+      serverGenerationId: startupRuntime.serverGenerationId,
+      now: () => clock() as UtcIso8601String,
+    });
+    const monitoringStatus: MonitoringStatusService = createMonitoringStatusService({
+      connection: database.weather.connection,
+      venueRegistry: venueConfig.registry,
+      terminalRegistry: terminalConfig.registry,
+      // レビュー指摘 #2: DISABLE_POLLING=true 起動時・待受開始からサービス生成完了までの間は
+      // scheduler/pollingService インスタンスが未生成。監視状態APIは停止・初期化中こそ状態を
+      // 表示する用途（設計書 §4.1・§5.1）のため、例外を投げず「停止中」「not_started」を返す。
+      scheduler: {
+        getStatus: () =>
+          scheduler?.getStatus() ?? buildStoppedPollingStatus(nowFnHolder(), schedule),
+        isRunningNow: () => scheduler?.isRunningNow() ?? false,
+      },
+      xmlPollingService: {
+        getStatus: () => ({
+          initialFetch: pollingService?.getStatus().initialFetch ?? {
+            phase: 'not_started',
+            result: null,
+          },
+        }),
+      },
+      fetchHealthMonitor: {
+        getLastAggregate: () => fetchHealthMonitorService?.getLastAggregate() ?? null,
+      },
+      startupInitialization: startupRuntime.initialization,
+      progressTracker: startupRuntime.progressTracker,
+      recoveryTracker: startupRuntime.recoveryTracker,
+      weatherApi,
+      nowcastApi,
+      kikikuruApi,
+      fetchHealthConfig: schedule.fetchHealth,
+      serverGenerationId: startupRuntime.serverGenerationId,
+      serverStartedAt: startupRuntime.serverStartedAt,
+      now: () => clock() as UtcIso8601String,
+    });
+
+    const app = createApp({
+      venueConfig: venueConfig.response,
+      venueRegistry: venueConfig.registry,
+      terminalConfig: terminalConfig.response,
+      terminalRegistry: terminalConfig.registry,
+      startupNotifications: startupRuntime.startupNotifications,
+      notificationDelta: startupRuntime.notificationDelta,
+      weatherApi,
+      nowcastApi,
+      kikikuruApi,
+      monitoringStatus,
+      monitoringProcessing,
+      monitoringHistory,
+      fetchControl: fetchControlService,
+    });
+    const server = app.listen(port);
+
+    let closed = false;
+    const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
       if (closed) {
         return;
       }
-      const venue = resolveVenueWarningContext(venueConfig.registry, venueId);
-      await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
-        if (enablePolling) {
-          await reprocessPendingWarningTelegramReceptions(
-            database.weather.connection,
-            venue,
-            clock,
-            startupRuntime.warningEmitDeps,
-            { logger: console.log, progressTracker: startupRuntime.progressTracker },
-          );
+      closed = true;
+      if (fetchHealthMonitorService) {
+        fetchHealthMonitorService.stop();
+      }
+      if (pollingService && closeOptions?.reason === 'signal') {
+        await pollingService.stop('shutdown');
+      }
+      if (scheduler) {
+        await scheduler.stop();
+      }
+      if (imageServices) {
+        await imageServices.close();
+      }
+      if (pollingService) {
+        await pollingService.stop();
+      }
+      if (closeOptions?.reason === 'signal') {
+        try {
+          await fetchControlService.recordShutdown();
+        } catch (error) {
+          console.error('graceful shutdown の記録に失敗しました:', error);
         }
-        if (closed) {
-          throw new Error('DB復旧中にサーバー停止が要求されました');
-        }
+      }
+      await closeServer(server);
+      database.close();
+    };
+
+    const runInitialSync = async (): Promise<void> => {
+      const enablePolling = process.env.DISABLE_POLLING !== 'true';
+
+      // 【必須】この行より前に await を置かないこと。
+      // createImageServices は同期関数であり、ここまでは Promise 生成と同じターンで実行される。
+      // これにより待受ログ出力時点で imageServices は必ず生成済みとなり、
+      // 画像系API（/api/weather/nowcast|kikikuru/...）が 503 image_services_initializing を
+      // 返す窓を作らない（既存テスト nowcastApi.test.ts の子プロセス起動テストがこれに依存する）。
+      imageServices = createImageServices({
+        connection: database.weather.connection,
+        schedule,
+        enablePolling,
       });
-      emitInitialWarningNotifications(
+
+      if (enablePolling)
+        recoverLegacyVphwBulletinAreas(database.weather.connection, venueConfig.registry);
+      reprocessVenueForecastBeforeWarningRecovery(
         database.weather.connection,
-        venue.targetArea,
-        startupRuntime.warningEmitDeps,
+        clock() as UtcIso8601String,
+        venueConfig.registry,
       );
-    }
+      for (const venueId of hasWarningRecoveryTables(database.weather.connection)
+        ? venueConfig.registry.listVenueIds()
+        : []) {
+        if (closed) {
+          return;
+        }
+        const venue = resolveVenueWarningContext(venueConfig.registry, venueId);
+        await startupRuntime.recoverVenue(venue, schedule.startupRecovery, async () => {
+          if (enablePolling) {
+            await reprocessPendingWarningTelegramReceptions(
+              database.weather.connection,
+              venue,
+              clock,
+              startupRuntime.warningEmitDeps,
+              { logger: console.log, progressTracker: startupRuntime.progressTracker },
+            );
+          }
+          if (closed) {
+            throw new Error('DB復旧中にサーバー停止が要求されました');
+          }
+        });
+        emitInitialWarningNotifications(
+          database.weather.connection,
+          venue.targetArea,
+          startupRuntime.warningEmitDeps,
+        );
+      }
 
-    if (!enablePolling) {
-      return;
-    }
+      if (!enablePolling) {
+        return;
+      }
 
-    if (closed) {
-      return;
-    }
-    pollingService = new JmaXmlPollingService(database.weather.connection, {
-      freshnessPolicy: schedule.freshness.xml,
-      venueRegistry: venueConfig.registry,
-      warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
-      bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
-    });
+      if (closed) {
+        return;
+      }
+      pollingService = new JmaXmlPollingService(database.weather.connection, {
+        freshnessPolicy: schedule.freshness.xml,
+        venueRegistry: venueConfig.registry,
+        warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
+        bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
+      });
 
-    startupRuntime.connectPolling(pollingService);
+      startupRuntime.connectPolling(pollingService);
 
-    const adapters = createScheduledAdapters({
-      connection: database.weather.connection,
-      venueRegistry: venueConfig.registry,
-      nowcastService: imageServices.nowcast,
-      kikikuruService: imageServices.kikikuru,
-      amedasPointRecheckSeconds: schedule.amedasPointRecheckSeconds,
-    });
+      const adapters = createScheduledAdapters({
+        connection: database.weather.connection,
+        venueRegistry: venueConfig.registry,
+        nowcastService: imageServices.nowcast,
+        kikikuruService: imageServices.kikikuru,
+        amedasPointRecheckSeconds: schedule.amedasPointRecheckSeconds,
+      });
 
-    scheduler = new TimeBasedPollingScheduler({
-      schedule,
-      adapters,
-      xmlPollingService: pollingService,
-    });
+      scheduler = new TimeBasedPollingScheduler({
+        schedule,
+        adapters,
+        xmlPollingService: pollingService,
+      });
 
-    fetchHealthMonitorService = new FetchHealthMonitorService({
-      retainedConnection: database.retained.connection,
-      connection: database.weather.connection,
-      statusProvider: scheduler,
-      config: schedule.fetchHealth,
-    });
+      fetchHealthMonitorService = new FetchHealthMonitorService({
+        retainedConnection: database.retained.connection,
+        connection: database.weather.connection,
+        statusProvider: scheduler,
+        config: schedule.fetchHealth,
+      });
 
-    if (closed) {
-      return;
-    }
-    // 順序が重要(PRレビュー指摘 #141): scheduler.start() は isRunning=true を
-    // 設定した直後、最初の await(XML初期取得)まで同期的に進む。await せず呼び出して
-    // から fetchHealthMonitorService.start() を呼ぶことで、isRunning=true の状態で
-    // 初回健全性評価が走る。先に await すると初回XML取得完了(実測17分超)まで健全性
-    // 判定が始まらず(D7 AC12回帰)、逆に isRunning=false のまま初回評価すると
-    // 全取得元が suspended と誤記録され、再起動時の検知が initial ではなくなる。
-    const schedulerStartPromise = scheduler.start();
-    fetchHealthMonitorService.start();
-    await schedulerStartPromise;
-  };
+      if (closed) {
+        return;
+      }
+      // 順序が重要(PRレビュー指摘 #141): scheduler.start() は isRunning=true を
+      // 設定した直後、最初の await(XML初期取得)まで同期的に進む。await せず呼び出して
+      // から fetchHealthMonitorService.start() を呼ぶことで、isRunning=true の状態で
+      // 初回健全性評価が走る。先に await すると初回XML取得完了(実測17分超)まで健全性
+      // 判定が始まらず(D7 AC12回帰)、逆に isRunning=false のまま初回評価すると
+      // 全取得元が suspended と誤記録され、再起動時の検知が initial ではなくなる。
+      const schedulerStartPromise = scheduler.start();
+      fetchHealthMonitorService.start();
+      await schedulerStartPromise;
+    };
 
-  const watchInitialSync = async (
-    initializationPromise: Promise<void>,
-    serverErrorMonitor: { readonly promise: Promise<never>; dispose(): void },
-  ): Promise<void> => {
-    const startedMs = Date.now();
-    let initializationError: unknown;
-    let initializationFailed = false;
-    // race で負けた側の rejection が未処理にならないよう、ここで必ず消費する。
-    const settled = initializationPromise.catch((error: unknown) => {
-      initializationFailed = true;
-      initializationError = error;
-    });
+    const watchInitialSync = async (
+      initializationPromise: Promise<void>,
+      serverErrorMonitor: { readonly promise: Promise<never>; dispose(): void },
+    ): Promise<void> => {
+      const startedMs = Date.now();
+      let initializationError: unknown;
+      let initializationFailed = false;
+      // race で負けた側の rejection が未処理にならないよう、ここで必ず消費する。
+      const settled = initializationPromise.catch((error: unknown) => {
+        initializationFailed = true;
+        initializationError = error;
+      });
+
+      try {
+        await Promise.race([serverErrorMonitor.promise, settled]);
+        if (initializationFailed) {
+          throw initializationError;
+        }
+        if (!closed) {
+          console.log(`[api] initial sync completed (${Date.now() - startedMs}ms)`);
+        }
+      } catch (error) {
+        // 確定事項(1): 初期化失敗・server error のいずれでも close して異常終了させる。
+        // 既に close 済み（シグナル停止）なら異常終了扱いにしない。
+        if (closed) {
+          console.error('初期化中に停止したため初回同期を中断しました:', error);
+          return;
+        }
+        console.error(error);
+        try {
+          await close();
+        } catch (closeError) {
+          console.error('初期化失敗後のクローズに失敗しました:', closeError);
+        }
+        process.exitCode = 1;
+      } finally {
+        serverErrorMonitor.dispose();
+        // 既存と同じ順序（dispose の後に長期監視ハンドラを登録）を保つ。
+        if (!closed) {
+          server.once('error', (error) => {
+            void close().finally(() => {
+              console.error(error);
+              process.exitCode = 1;
+            });
+          });
+        }
+      }
+    };
 
     try {
-      await Promise.race([serverErrorMonitor.promise, settled]);
-      if (initializationFailed) {
-        throw initializationError;
-      }
-      if (!closed) {
-        console.log(`[api] initial sync completed (${Date.now() - startedMs}ms)`);
-      }
+      await waitForServerListening(server);
     } catch (error) {
-      // 確定事項(1): 初期化失敗・server error のいずれでも close して異常終了させる。
-      // 既に close 済み（シグナル停止）なら異常終了扱いにしない。
-      if (closed) {
-        console.error('初期化中に停止したため初回同期を中断しました:', error);
-        return;
-      }
-      console.error(error);
-      try {
-        await close();
-      } catch (closeError) {
-        console.error('初期化失敗後のクローズに失敗しました:', closeError);
-      }
-      process.exitCode = 1;
-    } finally {
-      serverErrorMonitor.dispose();
-      // 既存と同じ順序（dispose の後に長期監視ハンドラを登録）を保つ。
-      if (!closed) {
-        server.once('error', (error) => {
-          void close().finally(() => {
-            console.error(error);
-            process.exitCode = 1;
-          });
-        });
-      }
+      await close();
+      throw error;
     }
-  };
 
-  try {
-    await waitForServerListening(server);
+    const serverErrorMonitor = monitorServerErrors(server);
+
+    // (A) 初回同期をバックグラウンドで起動する。
+    //     本体先頭の createImageServices() は同期関数なので、この行の完了時点で
+    //     imageServices は代入済み（§4.2）。
+    const initializationPromise = runInitialSync();
+
+    // (B) 待受ログ（確定事項(2)）
+    console.log(
+      `[api] database: ${database.weather.connection.name}, applied migrations: ${database.weather.migrationSummary.appliedVersions.length + database.retained.migrationSummary.appliedVersions.length}`,
+    );
+    console.log(`[api] listening on http://localhost:${port} (initial sync in progress)`);
+
+    // (C) close を確定させ、保留中シグナルを反映（§4.4）
+    deferredCloseRef.current = close;
+    if (shutdownSignalPending) {
+      void close({ reason: 'signal' }).catch((closeError: unknown) => {
+        console.error('保留していたgraceful shutdownの処理に失敗しました:', closeError);
+      });
+    }
+
+    // (D) 初回同期の完了・失敗と server error の監視（§4.3）
+    void watchInitialSync(initializationPromise, serverErrorMonitor);
   } catch (error) {
-    await close();
+    try {
+      database.close();
+    } catch (closeError) {
+      console.error('起動失敗後のDBクローズに失敗しました:', closeError);
+    }
     throw error;
   }
-
-  const serverErrorMonitor = monitorServerErrors(server);
-
-  // (A) 初回同期をバックグラウンドで起動する。
-  //     本体先頭の createImageServices() は同期関数なので、この行の完了時点で
-  //     imageServices は代入済み（§4.2）。
-  const initializationPromise = runInitialSync();
-
-  // (B) 待受ログ（確定事項(2)）
-  console.log(
-    `[api] database: ${database.weather.connection.name}, applied migrations: ${database.weather.migrationSummary.appliedVersions.length + database.retained.migrationSummary.appliedVersions.length}`,
-  );
-  console.log(`[api] listening on http://localhost:${port} (initial sync in progress)`);
-
-  // (C) close を確定させ、保留中シグナルを反映（§4.4）
-  deferredCloseRef.current = close;
-  if (shutdownSignalPending) {
-    void close({ reason: 'signal' }).catch((closeError: unknown) => {
-      console.error('保留していたgraceful shutdownの処理に失敗しました:', closeError);
-    });
-  }
-
-  // (D) 初回同期の完了・失敗と server error の監視（§4.3）
-  void watchInitialSync(initializationPromise, serverErrorMonitor);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

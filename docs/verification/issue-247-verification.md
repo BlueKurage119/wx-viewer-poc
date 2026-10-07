@@ -90,3 +90,27 @@
 | `NODE_ENV=production npm run test -w apps/api` | 0、822件全成功、skip/todo/cancel 0、通常並列 |
 
 明示型検査の初回コマンドは既存base設定のstrict指定が不足し、既存parserのunion絞り込みで終了コード2となった。baseのstrict等を付けた上記コマンドで成功した。Web/sharedは今回未変更であり、前節の全回帰結果を維持する。詳細ログはOS専用一時領域（ローカル・Git管理外）へ保存した。
+
+## PR #248 追加レビュー対応: 起動失敗時の解放
+
+`main` と `startServer` の両入口で、DB初期化前にポートを整数0〜65535として検証する。ポート0の既存fixture契約を維持した。DB初期化後の構成・待受開始・既存初期化cleanupを外側の例外境界で包み、同期例外や他サービスのcleanup失敗でも両DBのcloseとlease解放へ到達させる。追加した終了経路はDB終了の例外をログに残し、起動時の元例外を再送出する。既存の待受・初回同期・停止契約は変更していない。
+
+`serverStartupFailure.test.ts` の6件で次を確認した。
+
+- 両入口とも負値・65536・小数・NaN・InfinityをDB作成前に拒否する。startServerは-Infinityも拒否する。
+- ポート0で正常待受し、65535は待受開始への到達を同期例外fixtureで確認する（実際の65535待受は行わない）。
+- Expressの構成 `use` と待受開始 `listen` に同期例外を両入口それぞれで注入し、両接続のcloseを記録する。失敗した同じ2DB保存先でstartServerを再起動・closeし、writer leaseの解放を検証する。startServer側は元例外の同一性も確認する。
+- main子プロセスの両DB envとcwd、startServerの両DBと両cacheを専用一時領域へ固定する。通常保存先全11項目のmetadataは着手前・全回帰後とも事故後基準と一致した。実DB内容は開いていない。
+
+コメントだけの対照実験は0、ポート検証削除・startServer例外境界のDB close削除・main例外境界のDB close削除は各1、完全復元後は0だった。初回型検査でテストの異なるExpressメソッドのunion代入が失敗したため、fixtureの差替えを `Object.defineProperty` へ修正した。期待値・skip・timeoutは緩めていない。
+
+| 修正後のコマンド | 終了コード・結果 |
+| --- | --- |
+| `npm run build` | 0（既存chunk警告のみ） |
+| `npm run lint` | 0 |
+| `npm run typecheck` | 0 |
+| `npm run format:check` | 0 |
+| `NODE_ENV=production node --import tsx --import ./apps/api/tests/helpers/venueConfigPreload.ts --test apps/api/tests/serverStartupFailure.test.ts` | 0、6件全成功 |
+| `NODE_ENV=production npm run test -w apps/api` | 0、828件全成功、skip/todo/cancel 0、通常並列 |
+
+`git diff -w` で業務上の変更はポート検証と例外境界の追加のみと確認した。外側tryに伴う整形差分を含む。詳細ログはOS専用一時領域（ローカル・Git管理外）へ保存した。既存packageのweb `--host` 差分は保持し、今回もコミットへ含めない。
