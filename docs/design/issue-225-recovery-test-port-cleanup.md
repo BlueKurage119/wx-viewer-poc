@@ -98,8 +98,10 @@
 
 対象ファイルの通常実行はリポジトリルートから次を使う。APIのtest scriptと同じpreloadを省略しない。
 
+製造時に確認した検証環境条件に合わせ、ローカル実行ではREADMEに定める `NODE_ENV=production` を指定して共有設定を検証する。Git管理外のローカル設定は保持する。通常sandboxではHTTP待受が `EPERM` になるため、待受を伴う検証は正式な `require_escalated` で実行する。詳細・通常並列経路の確認方法は末尾の検証環境注記を参照する。
+
 ```bash
-(cd apps/api && node --import tsx --import ./tests/helpers/venueConfigPreload.ts --test --test-timeout=30000 tests/databaseRecoveryOrchestration.test.ts)
+(cd apps/api && NODE_ENV=production node --import tsx --import ./tests/helpers/venueConfigPreload.ts --test --test-timeout=30000 tests/databaseRecoveryOrchestration.test.ts)
 ```
 
 50回反復は同コマンドを逐次実行し、回番号・所要時間・終了コードを記録する。AC13の3100ms待ちを維持するため、待ち時間だけで少なくとも155秒を要する。50回は既存Issue #222と同水準の間欠失敗確認回数という設計値であり、失敗確率の統計的保証とはしない。
@@ -107,7 +109,7 @@
 ```bash
 for run in {1..50}; do
   echo "反復 $run / 50"
-  (cd apps/api && node --import tsx --import ./tests/helpers/venueConfigPreload.ts --test --test-timeout=30000 tests/databaseRecoveryOrchestration.test.ts) || exit 1
+  (cd apps/api && NODE_ENV=production node --import tsx --import ./tests/helpers/venueConfigPreload.ts --test --test-timeout=30000 tests/databaseRecoveryOrchestration.test.ts) || exit 1
 done
 ```
 
@@ -124,7 +126,7 @@ done
 - [ ] AC2: 対象2件でmock登録から復元までawaitなし、捕捉は1件、起動rejectの即時観測、追加listenerなし、単一t.afterでゲート解放→close完了確認→dir削除を確認する。setup返却直後にhook所有状態を作りhookを登録している。ヘルパーは同じ状態を受け、startServer返却直後にstarting/outcomeを保存してからcalls読取・復元へ進む。捕捉値もassert前に保存され、ヘルパーの正常returnに後始末が依存しない。
 - [ ] AC3: コメントだけの対照実験が終了コード0。F1/F2は各1回、意図したassertで失敗し、後続テストが成功、終了コード1で120秒以内に自然終了する。timeout・cancel・未処理reject・`SQLITE_READONLY_DBMOVED` がなく、当該サーバー停止・dir削除を一時ログで確認する。各改変を復元したハッシュが製造後原本と一致する。
 - [ ] AC4: 対象ファイル50回を全て終了コード0で完走する。各回の所要時間と成功件数を記録し、timeout・ポート衝突・DB削除順エラーなし。1回でも失敗・停止すれば不合格。
-- [ ] AC5: `npm run test -w apps/api` 全体が600秒以内に正常終了・終了コード0。件数・所要時間を記録する。`npm run lint`、`npm run typecheck`、`npm run format:check` が全て成功する。
+- [ ] AC5: ローカルでは `NODE_ENV=production` と正式な待受権限でAPI全件を、末尾記載の `--test-concurrency=1` を指定したCLIで600秒以内に正常終了・終了コード0にする。スキップせず全件の件数・所要時間を記録する。通常並列経路はCIの既存 `npm run test -w apps/api` が成功することで別途確認する。ローカルの同npmコマンドで生じた既存B18の失敗証跡は保持し、逐次成功だけで通常並列も成功したとは扱わない。`npm run lint`、`npm run typecheck`、`npm run format:check` が全て成功する。
 - [ ] AC6: 同一ファイルの他テスト調査が上表と実コードに一致する。新たな問題が見つかった場合は、本件対象の資源残留か後続課題かを分類し統括へ報告する。
 - [ ] AC7: 基点からのdiffと未追跡ファイルを確認し、本設計書と対象テスト以外の新規差分なし。既存package差分保持、スキップ・todo・無効化追加なし、公開起動契約・本番コード変更なし。
 
@@ -134,3 +136,34 @@ done
 - 先送り: 上表のtry前の初期化失敗、AC17/18子プロセスの期限、起動失敗時の一般的な資源解放の強化。今回の2件の検証が失敗する原因となる場合は自動的に範囲を広げず統括へ返す。
 - 残留リスク: NodeのmockとExpressのlisten捕捉は実挙動未確認。型・捕捉件数・復元を製造で先に確認する。15秒・120秒・600秒の期限は実測に基づく保証値ではない。後始末自体が停止した場合は不合格として診断する。
 - 実装承認後もGit管理領域の書込制約は別に解決が必要。権限迂回・OS権限変更をせず、統括が指定したブランチと正式な許可範囲で製造する。
+
+## 製造時の検証環境注記・報告結果
+
+以下は設計承認後に統括から受領した製造の実測報告である。上記の「実挙動未確認」は設計時点の記録であり、ここでは報告済みの確認と未完了の確認を分ける。今回の追記は検証環境の設定・記録であり、仕様・期待値・コード変更範囲は変更しない。追加のユーザー判断は要しない。
+
+### 実行環境
+
+- 通常sandboxでは `listen` が `EPERM` となる。HTTP待受を伴うテストには正式な `require_escalated` が必要であり、権限迂回・OS権限変更で回避しない。
+- 現checkoutのGit管理外ローカル設定に追加会場があり、通常の実行環境では既存AC17/18・AC18の計4件が失敗した。これは今回の対象2件の期待値を変更する理由とはしない。
+- [README](../../README.md) の設定仕様では `NODE_ENV=production` でローカル差分を読み込まない。この公式の実行環境設定を使い、ローカル設定を保持したまま共有設定に対する検証を行う。設定ファイル・テスト期待値・共通preloadの変更は行わない。
+
+### 受領済みの結果
+
+| 検証 | 統括から受領した結果 |
+| --- | --- |
+| 対象ファイル反復 | 全17件を50回実行し、全回成功 |
+| F1・F2 | 各回pass 16 / fail 1 / cancel 0で自然終了。後始末確認・ハッシュによる原本復元確認とも成功 |
+| API通常並列、`NODE_ENV=production npm run test -w apps/api` | 2回とも全796件中pass 795 / fail 1。既存 `nowcastApi.test.ts` のB18でmain子プロセスの起動ログ待ちが15秒のtimeoutになった。失敗証跡を保持する |
+| B18単独、同実行環境 | 13.576秒で成功。並行負荷による間欠失敗の疑いはあるが、原因確定とはしない |
+| API全件逐次 | 下記コマンドで追加確認中。追記時点では結果未確定であり、成功件数・終了コードは先に記入しない |
+| CI通常並列 | 既存npmコマンドの成功確認が必要。追記時点では未結果 |
+
+### API全件の追加確認
+
+APIディレクトリで全ファイルを指定し、同じtsx・会場preloadを維持したままファイル間の並行負荷を外して確認する。外側の期限は600秒、実行環境はproduction、HTTP待受の正式権限を使用する。
+
+```bash
+(cd apps/api && NODE_ENV=production node --import tsx --import ./tests/helpers/venueConfigPreload.ts --test --test-concurrency=1 tests/*.test.ts)
+```
+
+この確認はname filter・skip・todoを使わず全件を実行する。逐次実行の結果と通常並列npmの失敗結果を併記し、既存失敗を消さない。通常並列経路はCIの元の `npm run test -w apps/api` の成功で確認し、これが未確認の間はAC5の全体を完了扱いにしない。CIの失敗も残る場合はB18の原因・Issue #225との関係を統括が判断し、本件担当がタイムアウト・期待値・スキップを変更して通さない。
