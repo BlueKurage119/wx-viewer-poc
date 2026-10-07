@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   copyFileSync,
+  openSync,
+  readSync,
+  closeSync,
   accessSync,
   constants,
   existsSync,
@@ -38,17 +41,30 @@ export interface FileIdentity {
   mtimeMs: number;
   hash: string;
 }
+const HASH_CHUNK_BYTES = 64 * 1024;
+
 export function fileIdentity(path: string): FileIdentity | null {
   assertRegularFile(path);
   if (!existsSync(path)) return null;
   const s = lstatSync(path);
+  const hash = createHash('sha256');
+  const fd = openSync(path, 'r');
+  try {
+    const chunk = Buffer.allocUnsafe(HASH_CHUNK_BYTES);
+    let count: number;
+    while ((count = readSync(fd, chunk, 0, chunk.length, null)) > 0) {
+      hash.update(chunk.subarray(0, count));
+    }
+  } finally {
+    closeSync(fd);
+  }
   return {
     path,
     dev: s.dev,
     ino: s.ino,
     size: s.size,
     mtimeMs: s.mtimeMs,
-    hash: createHash('sha256').update(readFileSync(path)).digest('hex'),
+    hash: hash.digest('hex'),
   };
 }
 export function captureFiles(path: string): (FileIdentity | null)[] {
@@ -105,7 +121,7 @@ export function inspectDatabaseCopy(config: RoleDatabaseConfig): DatabaseIdentit
 }
 export function acquireWriterLeases(config: DatabasePairConfig): () => void {
   const token = randomUUID();
-  const owned: string[] = [];
+  const owned = new Set<string>();
   try {
     for (const c of [config.weather, config.retained].sort((a, b) =>
       a.databasePath.localeCompare(b.databasePath),
@@ -113,7 +129,7 @@ export function acquireWriterLeases(config: DatabasePairConfig): () => void {
       const lock = `${c.databasePath}.writer-lock`;
       mkdirSync(dirname(lock), { recursive: true });
       mkdirSync(lock);
-      owned.push(lock);
+      owned.add(lock);
       writeFileSync(
         join(lock, 'owner.json'),
         JSON.stringify({
@@ -126,15 +142,33 @@ export function acquireWriterLeases(config: DatabasePairConfig): () => void {
       );
     }
   } catch (error) {
-    for (const lock of owned) rmSync(lock, { recursive: true });
+    const errors: unknown[] = [error];
+    for (const lock of owned) {
+      try {
+        rmSync(lock, { recursive: true });
+      } catch (cleanupError) {
+        errors.push(cleanupError);
+      }
+    }
+    if (errors.length > 1)
+      throw new AggregateError(errors, 'lease取得失敗後の解放にも失敗しました。');
     throw error;
   }
   return () => {
+    const errors: unknown[] = [];
     for (const lock of owned) {
-      const owner = JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8')) as { token: string };
-      if (owner.token !== token) throw new Error('writer lease所有tokenが一致しません。');
-      rmSync(lock, { recursive: true });
+      try {
+        const owner = JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8')) as {
+          token: string;
+        };
+        if (owner.token !== token) throw new Error('writer lease所有tokenが一致しません。');
+        rmSync(lock, { recursive: true });
+        owned.delete(lock);
+      } catch (error) {
+        errors.push(error);
+      }
     }
+    if (errors.length) throw new AggregateError(errors, 'writer leaseを解放できませんでした。');
   };
 }
 export function assertStopped(config: DatabasePairConfig): void {

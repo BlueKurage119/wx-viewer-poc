@@ -114,3 +114,32 @@
 | `NODE_ENV=production npm run test -w apps/api` | 0、828件全成功、skip/todo/cancel 0、通常並列 |
 
 `git diff -w` で業務上の変更はポート検証と例外境界の追加のみと確認した。外側tryに伴う整形差分を含む。詳細ログはOS専用一時領域（ローカル・Git管理外）へ保存した。既存packageのweb `--host` 差分は保持し、今回もコミットへ含めない。
+
+## PR #248 3度目レビュー対応: 終了例外とhashのメモリ上限
+
+pairの終了処理は、接続closeが失敗しても両接続とleaseの終了を全て試行して例外を集約する。migration前に接続を登録し、role初期化中の例外でも接続終了を試行して元例外を保持する。返却済みpairのcloseは失敗時に再試行可能とし、成功した接続・leaseを再終了せず、全成功後はno-opとなる。初期化失敗と同時にlease削除も拒否された場合は解放成功とは扱わず、元例外・close例外・lease例外を報告する。
+
+lease解放も片側の例外で他方を止めず、成功したlockをpending集合から除いて失敗分だけ再試行する。lease取得途中の失敗時も、取得済み全lockの後片付けを試行して元例外を保存する。所有tokenの照合契約は維持した。
+
+`fileIdentity` のSHA256計算は全量readから64 KiB固定bufferの同期readへ変更した。読込byte数だけをhashへ加え、fdはfinallyで閉じる。hash・metadata・不存在・単一リンクの判定契約は維持している。
+
+新しい `databasePairCleanup.test.ts` と `databaseFileIdentity.test.ts` の6件で、次を実行した。
+
+- close例外とlease削除例外の同時発生、両接続・両leaseの試行、失敗分の再close、成功後の繰返しclose、同じpair保存先の再初期化。
+- retained migrationの元例外とclose例外の保存、さらにlease削除例外も含めた3者集約。migration失敗接続も終了記録に含まれること。
+- 最初のlease解放を拒否しても次のleaseを解放することと、復旧後の再試行。
+- 空・1 byte・64 KiB境界前後・複数chunkの既知SHA256との一致、metadata保全、各read要求の64 KiB上限、全量read禁止、成功時fd close、不存在とhardlink拒否。
+- 途中read例外でのfd closeと元例外の同一性、復旧後のhash再実行。
+
+コメントだけの対照は0、release呼出除去・migration前接続登録除去・lease片側失敗のfail-fast化・hash全量readへ戻す・fd close除去の5改変は各1、完全復元後は0だった。新しい成功時fd検査の初回はfixtureファイル作成時のcloseまで数えて失敗したため、hash呼出し前後の差分で確認するよう修正した。期待値・skip・timeoutは緩めていない。
+
+| 修正後のコマンド | 終了コード・結果 |
+| --- | --- |
+| `npm run build` | 0（既存chunk警告のみ） |
+| `npm run lint` | 0 |
+| `npm run typecheck` | 0 |
+| `npm run format:check` | 0 |
+| `NODE_ENV=production node --import tsx --test apps/api/tests/databasePairCleanup.test.ts apps/api/tests/databaseFileIdentity.test.ts` | 0、6件全成功 |
+| `NODE_ENV=production npm run test -w apps/api` | 0、834件全成功、skip/todo/cancel 0、通常並列 |
+
+全fixtureは専用一時領域へ置いた。通常保存先全11項目のmetadataは着手前・全回帰後とも事故後基準と一致した。通常DB内容・数GB実DB・既存サービスは操作していない。Web/sharedは今回未変更。詳細ログはOS専用一時領域（ローカル・Git管理外）へ保存した。既存packageのweb `--host` 差分は保持し、コミットへ含めない。

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { openDatabase } from './connection.js';
+import { openDatabase, type DatabaseConnection } from './connection.js';
 import type { DatabaseContext } from './index.js';
 import { runMigrations } from './migrations.js';
 import {
@@ -23,39 +23,40 @@ export interface DatabasePairContext {
   readonly weatherDatabaseGenerationId: string;
   close(): void;
 }
-function initializeRole(config: RoleDatabaseConfig): DatabaseContext {
+function initializeRole(
+  config: RoleDatabaseConfig,
+  registerConnection: (connection: DatabaseConnection) => void,
+): DatabaseContext {
   mkdirSync(dirname(config.databasePath), { recursive: true });
   const connection = openDatabase(config.databasePath);
-  try {
-    const migrationSummary = connection
-      .transaction(() => {
-        const summary = runMigrations(connection, config.migrationsDirectory);
-        connection.exec(
-          "CREATE TABLE IF NOT EXISTS __database_identity (singleton INTEGER PRIMARY KEY CHECK(singleton=1), role TEXT NOT NULL CHECK(role IN ('weather','retained')), schema_family TEXT NOT NULL, instance_id TEXT NOT NULL, created_at TEXT NOT NULL)",
-        );
-        connection
-          .prepare('INSERT OR IGNORE INTO __database_identity VALUES (1,?,?,?,?)')
-          .run(config.role, SCHEMA_FAMILY, randomUUID(), new Date().toISOString());
-        return summary;
-      })
-      .immediate();
-    return {
-      connection,
-      migrationSummary,
-      close() {
-        if (connection.open) connection.close();
-      },
-    };
-  } catch (error) {
-    connection.close();
-    throw error;
-  }
+  registerConnection(connection);
+  const migrationSummary = connection
+    .transaction(() => {
+      const summary = runMigrations(connection, config.migrationsDirectory);
+      connection.exec(
+        "CREATE TABLE IF NOT EXISTS __database_identity (singleton INTEGER PRIMARY KEY CHECK(singleton=1), role TEXT NOT NULL CHECK(role IN ('weather','retained')), schema_family TEXT NOT NULL, instance_id TEXT NOT NULL, created_at TEXT NOT NULL)",
+      );
+      connection
+        .prepare('INSERT OR IGNORE INTO __database_identity VALUES (1,?,?,?,?)')
+        .run(config.role, SCHEMA_FAMILY, randomUUID(), new Date().toISOString());
+      return summary;
+    })
+    .immediate();
+  return {
+    connection,
+    migrationSummary,
+    close() {
+      if (connection.open) connection.close();
+    },
+  };
 }
 export function initializeDatabases(
   input: DatabasePairConfig = resolveDatabasePairConfig(),
 ): DatabasePairContext {
   const config = validateDatabasePairConfig(input);
   const release = acquireWriterLeases(config);
+  const connections: DatabaseConnection[] = [];
+  const registerConnection = (connection: DatabaseConnection) => connections.push(connection);
   let weather: DatabaseContext | undefined;
   let retained: DatabaseContext | undefined;
   try {
@@ -78,9 +79,9 @@ export function initializeDatabases(
     )
       throw new Error('起動検査中にDBが変更されました。');
     assertFixedDatabasePairConfig(config);
-    weather = initializeRole(config.weather);
+    weather = initializeRole(config.weather, registerConnection);
     assertFixedDatabasePairConfig(config);
-    retained = initializeRole(config.retained);
+    retained = initializeRole(config.retained, registerConnection);
     const generation = (
       weather.connection
         .prepare('SELECT instance_id FROM __database_identity WHERE singleton=1')
@@ -94,28 +95,37 @@ export function initializeDatabases(
       close() {
         if (closed) return;
         const errors: unknown[] = [];
-        for (const c of [weather, retained])
+        for (const connection of connections)
           try {
-            c?.close();
+            if (connection.open) connection.close();
           } catch (error) {
             errors.push(error);
           }
-        if (errors.length) throw new AggregateError(errors, 'DBを閉じられませんでした。');
-        release();
+        try {
+          release();
+        } catch (error) {
+          errors.push(error);
+        }
+        if (errors.length) throw new AggregateError(errors, 'DB/leaseを閉じられませんでした。');
         closed = true;
       },
     };
   } catch (error) {
     const errors: unknown[] = [error];
-    for (const context of [weather, retained]) {
+    for (const connection of connections) {
       try {
-        context?.close();
+        if (connection.open) connection.close();
       } catch (closeError) {
         errors.push(closeError);
       }
     }
-    if (errors.length > 1) throw new AggregateError(errors, '起動失敗後のDB終了にも失敗しました。');
-    release();
+    try {
+      release();
+    } catch (releaseError) {
+      errors.push(releaseError);
+    }
+    if (errors.length > 1)
+      throw new AggregateError(errors, '起動失敗後のDB/lease終了にも失敗しました。');
     throw error;
   }
 }
