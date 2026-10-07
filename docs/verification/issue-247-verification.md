@@ -143,3 +143,24 @@ lease解放も片側の例外で他方を止めず、成功したlockをpending�
 | `NODE_ENV=production npm run test -w apps/api` | 0、834件全成功、skip/todo/cancel 0、通常並列 |
 
 全fixtureは専用一時領域へ置いた。通常保存先全11項目のmetadataは着手前・全回帰後とも事故後基準と一致した。通常DB内容・数GB実DB・既存サービスは操作していない。Web/sharedは今回未変更。詳細ログはOS専用一時領域（ローカル・Git管理外）へ保存した。既存packageのweb `--host` 差分は保持し、コミットへ含めない。
+
+## PR #248 追加レビュー対応: 公開closeからのDB再試行
+
+両server wrapperで共通の `createRetryableDatabaseClose` を使用し、停止処理のPromiseと進行中closeのPromiseを保持する。サービス停止・B5・停止通知・HTTP停止は一度だけ行い、その完了後にDB closeを実行する。DB close失敗時は次の公開closeでDB終了だけを再試行する。進行中の並行closeは同じPromiseを返し、停止未完了のDBを先に閉じない。全成功後はno-op。mainの初期同期中に停止を要求したことを示す `closed` は既存どおり維持し、失敗時にfalseへ戻さない。前回の全lease解放試行契約も維持している。
+
+`serverCloseRetry.test.ts` は停止gateでDB終了順序・Promise共有・停止一度を確認する。公開startServerでは接続が開いたままcloseがthrowする状態を合成注入し、1回目の失敗・並行呼出しのPromise共有・2回目での実接続終了・正常繰返しclose・同じpair保存先の再起動を実行した。保持DBのB5停止記録とサービス停止通知は各1行である。iterator等の具体原因の再現ではなく、DB終了例外を代表する合成fixtureである。
+
+mainも同helper利用であることを差分で確認した。`registerGracefulShutdown` は既存のhandler一回契約を維持するため、**実mainの再シグナルによる再試行は検証対象外**であり、そこまで保証したとは扱わない。今回の両入口の共通処理はhelper直接試験とstartServer公開closeで検証した。初期化中signalと既存停止契約は既存API回帰で確認する。
+
+対照コメントは0、再試行無効化・並行時DB先行close・停止Promise再生成の3改変は各1、完全復元後は0。初回の例外注入は一時保存先の正規化パス差で届かなかったためrealpathへ合わせた。初回型検査の未使用flagとSQL結果型、lintのthis別名保持を修正し、最終fixtureでも3改変を再確認した。期待値・skip・timeoutは緩めていない。
+
+| 最終ソースのコマンド | 終了コード・結果 |
+| --- | --- |
+| `npm run build` | 0（既存chunk警告のみ） |
+| `npm run lint` | 0 |
+| `npm run typecheck` | 0 |
+| `npm run format:check` | 0 |
+| `NODE_ENV=production node --import tsx --import ./apps/api/tests/helpers/venueConfigPreload.ts --test apps/api/tests/serverCloseRetry.test.ts` | 0、2件全成功 |
+| `NODE_ENV=production npm run test -w apps/api` | 0、836件全成功、skip/todo/cancel 0、通常並列 |
+
+lint修正前の全APIも836件成功したが、最終fixtureへ合わせて全APIを再実行した。通常保存先全11項目のmetadataは着手前・全回帰後とも事故後基準に一致した。実DB内容・既存サービスは操作していない。詳細ログはOS専用一時領域（ローカル・Git管理外）へ保存した。既存packageのweb `--host` 差分は保持し、コミットへ含めない。

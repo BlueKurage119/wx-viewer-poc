@@ -33,6 +33,7 @@ import {
   type FetchControlTargets,
 } from './services/fetchControlService.js';
 import { registerGracefulShutdown, type SignalSource } from './gracefulShutdown.js';
+import { createRetryableDatabaseClose } from './serverClose.js';
 import { InMemoryStartupProgressTracker } from './monitoring/startupProgressTracker.js';
 import { InMemoryWarningCurrentRecoveryTracker } from './monitoring/warningCurrentRecoveryTracker.js';
 import {
@@ -760,10 +761,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       throw new Error('HTTP server did not provide a TCP port.');
     }
 
-    let closed = false;
-    const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
-      if (!closed) {
-        closed = true;
+    const closeResources = createRetryableDatabaseClose(
+      async (closeOptions) => {
         if (fetchHealthMonitorService) {
           fetchHealthMonitorService.stop();
         }
@@ -790,8 +789,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
           }
         }
         await closeServer(actualServer);
-        database.close();
-      }
+      },
+      () => database.close(),
+    );
+    const close = (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
+      return closeResources(closeOptions);
     };
     actualServer.once('error', (error) => {
       void close().catch((closeError: unknown) => {
@@ -1009,35 +1011,37 @@ async function main(): Promise<void> {
     const server = app.listen(port);
 
     let closed = false;
-    const close = async (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      if (fetchHealthMonitorService) {
-        fetchHealthMonitorService.stop();
-      }
-      if (pollingService && closeOptions?.reason === 'signal') {
-        await pollingService.stop('shutdown');
-      }
-      if (scheduler) {
-        await scheduler.stop();
-      }
-      if (imageServices) {
-        await imageServices.close();
-      }
-      if (pollingService) {
-        await pollingService.stop();
-      }
-      if (closeOptions?.reason === 'signal') {
-        try {
-          await fetchControlService.recordShutdown();
-        } catch (error) {
-          console.error('graceful shutdown の記録に失敗しました:', error);
+    const closeResources = createRetryableDatabaseClose(
+      async (closeOptions) => {
+        if (fetchHealthMonitorService) {
+          fetchHealthMonitorService.stop();
         }
-      }
-      await closeServer(server);
-      database.close();
+        if (pollingService && closeOptions?.reason === 'signal') {
+          await pollingService.stop('shutdown');
+        }
+        if (scheduler) {
+          await scheduler.stop();
+        }
+        if (imageServices) {
+          await imageServices.close();
+        }
+        if (pollingService) {
+          await pollingService.stop();
+        }
+        if (closeOptions?.reason === 'signal') {
+          try {
+            await fetchControlService.recordShutdown();
+          } catch (error) {
+            console.error('graceful shutdown の記録に失敗しました:', error);
+          }
+        }
+        await closeServer(server);
+      },
+      () => database.close(),
+    );
+    const close = (closeOptions?: { readonly reason?: 'signal' | 'programmatic' }) => {
+      closed = true;
+      return closeResources(closeOptions);
     };
 
     const runInitialSync = async (): Promise<void> => {
