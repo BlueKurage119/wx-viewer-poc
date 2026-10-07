@@ -4,7 +4,8 @@ import {
   testVenueRegistry,
   testTerminalRegistry,
 } from './helpers/venueConfigPreload.js';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
+import { Server } from 'node:http';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +17,7 @@ import { initializeDatabase } from '../src/database/index.js';
 import {
   createStartupNotificationRuntime as createStartupNotificationRuntimeImpl,
   startServer,
+  type StartServerOptions,
 } from '../src/server.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
@@ -72,6 +74,106 @@ function setup() {
   const databasePath = join(directory, 'db.sqlite3');
   const context = initializeDatabase({ databasePath, migrationsDirectory });
   return { directory, databasePath, context };
+}
+
+type StartupOutcome =
+  | { status: 'fulfilled'; server: Awaited<ReturnType<typeof startServer>> }
+  | { status: 'rejected'; error: unknown };
+
+interface StartupState {
+  starting?: ReturnType<typeof startServer>;
+  outcome?: Promise<StartupOutcome>;
+  httpServer?: Server;
+  listenCalls?: number;
+  requestedPort?: unknown;
+  release?: () => void;
+  restoreListen?: () => void;
+}
+
+function registerStartupCleanup(
+  t: TestContext,
+  state: StartupState,
+  { context, directory }: ReturnType<typeof setup>,
+): void {
+  t.after(async () => {
+    const errors: unknown[] = [];
+    state.release?.();
+    try {
+      state.restoreListen?.();
+    } catch (error) {
+      errors.push(error);
+    }
+    let contextClosed = true;
+    try {
+      context.close();
+    } catch (error) {
+      errors.push(error);
+      contextClosed = false;
+    }
+    const outcome = await state.outcome;
+    if (outcome?.status === 'fulfilled') {
+      // close失敗時はDBの解放を保証できないため、ディレクトリを削除しない。
+      await outcome.server.close();
+    } else if (outcome?.status === 'rejected') {
+      errors.push(outcome.error);
+    }
+    if (state.httpServer) assert.equal(state.httpServer.listening, false);
+    if (contextClosed) rmSync(directory, { recursive: true, force: true });
+    if (errors.length > 0) throw new AggregateError(errors, '起動資源の後始末に失敗した');
+  });
+}
+
+function captureStartingServer(
+  t: TestContext,
+  options: StartServerOptions,
+  state: StartupState,
+): void {
+  const listen = t.mock.method(Server.prototype, 'listen');
+  state.restoreListen = () => listen.mock.restore();
+  let capturedThis: unknown;
+  let capturedResult: unknown;
+  try {
+    state.starting = startServer({ ...options, port: 0 });
+    state.outcome = state.starting.then(
+      (server): StartupOutcome => ({ status: 'fulfilled', server }),
+      (error: unknown): StartupOutcome => ({ status: 'rejected', error }),
+    );
+    const calls = listen.mock.calls;
+    state.listenCalls = calls.length;
+    capturedThis = calls[0]?.this;
+    capturedResult = calls[0]?.result;
+    if (capturedThis instanceof Server) state.httpServer = capturedThis;
+    state.requestedPort = calls[0]?.arguments[0];
+  } finally {
+    listen.mock.restore();
+    state.restoreListen = undefined;
+  }
+  assert.equal(state.listenCalls, 1);
+  assert.equal(state.requestedPort, 0);
+  assert.ok(capturedThis instanceof Server);
+  assert.equal(capturedThis, capturedResult);
+}
+
+async function waitForAssignedPort(
+  httpServer: Server,
+  outcome: Promise<StartupOutcome>,
+): Promise<number> {
+  let settled: StartupOutcome | undefined;
+  void outcome.then((result) => {
+    settled = result;
+  });
+  await waitUntil(
+    () => {
+      if (settled?.status === 'rejected') throw settled.error;
+      return httpServer.listening;
+    },
+    5000,
+    '復旧中のHTTP待受開始',
+  );
+  const address = httpServer.address();
+  assert.ok(address !== null && typeof address !== 'string');
+  assert.ok(address.port > 0);
+  return address.port;
 }
 
 class RecoverySignalSource implements SignalSource {
@@ -253,31 +355,47 @@ test('AC12: 会場別timerは独立し、失敗後のcallbackでは通知を追�
   }
 });
 
-test('AC13: 実serverオーケストレーションで3秒後に会場別遅延通知を配信する', async () => {
-  const { directory, databasePath, context } = setup();
-  context.close();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const port = 35000 + Math.floor(Math.random() * 1000);
-  const schedule = createTestPollingSchedule();
-  const starting = startServer({
-    config: { databasePath, migrationsDirectory },
-    port,
-    enablePolling: false,
-    pollingSchedule: {
-      ...schedule,
-      startupRecovery: { ...schedule.startupRecovery, delayedThresholdSeconds: 3 },
-    },
-    recoveryInternals: {
-      recover: async (_connection, venue) => {
-        if (venue.venueId === eastVenueId) await gate;
-        return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 3000 };
+test(
+  'AC13: 実serverオーケストレーションで3秒後に会場別遅延通知を配信する',
+  { timeout: 15000 },
+  async (t) => {
+    const { directory, databasePath, context } = setup();
+    const state: StartupState = {};
+    registerStartupCleanup(t, state, { directory, databasePath, context });
+    context.close();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+      state.release = resolve;
+    });
+    const schedule = createTestPollingSchedule();
+    captureStartingServer(
+      t,
+      {
+        config: { databasePath, migrationsDirectory },
+        port: 0,
+        enablePolling: false,
+        pollingSchedule: {
+          ...schedule,
+          startupRecovery: { ...schedule.startupRecovery, delayedThresholdSeconds: 3 },
+        },
+        recoveryInternals: {
+          recover: async (_connection, venue) => {
+            if (venue.venueId === eastVenueId) await gate;
+            return {
+              venueId: venue.venueId,
+              statuses: [],
+              parsedReceptionCount: 0,
+              elapsedMs: 3000,
+            };
+          },
+        },
       },
-    },
-  });
-  try {
+      state,
+    );
+    const port = await waitForAssignedPort(state.httpServer!, state.outcome!);
+    const starting = state.starting!;
+
     for (let attempt = 0; attempt < 100; attempt += 1) {
       try {
         if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break;
@@ -295,14 +413,9 @@ test('AC13: 実serverオーケストレーションで3秒後に会場別遅延�
       ['database_recovery_started', 'database_recovery_delayed'],
     );
     release();
-    const server = await starting;
-    await server.close();
-  } finally {
-    release();
-    await starting.then((server) => server.close()).catch(() => undefined);
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
+    await starting;
+  },
+);
 
 test('AC10/§3.1: 開始状態・開始通知の後に未処理再処理を行い、その後に現況復旧する', async () => {
   const { directory, context } = setup();
@@ -392,51 +505,62 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
   }
 });
 
-test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得できる', async () => {
-  const { directory, databasePath, context } = setup();
-  context.close();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const port = 34000 + Math.floor(Math.random() * 1000);
-  const starting = startServer({
-    config: { databasePath, migrationsDirectory },
-    port,
-    enablePolling: false,
-    pollingSchedule: createTestPollingSchedule(),
-    recoveryInternals: {
-      recover: async (_connection, venue) => {
-        if (venue.venueId === eastVenueId) await gate;
-        return {
-          venueId: venue.venueId,
-          statuses: [
-            {
-              controlStatus: 'normal' as const,
-              outcome: 'reused' as const,
-              parsedReceptionCount: 2,
-              selectedReceptionIds: [],
-            },
-            {
-              controlStatus: 'training' as const,
-              outcome: 'rebuilt' as const,
-              parsedReceptionCount: 3,
-              selectedReceptionIds: [],
-            },
-            {
-              controlStatus: 'test' as const,
-              outcome: 'uninitialized' as const,
-              parsedReceptionCount: 0,
-              selectedReceptionIds: [],
-            },
-          ],
-          parsedReceptionCount: 5,
-          elapsedMs: 1,
-        };
+test(
+  'AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得できる',
+  { timeout: 15000 },
+  async (t) => {
+    const { directory, databasePath, context } = setup();
+    const state: StartupState = {};
+    registerStartupCleanup(t, state, { directory, databasePath, context });
+    context.close();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+      state.release = resolve;
+    });
+    captureStartingServer(
+      t,
+      {
+        config: { databasePath, migrationsDirectory },
+        port: 0,
+        enablePolling: false,
+        pollingSchedule: createTestPollingSchedule(),
+        recoveryInternals: {
+          recover: async (_connection, venue) => {
+            if (venue.venueId === eastVenueId) await gate;
+            return {
+              venueId: venue.venueId,
+              statuses: [
+                {
+                  controlStatus: 'normal' as const,
+                  outcome: 'reused' as const,
+                  parsedReceptionCount: 2,
+                  selectedReceptionIds: [],
+                },
+                {
+                  controlStatus: 'training' as const,
+                  outcome: 'rebuilt' as const,
+                  parsedReceptionCount: 3,
+                  selectedReceptionIds: [],
+                },
+                {
+                  controlStatus: 'test' as const,
+                  outcome: 'uninitialized' as const,
+                  parsedReceptionCount: 0,
+                  selectedReceptionIds: [],
+                },
+              ],
+              parsedReceptionCount: 5,
+              elapsedMs: 1,
+            };
+          },
+        },
       },
-    },
-  });
-  try {
+      state,
+    );
+    const port = await waitForAssignedPort(state.httpServer!, state.outcome!);
+    const starting = state.starting!;
+
     let healthOk = false;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       try {
@@ -494,7 +618,7 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
     ).json()) as { notifications: Array<{ changeType: string }> };
     assert.deepEqual(trcDelta.notifications, []);
     release();
-    const server = await starting;
+    await starting;
     const completedResponse = await fetch(
       `http://127.0.0.1:${port}/api/monitoring/status?terminalId=hkeagh01`,
     );
@@ -530,13 +654,8 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
         ],
       );
     }
-    await server.close();
-  } finally {
-    release();
-    await starting.then((server) => server.close()).catch(() => undefined);
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 for (const stage of ['validation', 'candidate', 'parse-reduce', 'commit'] as const) {
   test(`AC14: ${stage}段階の失敗は会場別questionを1件記録してfailedになる`, async () => {
