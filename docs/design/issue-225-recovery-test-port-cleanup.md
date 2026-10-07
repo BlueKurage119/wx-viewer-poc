@@ -126,7 +126,7 @@ done
 - [ ] AC2: 対象2件でmock登録から復元までawaitなし、捕捉は1件、起動rejectの即時観測、追加listenerなし、単一t.afterでゲート解放→close完了確認→dir削除を確認する。setup返却直後にhook所有状態を作りhookを登録している。ヘルパーは同じ状態を受け、startServer返却直後にstarting/outcomeを保存してからcalls読取・復元へ進む。捕捉値もassert前に保存され、ヘルパーの正常returnに後始末が依存しない。
 - [ ] AC3: コメントだけの対照実験が終了コード0。F1/F2は各1回、意図したassertで失敗し、後続テストが成功、終了コード1で120秒以内に自然終了する。timeout・cancel・未処理reject・`SQLITE_READONLY_DBMOVED` がなく、当該サーバー停止・dir削除を一時ログで確認する。各改変を復元したハッシュが製造後原本と一致する。
 - [ ] AC4: 対象ファイル50回を全て終了コード0で完走する。各回の所要時間と成功件数を記録し、timeout・ポート衝突・DB削除順エラーなし。1回でも失敗・停止すれば不合格。
-- [ ] AC5: ローカルでは `NODE_ENV=production` と正式な待受権限でAPI全件を、末尾記載の `--test-concurrency=1` を指定したCLIで600秒以内に正常終了・終了コード0にする。スキップせず全件の件数・所要時間を記録する。通常並列経路はCIの既存 `npm run test -w apps/api` が成功することで別途確認する。ローカルの同npmコマンドで生じた既存B18の失敗証跡は保持し、逐次成功だけで通常並列も成功したとは扱わない。`npm run lint`、`npm run typecheck`、`npm run format:check` が全て成功する。
+- [ ] AC5（PR作成前のローカル検収条件）: `NODE_ENV=production` と正式な待受権限でAPI全件を、末尾記載の `--test-concurrency=1` を指定したCLIで600秒以内に正常終了・終了コード0にする。スキップせず全件の件数・所要時間を記録する。`npm run lint`、`npm run typecheck`、`npm run format:check` が全て成功する。ローカルの通常並列npmコマンドで生じた既存B18の失敗証跡は保持し、逐次成功だけで通常並列も成功したとは扱わない。通常並列経路のCI確認はPR作成後の依頼完了条件として別途行い、AC5の事前ゲートには含めない。
 - [ ] AC6: 同一ファイルの他テスト調査が上表と実コードに一致する。新たな問題が見つかった場合は、本件対象の資源残留か後続課題かを分類し統括へ報告する。
 - [ ] AC7: 基点からのdiffと未追跡ファイルを確認し、本設計書と対象テスト以外の新規差分なし。既存package差分保持、スキップ・todo・無効化追加なし、公開起動契約・本番コード変更なし。
 
@@ -166,4 +166,4 @@ APIディレクトリで全ファイルを指定し、同じtsx・会場preload�
 (cd apps/api && NODE_ENV=production node --import tsx --import ./tests/helpers/venueConfigPreload.ts --test --test-concurrency=1 tests/*.test.ts)
 ```
 
-この確認はname filter・skip・todoを使わず全件を実行する。逐次実行の結果と通常並列npmの失敗結果を併記し、既存失敗を消さない。通常並列経路はCIの元の `npm run test -w apps/api` の成功で確認し、これが未確認の間はAC5の全体を完了扱いにしない。CIの失敗も残る場合はB18の原因・Issue #225との関係を統括が判断し、本件担当がタイムアウト・期待値・スキップを変更して通さない。
+この確認はname filter・skip・todoを使わず全件を実行する。逐次実行の結果と通常並列npmの失敗結果を併記し、既存失敗を消さない。AC5を含むローカル検収の全項目が通過した後はDraft PRを作成できる。通常並列経路はPR作成後にCIの元の `npm run test -w apps/api` の成功で確認する。CI未確認の間は、この依頼（初回レビュー対応まで）を完了扱いにしないが、PR作成前の検収ゲートには含めない。CIの失敗も残る場合はB18の原因・Issue #225との関係を統括が判断し、本件担当がタイムアウト・期待値・スキップを変更して通さない。
