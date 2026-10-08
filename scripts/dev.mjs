@@ -6,6 +6,17 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const apiOnly = process.argv.includes('--api-only');
 const args = process.argv.slice(2).filter((arg) => arg !== '--api-only');
+const colorsEnabled =
+  process.env.FORCE_COLOR !== undefined
+    ? ['', '1', 'true', '2', '3'].includes(process.env.FORCE_COLOR)
+    : Boolean(process.stdout.isTTY) && process.env.NO_COLOR === undefined;
+// pipe越しの子にも端末の色設定を渡す。明示指定と非端末への出力は維持する。
+const childEnv =
+  colorsEnabled && process.env.FORCE_COLOR === undefined
+    ? { ...process.env, FORCE_COLOR: '1' }
+    : process.env;
+const prefix = (name) =>
+  colorsEnabled ? `\u001b[${name === 'web' ? 34 : 32}m[${name}]\u001b[39m` : `[${name}]`;
 const children = new Set();
 const watchers = [];
 let api;
@@ -19,12 +30,12 @@ function launch(name, cwd, commandArgs) {
     cwd,
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
+    env: childEnv,
   });
   const state = { child, expected: false, stopping: undefined, done: undefined };
   state.done = new Promise((resolveExit) => {
     child.once('error', (error) => {
-      console.error(`[${name}] 起動失敗:`, error);
+      console.error(`${prefix(name)} 起動失敗:`, error);
       resolveExit(1);
     });
     child.once('close', (code, signal) => {
@@ -35,7 +46,7 @@ function launch(name, cwd, commandArgs) {
           : (code ?? (state.expected && signal === 'SIGTERM' ? 0 : 1)),
       );
       if (!state.expected && !stopping) {
-        console.error(`[${name}] 予期しない終了 (${signal ?? code})`);
+        console.error(`${prefix(name)} 予期しない終了 (${signal ?? code})`);
         void shutdown(code || 1);
       }
     });
@@ -45,10 +56,10 @@ function launch(name, cwd, commandArgs) {
     output.setEncoding('utf8').on('data', (chunk) => {
       const lines = (tail + chunk).split('\n');
       tail = lines.pop();
-      for (const line of lines) console.log(`[${name}] ${line}`);
+      for (const line of lines) console.log(`${prefix(name)} ${line}`);
     });
     output.on('end', () => {
-      if (tail) console.log(`[${name}] ${tail}`);
+      if (tail) console.log(`${prefix(name)} ${tail}`);
     });
   }
   children.add(state);
