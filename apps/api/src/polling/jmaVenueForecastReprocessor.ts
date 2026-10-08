@@ -29,6 +29,11 @@ function needsSnapshotRecovery(
   registry: VenueRegistry,
   venueId: VenueId,
 ): boolean {
+  // 同じ原文の解析失敗を毎起動繰り返さず、他会場の復旧は個別に判定する。
+  if (
+    summary.adoptions.some((row) => row.venueId === venueId && row.adoptionResult === '未対応構造')
+  )
+    return false;
   if (
     !summary.hasRawBody ||
     !summary.controlStatus ||

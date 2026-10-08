@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createVenueRegistry, type VenueRegistry } from '@wx-viewer-poc/shared';
 import { initializeTestDatabases } from './helpers/databasePair.js';
 import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import { parseTelegramXml } from '../src/polling/jmaXmlFeedParser.js';
@@ -12,7 +13,10 @@ import { reprocessPendingVenueForecastReceptions } from '../src/polling/jmaVenue
 import { processVpwp50ReceptionForAllVenues } from '../src/polling/jmaVpwp50Processor.js';
 import { processEarlyWarningReceptionForVenues } from '../src/polling/jmaEarlyWarningProcessor.js';
 import { processVpfd51ReceptionForVenues } from '../src/polling/jmaVpfd51Processor.js';
-import { recordTelegramReception } from '../src/repositories/telegramReceptionRepository.js';
+import {
+  recordTelegramReception,
+  listTelegramReceptionAdoptions,
+} from '../src/repositories/telegramReceptionRepository.js';
 import {
   findWarningTimeseriesSnapshot,
   saveWarningTimeseriesSnapshot,
@@ -108,12 +112,13 @@ function process(
   connection: DatabaseConnection,
   c: ForecastCase,
   reception: ReturnType<typeof record>,
+  registry: VenueRegistry = testVenueRegistry,
 ) {
   if (c.type === 'VPWP50')
-    processVpwp50ReceptionForAllVenues(connection, reception, receivedAt, testVenueRegistry);
+    processVpwp50ReceptionForAllVenues(connection, reception, receivedAt, registry);
   else if (c.type === 'VPFD51')
-    processVpfd51ReceptionForVenues(connection, reception, receivedAt, testVenueRegistry);
-  else processEarlyWarningReceptionForVenues(connection, reception, receivedAt, testVenueRegistry);
+    processVpfd51ReceptionForVenues(connection, reception, receivedAt, registry);
+  else processEarlyWarningReceptionForVenues(connection, reception, receivedAt, registry);
 }
 function find(connection: DatabaseConnection, c: ForecastCase, status: ControlStatus = 'normal') {
   if (c.type === 'VPWP50') return findWarningTimeseriesSnapshot(connection, c.area, status);
@@ -356,6 +361,17 @@ for (const c of cases) {
           condition === '解析不可' ? 1 : 0,
         );
         assert.deepEqual(find(db.connection, c), saved);
+        const adoptions = listTelegramReceptionAdoptions(db.connection, reception.id);
+        assert.equal(
+          reprocessPendingVenueForecastReceptions(
+            db.connection,
+            '2026-10-11T00:00:00Z',
+            testVenueRegistry,
+          ),
+          0,
+        );
+        assert.deepEqual(find(db.connection, c), saved);
+        assert.deepEqual(listTelegramReceptionAdoptions(db.connection, reception.id), adoptions);
       } finally {
         db.close();
       }
@@ -392,6 +408,106 @@ for (const c of cases) {
           '2026-10-11T00:00:00Z',
           testVenueRegistry,
         ),
+        0,
+      );
+      assert.deepEqual(find(db.connection, c), saved);
+    } finally {
+      db.close();
+    }
+  });
+}
+
+for (const c of cases) {
+  test(`${c.type}: 本文解析失敗はsnapshotの有無によらず初回だけ処理し、失敗記録済みなら初回から除外する`, () => {
+    for (const hasSnapshot of [false, true]) {
+      for (const alreadyFailed of [false, true]) {
+        const db = setup();
+        try {
+          if (hasSnapshot)
+            process(db.connection, c, record(db.connection, c, xml(c, older), 'saved'));
+          const saved = find(db.connection, c);
+          const unsupportedBody = xml(c).replaceAll(
+            /<MeteorologicalInfos type="[^"]+">/g,
+            '<MeteorologicalInfos type="未対応">',
+          );
+          const reception = record(db.connection, c, unsupportedBody, 'unsupported');
+          assert.equal(reception.reportDateTime, latest);
+          assert.equal(reception.controlStatus, 'normal');
+          assert.equal(
+            reception.areas.some((area) => area.areaCode === c.area),
+            true,
+          );
+          if (alreadyFailed) process(db.connection, c, reception);
+          const before = listTelegramReceptionAdoptions(db.connection, reception.id);
+          assert.equal(
+            reprocessPendingVenueForecastReceptions(
+              db.connection,
+              '2026-10-10T00:00:00Z',
+              testVenueRegistry,
+            ),
+            alreadyFailed ? 0 : 1,
+          );
+          const failed = listTelegramReceptionAdoptions(db.connection, reception.id);
+          assert.deepEqual(
+            failed.map((row) => row.adoptionResult),
+            ['未対応構造', '未対応構造'],
+          );
+          if (alreadyFailed) assert.deepEqual(failed, before);
+          assert.deepEqual(find(db.connection, c), saved);
+          assert.equal(
+            reprocessPendingVenueForecastReceptions(
+              db.connection,
+              '2026-10-11T00:00:00Z',
+              testVenueRegistry,
+            ),
+            0,
+          );
+          assert.deepEqual(find(db.connection, c), saved);
+          assert.deepEqual(listTelegramReceptionAdoptions(db.connection, reception.id), failed);
+        } finally {
+          db.close();
+        }
+      }
+    }
+  });
+  test(`${c.type}: 一会場の解析失敗記録は他会場の正常な復旧を妨げない`, () => {
+    const db = setup();
+    try {
+      const registry = createVenueRegistry(
+        testVenueRegistry.listVenues().map((venue) => ({
+          ...venue,
+          warningTimeseries: testVenueRegistry.listVenues()[0]!.warningTimeseries,
+        })),
+        'forecast-review-test',
+      );
+      const reception = record(db.connection, c, xml(c), 'per-venue');
+      process(db.connection, c, reception, registry);
+      const saved = find(db.connection, c);
+      assert.ok(saved);
+      db.connection
+        .prepare(`UPDATE ${c.table} SET report_datetime = ?, control_datetime = ?, issued_at = ?`)
+        .run(older, older, older);
+      db.connection
+        .prepare(
+          "UPDATE telegram_reception_adoption SET adoption_result = '未対応構造', adoption_reason = '会場固有の解析失敗' WHERE reception_id = ? AND venue_id = 'east'",
+        )
+        .run(reception.id);
+      const failedVenue = listTelegramReceptionAdoptions(db.connection, reception.id).find(
+        (row) => row.venueId === 'east',
+      );
+      assert.equal(
+        reprocessPendingVenueForecastReceptions(db.connection, '2026-10-10T00:00:00Z', registry),
+        1,
+      );
+      assert.deepEqual(find(db.connection, c), saved);
+      assert.deepEqual(
+        listTelegramReceptionAdoptions(db.connection, reception.id).find(
+          (row) => row.venueId === 'east',
+        ),
+        failedVenue,
+      );
+      assert.equal(
+        reprocessPendingVenueForecastReceptions(db.connection, '2026-10-11T00:00:00Z', registry),
         0,
       );
       assert.deepEqual(find(db.connection, c), saved);
