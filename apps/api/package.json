@@ -7,7 +7,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node ../../scripts/dev.mjs --api-only",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "test": "node --import tsx --import ./tests/helpers/venueConfigPreload.ts --test tests/*.test.ts",
