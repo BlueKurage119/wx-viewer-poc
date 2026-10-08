@@ -90,7 +90,11 @@ export interface MonitoringReceptionQuery {
 // ---------------------------------------------------------------------------
 
 export type NotificationReceptionUnavailableReason =
-  'weather_generation_changed' | 'reception_missing' | 'raw_body_missing' | 'generation_unknown';
+  | 'weather_generation_changed'
+  | 'reception_missing'
+  | 'raw_body_missing'
+  | 'generation_unknown'
+  | 'weather_unavailable';
 
 export type NotificationReceptionReference =
   | { readonly status: 'available'; readonly receptionId: number }

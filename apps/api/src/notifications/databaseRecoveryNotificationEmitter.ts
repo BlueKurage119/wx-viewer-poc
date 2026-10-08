@@ -10,6 +10,7 @@ export class DatabaseRecoveryNotificationEmitter {
   emit(planned: PlannedDatabaseRecoveryNotification): boolean {
     const key = planned.notification.notificationId;
     if (this.emitted.has(key)) return false;
+    this.emitted.add(key);
     const transaction = this.connection.transaction(() => {
       recordNotificationOutputHistory(
         this.connection,
@@ -17,7 +18,6 @@ export class DatabaseRecoveryNotificationEmitter {
       );
     });
     transaction();
-    this.emitted.add(key);
     return true;
   }
 }

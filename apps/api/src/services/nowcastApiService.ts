@@ -31,6 +31,7 @@ export interface NowcastApiServiceDependencies {
 export interface NowcastApiService {
   getTimes(terminal: TerminalDefinition, controlStatus: WeatherControlStatus): NowcastTimesResponse;
   getTile(frame: NowcastApiFrame, coordinate: TileCoordinate): Promise<TileDeliveryResult>;
+  readTile?(frame: NowcastApiFrame, coordinate: TileCoordinate): Promise<TileDeliveryResult | null>;
 }
 
 const UNAVAILABLE_EMPTY_METADATA: WeatherMetadata = {
@@ -158,6 +159,12 @@ export function createNowcastApiService(
           N2: projectProduct('N2'),
         },
       };
+    },
+
+    async readTile(frame, coordinate) {
+      const service = dependencies.getService();
+      if (service === null) throw new ImageServicesInitializingError();
+      return service.readSavedTile(frame, coordinate);
     },
 
     async getTile(frame: NowcastApiFrame, coordinate: TileCoordinate): Promise<TileDeliveryResult> {

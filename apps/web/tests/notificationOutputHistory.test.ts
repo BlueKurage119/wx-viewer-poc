@@ -131,3 +131,26 @@ test('AC6 切替で自分のfetchを中止し遅延応答を閉じた表示に�
     ['loading'],
   );
 });
+
+test('#256 読取不能の410を原文欠落と区別し、保持履歴本文を残す', async () => {
+  const states: NotificationOutputHistoryState[] = [];
+  const controller = createNotificationOutputHistoryController(
+    (state) => states.push(state),
+    async (input) =>
+      String(input).includes('/reception')
+        ? Response.json({ reason: 'weather_unavailable' }, { status: 410 })
+        : list(),
+  );
+  await controller.load();
+  await controller.openReception(1);
+  assert.equal(states.at(-1)?.receptionPhase, 'idle');
+  assert.deepEqual(states.at(-1)?.items, [
+    { ...row, receptionReference: { status: 'unavailable', reason: 'weather_unavailable' } },
+  ]);
+  assert.deepEqual(dialogContent(renderOutputDialog(states.at(-1)!)), {
+    summaries: ['旧通知'],
+    originalButtons: 0,
+    unavailable: 1,
+  });
+  controller.dispose();
+});

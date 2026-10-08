@@ -1,3 +1,4 @@
+import type { DecisionScope } from '../runtime/weatherDecisionRuntime.js';
 import type { DatabaseConnection } from '../database/index.js';
 import {
   findTelegramReceptionById,
@@ -385,6 +386,7 @@ export function applyWarningCurrentReception(
 }
 
 export interface WarningCurrentRecoveryOptions {
+  readonly runWeatherUpdate?: <T>(work: () => T, scope?: DecisionScope) => Promise<T>;
   readonly yieldEveryParsedReceptions: number;
   readonly candidatePageSize?: number;
   readonly yieldControl?: () => Promise<void>;
@@ -674,9 +676,12 @@ export async function recoverWarningCurrent(
       parsedReceptionCount,
       reused: false,
     });
-    connection.transaction(() =>
-      replaceRecoveryStatus(connection, venue.targetArea, status, selected),
-    )();
+    const commit = () =>
+      connection.transaction(() =>
+        replaceRecoveryStatus(connection, venue.targetArea, status, selected),
+      )();
+    if (options.runWeatherUpdate) await options.runWeatherUpdate(commit);
+    else commit();
     results.push({
       controlStatus: status,
       outcome: selected.has('VPWS50') ? 'rebuilt' : 'uninitialized',

@@ -10,10 +10,10 @@ export class InitialSyncNotificationEmitter {
   emit(planned: ReturnType<typeof planInitialSyncNotification>): void {
     const key = planned.notification.notificationId;
     if (this.emitted.has(key)) return;
+    this.emitted.add(key);
     recordNotificationOutputHistory(
       this.connection,
       toNotificationOutputHistoryInput(planned.notification, planned.output, null),
     );
-    this.emitted.add(key);
   }
 }
