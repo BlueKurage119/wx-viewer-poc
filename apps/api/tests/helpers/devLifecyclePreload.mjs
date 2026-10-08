@@ -58,7 +58,10 @@ if (process.argv[1]?.endsWith('/vite.js')) {
   trace('web-process');
   const originalListen = http.Server.prototype.listen;
   http.Server.prototype.listen = function (...args) {
-    this.once('listening', () => trace('web-ready'));
+    this.once('listening', () => {
+      const address = this.address();
+      trace('web-ready', { port: typeof address === 'object' ? address?.port : undefined });
+    });
     return originalListen.apply(this, args);
   };
 }

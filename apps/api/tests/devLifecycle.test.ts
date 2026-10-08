@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -13,6 +14,7 @@ interface Event {
   pid: number;
   at: number;
   code?: number;
+  port?: number;
 }
 function fixture() {
   const directory = fs.mkdtempSync(path.join(tmpdir(), 'wx-dev-lifecycle-'));
@@ -63,6 +65,20 @@ function fixture() {
       .filter(Boolean)
       .map((line) => JSON.parse(line) as Event);
   return { directory, trace, env, events };
+}
+async function webPortArgs() {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const port = address.port;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+  return ['--port', String(port), '--strictPort'];
 }
 function waitForExit(child: ReturnType<typeof spawn>) {
   return new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
@@ -145,7 +161,7 @@ for (const command of ['dev', 'dev:host', 'api', 'dev-sighup']) {
     const args =
       command === 'api'
         ? ['run', 'dev', '-w', 'apps/api']
-        : ['run', command === 'dev-sighup' ? 'dev' : command, '--', '--port', '0'];
+        : ['run', command === 'dev-sighup' ? 'dev' : command, '--', ...(await webPortArgs())];
     let child = spawn('npm', args, { cwd: f.directory, env: f.env, detached: true });
     let exited = waitForExit(child);
     child.stdout.on('data', (data) => {
@@ -161,6 +177,11 @@ for (const command of ['dev', 'dev:host', 'api', 'dev-sighup']) {
           (command === 'api' || f.events().some((e) => e.kind === 'web-ready')),
         () => output,
       );
+      if (command !== 'api') {
+        const webReady = f.events().find((e) => e.kind === 'web-ready')!;
+        assert.equal(webReady.port, Number(args[args.indexOf('--port') + 1]));
+        assert.ok(webReady.port! > 0 && ![5173, 5174].includes(webReady.port!));
+      }
       const requestedSignal = command === 'dev-sighup' ? 'SIGHUP' : 'SIGINT';
       process.kill(-child.pid!, requestedSignal);
       const npmExit = await exited;
@@ -318,7 +339,7 @@ for (const scenario of ['warning', 'failed-watch', 'early-signal', 'unexpected-a
       : spawn(
           'npm',
           scenario === 'unexpected-api'
-            ? ['run', 'dev', '--', '--port', '0']
+            ? ['run', 'dev', '--', ...(await webPortArgs())]
             : ['run', 'dev', '-w', 'apps/api'],
           {
             cwd: f.directory,
