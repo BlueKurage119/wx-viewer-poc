@@ -7,6 +7,7 @@ import {
 } from './runtime/weatherDecisionRuntime.js';
 import { createInlineWeatherRead } from './runtime/inlineWeatherRead.js';
 import { projectStartupCurrentNotifications } from './notifications/startupCurrentNotificationProjector.js';
+import { WeatherRequestError } from './runtime/weatherRequestRegistry.js';
 import { createApplicationRuntime } from './runtime/createApplicationRuntime.js';
 import { findMaxNotificationOutputSequence } from './repositories/notificationOutputHistoryRepository.js';
 import { InitialSyncNotificationEmitter } from './notifications/initialSyncNotificationEmitter.js';
@@ -302,7 +303,7 @@ export function createStartupNotificationRuntime(
         observeRequest?.(request);
         const reply = await startupReader.request(request);
         publication.assertValid(token);
-        if (reply.result.status !== 'completed') throw new Error('起動現況の投影に失敗しました');
+        if (reply.result.status !== 'completed') throw new WeatherRequestError(reply.result.code);
         return synchronousStartup.inquire(input, { projection: reply.result.value, cursor });
       }, signal);
     },
@@ -487,6 +488,7 @@ export function createStartupNotificationRuntime(
   return {
     acquisitionEpoch,
     deliveryEpoch,
+    deliveryRegistry: startupReader.registry,
     runWeatherUpdate,
     evaluateInitialWarning,
     decisions,
@@ -769,6 +771,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
     const applicationRuntime = createApplicationRuntime({
       deliveryEpoch: startupRuntime.deliveryEpoch,
+      deliveryRegistry: startupRuntime.deliveryRegistry,
       acquisitionEpoch: startupRuntime.acquisitionEpoch,
       observeRequest: options.weatherRequestObserver,
       retainedConnection: database.retained.connection,
@@ -1203,6 +1206,7 @@ async function main(): Promise<void> {
 
     const applicationRuntime = createApplicationRuntime({
       deliveryEpoch: startupRuntime.deliveryEpoch,
+      deliveryRegistry: startupRuntime.deliveryRegistry,
       acquisitionEpoch: startupRuntime.acquisitionEpoch,
       retainedConnection: database.retained.connection,
       weatherConnection: database.weather.connection,

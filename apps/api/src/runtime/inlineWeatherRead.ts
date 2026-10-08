@@ -18,8 +18,8 @@ export function createInlineWeatherRead(
   epoch: WeatherEpoch,
   handlers: WeatherHandlers,
   now: () => number = Date.now,
+  registry = new WeatherRequestRegistry(epoch, now),
 ): WeatherPort & { readonly registry: WeatherRequestRegistry } {
-  const registry = new WeatherRequestRegistry(epoch, now);
   return {
     registry,
     request<K extends keyof WeatherOperations>(request: WeatherRequest<K>) {

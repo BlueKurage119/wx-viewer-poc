@@ -13,7 +13,7 @@ import type { KikikuruApiService } from '../services/kikikuruApiService.js';
 import type { MonitoringProcessingService } from '../monitoring/monitoringProcessingService.js';
 import { ImageServicesInitializingError } from '../services/tileApiSupport.js';
 import { createInlineWeatherRead } from './inlineWeatherRead.js';
-import { WeatherRequestError } from './weatherRequestRegistry.js';
+import { WeatherRequestError, type WeatherRequestRegistry } from './weatherRequestRegistry.js';
 import type {
   WeatherEpoch,
   WeatherOperations,
@@ -35,6 +35,7 @@ export interface ApplicationRuntimeDependencies extends Omit<
   readonly retainedConnection: DatabaseConnection;
   readonly weatherConnection: DatabaseConnection;
   readonly deliveryEpoch: WeatherEpoch;
+  readonly deliveryRegistry: WeatherRequestRegistry;
   readonly acquisitionEpoch: WeatherEpoch;
   readonly serverGenerationId: string;
   readonly weatherDatabaseGenerationId: string;
@@ -56,59 +57,65 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
     weatherConnection: deps.weatherConnection,
     now: () => new Date().toISOString(),
   });
-  const inline = createInlineWeatherRead(epoch, {
-    'weather.read': (p) => deps.weatherApi[methods[p.kind]](p.terminal, p.controlStatus),
-    'image.times': (p) => {
-      try {
-        return (p.layer === 'nowcast' ? deps.nowcastApi : deps.kikikuruApi).getTimes(
-          p.terminal,
-          p.controlStatus,
-        );
-      } catch (error) {
-        if (error instanceof ImageServicesInitializingError)
-          throw new WeatherRequestError('not_ready');
-        throw error;
-      }
+  const inline = createInlineWeatherRead(
+    epoch,
+    {
+      'weather.read': (p) => deps.weatherApi[methods[p.kind]](p.terminal, p.controlStatus),
+      'image.times': (p) => {
+        try {
+          return (p.layer === 'nowcast' ? deps.nowcastApi : deps.kikikuruApi).getTimes(
+            p.terminal,
+            p.controlStatus,
+          );
+        } catch (error) {
+          if (error instanceof ImageServicesInitializingError)
+            throw new WeatherRequestError('not_ready');
+          throw error;
+        }
+      },
+      'tile.read': async (p) => {
+        const result =
+          p.layer === 'nowcast'
+            ? await deps.nowcastApi.readTile?.(p.frame, p.coordinate)
+            : await deps.kikikuruApi.readTile?.(p.frame, p.coordinate);
+        if (!result || result.kind !== 'success') return { kind: 'miss' };
+        return {
+          kind: 'hit',
+          bytes: new Uint8Array(result.buffer),
+          contentType: 'image/png',
+          storedAt: result.storedAt,
+          catalogAvailability: result.catalogAvailability,
+        };
+      },
+      'history.references': (requests) => {
+        if (requests.length > 200) throw new WeatherRequestError('invalid_request');
+        return requests.map((request) => {
+          if (request.weatherDatabaseGenerationId === null)
+            return { status: 'unavailable', reason: 'generation_unknown' };
+          if (request.weatherDatabaseGenerationId !== epoch.weatherDatabaseGenerationId)
+            return { status: 'unavailable', reason: 'weather_generation_changed' };
+          const detail = receptions.getReceptionById(request.receptionId);
+          if (!detail) return { status: 'unavailable', reason: 'reception_missing' };
+          if (!detail.reception.rawBody)
+            return { status: 'unavailable', reason: 'raw_body_missing' };
+          return { status: 'available', receptionId: request.receptionId };
+        });
+      },
+      'history.receptions': (p) => receptions.listReceptions(p),
+      'history.reception': (p) => {
+        if (p.expectedDatabaseGenerationId !== epoch.weatherDatabaseGenerationId)
+          throw new WeatherRequestError('generation_changed');
+        return receptions.getReceptionById(p.receptionId);
+      },
+      'monitoring.sample': (p) => {
+        if (!deps.monitoringStatus) throw new WeatherRequestError('not_ready');
+        return deps.monitoringStatus.getStatus(p.terminal);
+      },
+      'monitoring.processing': (p) => deps.monitoringProcessing.getProcessing(p.terminal),
     },
-    'tile.read': async (p) => {
-      const result =
-        p.layer === 'nowcast'
-          ? await deps.nowcastApi.readTile?.(p.frame, p.coordinate)
-          : await deps.kikikuruApi.readTile?.(p.frame, p.coordinate);
-      if (!result || result.kind !== 'success') return { kind: 'miss' };
-      return {
-        kind: 'hit',
-        bytes: new Uint8Array(result.buffer),
-        contentType: 'image/png',
-        storedAt: result.storedAt,
-        catalogAvailability: result.catalogAvailability,
-      };
-    },
-    'history.references': (requests) => {
-      if (requests.length > 200) throw new WeatherRequestError('invalid_request');
-      return requests.map((request) => {
-        if (request.weatherDatabaseGenerationId === null)
-          return { status: 'unavailable', reason: 'generation_unknown' };
-        if (request.weatherDatabaseGenerationId !== epoch.weatherDatabaseGenerationId)
-          return { status: 'unavailable', reason: 'weather_generation_changed' };
-        const detail = receptions.getReceptionById(request.receptionId);
-        if (!detail) return { status: 'unavailable', reason: 'reception_missing' };
-        if (!detail.reception.rawBody) return { status: 'unavailable', reason: 'raw_body_missing' };
-        return { status: 'available', receptionId: request.receptionId };
-      });
-    },
-    'history.receptions': (p) => receptions.listReceptions(p),
-    'history.reception': (p) => {
-      if (p.expectedDatabaseGenerationId !== epoch.weatherDatabaseGenerationId)
-        throw new WeatherRequestError('generation_changed');
-      return receptions.getReceptionById(p.receptionId);
-    },
-    'monitoring.sample': (p) => {
-      if (!deps.monitoringStatus) throw new WeatherRequestError('not_ready');
-      return deps.monitoringStatus.getStatus(p.terminal);
-    },
-    'monitoring.processing': (p) => deps.monitoringProcessing.getProcessing(p.terminal),
-  });
+    Date.now,
+    deps.deliveryRegistry,
+  );
   const readPort = deps.readPort ?? inline;
   const acquisitionEpoch = deps.acquisitionEpoch;
   const acquisitionPort = createInlineWeatherAcquisition(acquisitionEpoch, {

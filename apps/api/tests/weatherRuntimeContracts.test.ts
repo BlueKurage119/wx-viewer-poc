@@ -1019,3 +1019,108 @@ test('保持sinkの保存失敗を実健全性通知結果へ反映し、世代�
     fixture.cleanup();
   }
 });
+
+test('実構成の提供64件でstartupもbusyとなり、空きが戻るまでsession・claim・監査を保存しない', async () => {
+  const { createTemporaryTestDatabaseFixture, initializeTestDatabases } =
+    await import('./helpers/databasePair.js');
+  const { testVenueRegistry, testTerminalRegistry, eastVenueId } =
+    await import('./helpers/venueConfigPreload.js');
+  const { createStartupNotificationRuntime } = await import('../src/server.js');
+  const { createApplicationRuntime } = await import('../src/runtime/createApplicationRuntime.js');
+  const { createWeatherApiService } = await import('../src/services/weatherApiService.js');
+  const fixture = createTemporaryTestDatabaseFixture();
+  const db = initializeTestDatabases(fixture.config);
+  const now = () => new Date().toISOString();
+  const blocked = deferred<null>();
+  const unused = () => {
+    throw new Error('この試験では呼び出さない');
+  };
+  const startup = createStartupNotificationRuntime(
+    db.weather.connection,
+    now,
+    testVenueRegistry,
+    undefined,
+    undefined,
+    testTerminalRegistry,
+    db.retained.connection,
+    db.weatherDatabaseGenerationId,
+  );
+  const runtime = createApplicationRuntime({
+    deliveryEpoch: startup.deliveryEpoch,
+    deliveryRegistry: startup.deliveryRegistry,
+    acquisitionEpoch: startup.acquisitionEpoch,
+    serverGenerationId: startup.serverGenerationId,
+    weatherDatabaseGenerationId: db.weatherDatabaseGenerationId,
+    weatherConnection: db.weather.connection,
+    retainedConnection: db.retained.connection,
+    weatherApi: createWeatherApiService({
+      connection: db.weather.connection,
+      venueRegistry: testVenueRegistry,
+    }),
+    nowcastApi: { getTimes: unused, getTile: unused, readTile: () => blocked.promise },
+    kikikuruApi: { getTimes: unused, getTile: unused },
+    monitoringProcessing: { getProcessing: unused },
+  });
+  const reads = Array.from({ length: 64 }, (_, i) =>
+    runtime.readPort.request({
+      protocolVersion: 1,
+      requestId: `capacity${i}`,
+      epoch: startup.deliveryEpoch,
+      deadlineAt: new Date(Date.now() + 5000).toISOString(),
+      kind: 'tile.read',
+      payload: {
+        layer: 'nowcast',
+        frame: {
+          product: 'N1',
+          baseTime: now(),
+          validTime: now(),
+          element: 'hrpns',
+          member: 'none',
+        },
+        coordinate: { zoom: 10, tileX: 910, tileY: 401 },
+      },
+    }),
+  );
+  const counts = () =>
+    ['terminal_session', 'startup_warning_claim', 'startup_notification_inquiry'].map(
+      (table) =>
+        (
+          db.retained.connection.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as {
+            n: number;
+          }
+        ).n,
+    );
+  const input = {
+    terminalId: 'kkeagh01',
+    venueId: eastVenueId,
+    sessionId: '00000000-0000-4000-8000-000000000900',
+    serverGenerationId: startup.serverGenerationId,
+    inquiredAt: now(),
+  };
+  try {
+    startup.initialization.setInitialFetchPhase('completed');
+    startup.initialization.markVenueEvaluated(eastVenueId);
+    assert.equal(runtime.runtimeStatus('delivery').pendingRequests, 64);
+    assert.deepEqual(counts(), [0, 0, 0]);
+    await assert.rejects(Promise.resolve(startup.startupNotifications.inquire(input)), {
+      code: 'busy',
+    });
+    assert.deepEqual(counts(), [0, 0, 0]);
+    assert.equal(startup.deliveryRegistry.size, 64);
+    blocked.resolve(null);
+    const responses = await Promise.all(reads);
+    assert.ok(responses.every((response) => response.result.status === 'completed'));
+    assert.equal(startup.deliveryRegistry.size, 0);
+    const accepted = await startup.startupNotifications.inquire(input);
+    assert.equal(accepted.status, 'ready');
+    assert.equal(accepted.status === 'ready' && accepted.warningClaimed, true);
+    assert.deepEqual(counts(), [1, 1, 1]);
+  } finally {
+    blocked.resolve(null);
+    await Promise.allSettled(reads);
+    runtime.close();
+    startup.markStopped();
+    db.close();
+    fixture.cleanup();
+  }
+});
