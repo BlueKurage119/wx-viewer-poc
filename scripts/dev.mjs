@@ -119,6 +119,9 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   void shutdown();
 });
+process.on('SIGHUP', () => {
+  void shutdown();
+});
 try {
   for (const path of ['apps/api/src', 'packages/shared/src', 'packages/shared/dist', 'config']) {
     watchers.push(watch(resolve(root, path), { recursive: true }, scheduleRestart));

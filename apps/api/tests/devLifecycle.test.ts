@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { stripVTControlCharacters } from 'node:util';
 import Database from 'better-sqlite3';
 
 const root = path.resolve(import.meta.dirname, '../../..');
@@ -17,6 +18,7 @@ function fixture() {
   const directory = fs.mkdtempSync(path.join(tmpdir(), 'wx-dev-lifecycle-'));
   for (const name of [
     'package.json',
+    'tsconfig.base.json',
     'scripts',
     'config',
     'apps/api/src',
@@ -61,6 +63,11 @@ function fixture() {
       .filter(Boolean)
       .map((line) => JSON.parse(line) as Event);
   return { directory, trace, env, events };
+}
+function waitForExit(child: ReturnType<typeof spawn>) {
+  return new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once('close', (code, signal) => resolve({ code, signal }));
+  });
 }
 async function cleanupFixture(
   f: ReturnType<typeof fixture>,
@@ -131,14 +138,16 @@ async function until(predicate: () => boolean, output: () => string) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
-for (const command of ['dev', 'dev:host', 'api']) {
+for (const command of ['dev', 'dev:host', 'api', 'dev-sighup']) {
   test(`実npm ${command}はCtrl+C一回で両lockを除き同pairで再起動できる`, async () => {
     const f = fixture();
     let output = '';
     const args =
-      command === 'api' ? ['run', 'dev', '-w', 'apps/api'] : ['run', command, '--', '--port', '0'];
+      command === 'api'
+        ? ['run', 'dev', '-w', 'apps/api']
+        : ['run', command === 'dev-sighup' ? 'dev' : command, '--', '--port', '0'];
     let child = spawn('npm', args, { cwd: f.directory, env: f.env, detached: true });
-    let exited = new Promise<number | null>((resolve) => child.once('close', resolve));
+    let exited = waitForExit(child);
     child.stdout.on('data', (data) => {
       output += String(data);
     });
@@ -149,11 +158,32 @@ for (const command of ['dev', 'dev:host', 'api']) {
       await until(
         () =>
           f.events().some((e) => e.kind === 'ready') &&
-          (command === 'api' || output.includes('Local:')),
+          (command === 'api' || f.events().some((e) => e.kind === 'web-ready')),
         () => output,
       );
-      process.kill(-child.pid!, 'SIGINT');
-      assert.equal(await exited, 0, output);
+      const requestedSignal = command === 'dev-sighup' ? 'SIGHUP' : 'SIGINT';
+      process.kill(-child.pid!, requestedSignal);
+      const npmExit = await exited;
+      assert.ok(
+        (npmExit.code === 0 && npmExit.signal === null) ||
+          (npmExit.code === null && npmExit.signal === requestedSignal),
+        JSON.stringify(npmExit) + stripVTControlCharacters(output),
+      );
+      // npm shell親のSIGINT終了と製品runnerの終了を分け、全close後の正常exitを確認する。
+      const runner = f.events().find((e) => e.kind === 'runner-process')!;
+      await until(
+        () => f.events().some((e) => e.kind === 'runner-exit' && e.pid === runner.pid),
+        () => stripVTControlCharacters(output),
+      );
+      const runnerExit = f.events().find((e) => e.kind === 'runner-exit' && e.pid === runner.pid)!;
+      assert.equal(runnerExit.code, 0);
+      assert.doesNotMatch(
+        stripVTControlCharacters(output),
+        /Cannot find base config|failed to resolve "extends"/,
+      );
+      const closedEvents = f.events().filter((e) => e.kind === 'db-close');
+      assert.equal(closedEvents.length, 2);
+      assert.ok(closedEvents.every((e) => e.at <= runnerExit.at));
       for (const name of ['weather', 'retained'])
         assert.equal(fs.existsSync(path.join(f.directory, `${name}.sqlite3.writer-lock`)), false);
       const first = f.events().find((e) => e.kind === 'api-process')!;
@@ -185,7 +215,7 @@ for (const command of ['dev', 'dev:host', 'api']) {
       );
       retained.close();
       child = spawn('npm', args, { cwd: f.directory, env: f.env, detached: true });
-      exited = new Promise((resolve) => child.once('close', resolve));
+      exited = waitForExit(child);
       child.stdout.on('data', (data) => {
         output += String(data);
       });
@@ -224,7 +254,7 @@ test('watchは旧API終了後に再起動し複数変更で並行起動しない
     env: f.env,
     detached: true,
   });
-  const exited = new Promise((resolve) => child.once('close', resolve));
+  const exited = waitForExit(child);
   child.stdout.on('data', (d) => {
     output += String(d);
   });

@@ -50,5 +50,15 @@ if (process.argv[1]?.endsWith('/scripts/dev.mjs') && process.env.WX_TEST_SHORT_W
   globalThis.setTimeout = (fn, ms, ...args) => original(fn, ms === 30000 ? 50 : ms, ...args);
 }
 
-if (process.argv[1]?.endsWith('/scripts/dev.mjs')) trace('runner-process');
-if (process.argv[1]?.endsWith('/vite.js')) trace('web-process');
+if (process.argv[1]?.endsWith('/scripts/dev.mjs')) {
+  trace('runner-process');
+  process.on('exit', (code) => trace('runner-exit', { code }));
+}
+if (process.argv[1]?.endsWith('/vite.js')) {
+  trace('web-process');
+  const originalListen = http.Server.prototype.listen;
+  http.Server.prototype.listen = function (...args) {
+    this.once('listening', () => trace('web-ready'));
+    return originalListen.apply(this, args);
+  };
+}
