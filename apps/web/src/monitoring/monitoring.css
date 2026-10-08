@@ -471,3 +471,17 @@ md-gb-button[disabled] .monitoring-toolbar-button-content {
 .monitoring-information-state {
   font-weight: 500;
 }
+
+.notification-output-history-list {
+  list-style: none;
+  padding: 0;
+}
+.notification-output-history-list li {
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  padding: 12px 0;
+}
+.notification-output-raw-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--md-sys-color-on-surface);
+}

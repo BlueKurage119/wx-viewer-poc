@@ -36,13 +36,15 @@ APIは`PORT`環境変数が指定された場合、その値を優先する。
 
 ## APIのSQLite永続化
 
-APIはHTTP待受の前にSQLiteを初期化し、`apps/api/migrations/`の未適用SQL migrationを番号順に適用する。既定のDBファイルは`apps/api/data/wx-viewer.sqlite3`で、Git管理対象外である。
+APIはHTTP待受の前に気象DBと保持DBを初期化する。気象DBは `apps/api/data/weather.sqlite3`、保持DBは `apps/api/data/retained.sqlite3` が既定で、いずれもGit管理対象外である。migrationは `apps/api/migrations/weather/` と `apps/api/migrations/retained/` へ分離している。
 
-`WX_VIEWER_DB_PATH`で保存先を指定できる。絶対パスはそのまま、相対パスはAPI workspace（`apps/api`）から解決する。
+`WX_VIEWER_WEATHER_DB_PATH` と `WX_VIEWER_RETAINED_DB_PATH` で保存先を指定できる。相対パスはAPI workspace（`apps/api`）基準で解決する。旧 `WX_VIEWER_DB_PATH` は空値を含め起動エラーとなる。同じファイル、symlink、複数hardlink、DB付随ファイル・管理ファイルと重なる指定は使用できない。同じ保存先で複数APIプロセスを実行しないこと。writer leaseが残った場合は自動解除せず、全writer停止と所有token・対象を確認する保守判断が必要である。
 
 ```bash
-WX_VIEWER_DB_PATH=./local.sqlite3 npm run dev -w apps/api
+WX_VIEWER_WEATHER_DB_PATH=./data/weather.sqlite3 WX_VIEWER_RETAINED_DB_PATH=./data/retained.sqlite3 npm run dev -w apps/api
 ```
+
+気象DBだけの明示初期化は停止中に `npm run db:reset:weather -- --plan --confirm-stopped` で対象を確認し、表示されたdigestを `--apply --confirm <planDigest> --confirm-stopped` に渡す。操作記録・通知履歴・session・起動claim・応答監査とタイルcacheは保持する。初回導入、途中再開、rollback、データ保全の手順は [気象DB保守手順](docs/weather-db-maintenance.md) を参照する。
 
 ## テーマ(MD3)
 

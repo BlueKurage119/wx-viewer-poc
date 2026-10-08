@@ -1,3 +1,7 @@
+import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+} from './helpers/databasePair.js';
 import { eastVenueId } from './helpers/venueConfigPreload.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { initializeDatabase } from '../src/database/index.js';
 import { startServer } from '../src/server.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import {
@@ -39,27 +42,29 @@ function createTempDbPath(): { databasePath: string; cleanup: () => void } {
 test('履歴表に自動削除トリガーがないこと', () => {
   const { databasePath, cleanup } = createTempDbPath();
   try {
-    const context = initializeDatabase({ databasePath, migrationsDirectory });
+    const context = initializeTestDatabases({ databasePath, migrationsDirectory });
 
     try {
-      const triggers = context.connection
-        .prepare(
-          `
+      for (const connection of [context.weather.connection, context.retained.connection]) {
+        const triggers = connection
+          .prepare(
+            `
             SELECT tbl_name, name
             FROM sqlite_master
             WHERE type = 'trigger'
               AND tbl_name IN (?, ?, ?, ?)
             ORDER BY tbl_name, name
           `,
-        )
-        .all(
-          'fetch_attempt',
-          'telegram_reception',
-          'notification_output_history',
-          'operation_history',
-        );
+          )
+          .all(
+            'fetch_attempt',
+            'telegram_reception',
+            'notification_output_history',
+            'operation_history',
+          );
 
-      assert.deepEqual(triggers, []);
+        assert.deepEqual(triggers, []);
+      }
     } finally {
       context.close();
     }
@@ -141,6 +146,7 @@ const sampleWeatherNotificationInput: NotificationOutputHistoryInput = {
   isTraining: false,
   messageDefinitionId: 'msg-weather-warn-001',
   messageDefinitionVersion: 'v1.0.0',
+  weatherDatabaseGenerationId: null,
 };
 
 const sampleStartInput: OperationHistoryInput = {
@@ -162,17 +168,17 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
     const config = { databasePath, migrationsDirectory };
 
     const expected = (() => {
-      const first = initializeDatabase(config);
+      const first = initializeTestDatabases(config);
 
       try {
         return {
-          fetchAttempt: recordFetchAttempt(first.connection, sampleFetchAttemptInput),
-          telegram: recordTelegramReception(first.connection, sampleTelegramInput),
+          fetchAttempt: recordFetchAttempt(first.weather.connection, sampleFetchAttemptInput),
+          telegram: recordTelegramReception(first.weather.connection, sampleTelegramInput),
           notification: recordNotificationOutputHistory(
-            first.connection,
+            first.retained.connection,
             sampleWeatherNotificationInput,
           ),
-          operation: recordOperationHistory(first.connection, sampleStartInput),
+          operation: recordOperationHistory(first.retained.connection, sampleStartInput),
         };
       } finally {
         first.close();
@@ -186,7 +192,7 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
 
     try {
       const server = await startServer({
-        config,
+        ...createTestServerDatabaseOptions(config),
         port: 0,
         enablePolling: false,
         pollingSchedule: createTestPollingSchedule(),
@@ -204,22 +210,22 @@ test('99年経過とAPI再起動後も過去の履歴が残る', async (t) => {
       t.mock.timers.reset();
     }
 
-    const second = initializeDatabase(config);
+    const second = initializeTestDatabases(config);
     try {
       assert.deepEqual(
-        findFetchAttemptById(second.connection, expected.fetchAttempt.id),
+        findFetchAttemptById(second.weather.connection, expected.fetchAttempt.id),
         expected.fetchAttempt,
       );
       assert.deepEqual(
-        findTelegramReceptionById(second.connection, expected.telegram.id),
+        findTelegramReceptionById(second.weather.connection, expected.telegram.id),
         expected.telegram,
       );
       assert.deepEqual(
-        findNotificationOutputHistoryById(second.connection, expected.notification.id),
+        findNotificationOutputHistoryById(second.retained.connection, expected.notification.id),
         expected.notification,
       );
       assert.deepEqual(
-        findOperationHistoryById(second.connection, expected.operation.id),
+        findOperationHistoryById(second.retained.connection, expected.operation.id),
         expected.operation,
       );
     } finally {

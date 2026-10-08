@@ -1,3 +1,4 @@
+import { createTestServerDatabaseOptions } from './helpers/databasePair.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -23,7 +24,7 @@ test('ポーリング無効起動時、監視状態APIは500にならず停止�
 
   try {
     const server = await startServer({
-      config: { databasePath, migrationsDirectory },
+      ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
       port: 0,
       enablePolling: false,
       pollingSchedule: createTestPollingSchedule(),

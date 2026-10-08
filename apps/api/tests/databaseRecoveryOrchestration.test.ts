@@ -1,10 +1,16 @@
 import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+  createTestServerProcessEnv,
+} from './helpers/databasePair.js';
+import {
   eastVenueId,
   trcVenueId,
   testVenueRegistry,
   testTerminalRegistry,
 } from './helpers/venueConfigPreload.js';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
+import { Server } from 'node:http';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,10 +18,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { initializeDatabase } from '../src/database/index.js';
+
 import {
   createStartupNotificationRuntime as createStartupNotificationRuntimeImpl,
   startServer,
+  type StartServerOptions,
 } from '../src/server.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
@@ -33,18 +40,20 @@ import {
 
 const migrationsDirectory = join(fileURLToPath(import.meta.url), '../../migrations');
 const createStartupNotificationRuntime = (
-  connection: Parameters<typeof createStartupNotificationRuntimeImpl>[0],
+  context: ReturnType<typeof initializeTestDatabases>,
   clock: Parameters<typeof createStartupNotificationRuntimeImpl>[1],
   getFetchHealth?: Parameters<typeof createStartupNotificationRuntimeImpl>[3],
   recoveryInternals?: Parameters<typeof createStartupNotificationRuntimeImpl>[4],
 ) =>
   createStartupNotificationRuntimeImpl(
-    connection,
+    context.weather.connection,
     clock,
     testVenueRegistry,
     getFetchHealth,
     recoveryInternals,
     testTerminalRegistry,
+    context.retained.connection,
+    context.weatherDatabaseGenerationId,
   );
 const config = {
   delayedThresholdSeconds: 60,
@@ -70,8 +79,108 @@ async function waitUntil(
 function setup() {
   const directory = mkdtempSync(join(tmpdir(), 'database-recovery-orchestration-'));
   const databasePath = join(directory, 'db.sqlite3');
-  const context = initializeDatabase({ databasePath, migrationsDirectory });
+  const context = initializeTestDatabases({ databasePath, migrationsDirectory });
   return { directory, databasePath, context };
+}
+
+type StartupOutcome =
+  | { status: 'fulfilled'; server: Awaited<ReturnType<typeof startServer>> }
+  | { status: 'rejected'; error: unknown };
+
+interface StartupState {
+  starting?: ReturnType<typeof startServer>;
+  outcome?: Promise<StartupOutcome>;
+  httpServer?: Server;
+  listenCalls?: number;
+  requestedPort?: unknown;
+  release?: () => void;
+  restoreListen?: () => void;
+}
+
+function registerStartupCleanup(
+  t: TestContext,
+  state: StartupState,
+  { context, directory }: ReturnType<typeof setup>,
+): void {
+  t.after(async () => {
+    const errors: unknown[] = [];
+    state.release?.();
+    try {
+      state.restoreListen?.();
+    } catch (error) {
+      errors.push(error);
+    }
+    let contextClosed = true;
+    try {
+      context.close();
+    } catch (error) {
+      errors.push(error);
+      contextClosed = false;
+    }
+    const outcome = await state.outcome;
+    if (outcome?.status === 'fulfilled') {
+      // close失敗時はDBの解放を保証できないため、ディレクトリを削除しない。
+      await outcome.server.close();
+    } else if (outcome?.status === 'rejected') {
+      errors.push(outcome.error);
+    }
+    if (state.httpServer) assert.equal(state.httpServer.listening, false);
+    if (contextClosed) rmSync(directory, { recursive: true, force: true });
+    if (errors.length > 0) throw new AggregateError(errors, '起動資源の後始末に失敗した');
+  });
+}
+
+function captureStartingServer(
+  t: TestContext,
+  options: StartServerOptions,
+  state: StartupState,
+): void {
+  const listen = t.mock.method(Server.prototype, 'listen');
+  state.restoreListen = () => listen.mock.restore();
+  let capturedThis: unknown;
+  let capturedResult: unknown;
+  try {
+    state.starting = startServer({ ...options, port: 0 });
+    state.outcome = state.starting.then(
+      (server): StartupOutcome => ({ status: 'fulfilled', server }),
+      (error: unknown): StartupOutcome => ({ status: 'rejected', error }),
+    );
+    const calls = listen.mock.calls;
+    state.listenCalls = calls.length;
+    capturedThis = calls[0]?.this;
+    capturedResult = calls[0]?.result;
+    if (capturedThis instanceof Server) state.httpServer = capturedThis;
+    state.requestedPort = calls[0]?.arguments[0];
+  } finally {
+    listen.mock.restore();
+    state.restoreListen = undefined;
+  }
+  assert.equal(state.listenCalls, 1);
+  assert.equal(state.requestedPort, 0);
+  assert.ok(capturedThis instanceof Server);
+  assert.equal(capturedThis, capturedResult);
+}
+
+async function waitForAssignedPort(
+  httpServer: Server,
+  outcome: Promise<StartupOutcome>,
+): Promise<number> {
+  let settled: StartupOutcome | undefined;
+  void outcome.then((result) => {
+    settled = result;
+  });
+  await waitUntil(
+    () => {
+      if (settled?.status === 'rejected') throw settled.error;
+      return httpServer.listening;
+    },
+    5000,
+    '復旧中のHTTP待受開始',
+  );
+  const address = httpServer.address();
+  assert.ok(address !== null && typeof address !== 'string');
+  assert.ok(address.port > 0);
+  return address.port;
 }
 
 class RecoverySignalSource implements SignalSource {
@@ -97,7 +206,7 @@ interface RecoveryRow {
 }
 
 function recoveryRows(
-  connection: ReturnType<typeof initializeDatabase>['connection'],
+  connection: ReturnType<typeof initializeTestDatabases>['weather']['connection'],
 ): RecoveryRow[] {
   return connection
     .prepare(
@@ -122,7 +231,7 @@ test('AC12: 59,999msでは遅延せず60,000msで会場別に1回だけ通知し
   const controlled = new Promise<never>((resolve) => {
     resolveRecovery = resolve as never;
   });
-  const runtime = createStartupNotificationRuntime(context.connection, () => now, undefined, {
+  const runtime = createStartupNotificationRuntime(context, () => now, undefined, {
     setTimeout: ((cb: () => void) => {
       callback = cb;
       return 1 as unknown as NodeJS.Timeout;
@@ -137,11 +246,11 @@ test('AC12: 59,999msでは遅延せず60,000msで会場別に1回だけ通知し
     );
     now = '2026-09-22T00:00:59.999Z';
     callback?.();
-    assert.equal(recoveryRows(context.connection).length, 1);
+    assert.equal(recoveryRows(context.retained.connection).length, 1);
     now = '2026-09-22T00:01:00.000Z';
     callback?.();
     callback?.();
-    assert.equal(recoveryRows(context.connection).length, 2);
+    assert.equal(recoveryRows(context.retained.connection).length, 2);
     resolveRecovery({
       venueId: eastVenueId,
       statuses: [],
@@ -151,7 +260,7 @@ test('AC12: 59,999msでは遅延せず60,000msで会場別に1回だけ通知し
     await promise;
     callback?.();
     assert.deepEqual(
-      recoveryRows(context.connection).map((row) => row.change_type),
+      recoveryRows(context.retained.connection).map((row) => row.change_type),
       ['database_recovery_started', 'database_recovery_delayed', 'database_recovery_completed'],
     );
   } finally {
@@ -169,7 +278,7 @@ test('AC12: 設定値3秒を実際のタイマー待ち時間と遅延判定に�
   const controlled = new Promise<Awaited<ReturnType<typeof recoverWarningCurrent>>>((resolve) => {
     resolveRecovery = resolve;
   });
-  const runtime = createStartupNotificationRuntime(context.connection, () => now, undefined, {
+  const runtime = createStartupNotificationRuntime(context, () => now, undefined, {
     setTimeout: ((cb: () => void, delay: number) => {
       callback = cb;
       registeredDelay = delay;
@@ -189,7 +298,10 @@ test('AC12: 設定値3秒を実際のタイマー待ち時間と遅延判定に�
     assert.equal(registeredDelay, 3000);
     now = '2026-09-22T00:00:03.000Z';
     callback?.();
-    assert.equal(recoveryRows(context.connection).at(-1)?.change_type, 'database_recovery_delayed');
+    assert.equal(
+      recoveryRows(context.retained.connection).at(-1)?.change_type,
+      'database_recovery_delayed',
+    );
     resolveRecovery({
       venueId: eastVenueId,
       statuses: [],
@@ -208,7 +320,7 @@ test('AC12: 会場別timerは独立し、失敗後のcallbackでは通知を追�
   const callbacks: Array<() => void> = [];
   let clearCount = 0;
   const runtime = createStartupNotificationRuntime(
-    context.connection,
+    context,
     () => '2026-09-22T00:01:00.000Z',
     undefined,
     {
@@ -229,14 +341,14 @@ test('AC12: 会場別timerは独立し、失敗後のcallbackでは通知を追�
     await assert.rejects(
       runtime.recoverVenue(resolveVenueWarningContext(testVenueRegistry, eastVenueId), config),
     );
-    const afterFailure = recoveryRows(context.connection).length;
+    const afterFailure = recoveryRows(context.retained.connection).length;
     callbacks[0]?.();
-    assert.equal(recoveryRows(context.connection).length, afterFailure);
+    assert.equal(recoveryRows(context.retained.connection).length, afterFailure);
     assert.equal(clearCount, 1);
     await runtime.recoverVenue(resolveVenueWarningContext(testVenueRegistry, trcVenueId), config);
     assert.equal(clearCount, 2);
     assert.deepEqual(
-      recoveryRows(context.connection).map((row) => [
+      recoveryRows(context.retained.connection).map((row) => [
         row.change_type,
         JSON.parse(row.target_area_json)[0].code,
       ]),
@@ -253,31 +365,47 @@ test('AC12: 会場別timerは独立し、失敗後のcallbackでは通知を追�
   }
 });
 
-test('AC13: 実serverオーケストレーションで3秒後に会場別遅延通知を配信する', async () => {
-  const { directory, databasePath, context } = setup();
-  context.close();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const port = 35000 + Math.floor(Math.random() * 1000);
-  const schedule = createTestPollingSchedule();
-  const starting = startServer({
-    config: { databasePath, migrationsDirectory },
-    port,
-    enablePolling: false,
-    pollingSchedule: {
-      ...schedule,
-      startupRecovery: { ...schedule.startupRecovery, delayedThresholdSeconds: 3 },
-    },
-    recoveryInternals: {
-      recover: async (_connection, venue) => {
-        if (venue.venueId === eastVenueId) await gate;
-        return { venueId: venue.venueId, statuses: [], parsedReceptionCount: 0, elapsedMs: 3000 };
+test(
+  'AC13: 実serverオーケストレーションで3秒後に会場別遅延通知を配信する',
+  { timeout: 15000 },
+  async (t) => {
+    const { directory, databasePath, context } = setup();
+    const state: StartupState = {};
+    registerStartupCleanup(t, state, { directory, databasePath, context });
+    context.close();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+      state.release = resolve;
+    });
+    const schedule = createTestPollingSchedule();
+    captureStartingServer(
+      t,
+      {
+        ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
+        port: 0,
+        enablePolling: false,
+        pollingSchedule: {
+          ...schedule,
+          startupRecovery: { ...schedule.startupRecovery, delayedThresholdSeconds: 3 },
+        },
+        recoveryInternals: {
+          recover: async (_connection, venue) => {
+            if (venue.venueId === eastVenueId) await gate;
+            return {
+              venueId: venue.venueId,
+              statuses: [],
+              parsedReceptionCount: 0,
+              elapsedMs: 3000,
+            };
+          },
+        },
       },
-    },
-  });
-  try {
+      state,
+    );
+    const port = await waitForAssignedPort(state.httpServer!, state.outcome!);
+    const starting = state.starting!;
+
     for (let attempt = 0; attempt < 100; attempt += 1) {
       try {
         if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break;
@@ -295,20 +423,15 @@ test('AC13: 実serverオーケストレーションで3秒後に会場別遅延�
       ['database_recovery_started', 'database_recovery_delayed'],
     );
     release();
-    const server = await starting;
-    await server.close();
-  } finally {
-    release();
-    await starting.then((server) => server.close()).catch(() => undefined);
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
+    await starting;
+  },
+);
 
 test('AC10/§3.1: 開始状態・開始通知の後に未処理再処理を行い、その後に現況復旧する', async () => {
   const { directory, context } = setup();
   const events: string[] = [];
   const runtime = createStartupNotificationRuntime(
-    context.connection,
+    context,
     () => '2026-09-22T00:00:00.000Z',
     undefined,
     {
@@ -328,7 +451,7 @@ test('AC10/§3.1: 開始状態・開始通知の後に未処理再処理を行�
           'running',
         );
         assert.deepEqual(
-          recoveryRows(context.connection).map((row) => row.change_type),
+          recoveryRows(context.retained.connection).map((row) => row.change_type),
           ['database_recovery_started'],
         );
         events.push('reprocess');
@@ -348,7 +471,7 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
     const schedule = createTestPollingSchedule();
     await assert.rejects(
       startServer({
-        config: { databasePath: invalidConfigDb, migrationsDirectory },
+        ...createTestServerDatabaseOptions({ databasePath: invalidConfigDb, migrationsDirectory }),
         port: 0,
         pollingSchedule: {
           ...schedule,
@@ -361,7 +484,7 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
 
     await assert.rejects(
       startServer({
-        config: { databasePath: directory, migrationsDirectory },
+        ...createTestServerDatabaseOptions({ databasePath: directory, migrationsDirectory }),
         port: 0,
         pollingSchedule: createTestPollingSchedule(),
       }),
@@ -369,21 +492,24 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
 
     const brokenMigrations = join(directory, 'migrations');
     cpSync(migrationsDirectory, brokenMigrations, { recursive: true });
-    writeFileSync(join(brokenMigrations, '0025_broken.sql'), 'CREATE TABLE broken (');
+    writeFileSync(join(brokenMigrations, 'weather', '0025_broken.sql'), 'CREATE TABLE broken (');
     const migrationDb = join(directory, 'migration.sqlite3');
     await assert.rejects(
       startServer({
-        config: { databasePath: migrationDb, migrationsDirectory: brokenMigrations },
+        ...createTestServerDatabaseOptions({
+          databasePath: migrationDb,
+          migrationsDirectory: brokenMigrations,
+        }),
         port: 0,
         pollingSchedule: createTestPollingSchedule(),
       }),
     );
-    const migrated = initializeDatabase({
+    const migrated = initializeTestDatabases({
       databasePath: migrationDb,
       migrationsDirectory,
     });
     try {
-      assert.deepEqual(recoveryRows(migrated.connection), []);
+      assert.deepEqual(recoveryRows(migrated.retained.connection), []);
     } finally {
       migrated.close();
     }
@@ -392,51 +518,62 @@ test('AC15: 不正設定・DB open失敗・migration失敗はいずれも待受�
   }
 });
 
-test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得できる', async () => {
-  const { directory, databasePath, context } = setup();
-  context.close();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const port = 34000 + Math.floor(Math.random() * 1000);
-  const starting = startServer({
-    config: { databasePath, migrationsDirectory },
-    port,
-    enablePolling: false,
-    pollingSchedule: createTestPollingSchedule(),
-    recoveryInternals: {
-      recover: async (_connection, venue) => {
-        if (venue.venueId === eastVenueId) await gate;
-        return {
-          venueId: venue.venueId,
-          statuses: [
-            {
-              controlStatus: 'normal' as const,
-              outcome: 'reused' as const,
-              parsedReceptionCount: 2,
-              selectedReceptionIds: [],
-            },
-            {
-              controlStatus: 'training' as const,
-              outcome: 'rebuilt' as const,
-              parsedReceptionCount: 3,
-              selectedReceptionIds: [],
-            },
-            {
-              controlStatus: 'test' as const,
-              outcome: 'uninitialized' as const,
-              parsedReceptionCount: 0,
-              selectedReceptionIds: [],
-            },
-          ],
-          parsedReceptionCount: 5,
-          elapsedMs: 1,
-        };
+test(
+  'AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得できる',
+  { timeout: 15000 },
+  async (t) => {
+    const { directory, databasePath, context } = setup();
+    const state: StartupState = {};
+    registerStartupCleanup(t, state, { directory, databasePath, context });
+    context.close();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+      state.release = resolve;
+    });
+    captureStartingServer(
+      t,
+      {
+        ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
+        port: 0,
+        enablePolling: false,
+        pollingSchedule: createTestPollingSchedule(),
+        recoveryInternals: {
+          recover: async (_connection, venue) => {
+            if (venue.venueId === eastVenueId) await gate;
+            return {
+              venueId: venue.venueId,
+              statuses: [
+                {
+                  controlStatus: 'normal' as const,
+                  outcome: 'reused' as const,
+                  parsedReceptionCount: 2,
+                  selectedReceptionIds: [],
+                },
+                {
+                  controlStatus: 'training' as const,
+                  outcome: 'rebuilt' as const,
+                  parsedReceptionCount: 3,
+                  selectedReceptionIds: [],
+                },
+                {
+                  controlStatus: 'test' as const,
+                  outcome: 'uninitialized' as const,
+                  parsedReceptionCount: 0,
+                  selectedReceptionIds: [],
+                },
+              ],
+              parsedReceptionCount: 5,
+              elapsedMs: 1,
+            };
+          },
+        },
       },
-    },
-  });
-  try {
+      state,
+    );
+    const port = await waitForAssignedPort(state.httpServer!, state.outcome!);
+    const starting = state.starting!;
+
     let healthOk = false;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       try {
@@ -494,7 +631,7 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
     ).json()) as { notifications: Array<{ changeType: string }> };
     assert.deepEqual(trcDelta.notifications, []);
     release();
-    const server = await starting;
+    await starting;
     const completedResponse = await fetch(
       `http://127.0.0.1:${port}/api/monitoring/status?terminalId=hkeagh01`,
     );
@@ -530,19 +667,14 @@ test('AC10/11/15: 復旧中の監視APIと会場別deltaを実経路で取得で
         ],
       );
     }
-    await server.close();
-  } finally {
-    release();
-    await starting.then((server) => server.close()).catch(() => undefined);
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 for (const stage of ['validation', 'candidate', 'parse-reduce', 'commit'] as const) {
   test(`AC14: ${stage}段階の失敗は会場別questionを1件記録してfailedになる`, async () => {
     const { directory, context } = setup();
     const runtime = createStartupNotificationRuntime(
-      context.connection,
+      context,
       () => '2026-09-22T00:00:00.000Z',
       undefined,
       {
@@ -571,7 +703,7 @@ for (const stage of ['validation', 'candidate', 'parse-reduce', 'commit'] as con
       assert.deepEqual(failedStatus.rebuiltControlStatuses, []);
       assert.equal(failedStatus.parsedReceptionCount, 0);
       assert.equal(failedStatus.errorCode, 'warning_current_recovery_failed');
-      const rows = recoveryRows(context.connection);
+      const rows = recoveryRows(context.retained.connection);
       assert.deepEqual(
         rows.map((row) => [row.category, row.change_type, row.ack_required]),
         [
@@ -589,7 +721,7 @@ for (const stage of ['validation', 'candidate', 'parse-reduce', 'commit'] as con
 test('AC16: 失敗通知はcommit後のDB再オープンでも会場別questionとして配送可能', async () => {
   const { directory, databasePath, context } = setup();
   const runtime = createStartupNotificationRuntime(
-    context.connection,
+    context,
     () => '2026-09-22T00:00:00.000Z',
     undefined,
     {
@@ -601,13 +733,13 @@ test('AC16: 失敗通知はcommit後のDB再オープンでも会場別question�
   await assert.rejects(
     runtime.recoverVenue(resolveVenueWarningContext(testVenueRegistry, trcVenueId), config),
   );
-  const startedCursor = recoveryRows(context.connection).find(
+  const startedCursor = recoveryRows(context.retained.connection).find(
     (row) => row.change_type === 'database_recovery_started',
   )!.id;
   context.close();
-  const reopened = initializeDatabase({ databasePath, migrationsDirectory });
+  const reopened = initializeTestDatabases({ databasePath, migrationsDirectory });
   try {
-    const failed = recoveryRows(reopened.connection).find(
+    const failed = recoveryRows(reopened.retained.connection).find(
       (row) => row.change_type === 'database_recovery_failed',
     );
     assert.ok(failed);
@@ -617,7 +749,7 @@ test('AC16: 失敗通知はcommit後のDB再オープンでも会場別question�
     assert.equal(failed.message_definition_id, 'system-database-initialization-failed');
     const delta = createNotificationDeltaService({
       venueRegistry: testVenueRegistry,
-      connection: reopened.connection,
+      connection: reopened.retained.connection,
       serverGenerationId: 'reopened-generation',
     }).query({
       terminalId: 'htrcph01',
@@ -659,13 +791,10 @@ test('AC16: 失敗通知はcommit後のDB再オープンでも会場別question�
 
 test('差し戻し1: 開始通知の記録失敗でもfailed化し、失敗通知を試行して専用ログを残す', async () => {
   const { directory, context } = setup();
-  context.connection
+  context.retained.connection
     .exec(`CREATE TRIGGER reject_recovery_notifications BEFORE INSERT ON notification_output_history
     WHEN NEW.source_type = 'database_recovery' BEGIN SELECT RAISE(ABORT, 'simulated notification failure'); END;`);
-  const runtime = createStartupNotificationRuntime(
-    context.connection,
-    () => '2026-09-22T00:00:00.000Z',
-  );
+  const runtime = createStartupNotificationRuntime(context, () => '2026-09-22T00:00:00.000Z');
   const logs: unknown[][] = [];
   const original = console.error;
   console.error = (...args: unknown[]) => {
@@ -730,7 +859,7 @@ for (const [jstTime, fixedNow] of [
     const waitingVenues = new Set<string>();
     const alwaysOnSchedule = createAlwaysOnTestPollingSchedule();
     const starting = startServer({
-      config: { databasePath, migrationsDirectory },
+      ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
       port: 0,
       enablePolling: true,
       pollingSchedule: alwaysOnSchedule,
@@ -776,22 +905,27 @@ for (const [jstTime, fixedNow] of [
     assert.equal(unintendedFetchCount, 0, '対象外アダプターがHTTP取得を試みないこと');
 
     const disabledDb = join(directory, 'disabled.sqlite3');
-    const apiDirectory = join(fileURLToPath(import.meta.url), '../..');
     const disabledResult = await execFileAsync(
       process.execPath,
       [
         '--import',
-        'tsx',
+        import.meta.resolve('tsx'),
         '--input-type=module',
         '--eval',
-        `import { startServer } from './src/server.ts';
-       import { createTestPollingSchedule } from './tests/helpers/pollingSchedule.ts';
-       const server = await startServer({ config: ${JSON.stringify({ databasePath: disabledDb, migrationsDirectory })}, port: 0, pollingSchedule: createTestPollingSchedule() });
+        `import { startServer } from ${JSON.stringify(new URL('../src/server.ts', import.meta.url).href)};
+       import { createTestPollingSchedule } from ${JSON.stringify(new URL('./helpers/pollingSchedule.ts', import.meta.url).href)};
+       const server = await startServer({ ${JSON.stringify(createTestServerDatabaseOptions({ databasePath: disabledDb, migrationsDirectory })).slice(1, -1)}, port: 0, pollingSchedule: createTestPollingSchedule() });
        const status = await (await fetch('http://127.0.0.1:' + server.port + '/api/monitoring/status?terminalId=hkeagh01')).json();
        console.log('RECOVERY_STATUS:' + JSON.stringify(status.venues.map((venue) => [venue.venueId, venue.recovery.status])));
        await server.close();`,
       ],
-      { cwd: apiDirectory, env: { ...process.env, DISABLE_POLLING: 'true' } },
+      {
+        cwd: directory,
+        env: {
+          ...createTestServerProcessEnv({ databasePath: disabledDb, migrationsDirectory }),
+          DISABLE_POLLING: 'true',
+        },
+      },
     );
     const statusLine = disabledResult.stdout
       .split('\n')
@@ -801,10 +935,10 @@ for (const [jstTime, fixedNow] of [
       [eastVenueId, 'completed'],
       [trcVenueId, 'completed'],
     ]);
-    const reopened = initializeDatabase({ databasePath: disabledDb, migrationsDirectory });
+    const reopened = initializeTestDatabases({ databasePath: disabledDb, migrationsDirectory });
     try {
       assert.deepEqual(
-        recoveryRows(reopened.connection).map((row) => row.change_type),
+        recoveryRows(reopened.retained.connection).map((row) => row.change_type),
         [
           'database_recovery_started',
           'database_recovery_completed',
@@ -829,7 +963,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     });
     let clearCount = 0;
     const starting = startServer({
-      config: { databasePath, migrationsDirectory },
+      ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
       port: 0,
       enablePolling: false,
       pollingSchedule: createTestPollingSchedule(),
@@ -853,9 +987,9 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await new Promise((resolve) => setTimeout(resolve, 30));
       await server.close().catch(() => undefined);
       assert.equal(clearCount, 2, '両会場の遅延timerをclearする');
-      const reopened = initializeDatabase({ databasePath, migrationsDirectory });
+      const reopened = initializeTestDatabases({ databasePath, migrationsDirectory });
       try {
-        const rows = recoveryRows(reopened.connection);
+        const rows = recoveryRows(reopened.retained.connection);
         assert.equal(
           rows.some((row) => row.change_type === 'database_recovery_failed'),
           false,

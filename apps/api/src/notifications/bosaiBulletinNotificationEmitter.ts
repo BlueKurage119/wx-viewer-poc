@@ -51,6 +51,8 @@ export class InitialBosaiNotificationTracker implements InitialBosaiNotification
 export interface BosaiNotificationEmitDeps {
   readonly venueRegistry: VenueRegistry;
   readonly now: () => UtcIso8601String;
+  readonly retainedConnection: DatabaseConnection;
+  readonly weatherDatabaseGenerationId: string;
   readonly notificationIdFactory?: () => string;
   readonly initialState: InitialBosaiNotificationState;
 }
@@ -67,6 +69,7 @@ export function emitBosaiBulletinNotificationsForReception(
   current: BosaiBulletin,
   deps: BosaiNotificationEmitDeps,
 ): BosaiNotificationEmitResult {
+  if (connection.inTransaction) throw new Error('気象transaction完了前の通知保存は禁止です');
   // 初期取得中は通知を抑止（保存のみ行い、初期取得完了時に一括評価）
   if (deps.initialState.isCollecting()) {
     return { recordedCount: 0, failed: false };
@@ -104,7 +107,7 @@ export function emitBosaiBulletinNotificationsForReception(
 
     if (plan.notifications.length > 0) {
       try {
-        const tx = connection.transaction(() => {
+        const tx = deps.retainedConnection.transaction(() => {
           for (const planned of plan.notifications) {
             const notificationWithReception: WeatherNotification = {
               ...planned.notification,
@@ -116,8 +119,9 @@ export function emitBosaiBulletinNotificationsForReception(
             const recordInput = toNotificationOutputHistoryInput(
               notificationWithReception,
               planned.output,
+              deps.weatherDatabaseGenerationId,
             );
-            recordNotificationOutputHistory(connection, recordInput);
+            recordNotificationOutputHistory(deps.retainedConnection, recordInput);
           }
         });
         tx();
@@ -140,6 +144,7 @@ export function emitInitialBosaiBulletinNotifications(
   venueId: VenueId,
   deps: BosaiNotificationEmitDeps,
 ): void {
+  if (connection.inTransaction) throw new Error('気象transaction完了前の通知保存は禁止です');
   const targetStatuses: readonly ('normal' | 'training')[] = ['normal', 'training'];
 
   for (const status of targetStatuses) {
@@ -179,13 +184,14 @@ export function emitInitialBosaiBulletinNotifications(
 
     if (plannedForVenue.length > 0) {
       try {
-        const tx = connection.transaction(() => {
+        const tx = deps.retainedConnection.transaction(() => {
           for (const planned of plannedForVenue) {
             const recordInput = toNotificationOutputHistoryInput(
               planned.notification,
               planned.output,
+              deps.weatherDatabaseGenerationId,
             );
-            recordNotificationOutputHistory(connection, recordInput);
+            recordNotificationOutputHistory(deps.retainedConnection, recordInput);
           }
         });
         tx();

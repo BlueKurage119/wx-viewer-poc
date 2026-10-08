@@ -8,7 +8,11 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
-import { initializeDatabase, type DatabaseConnection } from '../src/database/index.js';
+import {
+  initializeDatabase,
+  initializeDatabases,
+  type DatabaseConnection,
+} from '../src/database/index.js';
 import {
   listNotificationOutputHistory,
   recordTelegramReception,
@@ -38,13 +42,28 @@ const EAST_VENUE = resolveVenueWarningContext(testVenueRegistry, eastVenueId); /
 
 function createTempDb(): {
   connection: DatabaseConnection;
+  retainedConnection: ReturnType<typeof initializeDatabase>['connection'];
+  weatherDatabaseGenerationId: string;
   cleanup: () => void;
 } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-origin-pipeline-test-'));
   const databasePath = join(directory, 'test.sqlite3');
-  const context = initializeDatabase({ databasePath, migrationsDirectory });
+  const context = initializeDatabases({
+    weather: {
+      databasePath,
+      migrationsDirectory: join(migrationsDirectory, 'weather'),
+      role: 'weather',
+    },
+    retained: {
+      databasePath: databasePath + '.retained',
+      migrationsDirectory: join(migrationsDirectory, 'retained'),
+      role: 'retained',
+    },
+  });
   return {
-    connection: context.connection,
+    connection: context.weather.connection,
+    retainedConnection: context.retained.connection,
+    weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
     cleanup: () => {
       context.close();
       rmSync(directory, { recursive: true, force: true });
@@ -193,7 +212,7 @@ function createFetchSourceResult(
 }
 
 test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検知文脈の直交性 (AC1〜AC5)', async () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     // 1. D4 気象初期復旧経路の実行 (weather + initial)
     const weatherNow: UtcIso8601String = '2026-09-12T01:00:00.000Z';
@@ -211,6 +230,8 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
 
     const weatherTracker = new InitialWarningNotificationTracker();
     const weatherEmitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker: weatherTracker,
       now: () => weatherNow,
       notificationIdFactory: () => weatherNotificationId,
@@ -234,7 +255,7 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
       systemNow,
     );
     const initialSystemResult = emitFetchHealthNotification(
-      connection,
+      retainedConnection,
       initialAggregate,
       stateStore,
       {
@@ -252,7 +273,7 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
       systemNow,
     );
     const delayedSystemResult = emitFetchHealthNotification(
-      connection,
+      retainedConnection,
       delayedAggregate,
       stateStore,
       {
@@ -266,7 +287,7 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
     const initialSystemNotificationId = 'system-notif-initial-context';
     const initialDelayedStateStore = new FetchHealthStateStore();
     const initialDelayedSystemResult = emitFetchHealthNotification(
-      connection,
+      retainedConnection,
       delayedAggregate,
       initialDelayedStateStore,
       {
@@ -277,7 +298,7 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
     assert.equal(initialDelayedSystemResult.recorded.length, 1);
 
     // 3. AC3: 同一 DB・同一 notification_output_history に保存した無条件一覧がちょうど 3 件で完全一致
-    const allHistory = listNotificationOutputHistory(connection);
+    const allHistory = listNotificationOutputHistory(retainedConnection);
     assert.equal(allHistory.length, 3);
 
     const weatherHistory = allHistory.find((h) => h.notificationId === weatherNotificationId);
@@ -318,13 +339,13 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
     assert.equal(initialSystemHistory.isTraining, false);
 
     // 4. AC4: origin: 'weather' / 'system' の一覧検索がそれぞれ該当通知のみを返し、相互混入しない
-    const weatherOnly = listNotificationOutputHistory(connection, { origin: 'weather' });
+    const weatherOnly = listNotificationOutputHistory(retainedConnection, { origin: 'weather' });
     assert.equal(weatherOnly.length, 1);
     assert.equal(weatherOnly[0]!.notificationId, weatherNotificationId);
     assert.equal(weatherOnly[0]!.origin, 'weather');
     assert.equal(weatherOnly[0]!.detectionContext, 'initial');
 
-    const systemOnly = listNotificationOutputHistory(connection, { origin: 'system' });
+    const systemOnly = listNotificationOutputHistory(retainedConnection, { origin: 'system' });
     assert.deepEqual(
       systemOnly.map((history) => history.notificationId).sort(),
       [initialSystemNotificationId, systemNotificationId].sort(),
@@ -332,7 +353,7 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
     assert.ok(systemOnly.every((history) => history.origin === 'system'));
 
     // 5. AC5: detectionContext: 'initial' / 'normal' の一覧検索が独立した軸として機能する
-    const initialOnly = listNotificationOutputHistory(connection, {
+    const initialOnly = listNotificationOutputHistory(retainedConnection, {
       detectionContext: 'initial',
     });
     assert.deepEqual(
@@ -341,7 +362,7 @@ test('D8 横断受け入れテスト: 気象内容／装置異常の区別と検
     );
     assert.ok(initialOnly.every((history) => history.detectionContext === 'initial'));
 
-    const normalOnly = listNotificationOutputHistory(connection, {
+    const normalOnly = listNotificationOutputHistory(retainedConnection, {
       detectionContext: 'normal',
     });
     assert.equal(normalOnly.length, 1);

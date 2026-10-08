@@ -12,14 +12,19 @@ import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
 import test from 'node:test';
 
-import { initializeDatabase } from '../src/database/index.js';
+import { initializeDatabase, initializeDatabases } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
+import { createNotificationDeltaService } from '../src/notifications/notificationDeltaService.js';
 import { projectStartupCurrentNotifications } from '../src/notifications/startupCurrentNotificationProjector.js';
 import {
   createStartupNotificationService,
   StartupNotificationInitialization,
 } from '../src/notifications/startupNotificationService.js';
-import { saveBosaiBulletin, saveWarningCurrentSnapshot } from '../src/repositories/index.js';
+import {
+  saveBosaiBulletin,
+  saveWarningCurrentSnapshot,
+  recordNotificationOutputHistory,
+} from '../src/repositories/index.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
@@ -27,9 +32,17 @@ const now = '2026-09-13T12:00:00.000Z';
 
 function createDb() {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-startup-notification-'));
-  const context = initializeDatabase({
-    databasePath: join(directory, 'test.sqlite3'),
-    migrationsDirectory,
+  const context = initializeDatabases({
+    weather: {
+      databasePath: join(directory, 'weather.sqlite3'),
+      migrationsDirectory: join(migrationsDirectory, 'weather'),
+      role: 'weather',
+    },
+    retained: {
+      databasePath: join(directory, 'retained.sqlite3'),
+      migrationsDirectory: join(migrationsDirectory, 'retained'),
+      role: 'retained',
+    },
   });
   return { context, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
 }
@@ -164,11 +177,13 @@ async function withServer<T>(
 test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせは warning 以外を監査スナップショットと同じ内容で返す', () => {
   const { context, cleanup } = createDb();
   try {
-    saveEastCurrent(context.connection);
-    saveEastBulletin(context.connection);
+    saveEastCurrent(context.weather.connection);
+    saveEastBulletin(context.weather.connection);
     let id = 0;
     const service = createStartupNotificationService({
-      connection: context.connection,
+      weatherConnection: context.weather.connection,
+      retainedConnection: context.retained.connection,
+      weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
       initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       terminalRegistry: testTerminalRegistry,
@@ -216,7 +231,9 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
     if (trc.status !== 'ready') throw new Error('expected ready');
     assert.equal(trc.warningClaimed, true);
     const restarted = createStartupNotificationService({
-      connection: context.connection,
+      weatherConnection: context.weather.connection,
+      retainedConnection: context.retained.connection,
+      weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
       initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       terminalRegistry: testTerminalRegistry,
@@ -235,7 +252,7 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
     assert.equal(freshAfterRestart.status, 'ready');
     if (freshAfterRestart.status !== 'ready') throw new Error('expected ready');
     assert.equal(freshAfterRestart.warningClaimed, true);
-    const rows = context.connection
+    const rows = context.retained.connection
       .prepare(
         'SELECT warning_claimed, response_json FROM startup_notification_inquiry ORDER BY id',
       )
@@ -245,7 +262,9 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
     assert.deepEqual(JSON.parse(rows[0]!.response_json), first);
     assert.equal(
       (
-        context.connection.prepare('SELECT COUNT(*) AS count FROM startup_warning_claim').get() as {
+        context.retained.connection
+          .prepare('SELECT COUNT(*) AS count FROM startup_warning_claim')
+          .get() as {
           count: number;
         }
       ).count,
@@ -262,7 +281,9 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
   try {
     const initialization = new StartupNotificationInitialization();
     const unavailable = createStartupNotificationService({
-      connection: context.connection,
+      weatherConnection: context.weather.connection,
+      retainedConnection: context.retained.connection,
+      weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
       initialization,
       venueRegistry: testVenueRegistry,
       terminalRegistry: testTerminalRegistry,
@@ -280,14 +301,18 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     );
     assert.equal(
       (
-        context.connection.prepare('SELECT COUNT(*) AS count FROM terminal_session').get() as {
+        context.retained.connection
+          .prepare('SELECT COUNT(*) AS count FROM terminal_session')
+          .get() as {
           count: number;
         }
       ).count,
       0,
     );
     const rollback = createStartupNotificationService({
-      connection: context.connection,
+      weatherConnection: context.weather.connection,
+      retainedConnection: context.retained.connection,
+      weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
       initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       terminalRegistry: testTerminalRegistry,
@@ -312,7 +337,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     ]) {
       assert.equal(
         (
-          context.connection.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
+          context.retained.connection.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
             count: number;
           }
         ).count,
@@ -320,7 +345,9 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
       );
     }
     const auditRollback = createStartupNotificationService({
-      connection: context.connection,
+      weatherConnection: context.weather.connection,
+      retainedConnection: context.retained.connection,
+      weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
       initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       terminalRegistry: testTerminalRegistry,
@@ -345,17 +372,17 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     ]) {
       assert.equal(
         (
-          context.connection.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
+          context.retained.connection.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
             count: number;
           }
         ).count,
         0,
       );
     }
-    saveEastBulletin(context.connection, '2026-09-13T09:00:00.000Z');
-    saveEastBulletin(context.connection, '2026-09-13T09:00:00.001Z');
-    saveEastBulletin(context.connection, '2026-09-13T12:00:00.000Z');
-    const projection = projectStartupCurrentNotifications(context.connection, {
+    saveEastBulletin(context.weather.connection, '2026-09-13T09:00:00.000Z');
+    saveEastBulletin(context.weather.connection, '2026-09-13T09:00:00.001Z');
+    saveEastBulletin(context.weather.connection, '2026-09-13T12:00:00.000Z');
+    const projection = projectStartupCurrentNotifications(context.weather.connection, {
       venueRegistry: testVenueRegistry,
       venueId: eastVenueId,
       now,
@@ -365,9 +392,9 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
       projection.notifications.map((item) => item.occurredAt),
       ['2026-09-13T09:00:00.001Z', '2026-09-13T12:00:00.000Z'],
     );
-    saveEastBulletin(context.connection, '2026-09-13T11:59:00.000Z', 'training');
-    saveEastBulletin(context.connection, '2026-09-13T11:58:00.000Z', 'test');
-    const trainingProjection = projectStartupCurrentNotifications(context.connection, {
+    saveEastBulletin(context.weather.connection, '2026-09-13T11:59:00.000Z', 'training');
+    saveEastBulletin(context.weather.connection, '2026-09-13T11:58:00.000Z', 'test');
+    const trainingProjection = projectStartupCurrentNotifications(context.weather.connection, {
       venueRegistry: testVenueRegistry,
       venueId: eastVenueId,
       now,
@@ -395,7 +422,9 @@ test('AC1/13: HTTP endpoint は JSON 契約・入力エラー・初期化中を�
   const { context, cleanup } = createDb();
   try {
     const service = createStartupNotificationService({
-      connection: context.connection,
+      weatherConnection: context.weather.connection,
+      retainedConnection: context.retained.connection,
+      weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
       initialization: new StartupNotificationInitialization(),
       venueRegistry: testVenueRegistry,
       terminalRegistry: testTerminalRegistry,
@@ -451,7 +480,7 @@ test('AC1/13: HTTP endpoint は JSON 契約・入力エラー・初期化中を�
     ]) {
       assert.equal(
         (
-          context.connection.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
+          context.retained.connection.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
             count: number;
           }
         ).count,
@@ -461,5 +490,168 @@ test('AC1/13: HTTP endpoint は JSON 契約・入力エラー・初期化中を�
   } finally {
     context.close();
     cleanup();
+  }
+});
+
+test('Issue #247 AC8: JSON化・weather読取・retained commit失敗をHTTP 500として全rollbackする', async () => {
+  for (const failure of ['serialization', 'weather_read', 'retained_commit', 'thenable'] as const) {
+    const { context, cleanup } = createDb();
+    try {
+      if (failure === 'retained_commit') {
+        context.retained.connection.exec(`
+          CREATE TABLE commit_parent (id INTEGER PRIMARY KEY);
+          CREATE TABLE commit_child (parent_id INTEGER REFERENCES commit_parent(id) DEFERRABLE INITIALLY DEFERRED);
+          CREATE TRIGGER fail_inquiry_commit AFTER INSERT ON startup_notification_inquiry BEGIN
+            INSERT INTO commit_child VALUES(99);
+          END;
+        `);
+      }
+      const service = createStartupNotificationService({
+        weatherConnection: context.weather.connection,
+        retainedConnection: context.retained.connection,
+        weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
+        initialization: readyInitialization(),
+        venueRegistry: testVenueRegistry,
+        terminalRegistry: testTerminalRegistry,
+        serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
+        projector: (connection, input, outputIdFactory) => {
+          if (failure === 'weather_read')
+            connection.prepare('SELECT * FROM absent_weather_table').all();
+          if (failure === 'thenable')
+            return { then() {} } as unknown as ReturnType<
+              typeof projectStartupCurrentNotifications
+            >;
+          const projection = projectStartupCurrentNotifications(connection, input, outputIdFactory);
+          if (failure === 'serialization')
+            Object.defineProperty(projection.notifications, 'toJSON', {
+              value() {
+                throw new Error('応答JSON化失敗');
+              },
+            });
+          return projection;
+        },
+      });
+      await withServer(
+        createApp({
+          startupNotifications: service,
+          terminalRegistry: testTerminalRegistry,
+          venueRegistry: testVenueRegistry,
+        }),
+        async (baseUrl) => {
+          const response = await fetch(`${baseUrl}/api/notifications/startup`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              terminalId: 'hkeagh01',
+              sessionId: '00000000-0000-4000-8000-000000000088',
+            }),
+          });
+          assert.equal(response.status, 500, failure);
+        },
+      );
+      for (const table of [
+        'terminal_session',
+        'startup_warning_claim',
+        'startup_notification_inquiry',
+      ]) {
+        assert.deepEqual(
+          context.retained.connection.prepare(`SELECT * FROM ${table}`).all(),
+          [],
+          `${failure}:${table}`,
+        );
+      }
+    } finally {
+      context.close();
+      cleanup();
+    }
+  }
+});
+
+test('Issue #247 AC9: 予約更新callbackの境界前後でsnapshotとcursorとdeltaが一致する', async () => {
+  for (const ordering of ['before', 'after'] as const) {
+    const { context, cleanup } = createDb();
+    try {
+      saveEastCurrent(context.weather.connection);
+      const startup = createStartupNotificationService({
+        weatherConnection: context.weather.connection,
+        retainedConnection: context.retained.connection,
+        weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
+        initialization: readyInitialization(),
+        venueRegistry: testVenueRegistry,
+        terminalRegistry: testTerminalRegistry,
+        serverGenerationId: 'boundary-generation',
+        now: () => now,
+      });
+      const update = new Promise<void>((resolve) =>
+        setImmediate(() => {
+          // 現況commitから通知保存まで同期区間を分断しない。
+          context.weather.connection.transaction(() =>
+            context.weather.connection.exec('DELETE FROM warning_current_snapshot'),
+          )();
+          recordNotificationOutputHistory(context.retained.connection, {
+            notificationId: 'boundary-update',
+            category: 'warning',
+            sourceType: 'warning_current',
+            sourceVersion: 'new',
+            targetAreaJson: JSON.stringify([
+              {
+                kind: 'area',
+                codeType: 'jma_municipal_warning_area',
+                code: '1310800',
+                name: '江東区',
+              },
+            ]),
+            occurredAt: now,
+            detectedAt: now,
+            changeType: 'released',
+            ackRequired: false,
+            summary: '解除通知',
+            relatedRefsJson: '[]',
+            origin: 'weather',
+            detectionContext: 'normal',
+            isTraining: false,
+            messageDefinitionId: null,
+            messageDefinitionVersion: null,
+            weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
+          });
+          resolve();
+        }),
+      );
+      if (ordering === 'after') await update;
+      const response = startup.inquire({
+        terminalId: 'hkeagh01',
+        venueId: eastVenueId,
+        sessionId: '00000000-0000-4000-8000-000000000099',
+        inquiredAt: now,
+      });
+      assert.equal(response.status, 'ready');
+      if (response.status !== 'ready') throw new Error('readyなし');
+      assert.equal(
+        response.notifications.filter((item) => item.category === 'warning').length,
+        ordering === 'before' ? 1 : 0,
+      );
+      await update;
+      const delta = createNotificationDeltaService({
+        connection: context.retained.connection,
+        venueRegistry: testVenueRegistry,
+        serverGenerationId: 'boundary-generation',
+        now: () => now,
+      });
+      const result = delta.query({
+        terminalId: 'hkeagh01',
+        venueId: eastVenueId,
+        cursor: response.cursor,
+        requestedAt: now,
+      });
+      assert.equal(result.status, 'ready');
+      if (result.status !== 'ready') throw new Error('readyなし');
+      assert.deepEqual(
+        result.notifications.map((item) => item.notificationId),
+        ordering === 'before' ? ['boundary-update'] : [],
+      );
+    } finally {
+      context.close();
+      cleanup();
+    }
   }
 });

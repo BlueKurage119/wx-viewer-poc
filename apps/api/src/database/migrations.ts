@@ -134,3 +134,20 @@ export function runMigrations(
 
   return { appliedVersions: appliedThisRun };
 }
+
+export function verifyExistingMigrations(
+  connection: DatabaseConnection,
+  migrationsDirectory: string,
+): void {
+  const migrations = discoverMigrations(migrationsDirectory);
+  const applied = connection
+    .prepare('SELECT version, name, checksum FROM __schema_migrations ORDER BY version')
+    .all() as AppliedMigration[];
+  verifyAppliedMigrations(migrations, applied);
+  const maximum = applied.at(-1)?.version ?? 0;
+  const versions = new Set(applied.map((row) => row.version));
+  if (
+    migrations.some((migration) => migration.version <= maximum && !versions.has(migration.version))
+  )
+    throw new Error('適用済みmigrationの順序が不正です。');
+}

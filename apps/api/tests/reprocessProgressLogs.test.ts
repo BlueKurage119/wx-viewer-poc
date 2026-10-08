@@ -1,4 +1,8 @@
 import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+} from './helpers/databasePair.js';
+import {
   eastVenueId,
   trcVenueId,
   testVenueRegistry,
@@ -16,7 +20,7 @@ import {
   type UtcIso8601String,
   type MonitoringVenueReprocessingStatus,
 } from '@wx-viewer-poc/shared';
-import { initializeDatabase } from '../src/database/index.js';
+
 import {
   countPendingWarningTelegramReceptions,
   recordTelegramReception,
@@ -46,16 +50,18 @@ const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 
 function createTempDb(): {
-  connection: ReturnType<typeof initializeDatabase>['connection'];
+  connection: ReturnType<typeof initializeTestDatabases>['weather']['connection'];
   databasePath: string;
   cleanup: () => void;
+  closeDatabase: () => void;
 } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-reprocess-logs-'));
   const databasePath = join(directory, 'test.sqlite3');
-  const context = initializeDatabase({ databasePath, migrationsDirectory });
+  const context = initializeTestDatabases({ databasePath, migrationsDirectory });
   return {
-    connection: context.connection,
+    connection: context.weather.connection,
     databasePath,
+    closeDatabase: () => context.close(),
     cleanup: () => {
       context.close();
       rmSync(directory, { recursive: true, force: true });
@@ -64,7 +70,7 @@ function createTempDb(): {
 }
 
 function insertSampleTelegram(
-  connection: ReturnType<typeof initializeDatabase>['connection'],
+  connection: ReturnType<typeof initializeTestDatabases>['weather']['connection'],
   index: number,
   options?: {
     readonly telegramType?: string;
@@ -277,7 +283,8 @@ for (const [jstTime, fixedNow] of [
   ['22:00', '2026-09-16T13:00:00.000Z'],
 ] as const) {
   test(`4.3 初回XMLフィード取得フェーズのログ出力（running / completed / failed、JST ${jstTime}）`, async () => {
-    const { databasePath, cleanup } = createTempDb();
+    const { databasePath, cleanup, closeDatabase } = createTempDb();
+    closeDatabase();
     try {
       let capturedPhaseListener: ((phase: InitialFetchPhase) => void) | undefined;
 
@@ -320,7 +327,7 @@ for (const [jstTime, fixedNow] of [
       let server;
       try {
         server = await startServer({
-          config: { databasePath, migrationsDirectory },
+          ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
           port: 0,
           enablePolling: true,
           pollingSchedule: createAlwaysOnTestPollingSchedule(),
@@ -615,11 +622,12 @@ for (const [jstTime, fixedNow] of [
 }
 
 test('4.4 監視API HTTPエンドポイント: GET /api/monitoring/status の venues に reprocessing プロパティが正しく返される', async () => {
-  const { databasePath, cleanup } = createTempDb();
+  const { databasePath, cleanup, closeDatabase } = createTempDb();
+  closeDatabase();
   let server;
   try {
     server = await startServer({
-      config: { databasePath, migrationsDirectory },
+      ...createTestServerDatabaseOptions({ databasePath, migrationsDirectory }),
       port: 0,
       enablePolling: false,
       pollingSchedule: createTestPollingSchedule(),

@@ -1,5 +1,7 @@
 import type {
   MonitoringNotificationOutputQuery,
+  NotificationReceptionReference,
+  NotificationReceptionUnavailableReason,
   MonitoringOperationQuery,
   MonitoringReceptionDetailResponse,
   MonitoringReceptionListResponse,
@@ -15,6 +17,7 @@ import {
 } from '../repositories/telegramReceptionRepository.js';
 import {
   countNotificationOutputHistory,
+  findNotificationOutputHistoryById,
   listNotificationOutputHistory,
 } from '../repositories/notificationOutputHistoryRepository.js';
 import {
@@ -28,7 +31,9 @@ import type {
 } from '../repositories/types.js';
 
 export interface MonitoringHistoryServiceDependencies {
-  readonly connection: DatabaseConnection;
+  readonly weatherConnection: DatabaseConnection;
+  readonly retainedConnection: DatabaseConnection;
+  readonly weatherDatabaseGenerationId: string;
   readonly now: () => UtcIso8601String;
 }
 
@@ -38,7 +43,9 @@ export interface MonitoringNotificationOutputListResult {
   readonly totalCount: number;
   readonly limit: number;
   readonly offset: number;
-  readonly items: readonly NotificationOutputHistory[];
+  readonly items: readonly (NotificationOutputHistory & {
+    receptionReference: NotificationReceptionReference;
+  })[];
 }
 
 export interface MonitoringOperationListResult {
@@ -50,7 +57,16 @@ export interface MonitoringOperationListResult {
   readonly items: readonly OperationHistory[];
 }
 
+export type NotificationReceptionResult =
+  | { readonly kind: 'found'; readonly response: MonitoringReceptionDetailResponse }
+  | { readonly kind: 'not_found' }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: NotificationReceptionUnavailableReason | 'not_applicable';
+    };
+
 export interface MonitoringHistoryService {
+  getNotificationReceptionById(id: number): NotificationReceptionResult;
   listReceptions(query: MonitoringReceptionQuery): MonitoringReceptionListResponse;
   getReceptionById(id: number): MonitoringReceptionDetailResponse | null;
   listNotificationOutputs(
@@ -95,7 +111,64 @@ function mapReceptionSummary(row: TelegramReceptionSummary): MonitoringReception
 export function createMonitoringHistoryService(
   deps: MonitoringHistoryServiceDependencies,
 ): MonitoringHistoryService {
+  function resolveReference(
+    notification: NotificationOutputHistory,
+  ): NotificationReceptionReference {
+    const refs: unknown = JSON.parse(notification.relatedRefsJson);
+    const receptionRef = Array.isArray(refs)
+      ? refs.find(
+          (ref: unknown) =>
+            typeof ref === 'object' &&
+            ref !== null &&
+            'type' in ref &&
+            ref.type === 'telegram_reception',
+        )
+      : undefined;
+    if (notification.origin !== 'weather' || receptionRef === undefined) {
+      return { status: 'not_applicable' };
+    }
+    if (notification.weatherDatabaseGenerationId === null) {
+      return { status: 'unavailable', reason: 'generation_unknown' };
+    }
+    if (notification.weatherDatabaseGenerationId !== deps.weatherDatabaseGenerationId) {
+      return { status: 'unavailable', reason: 'weather_generation_changed' };
+    }
+    const rawId: unknown = receptionRef.ref;
+    const id = typeof rawId === 'string' && /^[1-9][0-9]*$/.test(rawId) ? Number(rawId) : NaN;
+    if (!Number.isSafeInteger(id)) {
+      return { status: 'unavailable', reason: 'reception_missing' };
+    }
+    const reception = findTelegramReceptionById(deps.weatherConnection, id);
+    if (reception === null) return { status: 'unavailable', reason: 'reception_missing' };
+    if (reception.rawBody === null || reception.rawBody.length === 0) {
+      return { status: 'unavailable', reason: 'raw_body_missing' };
+    }
+    return { status: 'available', receptionId: id };
+  }
+
   return {
+    getNotificationReceptionById(id: number): NotificationReceptionResult {
+      const notification = findNotificationOutputHistoryById(deps.retainedConnection, id);
+      if (notification === null) return { kind: 'not_found' };
+      return deps.weatherConnection.transaction((): NotificationReceptionResult => {
+        const reference = resolveReference(notification);
+        if (reference.status !== 'available') {
+          return {
+            kind: 'unavailable',
+            reason: reference.status === 'not_applicable' ? 'not_applicable' : reference.reason,
+          };
+        }
+        const reception = findTelegramReceptionById(deps.weatherConnection, reference.receptionId)!;
+        return {
+          kind: 'found',
+          response: {
+            status: 'ready',
+            generatedAt: deps.now(),
+            reception: { ...mapReceptionSummary(reception), rawBody: reception.rawBody },
+          },
+        };
+      })();
+    },
     listReceptions(query: MonitoringReceptionQuery): MonitoringReceptionListResponse {
       const options = {
         controlStatus: query.controlStatus,
@@ -112,8 +185,8 @@ export function createMonitoringHistoryService(
         limit: query.limit,
         offset: query.offset,
       };
-      const rows = listTelegramReceptions(deps.connection, options);
-      const totalCount = countTelegramReceptions(deps.connection, options);
+      const rows = listTelegramReceptions(deps.weatherConnection, options);
+      const totalCount = countTelegramReceptions(deps.weatherConnection, options);
 
       return {
         status: 'ready',
@@ -126,7 +199,7 @@ export function createMonitoringHistoryService(
     },
 
     getReceptionById(id: number): MonitoringReceptionDetailResponse | null {
-      const row = findTelegramReceptionById(deps.connection, id);
+      const row = findTelegramReceptionById(deps.weatherConnection, id);
       if (row === null) {
         return null;
       }
@@ -155,8 +228,8 @@ export function createMonitoringHistoryService(
         limit: query.limit,
         offset: query.offset,
       };
-      const rows = listNotificationOutputHistory(deps.connection, options);
-      const totalCount = countNotificationOutputHistory(deps.connection, options);
+      const rows = listNotificationOutputHistory(deps.retainedConnection, options);
+      const totalCount = countNotificationOutputHistory(deps.retainedConnection, options);
 
       return {
         status: 'ready',
@@ -164,7 +237,12 @@ export function createMonitoringHistoryService(
         totalCount,
         limit: query.limit,
         offset: query.offset,
-        items: rows,
+        items: deps.weatherConnection.transaction(() =>
+          rows.map((row) => ({
+            ...row,
+            receptionReference: resolveReference(row),
+          })),
+        )(),
       };
     },
 
@@ -180,8 +258,8 @@ export function createMonitoringHistoryService(
         limit: query.limit,
         offset: query.offset,
       };
-      const rows = listOperationHistory(deps.connection, options);
-      const totalCount = countOperationHistory(deps.connection, options);
+      const rows = listOperationHistory(deps.retainedConnection, options);
+      const totalCount = countOperationHistory(deps.retainedConnection, options);
 
       return {
         status: 'ready',

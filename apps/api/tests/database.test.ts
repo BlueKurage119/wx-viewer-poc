@@ -1,3 +1,8 @@
+import {
+  initializeTestDatabases,
+  createTestServerDatabaseOptions,
+  createTestServerProcessEnv,
+} from './helpers/databasePair.js';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -268,11 +273,10 @@ test('DB初期化を完了してからhealth endpointを公開し、終了後に
   const directory = await createTemporaryDirectory();
   const config = {
     databasePath: join(directory, 'state.sqlite3'),
-    migrationsDirectory: join(directory, 'migrations'),
+    migrationsDirectory: join(import.meta.dirname, '../migrations'),
   };
-  await mkdir(config.migrationsDirectory);
   const server = await startServer({
-    config,
+    ...createTestServerDatabaseOptions(config),
     port: 0,
     enablePolling: false,
     pollingSchedule: createTestPollingSchedule(),
@@ -284,7 +288,7 @@ test('DB初期化を完了してからhealth endpointを公開し、終了後に
   } finally {
     await server.close();
   }
-  const database = initializeDatabase(config);
+  const database = initializeTestDatabases(config);
   database.close();
 });
 
@@ -292,11 +296,20 @@ test('不正migrationではHTTP待受の前に起動を失敗させる', async (
   const directory = await createTemporaryDirectory();
   const migrationsDirectory = join(directory, 'migrations');
   await mkdir(migrationsDirectory);
-  await writeMigration(migrationsDirectory, '0001_invalid.sql', 'THIS IS INVALID SQL;');
+  await mkdir(join(migrationsDirectory, 'weather'));
+  await writeMigration(
+    join(migrationsDirectory, 'weather'),
+    '0001_invalid.sql',
+    'THIS IS INVALID SQL;',
+  );
   const config = { databasePath: join(directory, 'state.sqlite3'), migrationsDirectory };
 
   await assert.rejects(() =>
-    startServer({ config, port: 0, pollingSchedule: createTestPollingSchedule() }),
+    startServer({
+      ...createTestServerDatabaseOptions(config),
+      port: 0,
+      pollingSchedule: createTestPollingSchedule(),
+    }),
   );
   const database = openDatabase(config.databasePath);
   database.close();
@@ -321,5 +334,68 @@ test('runMigrationsは開始・終了トランザクションをmigrationファ�
     assert.throws(() => runMigrations(database.connection, migrationsDirectory));
   } finally {
     database.close();
+  }
+});
+
+test('server fixtureは2 DBと両cacheを一時領域に固定し、通常領域の保存先を拒否する', async () => {
+  const directory = await createTemporaryDirectory();
+  const databasePath = join(directory, 'weather.sqlite3');
+  const migrationsDirectory = join(import.meta.dirname, '../migrations');
+  const options = createTestServerDatabaseOptions({ databasePath, migrationsDirectory });
+  assert.deepEqual(options, {
+    config: {
+      weather: {
+        role: 'weather',
+        databasePath,
+        migrationsDirectory: join(migrationsDirectory, 'weather'),
+      },
+      retained: {
+        role: 'retained',
+        databasePath: `${databasePath}.retained`,
+        migrationsDirectory: join(migrationsDirectory, 'retained'),
+      },
+    },
+    nowcastCacheRoot: join(`${databasePath}.test-cache`, 'nowcast'),
+    kikikuruCacheRoot: join(`${databasePath}.test-cache`, 'kikikuru'),
+  });
+  for (const databasePath of [
+    'data/weather.sqlite3',
+    ':memory:',
+    join(import.meta.dirname, '../data/weather.sqlite3'),
+  ]) {
+    assert.throws(() => createTestServerDatabaseOptions({ databasePath, migrationsDirectory }), {
+      message: 'テスト用DBとcacheは専用一時ディレクトリに指定してください。',
+    });
+  }
+});
+
+test('server子プロセスfixtureは引継ぎenvのDB保存先を両方置き換え、旧設定を除く', async () => {
+  const directory = await createTemporaryDirectory();
+  const databasePath = join(directory, 'weather.sqlite3');
+  const previous = [
+    process.env.WX_VIEWER_DB_PATH,
+    process.env.WX_VIEWER_WEATHER_DB_PATH,
+    process.env.WX_VIEWER_RETAINED_DB_PATH,
+  ];
+  try {
+    process.env.WX_VIEWER_DB_PATH = 'legacy-default';
+    process.env.WX_VIEWER_WEATHER_DB_PATH = 'weather-default';
+    process.env.WX_VIEWER_RETAINED_DB_PATH = 'retained-default';
+    const env = createTestServerProcessEnv({
+      databasePath,
+      migrationsDirectory: join(import.meta.dirname, '../migrations'),
+    });
+    assert.equal(env.WX_VIEWER_DB_PATH, undefined);
+    assert.equal(env.WX_VIEWER_WEATHER_DB_PATH, databasePath);
+    assert.equal(env.WX_VIEWER_RETAINED_DB_PATH, `${databasePath}.retained`);
+  } finally {
+    for (const [index, name] of [
+      'WX_VIEWER_DB_PATH',
+      'WX_VIEWER_WEATHER_DB_PATH',
+      'WX_VIEWER_RETAINED_DB_PATH',
+    ].entries()) {
+      if (previous[index] === undefined) delete process.env[name];
+      else process.env[name] = previous[index];
+    }
   }
 });

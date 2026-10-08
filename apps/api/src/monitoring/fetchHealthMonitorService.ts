@@ -22,6 +22,7 @@ export interface FetchHealthStatusProvider {
 
 export interface FetchHealthMonitorServiceOptions {
   readonly connection: DatabaseConnection;
+  readonly retainedConnection: DatabaseConnection;
   readonly statusProvider: FetchHealthStatusProvider;
   readonly config: FetchHealthConfig;
   readonly store?: FetchHealthStateStore;
@@ -93,10 +94,15 @@ export class FetchHealthMonitorService {
     const aggregate = aggregateFetchHealth(sourceResults, now);
     this.lastAggregate = aggregate;
 
-    const emit = emitFetchHealthNotification(this.options.connection, aggregate, this.store, {
-      now: () => now,
-      notificationIdFactory: this.options.notificationIdFactory,
-    });
+    const emit = emitFetchHealthNotification(
+      this.options.retainedConnection,
+      aggregate,
+      this.store,
+      {
+        now: () => now,
+        notificationIdFactory: this.options.notificationIdFactory,
+      },
+    );
 
     return { aggregate, emit };
   }

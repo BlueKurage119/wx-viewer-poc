@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, type ReactNode } from 'react';
 import { GbButton } from '../components/md';
+import { NotificationOutputHistoryPanel } from './NotificationOutputHistoryPanel';
 import { nextDialogFocusTarget } from './monitoringDialogFocus';
 import type { MonitoringDialogId } from './monitoringToolbarState';
 
@@ -39,7 +40,10 @@ export function MonitoringDialogHost({
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const closingRef = useRef(false);
   const activeId = dialogId;
-  const content = activeId ? renderContent?.({ dialogId: activeId, close: onClose }) : null;
+  const content = activeId
+    ? (renderContent?.({ dialogId: activeId, close: onClose }) ??
+      (activeId === 'output' ? <NotificationOutputHistoryPanel /> : null))
+    : null;
   const hasDefaultContent = content === null || content === undefined;
 
   const restoreFocus = () => {

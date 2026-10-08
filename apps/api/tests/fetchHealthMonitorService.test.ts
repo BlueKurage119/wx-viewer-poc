@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
-import { initializeDatabase } from '../src/database/index.js';
+import { initializeDatabase, initializeDatabases } from '../src/database/index.js';
 import { recordFetchAttempt, listNotificationOutputHistory } from '../src/repositories/index.js';
 import {
   FetchHealthMonitorService,
@@ -22,6 +22,20 @@ import type { ScheduledSource, PollingPeriod } from '../src/config/pollingSchedu
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
+function pair(databasePath: string) {
+  return initializeDatabases({
+    weather: {
+      databasePath,
+      migrationsDirectory: join(migrationsDirectory, 'weather'),
+      role: 'weather',
+    },
+    retained: {
+      databasePath: databasePath + '.retained',
+      migrationsDirectory: join(migrationsDirectory, 'retained'),
+      role: 'retained',
+    },
+  });
+}
 
 function createTempDb(): { databasePath: string; cleanup: () => void } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-monitor-service-test-'));
@@ -119,14 +133,15 @@ function insertAttempt(
 test('AC1: 連続2回失敗で警報、連続5回失敗で問いかけが生成される', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     let currentNow = '2026-09-09T00:01:00.000Z';
     const nowFn = () => currentNow as UtcIso8601String;
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -134,9 +149,24 @@ test('AC1: 連続2回失敗で警報、連続5回失敗で問いかけが生成�
     });
 
     // 成功 1 件 -> 失敗 2 件
-    insertAttempt(database.connection, 'xml_feed_regular', 'success', '2026-09-09T00:00:00.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:30.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:01:00.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:30.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:01:00.000Z',
+    );
 
     // 1 回目 runOnce (遅延)
     const result1 = service.runOnce();
@@ -149,15 +179,32 @@ test('AC1: 連続2回失敗で警報、連続5回失敗で問いかけが生成�
     assert.equal(notif1.sourceType, 'fetch_health');
     assert.equal(notif1.isTraining, false);
 
-    const history1 = listNotificationOutputHistory(database.connection, { origin: 'system' });
+    const history1 = listNotificationOutputHistory(database.retained.connection, {
+      origin: 'system',
+    });
     assert.equal(history1.length, 1);
     assert.equal(history1[0]!.messageDefinitionId, 'system-data-fetch-delayed');
     assert.equal(history1[0]!.ackRequired, false);
 
     // 失敗をさらに 3 件（計 5 件）追加
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:01:30.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:02:00.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:02:30.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:01:30.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:02:00.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:02:30.000Z',
+    );
     currentNow = '2026-09-09T00:02:30.000Z';
 
     // 2 回目 runOnce (異常)
@@ -171,7 +218,9 @@ test('AC1: 連続2回失敗で警報、連続5回失敗で問いかけが生成�
     assert.equal(notif2.sourceType, 'fetch_health');
     assert.equal(notif2.isTraining, false);
 
-    const history2 = listNotificationOutputHistory(database.connection, { origin: 'system' });
+    const history2 = listNotificationOutputHistory(database.retained.connection, {
+      origin: 'system',
+    });
     assert.equal(history2.length, 2);
     // listNotificationOutputHistory は detected_at DESC なので最新が [0]
     assert.equal(history2[0]!.messageDefinitionId, 'system-data-fetch-failed');
@@ -189,14 +238,15 @@ test('AC1: 連続2回失敗で警報、連続5回失敗で問いかけが生成�
 test('AC2: 最終成功から適用周期×3 を超えると遅延、10 分を超えると異常になる', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     let currentNow = '2026-09-09T00:00:00.000Z';
     const nowFn = () => currentNow as UtcIso8601String;
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -204,7 +254,12 @@ test('AC2: 最終成功から適用周期×3 を超えると遅延、10 分を�
     });
 
     // 成功 1 件投入 (失敗行なし)
-    insertAttempt(database.connection, 'xml_feed_regular', 'success', '2026-09-09T00:00:00.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
 
     // 最初の評価を 00:00:00 で実行 (activeSinceAt を 00:00:00 に固定)
     const initResult = service.runOnce();
@@ -240,14 +295,15 @@ test('AC2: 最終成功から適用周期×3 を超えると遅延、10 分を�
 test('AC3: 2 取得元が同時に問題化すると通知が 2 件出て、区分はそれぞれの状態で決まる', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     let currentNow = '2026-09-09T00:01:00.000Z';
     const nowFn = () => currentNow as UtcIso8601String;
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -255,13 +311,23 @@ test('AC3: 2 取得元が同時に問題化すると通知が 2 件出て、区�
     });
 
     // xml_feed_regular: 失敗 2 件 (delayed)
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:30.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:01:00.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:30.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:01:00.000Z',
+    );
 
     // risk_target_times: 失敗 5 件 (abnormal)
     for (let i = 1; i <= 5; i++) {
       insertAttempt(
-        database.connection,
+        database.weather.connection,
         'risk_target_times',
         'failure',
         `2026-09-09T00:00:0${i}.000Z`,
@@ -294,9 +360,24 @@ test('AC3: 2 取得元が同時に問題化すると通知が 2 件出て、区�
     assert.deepEqual(result.aggregate.worstSourceIds, ['kikikuru_target_times']);
 
     // xml_feed_regular に失敗を 3 件足して再実行 (delayed -> abnormal)
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:01:10.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:01:20.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:01:30.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:01:10.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:01:20.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:01:30.000Z',
+    );
     currentNow = '2026-09-09T00:01:30.000Z';
 
     const resultSecond = service.runOnce();
@@ -304,7 +385,9 @@ test('AC3: 2 取得元が同時に問題化すると通知が 2 件出て、区�
     assert.equal(resultSecond.emit.recorded[0]!.targets[0]!.code, 'xml_regular');
     assert.equal(resultSecond.emit.recorded[0]!.category, 'question');
 
-    const allHistory = listNotificationOutputHistory(database.connection, { origin: 'system' });
+    const allHistory = listNotificationOutputHistory(database.retained.connection, {
+      origin: 'system',
+    });
     assert.equal(allHistory.length, 3);
 
     database.close();
@@ -316,13 +399,14 @@ test('AC3: 2 取得元が同時に問題化すると通知が 2 件出て、区�
 test('AC3 追加ケース: 5 取得元同時異常で question 通知が 5 件出る', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     const nowFn = () => '2026-09-09T00:01:00.000Z' as UtcIso8601String;
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -338,7 +422,7 @@ test('AC3 追加ケース: 5 取得元同時異常で question 通知が 5 件�
     ];
     for (const src of sources) {
       for (let i = 1; i <= 5; i++) {
-        insertAttempt(database.connection, src, 'failure', `2026-09-09T00:00:0${i}.000Z`);
+        insertAttempt(database.weather.connection, src, 'failure', `2026-09-09T00:00:0${i}.000Z`);
       }
     }
 
@@ -370,14 +454,15 @@ test('AC3 追加ケース: 5 取得元同時異常で question 通知が 5 件�
 test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件の通知が出る', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     let currentNow = '2026-09-09T00:00:01.000Z';
     const nowFn = () => currentNow as UtcIso8601String;
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -395,7 +480,7 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
 
     const refreshOtherSources = (timestamp: string) => {
       for (const src of otherSources) {
-        insertAttempt(database.connection, src, 'success', timestamp);
+        insertAttempt(database.weather.connection, src, 'success', timestamp);
       }
     };
 
@@ -406,8 +491,18 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
 
     // 1. delayed (失敗 2 件)
     refreshOtherSources('2026-09-09T00:00:20.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:10.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:20.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:10.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:20.000Z',
+    );
     currentNow = '2026-09-09T00:00:20.000Z';
     const step1 = service.runOnce();
     assert.equal(step1.emit.recorded.length, 1);
@@ -420,9 +515,24 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
 
     // 2. abnormal (失敗さらに 3 件 = 計 5 件)
     refreshOtherSources('2026-09-09T00:00:50.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:30.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:40.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:50.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:30.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:40.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:50.000Z',
+    );
     currentNow = '2026-09-09T00:00:50.000Z';
     const step2 = service.runOnce();
     assert.equal(step2.emit.recorded.length, 1);
@@ -435,7 +545,12 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
 
     // 3. abnormal -> delayed 回復 (成功 1 件を足し、+181 秒で経過時間遅延にする)
     refreshOtherSources('2026-09-09T00:04:01.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'success', '2026-09-09T00:01:00.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'success',
+      '2026-09-09T00:01:00.000Z',
+    );
     currentNow = '2026-09-09T00:04:01.000Z'; // 00:01:00 + 181s
     const step3 = service.runOnce();
     assert.equal(step3.emit.recorded.length, 1);
@@ -448,14 +563,21 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
 
     // 4. delayed -> normal 正常復帰 (成功 1 件追加し、now を最終成功 + 10 秒)
     refreshOtherSources('2026-09-09T00:05:10.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'success', '2026-09-09T00:05:00.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'success',
+      '2026-09-09T00:05:00.000Z',
+    );
     currentNow = '2026-09-09T00:05:10.000Z';
     const step4 = service.runOnce();
     assert.equal(step4.emit.recorded.length, 1);
     assert.equal(step4.emit.recorded[0]!.changeType, 'fetch_recovered');
     assert.equal(step4.emit.recorded[0]!.category, 'warning');
 
-    const history = listNotificationOutputHistory(database.connection, { origin: 'system' });
+    const history = listNotificationOutputHistory(database.retained.connection, {
+      origin: 'system',
+    });
     assert.equal(history.length, 4);
     // history は detected_at DESC なので最新 (step4) が [0]
     assert.equal(history[0]!.messageDefinitionId, 'system-data-fetch-recovered');
@@ -470,14 +592,15 @@ test('AC4: 1 取得元の delayed->abnormal->delayed->normal の遷移で 4 件�
 test('AC4 追加ケース: 取得元 A が異常のまま取得元 B が delayed になると B の警報が出る', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     let currentNow = '2026-09-09T00:01:00.000Z';
     const nowFn = () => currentNow as UtcIso8601String;
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -487,7 +610,7 @@ test('AC4 追加ケース: 取得元 A が異常のまま取得元 B が delayed
     // 取得元 A (xml_regular) を異常にする
     for (let i = 1; i <= 5; i++) {
       insertAttempt(
-        database.connection,
+        database.weather.connection,
         'xml_feed_regular',
         'failure',
         `2026-09-09T00:00:0${i}.000Z`,
@@ -498,8 +621,18 @@ test('AC4 追加ケース: 取得元 A が異常のまま取得元 B が delayed
     assert.equal(resA.emit.recorded[0]!.targets[0]!.code, 'xml_regular');
 
     // 取得元 B (xml_extra) を delayed にする
-    insertAttempt(database.connection, 'xml_feed_extra', 'failure', '2026-09-09T00:01:10.000Z');
-    insertAttempt(database.connection, 'xml_feed_extra', 'failure', '2026-09-09T00:01:20.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_extra',
+      'failure',
+      '2026-09-09T00:01:10.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_extra',
+      'failure',
+      '2026-09-09T00:01:20.000Z',
+    );
     currentNow = '2026-09-09T00:01:20.000Z';
 
     const resB = service.runOnce();
@@ -519,7 +652,7 @@ test('AC4 追加ケース: 取得元 A が異常のまま取得元 B が delayed
 test('AC5: スケジュール停止中は判定せず、復帰直後に経過時間で異常にならない', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     let currentNow = '2026-09-09T08:00:00.000Z';
@@ -532,7 +665,8 @@ test('AC5: スケジュール停止中は判定せず、復帰直後に経過時
     }
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -540,7 +674,12 @@ test('AC5: スケジュール停止中は判定せず、復帰直後に経過時
     });
 
     // 8 時間前の最終成功行を投入
-    insertAttempt(database.connection, 'xml_feed_regular', 'success', '2026-09-09T00:00:00.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
 
     // 停止中 runOnce
     const stopResult = service.runOnce();
@@ -569,7 +708,7 @@ test('AC5: スケジュール停止中は判定せず、復帰直後に経過時
     // 異常通知を出した後に scheduled_stopped に入ると復帰通知が出ないこと
     for (let i = 1; i <= 5; i++) {
       insertAttempt(
-        database.connection,
+        database.weather.connection,
         'xml_feed_regular',
         'failure',
         `2026-09-09T08:01:1${i}.000Z`,
@@ -604,14 +743,14 @@ test('AC5: スケジュール停止中は判定せず、復帰直後に経過時
 test('AC6: 新しい StateStore で評価すると継続中の異常が initial として通知される', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const nowFn = () => '2026-09-09T00:01:00.000Z' as UtcIso8601String;
 
     // 失敗 5 件を投入
     for (let i = 1; i <= 5; i++) {
       insertAttempt(
-        database.connection,
+        database.weather.connection,
         'xml_feed_regular',
         'failure',
         `2026-09-09T00:00:0${i}.000Z`,
@@ -621,7 +760,8 @@ test('AC6: 新しい StateStore で評価すると継続中の異常が initial 
     // 新しい StateStore と新しい Service
     const store1 = new FetchHealthStateStore();
     const service1 = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store: store1,
@@ -639,10 +779,11 @@ test('AC6: 新しい StateStore で評価すると継続中の異常が initial 
     // 問題のない DB でのテスト
     const { databasePath: dbPathClean, cleanup: cleanupClean } = createTempDb();
     try {
-      const dbClean = initializeDatabase({ databasePath: dbPathClean, migrationsDirectory });
+      const dbClean = pair(dbPathClean);
       const storeClean = new FetchHealthStateStore();
       const serviceClean = new FetchHealthMonitorService({
-        connection: dbClean.connection,
+        connection: dbClean.weather.connection,
+        retainedConnection: dbClean.retained.connection,
         statusProvider,
         config: standardConfig,
         store: storeClean,
@@ -659,7 +800,7 @@ test('AC6: 新しい StateStore で評価すると継続中の異常が initial 
     // 2 取得元に失敗 5 件ずつがある DB での再起動テスト
     for (let i = 1; i <= 5; i++) {
       insertAttempt(
-        database.connection,
+        database.weather.connection,
         'risk_target_times',
         'failure',
         `2026-09-09T00:00:0${i}.000Z`,
@@ -667,7 +808,8 @@ test('AC6: 新しい StateStore で評価すると継続中の異常が initial 
     }
     const store2 = new FetchHealthStateStore();
     const service2 = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store: store2,
@@ -689,13 +831,14 @@ test('AC6: 新しい StateStore で評価すると継続中の異常が initial 
 test('AC7: 6 取得元が判定対象で、タイル・長期フィード・個別電文は対象外', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     const nowFn = () => '2026-09-09T00:01:00.000Z' as UtcIso8601String;
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -713,7 +856,7 @@ test('AC7: 6 取得元が判定対象で、タイル・長期フィード・個�
     for (const src of excludedSources) {
       for (let i = 1; i <= 10; i++) {
         insertAttempt(
-          database.connection,
+          database.weather.connection,
           src,
           'failure',
           `2026-09-09T00:00:${i < 10 ? '0' + i : i}.000Z`,
@@ -732,7 +875,7 @@ test('AC7: 6 取得元が判定対象で、タイル・長期フィード・個�
       'amedas_point',
     ];
     for (const src of validSources) {
-      insertAttempt(database.connection, src, 'success', '2026-09-09T00:00:50.000Z');
+      insertAttempt(database.weather.connection, src, 'success', '2026-09-09T00:00:50.000Z');
     }
 
     const res = service.runOnce();
@@ -754,7 +897,7 @@ test('AC7: 6 取得元が判定対象で、タイル・長期フィード・個�
     // 雨雲について radar_times_N1 だけ失敗 5 件にすると nowcast_target_times が abnormal になる
     for (let i = 1; i <= 5; i++) {
       insertAttempt(
-        database.connection,
+        database.weather.connection,
         'radar_times_N1',
         'failure',
         `2026-09-09T00:00:5${i}.000Z`,
@@ -779,14 +922,15 @@ test('AC7: 6 取得元が判定対象で、タイル・長期フィード・個�
 test('AC7b: amedas_point は 8 時間成功が無くても正常、連続失敗 2 回で遅延・5 回で異常になる', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     let currentNow = '2026-09-09T00:00:00.000Z';
     const nowFn = () => currentNow as UtcIso8601String;
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -794,8 +938,18 @@ test('AC7b: amedas_point は 8 時間成功が無くても正常、連続失敗 
     });
 
     // 1. amedas_point に 8 時間前の成功 1 件、amedas_latest_time にも 8 時間前の成功 1 件
-    insertAttempt(database.connection, 'amedas_point', 'success', '2026-09-09T00:00:00.000Z');
-    insertAttempt(database.connection, 'amedas_latest_time', 'success', '2026-09-09T00:00:00.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'amedas_point',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'amedas_latest_time',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
 
     // 8 時間前の時点で 1 回初期評価 (activeSinceAt を 00:00:00 に固定)
     service.runOnce();
@@ -813,8 +967,18 @@ test('AC7b: amedas_point は 8 時間成功が無くても正常、連続失敗 
     assert.equal(amedasTimeRes.status, 'abnormal', 'amedas_latest_time は経過時間超過で abnormal');
 
     // 2. amedas_point に失敗 2 件追加 -> delayed
-    insertAttempt(database.connection, 'amedas_point', 'failure', '2026-09-09T08:00:10.000Z');
-    insertAttempt(database.connection, 'amedas_point', 'failure', '2026-09-09T08:00:20.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'amedas_point',
+      'failure',
+      '2026-09-09T08:00:10.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'amedas_point',
+      'failure',
+      '2026-09-09T08:00:20.000Z',
+    );
     currentNow = '2026-09-09T08:00:20.000Z';
     const resDelayed = service.runOnce();
     const pointDelayed = resDelayed.aggregate.sources.find((s) => s.sourceId === 'amedas_point');
@@ -830,9 +994,24 @@ test('AC7b: amedas_point は 8 時間成功が無くても正常、連続失敗 
     assert.equal(pointNotif.targets[0].name, 'アメダス（地点）');
 
     // 3. 失敗さらに 3 件追加 (計 5 件) -> abnormal
-    insertAttempt(database.connection, 'amedas_point', 'failure', '2026-09-09T08:00:30.000Z');
-    insertAttempt(database.connection, 'amedas_point', 'failure', '2026-09-09T08:00:40.000Z');
-    insertAttempt(database.connection, 'amedas_point', 'failure', '2026-09-09T08:00:50.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'amedas_point',
+      'failure',
+      '2026-09-09T08:00:30.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'amedas_point',
+      'failure',
+      '2026-09-09T08:00:40.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'amedas_point',
+      'failure',
+      '2026-09-09T08:00:50.000Z',
+    );
     currentNow = '2026-09-09T08:00:50.000Z';
     const resAbnormal = service.runOnce();
     const pointAbnormal = resAbnormal.aggregate.sources.find((s) => s.sourceId === 'amedas_point');
@@ -844,7 +1023,7 @@ test('AC7b: amedas_point は 8 時間成功が無くても正常、連続失敗 
     // amedas_latest_time にも失敗 5 件を投入
     for (let i = 1; i <= 5; i++) {
       insertAttempt(
-        database.connection,
+        database.weather.connection,
         'amedas_latest_time',
         'failure',
         `2026-09-09T08:00:5${i}.000Z`,
@@ -853,7 +1032,8 @@ test('AC7b: amedas_point は 8 時間成功が無くても正常、連続失敗 
     // 新しい store/service で再起動評価
     const storeReboot = new FetchHealthStateStore();
     const serviceReboot = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store: storeReboot,
@@ -877,7 +1057,7 @@ test('AC7b: amedas_point は 8 時間成功が無くても正常、連続失敗 
 test('AC8: fetchHealth の閾値を変えると判定が変わる', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     const nowFn = () => '2026-09-09T00:01:00.000Z' as UtcIso8601String;
@@ -889,7 +1069,8 @@ test('AC8: fetchHealth の閾値を変えると判定が変わる', () => {
     };
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: customConfig,
       store,
@@ -897,14 +1078,29 @@ test('AC8: fetchHealth の閾値を変えると判定が変わる', () => {
     });
 
     // 失敗 2 件 -> customConfig ではまだ normal
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:10.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:20.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:10.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:20.000Z',
+    );
 
     const res2 = service.runOnce();
     assert.equal(res2.aggregate.status, 'normal');
 
     // 失敗 3 件 -> delayed
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:30.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:30.000Z',
+    );
     const res3 = service.runOnce();
     assert.equal(res3.aggregate.status, 'delayed');
 
@@ -920,14 +1116,15 @@ test('AC8: fetchHealth の閾値を変えると判定が変わる', () => {
 test('AC5 回帰テスト: 稼働中 -> 8時間停止 -> 稼働再開の初回評価で経過時間による異常判定にならず normal と判定される', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     let currentNow = '2026-09-09T00:00:00.000Z';
     const nowFn = () => currentNow as UtcIso8601String;
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -935,12 +1132,42 @@ test('AC5 回帰テスト: 稼働中 -> 8時間停止 -> 稼働再開の初回�
     });
 
     // 1. 稼働中に評価 (00:00:00) - 成功実績あり
-    insertAttempt(database.connection, 'xml_feed_regular', 'success', '2026-09-09T00:00:00.000Z');
-    insertAttempt(database.connection, 'xml_feed_extra', 'success', '2026-09-09T00:00:00.000Z');
-    insertAttempt(database.connection, 'radar_times_N1', 'success', '2026-09-09T00:00:00.000Z');
-    insertAttempt(database.connection, 'risk_target_times', 'success', '2026-09-09T00:00:00.000Z');
-    insertAttempt(database.connection, 'amedas_latest_time', 'success', '2026-09-09T00:00:00.000Z');
-    insertAttempt(database.connection, 'amedas_point', 'success', '2026-09-09T00:00:00.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_extra',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'radar_times_N1',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'risk_target_times',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'amedas_latest_time',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'amedas_point',
+      'success',
+      '2026-09-09T00:00:00.000Z',
+    );
 
     const resRunning = service.runOnce();
     assert.equal(resRunning.aggregate.status, 'normal');
@@ -990,7 +1217,7 @@ test('AC5 回帰テスト: 稼働中 -> 8時間停止 -> 稼働再開の初回�
 test('AC12 回帰テスト: start() 呼び出しで即時に初回評価が走り、タイマーで定期実行され、stop() で停止する', () => {
   const { databasePath, cleanup } = createTempDb();
   try {
-    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    const database = pair(databasePath);
     const statusProvider = new FakeSchedulerStatusProvider();
     const store = new FetchHealthStateStore();
     let currentNow = '2026-09-09T00:00:00.000Z';
@@ -1012,7 +1239,8 @@ test('AC12 回帰テスト: start() 呼び出しで即時に初回評価が走�
     };
 
     const service = new FetchHealthMonitorService({
-      connection: database.connection,
+      connection: database.weather.connection,
+      retainedConnection: database.retained.connection,
       statusProvider,
       config: standardConfig,
       store,
@@ -1032,15 +1260,27 @@ test('AC12 回帰テスト: start() 呼び出しで即時に初回評価が走�
     assert.ok(timerCallback !== null);
 
     // 2. 失敗を投入してタイマー発火
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:10.000Z');
-    insertAttempt(database.connection, 'xml_feed_regular', 'failure', '2026-09-09T00:00:20.000Z');
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:10.000Z',
+    );
+    insertAttempt(
+      database.weather.connection,
+      'xml_feed_regular',
+      'failure',
+      '2026-09-09T00:00:20.000Z',
+    );
     currentNow = '2026-09-09T00:00:30.000Z';
 
     const fireTimer = timerCallback as unknown as () => void;
     fireTimer();
 
     assert.equal(service.getLastAggregate()?.status, 'delayed');
-    const history = listNotificationOutputHistory(database.connection, { origin: 'system' });
+    const history = listNotificationOutputHistory(database.retained.connection, {
+      origin: 'system',
+    });
     assert.equal(history.length, 1);
     assert.equal(history[0]!.messageDefinitionId, 'system-data-fetch-delayed');
 

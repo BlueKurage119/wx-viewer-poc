@@ -1,3 +1,7 @@
+import {
+  createTestServerDatabaseOptions,
+  createTestServerProcessEnv,
+} from './helpers/databasePair.js';
 import { testTerminalRegistry } from './helpers/venueConfigPreload.js';
 import { eastVenueId, trcVenueId, testVenueRegistry } from './helpers/venueConfigPreload.js';
 import assert from 'node:assert/strict';
@@ -1264,7 +1268,7 @@ test('B18 (統合検証): startServer 起動統合テストと main 子プロセ
   const started = await startServer({
     port: 0,
     enablePolling: false,
-    config: { databasePath: dbPath, migrationsDirectory },
+    ...createTestServerDatabaseOptions({ databasePath: dbPath, migrationsDirectory }),
     pollingSchedule: createTestPollingSchedule(),
   });
 
@@ -1282,7 +1286,6 @@ test('B18 (統合検証): startServer 起動統合テストと main 子プロセ
   // 2. main 子プロセス起動テスト
   const childTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'main-child-test-'));
   const childDbPath = path.join(childTmpDir, 'child.db');
-  const projectRoot = path.resolve(import.meta.dirname, '..');
 
   const testServer = http.createServer();
   await new Promise<void>((resolve, reject) => {
@@ -1297,14 +1300,19 @@ test('B18 (統合検証): startServer 起動統合テストと main 子プロセ
   });
 
   const child = spawn(
-    'node',
-    ['--import', 'tsx', '--import', './tests/helpers/pollingConfigPreload.mjs', 'src/server.ts'],
+    process.execPath,
+    [
+      '--import',
+      import.meta.resolve('tsx'),
+      '--import',
+      new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
+      new URL('../src/server.ts', import.meta.url).pathname,
+    ],
     {
-      cwd: projectRoot,
+      cwd: childTmpDir,
       env: {
-        ...process.env,
+        ...createTestServerProcessEnv({ databasePath: childDbPath, migrationsDirectory }),
         PORT: String(testPort),
-        DATABASE_PATH: childDbPath,
         DISABLE_POLLING: 'true',
       },
       stdio: ['ignore', 'pipe', 'pipe'],

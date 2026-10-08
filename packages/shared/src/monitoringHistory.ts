@@ -89,6 +89,25 @@ export interface MonitoringReceptionQuery {
 // 通知出力履歴
 // ---------------------------------------------------------------------------
 
+export type NotificationReceptionUnavailableReason =
+  'weather_generation_changed' | 'reception_missing' | 'raw_body_missing' | 'generation_unknown';
+
+export type NotificationReceptionReference =
+  | { readonly status: 'available'; readonly receptionId: number }
+  | { readonly status: 'unavailable'; readonly reason: NotificationReceptionUnavailableReason }
+  | { readonly status: 'not_applicable' };
+
+export interface MonitoringNotificationOutputSummary {
+  readonly id: number;
+  readonly detectedAt: UtcIso8601String;
+  readonly summary: string;
+  readonly isTraining: boolean;
+  readonly receptionReference: NotificationReceptionReference;
+}
+
+export type MonitoringNotificationOutputListResponse =
+  MonitoringListResponse<MonitoringNotificationOutputSummary>;
+
 export interface MonitoringNotificationOutputQuery {
   readonly category?: string;
   readonly sourceType?: string;

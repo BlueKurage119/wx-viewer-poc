@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
-import { initializeDatabase } from '../src/database/index.js';
+import { initializeDatabase, initializeDatabases } from '../src/database/index.js';
 import {
   findWarningCurrentSnapshot,
   listNotificationOutputHistory,
@@ -34,13 +34,28 @@ const EAST_VENUE = resolveVenueWarningContext(testVenueRegistry, eastVenueId); /
 
 function createTempDb(): {
   connection: ReturnType<typeof initializeDatabase>['connection'];
+  retainedConnection: ReturnType<typeof initializeDatabase>['connection'];
+  weatherDatabaseGenerationId: string;
   cleanup: () => void;
 } {
   const directory = mkdtempSync(join(tmpdir(), 'wx-viewer-poc-warning-rules-test-'));
   const databasePath = join(directory, 'test.sqlite3');
-  const context = initializeDatabase({ databasePath, migrationsDirectory });
+  const context = initializeDatabases({
+    weather: {
+      databasePath,
+      migrationsDirectory: join(migrationsDirectory, 'weather'),
+      role: 'weather',
+    },
+    retained: {
+      databasePath: databasePath + '.retained',
+      migrationsDirectory: join(migrationsDirectory, 'retained'),
+      role: 'retained',
+    },
+  });
   return {
-    connection: context.connection,
+    connection: context.weather.connection,
+    retainedConnection: context.retained.connection,
+    weatherDatabaseGenerationId: context.weatherDatabaseGenerationId,
     cleanup: () => {
       context.close();
       rmSync(directory, { recursive: true, force: true });
@@ -163,10 +178,12 @@ function createReception(
 }
 
 test('AC1: 同一 contentHash の電文を 2 回処理しても通知は 1 回だけ生成される', () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
     const emitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -189,7 +206,7 @@ test('AC1: 同一 contentHash の電文を 2 回処理しても通知は 1 回�
     );
     assert.equal(result1.ok, true);
 
-    const history1 = listNotificationOutputHistory(connection);
+    const history1 = listNotificationOutputHistory(retainedConnection);
     assert.ok(history1.length >= 1, '1回目は通知が生成されていること');
     const countN = history1.length;
 
@@ -203,7 +220,7 @@ test('AC1: 同一 contentHash の電文を 2 回処理しても通知は 1 回�
     );
     assert.equal(result2.ok, true);
 
-    const history2 = listNotificationOutputHistory(connection);
+    const history2 = listNotificationOutputHistory(retainedConnection);
     assert.equal(history2.length, countN, '2回目実行後も通知件数は増えないこと');
   } finally {
     cleanup();
@@ -211,10 +228,12 @@ test('AC1: 同一 contentHash の電文を 2 回処理しても通知は 1 回�
 });
 
 test('AC2: プロセス再起動を模して tracker を作り直すと、既存現況が new として再通知される', async () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker1 = new InitialWarningNotificationTracker();
     const emitDeps1: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker: tracker1,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -236,13 +255,15 @@ test('AC2: プロセス再起動を模して tracker を作り直すと、既存
       emitDeps1,
     );
 
-    const history1 = listNotificationOutputHistory(connection);
+    const history1 = listNotificationOutputHistory(retainedConnection);
     const initialCount = history1.length;
     assert.equal(initialCount, 2);
 
     // プロセス再起動の等価物: 新しい tracker を生成
     const tracker2 = new InitialWarningNotificationTracker();
     const emitDeps2: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker: tracker2,
       now: () => '2026-09-12T01:00:00Z',
     };
@@ -256,7 +277,7 @@ test('AC2: プロセス再起動を模して tracker を作り直すと、既存
 
     assert.equal(emitResult.recordedCount, 2, '現況アイテム件数 (2件) と同じだけ生成される');
 
-    const history2 = listNotificationOutputHistory(connection);
+    const history2 = listNotificationOutputHistory(retainedConnection);
     assert.equal(history2.length, initialCount + 2);
 
     // 追加分の検証（降順のため先頭の2件が新しく追加された初期復旧通知）
@@ -281,7 +302,7 @@ test('AC2: プロセス再起動を模して tracker を作り直すと、既存
       emitDeps2,
     );
     assert.equal(emitResult2.recordedCount, 0);
-    const history3 = listNotificationOutputHistory(connection);
+    const history3 = listNotificationOutputHistory(retainedConnection);
     assert.equal(history3.length, history2.length);
   } finally {
     cleanup();
@@ -289,10 +310,12 @@ test('AC2: プロセス再起動を模して tracker を作り直すと、既存
 });
 
 test('AC3: 継続では通知が生成されない', () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
     const emitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -306,7 +329,7 @@ test('AC3: 継続では通知が生成されない', () => {
     );
     processWarningTelegramReception(connection, rec1, '2026-09-12T00:00:01Z', EAST_VENUE, emitDeps);
 
-    const history1 = listNotificationOutputHistory(connection);
+    const history1 = listNotificationOutputHistory(retainedConnection);
     assert.equal(history1.length, 1);
 
     // reportDateTime だけ進んだ同一内容の電文（継続）
@@ -319,7 +342,7 @@ test('AC3: 継続では通知が生成されない', () => {
     );
     processWarningTelegramReception(connection, rec2, '2026-09-12T01:00:01Z', EAST_VENUE, emitDeps);
 
-    const history2 = listNotificationOutputHistory(connection);
+    const history2 = listNotificationOutputHistory(retainedConnection);
     assert.equal(history2.length, 1, '継続では通知が追加されない');
   } finally {
     cleanup();
@@ -327,10 +350,12 @@ test('AC3: 継続では通知が生成されない', () => {
 });
 
 test('AC4: 新規発表の区分と定義 ID (03, 33, 10, 14)', () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
     const emitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -345,7 +370,7 @@ test('AC4: 新規発表の区分と定義 ID (03, 33, 10, 14)', () => {
     );
     processWarningTelegramReception(connection, rec1, '2026-09-12T00:00:01Z', EAST_VENUE, emitDeps);
 
-    const history = listNotificationOutputHistory(connection);
+    const history = listNotificationOutputHistory(retainedConnection);
     assert.equal(history.length, 2);
 
     const rain03 = history.find((n) => n.summary.includes('レベル３大雨警報'))!;
@@ -369,10 +394,12 @@ test('AC4: 新規発表の区分と定義 ID (03, 33, 10, 14)', () => {
 });
 
 test('AC4 (追補): 33 (特別警報) と 14 (注意報) の区分と定義 ID', () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
     const emitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -386,7 +413,7 @@ test('AC4 (追補): 33 (特別警報) と 14 (注意報) の区分と定義 ID',
     );
     processWarningTelegramReception(connection, rec, '2026-09-12T00:00:01Z', EAST_VENUE, emitDeps);
 
-    const history = listNotificationOutputHistory(connection);
+    const history = listNotificationOutputHistory(retainedConnection);
     const special33 = history.find((n) => n.summary.includes('大雨特別警報'))!;
     assert.ok(special33);
     assert.equal(special33.category, 'emergency');
@@ -402,10 +429,12 @@ test('AC4 (追補): 33 (特別警報) と 14 (注意報) の区分と定義 ID',
 });
 
 test('AC5: 訂正は常に通知される', () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
     const emitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -420,7 +449,7 @@ test('AC5: 訂正は常に通知される', () => {
     );
     processWarningTelegramReception(connection, rec1, '2026-09-12T00:00:01Z', EAST_VENUE, emitDeps);
 
-    const history1 = listNotificationOutputHistory(connection);
+    const history1 = listNotificationOutputHistory(retainedConnection);
     assert.equal(history1.length, 1);
 
     // InfoType=訂正 で警報コードが変わらない電文
@@ -433,7 +462,7 @@ test('AC5: 訂正は常に通知される', () => {
     );
     processWarningTelegramReception(connection, rec2, '2026-09-12T01:00:01Z', EAST_VENUE, emitDeps);
 
-    const history2 = listNotificationOutputHistory(connection);
+    const history2 = listNotificationOutputHistory(retainedConnection);
     assert.equal(history2.length, 2, '訂正電文により通知が1件追加される');
 
     const correctedNotif = history2.find((n) => n.changeType === 'corrected');
@@ -443,7 +472,7 @@ test('AC5: 訂正は常に通知される', () => {
 
     // 同じ版（同一 contentHash）の訂正電文を再投入すると通知が増えない
     processWarningTelegramReception(connection, rec2, '2026-09-12T01:00:02Z', EAST_VENUE, emitDeps);
-    const history3 = listNotificationOutputHistory(connection);
+    const history3 = listNotificationOutputHistory(retainedConnection);
     assert.equal(history3.length, 2);
   } finally {
     cleanup();
@@ -451,10 +480,12 @@ test('AC5: 訂正は常に通知される', () => {
 });
 
 test('AC6-1: 取消は解除相当として通知される（基本ケース）', async () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
     const emitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -491,7 +522,7 @@ test('AC6-1: 取消は解除相当として通知される（基本ケース）'
       emitDeps,
     );
 
-    const historyBeforeCancel = listNotificationOutputHistory(connection);
+    const historyBeforeCancel = listNotificationOutputHistory(retainedConnection);
 
     // 3. VPWW55 の InfoType=取消 電文（ダミー Kind を含める）
     const recCancel = createReception(
@@ -525,7 +556,7 @@ test('AC6-1: 取消は解除相当として通知される（基本ケース）'
     assert.equal(dummyItem, undefined, '取消電文の本文 Kind は取り込まれない');
 
     // 通知の検証
-    const historyAfterCancel = listNotificationOutputHistory(connection);
+    const historyAfterCancel = listNotificationOutputHistory(retainedConnection);
     assert.equal(historyAfterCancel.length, historyBeforeCancel.length + 1);
 
     const cancelNotif = historyAfterCancel[0]!; // 最新
@@ -543,12 +574,14 @@ test('AC6-1: 取消は解除相当として通知される（基本ケース）'
       EAST_VENUE,
       emitDeps,
     );
-    const historyAfterDuplicate = listNotificationOutputHistory(connection);
+    const historyAfterDuplicate = listNotificationOutputHistory(retainedConnection);
     assert.equal(historyAfterDuplicate.length, historyAfterCancel.length);
 
     // 取消後にプロセス再起動相当を行っても、取消前の内容が現況に復活しない
     const trackerNew = new InitialWarningNotificationTracker();
     const emitDepsNew: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker: trackerNew,
       now: () => '2026-09-12T02:00:00Z',
     };
@@ -572,10 +605,12 @@ test('AC6-1: 取消は解除相当として通知される（基本ケース）'
 });
 
 test('AC6-2: 集約側フォールバック経路（今回の欠陥の回帰テスト）', async () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
     const emitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -618,7 +653,7 @@ test('AC6-2: 集約側フォールバック経路（今回の欠陥の回帰テ�
       EAST_VENUE.targetArea.municipalCode,
       'normal',
     )!;
-    const historyBeforeCancel = listNotificationOutputHistory(connection);
+    const historyBeforeCancel = listNotificationOutputHistory(retainedConnection);
 
     // 3. 同 VPWW55 の InfoType=取消 電文 (reportDateTime さらに前進)
     const recCancel = createReception(
@@ -656,7 +691,7 @@ test('AC6-2: 集約側フォールバック経路（今回の欠陥の回帰テ�
     assert.equal(snapshotAfterCancel.items[0]!.kindCode, '14');
 
     // changeType='cancelled' の通知が 1 件生成
-    const historyAfterCancel = listNotificationOutputHistory(connection);
+    const historyAfterCancel = listNotificationOutputHistory(retainedConnection);
     assert.equal(historyAfterCancel.length, historyBeforeCancel.length + 1);
 
     const cancelNotif = historyAfterCancel[0]!;
@@ -697,10 +732,12 @@ test('AC6-2: 集約側フォールバック経路（今回の欠陥の回帰テ�
 });
 
 test('AC6-3: 取消が現況を変化させない場合 (no-op) は cancel_without_effect が記録される', () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
     const emitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -721,7 +758,7 @@ test('AC6-3: 取消が現況を変化させない場合 (no-op) は cancel_witho
       emitDeps,
     );
 
-    const historyBeforeCancel = listNotificationOutputHistory(connection);
+    const historyBeforeCancel = listNotificationOutputHistory(retainedConnection);
 
     // 2. VPWW55 の現象が現況にない状態から、VPWW55 の InfoType=取消 を投入
     const recCancel = createReception(
@@ -760,7 +797,7 @@ test('AC6-3: 取消が現況を変化させない場合 (no-op) は cancel_witho
     assert.equal(cancelSkip.changeType, 'cancelled');
 
     // 通知件数が増えていないこと
-    const historyAfterCancel = listNotificationOutputHistory(connection);
+    const historyAfterCancel = listNotificationOutputHistory(retainedConnection);
     assert.equal(historyAfterCancel.length, historyBeforeCancel.length);
   } finally {
     cleanup();
@@ -768,10 +805,12 @@ test('AC6-3: 取消が現況を変化させない場合 (no-op) は cancel_witho
 });
 
 test('AC8: 訓練データが本番と混同されない', () => {
-  const { connection, cleanup } = createTempDb();
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
   try {
     const tracker = new InitialWarningNotificationTracker();
     const emitDeps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
       tracker,
       now: () => '2026-09-12T00:00:01Z',
     };
@@ -808,7 +847,7 @@ test('AC8: 訓練データが本番と混同されない', () => {
       emitDeps,
     );
 
-    const allHistory = listNotificationOutputHistory(connection);
+    const allHistory = listNotificationOutputHistory(retainedConnection);
     assert.equal(allHistory.length, 2);
 
     const trainingNotif = allHistory.find((n) => n.isTraining === true);
@@ -820,9 +859,44 @@ test('AC8: 訓練データが本番と混同されない', () => {
     assert.equal(normalNotif.category, 'question');
 
     // isTraining: false で絞り込み
-    const normalOnly = listNotificationOutputHistory(connection, { isTraining: false });
+    const normalOnly = listNotificationOutputHistory(retainedConnection, { isTraining: false });
     assert.equal(normalOnly.length, 1);
     assert.equal(normalOnly[0]!.notificationId, normalNotif.notificationId);
+  } finally {
+    cleanup();
+  }
+});
+
+test('Issue #247 AC13: 未確定の気象transactionから保持通知を先にcommitしない', () => {
+  const { connection, retainedConnection, weatherDatabaseGenerationId, cleanup } = createTempDb();
+  try {
+    const reception = createReception(
+      connection,
+      'VPWS50',
+      '2026-09-12T00:00:00Z',
+      '<Kind><Name>レベル３大雨警報</Name><Code>03</Code><Status>発表</Status></Kind>',
+    );
+    const deps: WarningNotificationEmitDeps = {
+      retainedConnection,
+      weatherDatabaseGenerationId,
+      tracker: new InitialWarningNotificationTracker(),
+      now: () => '2026-09-12T00:00:01Z',
+    };
+    assert.throws(
+      () =>
+        connection.transaction(() => {
+          processWarningTelegramReception(
+            connection,
+            reception,
+            '2026-09-12T00:00:01Z',
+            EAST_VENUE,
+            deps,
+          );
+        })(),
+      /気象transaction完了前/,
+    );
+    assert.equal(findWarningCurrentSnapshot(connection, '1310800', 'normal'), null);
+    assert.deepEqual(listNotificationOutputHistory(retainedConnection), []);
   } finally {
     cleanup();
   }
