@@ -39,12 +39,14 @@ export interface ApplicationRuntimeDependencies extends Omit<
   readonly acquisitionEpoch: WeatherEpoch;
   readonly serverGenerationId: string;
   readonly weatherDatabaseGenerationId: string;
+  readonly now?: () => string;
   readonly readPort?: WeatherPort;
   readonly observeRequest?: (request: WeatherRequest) => void;
 }
 /** 両起動入口が使用するローカル構成。DB/service実体はここからHTTPへ渡さない。 */
 export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
   const epoch = deps.deliveryEpoch;
+  const now = deps.now ?? (() => new Date().toISOString());
   const methods = {
     warnings: 'getWarnings',
     'warning-timeseries': 'getWarningTimeseries',
@@ -55,7 +57,7 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
   } as const;
   const receptions = createWeatherReceptionService({
     weatherConnection: deps.weatherConnection,
-    now: () => new Date().toISOString(),
+    now,
   });
   const inline = createInlineWeatherRead(
     epoch,
@@ -74,18 +76,24 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
         }
       },
       'tile.read': async (p) => {
-        const result =
-          p.layer === 'nowcast'
-            ? await deps.nowcastApi.readTile?.(p.frame, p.coordinate)
-            : await deps.kikikuruApi.readTile?.(p.frame, p.coordinate);
-        if (!result || result.kind !== 'success') return { kind: 'miss' };
-        return {
-          kind: 'hit',
-          bytes: new Uint8Array(result.buffer),
-          contentType: 'image/png',
-          storedAt: result.storedAt,
-          catalogAvailability: result.catalogAvailability,
-        };
+        try {
+          const result =
+            p.layer === 'nowcast'
+              ? await deps.nowcastApi.readTile?.(p.frame, p.coordinate)
+              : await deps.kikikuruApi.readTile?.(p.frame, p.coordinate);
+          if (!result || result.kind !== 'success') return { kind: 'miss' };
+          return {
+            kind: 'hit',
+            bytes: new Uint8Array(result.buffer),
+            contentType: 'image/png',
+            storedAt: result.storedAt,
+            catalogAvailability: result.catalogAvailability,
+          };
+        } catch (error) {
+          if (error instanceof ImageServicesInitializingError)
+            throw new WeatherRequestError('not_ready');
+          throw error;
+        }
       },
       'history.references': (requests) => {
         if (requests.length > 200) throw new WeatherRequestError('invalid_request');
@@ -238,9 +246,7 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
   setImmediate(() => {
     void sampleMonitoring();
   });
-  const retainedHistory = createRetainedMonitoringHistory(deps.retainedConnection, read, () =>
-    new Date().toISOString(),
-  );
+  const retainedHistory = createRetainedMonitoringHistory(deps.retainedConnection, read, now);
   const dependencies: AppDependencies = {
     ...deps,
     monitoringStatus: deps.monitoringStatus

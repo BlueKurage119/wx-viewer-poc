@@ -770,6 +770,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
     });
 
     const applicationRuntime = createApplicationRuntime({
+      now: clock,
       deliveryEpoch: startupRuntime.deliveryEpoch,
       deliveryRegistry: startupRuntime.deliveryRegistry,
       acquisitionEpoch: startupRuntime.acquisitionEpoch,
@@ -1205,6 +1206,7 @@ async function main(): Promise<void> {
     });
 
     const applicationRuntime = createApplicationRuntime({
+      now: clock,
       deliveryEpoch: startupRuntime.deliveryEpoch,
       deliveryRegistry: startupRuntime.deliveryRegistry,
       acquisitionEpoch: startupRuntime.acquisitionEpoch,

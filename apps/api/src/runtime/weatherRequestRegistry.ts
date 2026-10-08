@@ -22,6 +22,7 @@ interface Pending {
 }
 /** 保持DB transactionを開かず、待機時間込みで受付数と応答の寿命を管理する。 */
 export class WeatherRequestRegistry {
+  private closed = false;
   private readonly pending = new Map<string, Pending>();
   constructor(
     private epoch: WeatherEpoch,
@@ -35,6 +36,7 @@ export class WeatherRequestRegistry {
     for (const entry of this.pending.values()) entry.cancel('generation_changed');
   }
   close(): void {
+    this.closed = true;
     for (const entry of this.pending.values()) entry.cancel('not_ready');
   }
   request<K extends keyof WeatherOperations>(
@@ -47,6 +49,7 @@ export class WeatherRequestRegistry {
       epoch: request.epoch,
       result: { status: 'failed', code },
     });
+    if (this.closed) return Promise.resolve(fail('not_ready'));
     try {
       assertWeatherData(request);
     } catch {

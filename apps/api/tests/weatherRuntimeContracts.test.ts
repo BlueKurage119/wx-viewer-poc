@@ -102,7 +102,7 @@ test('要求の合流・異payload・期限境界・reader再接続を区別す�
   );
 });
 test('提供要求の64件と起動投影8件を超える要求はbusyとなる', async () => {
-  const registry = new WeatherRequestRegistry(epoch, () => base);
+  let registry = new WeatherRequestRegistry(epoch, () => base);
   const capacityBlock = deferred<null>();
   const entries = Array.from({ length: 64 }, (_, i) =>
     registry.request(request(String(i)), () => capacityBlock.promise),
@@ -117,6 +117,7 @@ test('提供要求の64件と起動投影8件を超える要求はbusyとなる'
   await Promise.all(entries);
   await Promise.resolve();
   assert.equal(registry.size, 0);
+  registry = new WeatherRequestRegistry(epoch, () => base);
   const starts = Array.from({ length: 8 }, (_, i) =>
     registry.request(
       {
