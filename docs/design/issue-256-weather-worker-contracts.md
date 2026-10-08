@@ -63,7 +63,9 @@
 | `runtime/weatherRequestRegistry.ts` | 要求ID・世代・期限・失効、有限キューの共通規則。 |
 | `packages/shared/src/weatherRuntime.ts` | B/C/Dが共有する監視状態・再開操作DTO。再開HTTPはAでは公開しない。 |
 
-既存の `server.ts`、`app.ts`、気象API/画像API/監視service、通知emitter/tracker、polling構成と通知呼出し箇所は上の入口へ接続するために変更してよい。エンドポイントと業務応答は、非同期化に必要な型・`await`の追加を除き維持する。既存の同期repository・planner・parserはrole内部で使う。気象・保持DBのtable分割、migrationの新設、parserの意味変更、webの画面配置、台帳、共通テスト設定、依存追加はAの対象外。
+既存の `server.ts`、`app.ts`、気象API/画像API/監視service、通知emitter/tracker、polling構成と通知呼出し箇所は上の入口へ接続するために変更してよい。エンドポイントと業務応答は、非同期化に必要な型・`await`の追加と、次段落の読取不能理由値の追加を除き維持する。既存の同期repository・planner・parserはrole内部で使う。気象・保持DBのtable分割、migrationの新設、parserの意味変更、webの画面配置、台帳、共通テスト設定、依存追加はAの対象外。
+
+契約補足として `NotificationReceptionUnavailableReason` に `weather_unavailable` を追加する。提供port失敗時も保持DBの通知履歴本体を返し、参照先の読取不能は `{status: 'unavailable', reason: 'weather_unavailable'}` で表す。実際の電文欠落を示す `reception_missing` へ置き換えない。shared型・web検証器・既存の理由表示分岐への最小変更を対象に含める。新機能・操作の意味・画面配置は変更しない。
 
 `startServer()` は従来どおり初回処理列がsettleしてから `StartedServer` を返し、待受後の気象準備失敗だけではrejectしない。実プロセスの `main()` はHTTP待受後に初回処理を背景実行する。既存 `StartedServer` の試験用観測口は互換を保つが、実HTTPの依存は新portだけにする。
 
@@ -392,7 +394,7 @@ type WeatherRuntimeStatus = {
 - [ ] **AC9 / A6 DB所有:** Aの `databasePairCleanup` / `splitDatabaseLifecycle` / reset回帰が通り、同一ファイル・role誤り・未完了resetの拒否、起動失敗cleanupを維持する。§7のB中間状態について、factory構成図と型にwriter/reader/lease/readerEpochが割り当てられ、Bで変更する箇所が特定できればAとして合格。WALの並行実測はBへ。
 - [ ] **AC10 / A7 要求失効・制御:** role世代変更、期限直前/直後、同じrequestId重複、同ID異payload、64件上限とstartup 8件上限を固定時計で確認。超過はbusy、期限切れ後の応答は不採用、同じ取得操作は1回だけ実行。既存開始/停止/強制更新の合流・30分復旧・DISABLE_POLLING・夜間条件を回帰する。
 - [ ] **AC11 / A1・A2 タイル境界:** 一方の未取得tileを保留し、別の保存済みtileとテキスト要求が完了することを実adapterで確認。miss→ensure→readの順、時間帯禁止なら上流0回、既存正常PNG/破損/ファイルなしの応答が変わらないことを確認する。
-- [ ] **AC12 / A7 監視:** 最終報告未取得/時刻超過を純粋関数で確認し、unknown/fresh/staleの完全一致を比較。Worker readyと気象ready、通常取得stoppedとrole failedを混同しない。system差分と監視の実装にreader応答待ちがないことを確認する。
+- [ ] **AC12 / A7 監視:** 最終報告未取得/時刻超過を純粋関数で確認し、unknown/fresh/staleの完全一致を比較。Worker readyと気象ready、通常取得stoppedとrole failedを混同しない。system差分と監視の実装にreader応答待ちがないことを確認する。通知履歴の参照照会で提供port失敗を注入し、HTTP応答の保持履歴本体・件数・順序が維持され、対象参照が `{status: 'unavailable', reason: 'weather_unavailable'}` と完全一致することを確認する。実欠落時の `reception_missing` も別ケースで維持し、web検証器が新理由値を受理して既存の理由表示分岐で読取不能を表示することを確認する。
 - [ ] **AC13 / A8 品質:** `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run test -w apps/api`、`npm run test -w apps/web`、`npm run test -w packages/shared`、`npm run build` がすべて成功。共通テスト設定を書き換えて成功させない。新規テストの対照/red確認結果を報告する。
 - [ ] **AC14 範囲:** `git status --short` と基点からのdiffで、実Worker起動、WAL/migration、TRC削除、監視全体再配置、parser意味変更が含まれない。Aだけで障害隔離・性能向上達成と記載していない。
 
