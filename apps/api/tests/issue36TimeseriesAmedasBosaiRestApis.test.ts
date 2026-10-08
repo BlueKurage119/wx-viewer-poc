@@ -21,7 +21,10 @@ import type {
 
 import { createApp } from '../src/app.js';
 import { createWeatherApiService } from '../src/services/weatherApiService.js';
-import { saveAreaTimeseriesSnapshot } from '../src/repositories/areaTimeseriesRepository.js';
+import {
+  deleteAreaTimeseriesSnapshot,
+  saveAreaTimeseriesSnapshot,
+} from '../src/repositories/areaTimeseriesRepository.js';
 import { saveAmedasSnapshot } from '../src/repositories/amedasRepository.js';
 import { saveBosaiBulletin } from '../src/repositories/bosaiBulletinRepository.js';
 import { recordTelegramReception } from '../src/repositories/telegramReceptionRepository.js';
@@ -787,6 +790,9 @@ test('B4 未取得・正常空・保持値: snapshotなしは unavailable、明�
   assert.deepEqual(res37Empty.body.data.observations, []);
   assert.equal(res37Empty.body.data.latestObservedAt, null);
   assert.equal(res37Empty.body.metadata.availability, 'available');
+
+  // 空snapshotの確認とは独立してstaleの保持値を用意する（旧発表への上書きは拒否される）。
+  deleteAreaTimeseriesSnapshot(db.weather.connection, '130010', '44132', 'normal');
 
   // 3. 保存 availability が stale の snapshot -> 保持値と出所時刻をそのまま返し stale
   // まず available で保持値を保存

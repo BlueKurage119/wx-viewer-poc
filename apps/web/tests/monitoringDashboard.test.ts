@@ -424,3 +424,29 @@ test('Issue #187: MonitoringDashboard は onLoadStateChange prop を受け取り
   // SSR (renderToStaticMarkup) では useEffect は実行されないため、レンダリングが例外なく完了することを確認
   assert.equal(callbackState, null);
 });
+
+test('予報3行の情報時刻は発表時刻の表示とtime属性が一致し、nullはtime要素を出さない', () => {
+  for (const issuedAt of ['2026-10-08T08:00:00.000Z', null]) {
+    const data = {
+      ...normalMonitoringResponseFixture,
+      information: normalMonitoringResponseFixture.information.map((section) => ({
+        ...section,
+        issuedAt,
+        validAt: '2026-10-08T15:00:00.000Z',
+      })),
+    };
+    const html = renderToStaticMarkup(
+      el(MonitoringDashboardView, { state: { phase: 'ready', data }, resolveTargets }),
+    );
+    for (const name of ['警報等時系列', '警報級の可能性', '地域時系列予報']) {
+      const row = html.match(new RegExp(`<tr[^>]*><th scope="row">${name}</th>(.*?)</tr>`))?.[1];
+      assert.ok(row);
+      // 行全体は地域・状態等の別契約を含むので、情報時刻セルを抽出して完全一致する。
+      const timeCell = row.match(/<td class="monitoring-time">(.*?)<\/td>/)?.[1];
+      assert.equal(
+        timeCell,
+        issuedAt === null ? '—' : '<time dateTime="2026-10-08T08:00:00.000Z">10/08 17:00:00</time>',
+      );
+    }
+  }
+});

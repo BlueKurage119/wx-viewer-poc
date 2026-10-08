@@ -19,7 +19,7 @@ export interface InformationRow {
   readonly target: string;
   readonly stateLabel: InformationStateLabel;
   readonly stateTone: InformationStateTone;
-  /** 情報時刻（基準時刻）の表示文字列。JST MM/DD HH:mm:ss。null は '—'。 */
+  /** 情報時刻（予報3種は発表時刻、その他は基準時刻）の表示文字列。JST MM/DD HH:mm:ss。null は '—'。 */
   readonly validAtText: string;
   /** <time dateTime> へ渡す生値。null なら time 要素を出さない。 */
   readonly validAt: string | null;
@@ -170,8 +170,13 @@ export function buildInformationRows(
         break;
     }
 
-    // 情報時刻 (validAt) と反映時刻 (fetchedAt) (§4.3)
-    const validAt = section.validAt;
+    // 予報の情報時刻はDBに保存された発表時刻を表示する。
+    const validAt =
+      def.kind === 'warning_timeseries' ||
+      def.kind === 'early_warning' ||
+      def.kind === 'area_timeseries'
+        ? section.issuedAt
+        : section.validAt;
     const validAtText = formatJstMonthDayClock(validAt);
 
     const fetchedAt = section.fetchedAt;

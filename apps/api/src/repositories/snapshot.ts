@@ -124,3 +124,12 @@ export function mapTelegramRow(row: TelegramMetadataRow): TelegramMetadataInput 
     controlDateTime: row.control_datetime,
   };
 }
+
+/** 発表時刻を優先し、同一発表時刻のみ更新時刻で電文の版を比較する。 */
+export function compareTelegramVersions(
+  left: Pick<TelegramMetadataInput, 'reportDateTime' | 'controlDateTime'>,
+  right: Pick<TelegramMetadataInput, 'reportDateTime' | 'controlDateTime'>,
+): number {
+  const reportDifference = Date.parse(left.reportDateTime) - Date.parse(right.reportDateTime);
+  return reportDifference || Date.parse(left.controlDateTime) - Date.parse(right.controlDateTime);
+}

@@ -1,5 +1,6 @@
 import type { DatabaseConnection } from '../database/index.js';
 import {
+  compareTelegramVersions,
   mapMetadataRow,
   mapTelegramRow,
   validateControlStatus,
@@ -72,6 +73,16 @@ export function saveAreaTimeseriesSnapshot(
   }
 
   const saveTx = connection.transaction(() => {
+    const existing = findAreaTimeseriesSnapshot(
+      connection,
+      input.areaCode,
+      input.stationCode,
+      input.telegram.controlStatus,
+    );
+    if (existing && compareTelegramVersions(input.telegram, existing.telegram) < 0) {
+      return existing;
+    }
+
     const upsertStmt = connection.prepare(`
       INSERT INTO area_timeseries_snapshot (
         area_code, area_name, station_code, station_name,

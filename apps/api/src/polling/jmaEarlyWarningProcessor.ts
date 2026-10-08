@@ -4,10 +4,7 @@ import {
   upsertTelegramReceptionAdoption,
   upsertTelegramReceptionAdoptionForAllVenues,
 } from '../repositories/telegramReceptionRepository.js';
-import {
-  findEarlyWarningSnapshot,
-  saveEarlyWarningSnapshot,
-} from '../repositories/earlyWarningRepository.js';
+import { saveEarlyWarningSnapshot } from '../repositories/earlyWarningRepository.js';
 import type {
   EarlyWarningParseResult,
   EarlyWarningTargetArea,
@@ -111,7 +108,6 @@ export function processEarlyWarningReceptionForVenues(
   reception: TelegramReception,
   processedAt: UtcIso8601String,
   registry: VenueRegistry,
-  preserveNewerSnapshot = false,
 ): readonly { readonly venueId: VenueId; readonly result: EarlyWarningParseResult }[] {
   const groups = new Map<string, VenueId[]>();
   for (const venue of registry.listVenues()) {
@@ -146,47 +142,32 @@ export function processEarlyWarningReceptionForVenues(
       }
       if (result.ok) {
         const parsed = result.value;
-        const existing = preserveNewerSnapshot
-          ? findEarlyWarningSnapshot(
-              connection,
-              parsed.area.code,
-              parsed.segment,
-              parsed.controlStatus,
-            )
-          : null;
-        // 過去の対象地域外電文を再処理しても、保存済みの新しい予報を巻き戻さない。
-        const isNewerSaved =
-          existing !== null &&
-          (existing.telegram.reportDateTime > parsed.reportDateTime ||
-            (existing.telegram.reportDateTime === parsed.reportDateTime &&
-              existing.telegram.controlDateTime > parsed.controlDateTime));
-        if (!isNewerSaved)
-          saveEarlyWarningSnapshot(connection, {
-            areaCode: parsed.area.code,
-            areaName: parsed.area.name,
-            segment: parsed.segment,
-            telegramType: parsed.telegramType,
-            metadata: {
-              source: reception.documentUrl,
-              issuedAt: parsed.reportDateTime,
-              validAt: null,
-              validFrom: null,
-              validTo: null,
-              fetchedAt: reception.receivedAt,
-              lastSuccessAt: processedAt,
-              availability: 'available',
-              sourceVersion: parsed.infoKindVersion,
-            },
-            telegram: {
-              controlStatus: parsed.controlStatus,
-              infoType: parsed.infoType,
-              eventId: parsed.eventId,
-              reportDateTime: parsed.reportDateTime,
-              controlDateTime: parsed.controlDateTime,
-            },
-            timeDefines: parsed.timeDefines,
-            cells: parsed.cells,
-          });
+        saveEarlyWarningSnapshot(connection, {
+          areaCode: parsed.area.code,
+          areaName: parsed.area.name,
+          segment: parsed.segment,
+          telegramType: parsed.telegramType,
+          metadata: {
+            source: reception.documentUrl,
+            issuedAt: parsed.reportDateTime,
+            validAt: null,
+            validFrom: null,
+            validTo: null,
+            fetchedAt: reception.receivedAt,
+            lastSuccessAt: processedAt,
+            availability: 'available',
+            sourceVersion: parsed.infoKindVersion,
+          },
+          telegram: {
+            controlStatus: parsed.controlStatus,
+            infoType: parsed.infoType,
+            eventId: parsed.eventId,
+            reportDateTime: parsed.reportDateTime,
+            controlDateTime: parsed.controlDateTime,
+          },
+          timeDefines: parsed.timeDefines,
+          cells: parsed.cells,
+        });
       }
       for (const venueId of venueIds) {
         upsertTelegramReceptionAdoption(

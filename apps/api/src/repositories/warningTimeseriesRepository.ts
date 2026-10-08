@@ -1,6 +1,7 @@
 import type { TimeseriesScope } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
+  compareTelegramVersions,
   mapMetadataRow,
   mapTelegramRow,
   validateControlStatus,
@@ -154,6 +155,15 @@ export function saveWarningTimeseriesSnapshot(
         : 0;
 
   const saveTx = connection.transaction(() => {
+    const existing = findWarningTimeseriesSnapshot(
+      connection,
+      input.areaCode,
+      input.telegram.controlStatus,
+    );
+    if (existing && compareTelegramVersions(input.telegram, existing.telegram) < 0) {
+      return existing;
+    }
+
     const upsertStmt = connection.prepare(`
       INSERT INTO warning_timeseries_snapshot (
         area_code, area_name, control_status, info_type, event_id, report_datetime, control_datetime,
