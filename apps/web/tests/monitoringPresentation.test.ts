@@ -472,3 +472,70 @@ test('Issue #187: isFailed === true のとき buildSourceStatusRows は normal/a
   assert.equal(abnormalRow.state.text, '異常');
   assert.equal(abnormalRow.state.tone, 'error');
 });
+
+test('Issue #253: 初回準備失敗と気象読取失敗を自会場の既存カードに表示する', () => {
+  const data = {
+    ...normalMonitoringResponseFixture,
+    readiness: {
+      ...normalMonitoringResponseFixture.readiness,
+      initialFetchPhase: 'not_started' as const,
+      preparationFailures: [
+        {
+          stage: 'service_setup' as const,
+          venueId: null,
+          failedAt: '2026-09-20T05:25:00.000Z',
+          code: 'weather_preparation_failed' as const,
+        },
+      ],
+    },
+    readErrors: [
+      {
+        section: 'information' as const,
+        venueId: normalMonitoringResponseFixture.requestedVenueId,
+        kind: 'amedas' as const,
+        code: 'weather_data_read_failed' as const,
+      },
+    ],
+  };
+  const cards = buildMonitoringCards(data);
+  assert.deepEqual(
+    cards.find((card) => card.id === 'operation'),
+    {
+      id: 'operation',
+      title: '取得運転',
+      value: '自動取得有効',
+      details: ['初回同期 未開始', '初回準備失敗'],
+      tone: 'normal',
+      detailTone: 'error',
+    },
+  );
+  assert.deepEqual(cards.find((card) => card.id === 'processing')?.details, [
+    ...buildMonitoringCards(normalMonitoringResponseFixture).find(
+      (card) => card.id === 'processing',
+    )!.details,
+    '気象データ読取失敗',
+  ]);
+  assert.equal(cards.find((card) => card.id === 'processing')?.tone, 'error');
+  const otherVenue = {
+    ...data,
+    requestedVenueId: 'trc' as typeof data.requestedVenueId,
+    readiness: {
+      ...data.readiness,
+      preparationFailures: data.readiness.preparationFailures.map((failure) => ({
+        ...failure,
+        venueId: normalMonitoringResponseFixture.requestedVenueId,
+      })),
+    },
+  };
+  assert.deepEqual(
+    buildMonitoringCards(otherVenue).find((card) => card.id === 'operation')?.details,
+    ['初回同期 未開始'],
+  );
+  assert.deepEqual(
+    buildMonitoringCards(otherVenue).find((card) => card.id === 'processing')?.details,
+    buildMonitoringCards({
+      ...normalMonitoringResponseFixture,
+      requestedVenueId: otherVenue.requestedVenueId,
+    }).find((card) => card.id === 'processing')?.details,
+  );
+});

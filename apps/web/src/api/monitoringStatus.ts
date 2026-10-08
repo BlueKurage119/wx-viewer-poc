@@ -132,6 +132,36 @@ function isTilesSection(value: unknown): boolean {
   return true;
 }
 
+function isPreparationFailure(value: unknown, registry: VenueRegistry): boolean {
+  return (
+    isRecord(value) &&
+    ['reprocessing', 'recovery', 'service_setup', 'venue_evaluation'].includes(
+      String(value.stage),
+    ) &&
+    (value.venueId === null || registry.resolveVenueId(value.venueId) !== null) &&
+    isIsoDate(value.failedAt) &&
+    value.code === 'weather_preparation_failed'
+  );
+}
+
+function isReadError(value: unknown, registry: VenueRegistry): boolean {
+  if (!isRecord(value) || value.code !== 'weather_data_read_failed') return false;
+  switch (value.section) {
+    case 'recent_adoptions':
+      return value.venueId === null && value.kind === null;
+    case 'information':
+      return (
+        registry.resolveVenueId(value.venueId) !== null &&
+        typeof value.kind === 'string' &&
+        KNOWN_INFORMATION_KINDS.has(value.kind)
+      );
+    case 'tiles':
+      return value.venueId === null && (value.kind === 'nowcast' || value.kind === 'kikikuru');
+    default:
+      return false;
+  }
+}
+
 function isMonitoringResponse(
   value: unknown,
   registry: VenueRegistry,
@@ -176,10 +206,16 @@ function isMonitoringResponse(
     !isNullableIsoDate(value.readiness.startedAt) ||
     !isNullableIsoDate(value.readiness.finishedAt) ||
     !Array.isArray(value.readiness.feeds) ||
+    !Array.isArray(value.readiness.preparationFailures) ||
+    !value.readiness.preparationFailures.every((failure) =>
+      isPreparationFailure(failure, registry),
+    ) ||
     (value.readiness.errorReason !== null && typeof value.readiness.errorReason !== 'string')
   )
     return false;
   if (
+    !Array.isArray(value.readErrors) ||
+    !value.readErrors.every((error) => isReadError(error, registry)) ||
     !Array.isArray(value.venues) ||
     !Array.isArray(value.information) ||
     !value.information.every((information) => isInformationSection(information, registry)) ||

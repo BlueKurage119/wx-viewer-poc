@@ -1,4 +1,8 @@
 import type {
+  NotificationDeltaGenerationError,
+  WeatherNotificationPendingResponse,
+} from './notificationDelta.js';
+import type {
   NotificationCategory,
   NotificationRelatedRef,
   NotificationTarget,
@@ -10,15 +14,24 @@ import { isTerminalSessionId } from './terminalSession.js';
 import type { UtcIso8601String } from './types.js';
 import type { VenueId } from './venueForecastTargets.js';
 
-export type StartupCurrentSource = 'warning_current' | 'bosai_bulletin' | 'fetch_health';
+export type StartupCurrentSource = 'warning_current' | 'bosai_bulletin';
 
-export type StartupCurrentOrigin =
-  | { readonly origin: 'weather'; readonly sourceType: 'warning_current' | 'bosai_bulletin' }
-  | { readonly origin: 'system'; readonly sourceType: 'fetch_health' };
+export type StartupCurrentOrigin = {
+  readonly origin: 'weather';
+  readonly sourceType: StartupCurrentSource;
+};
+
+export interface WeatherPreparationFailure {
+  readonly stage: 'reprocessing' | 'recovery' | 'service_setup' | 'venue_evaluation';
+  readonly venueId: VenueId | null;
+  readonly failedAt: UtcIso8601String;
+  readonly code: 'weather_preparation_failed';
+}
 
 export interface StartupNotificationRequest {
   readonly terminalId: string;
   readonly sessionId: TerminalSessionId;
+  readonly serverGenerationId: string;
 }
 
 export type StartupCurrentNotification = {
@@ -48,15 +61,14 @@ export interface StartupNotificationReadyResponse {
   readonly cursor: NotificationDeltaCursor;
 }
 
-export type StartupNotificationErrorResponse = {
-  readonly status: 'error';
-  readonly code: 'invalid_request' | 'terminal_not_found' | 'startup_notification_failed';
-};
+export type StartupNotificationErrorResponse =
+  | NotificationDeltaGenerationError
+  | {
+      readonly status: 'error';
+      readonly code: 'invalid_request' | 'terminal_not_found' | 'startup_notification_failed';
+    };
 
-export interface StartupNotificationInitializingResponse {
-  readonly status: 'initializing';
-  readonly venueId: VenueId;
-}
+export type StartupNotificationInitializingResponse = WeatherNotificationPendingResponse;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -68,7 +80,12 @@ export function parseStartupNotificationRequest(value: unknown): StartupNotifica
     return null;
   }
   const keys = Object.keys(value);
-  if (keys.length !== 2 || !keys.includes('terminalId') || !keys.includes('sessionId')) {
+  if (
+    keys.length !== 3 ||
+    !keys.includes('terminalId') ||
+    !keys.includes('sessionId') ||
+    !keys.includes('serverGenerationId')
+  ) {
     return null;
   }
   if (typeof value.terminalId !== 'string' || value.terminalId.length === 0) {
@@ -77,5 +94,10 @@ export function parseStartupNotificationRequest(value: unknown): StartupNotifica
   if (!isTerminalSessionId(value.sessionId)) {
     return null;
   }
-  return { terminalId: value.terminalId, sessionId: value.sessionId };
+  if (typeof value.serverGenerationId !== 'string' || !value.serverGenerationId) return null;
+  return {
+    terminalId: value.terminalId,
+    sessionId: value.sessionId,
+    serverGenerationId: value.serverGenerationId,
+  };
 }

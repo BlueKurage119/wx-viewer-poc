@@ -17,25 +17,51 @@ test('AC12: StrictMode 相当の重複購読と abort でも同一端末への P
           },
     fetch: async (_url, init) => {
       bodies.push(String(init?.body));
-      return new Response(JSON.stringify({ status: 'initializing', venueId: 'east' }), {
-        status: 202,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({
+          status: 'initializing',
+          venueId: 'east',
+          terminalId: 'a',
+          serverGenerationId: 'gen-1',
+          weatherState: 'initializing',
+        }),
+        {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     },
   });
   const controller = new AbortController();
-  const first = client.fetchStartupNotifications('a', controller.signal);
+  const first = client.fetchStartupNotifications('a', 'gen-1', controller.signal);
   controller.abort();
-  const second = client.fetchStartupNotifications('a');
-  assert.deepEqual(await first, { status: 'initializing', venueId: 'east' });
-  assert.deepEqual(await second, { status: 'initializing', venueId: 'east' });
-  await client.fetchStartupNotifications('a');
-  await client.fetchStartupNotifications('b');
+  const second = client.fetchStartupNotifications('a', 'gen-1');
+  assert.deepEqual(await first, {
+    status: 'initializing',
+    venueId: 'east',
+    terminalId: 'a',
+    serverGenerationId: 'gen-1',
+    weatherState: 'initializing',
+  });
+  assert.deepEqual(await second, {
+    status: 'initializing',
+    venueId: 'east',
+    terminalId: 'a',
+    serverGenerationId: 'gen-1',
+    weatherState: 'initializing',
+  });
+  await client.fetchStartupNotifications('a', 'gen-1');
+  await client.fetchStartupNotifications('b', 'gen-1');
   assert.deepEqual(bodies, [
-    JSON.stringify({ terminalId: 'a', sessionId: sessionA }),
-    JSON.stringify({ terminalId: 'b', sessionId: '00000000-0000-4000-8000-000000000002' }),
+    JSON.stringify({ terminalId: 'a', sessionId: sessionA, serverGenerationId: 'gen-1' }),
+    JSON.stringify({ terminalId: 'a', sessionId: sessionA, serverGenerationId: 'gen-1' }),
+    JSON.stringify({
+      terminalId: 'b',
+      sessionId: '00000000-0000-4000-8000-000000000002',
+      serverGenerationId: 'gen-1',
+    }),
   ]);
-  assert.deepEqual(await client.fetchStartupNotifications('broken'), {
+  assert.deepEqual(await client.fetchStartupNotifications('broken', 'gen-1'), {
     status: 'unavailable',
     reason: 'session',
   });
@@ -73,7 +99,7 @@ test('ready 応答: cursor が存在する場合は ready として受理し、c
       }),
   });
 
-  const res1 = await clientWithCursor.fetchStartupNotifications('a');
+  const res1 = await clientWithCursor.fetchStartupNotifications('a', 'gen-1');
   assert.deepEqual(res1, readyBodyWithCursor);
 
   const clientWithoutCursor = createStartupNotificationClient({
@@ -85,7 +111,7 @@ test('ready 応答: cursor が存在する場合は ready として受理し、c
       }),
   });
 
-  const res2 = await clientWithoutCursor.fetchStartupNotifications('a');
+  const res2 = await clientWithoutCursor.fetchStartupNotifications('a', 'gen-1');
   assert.deepEqual(res2, { status: 'unavailable', reason: 'server' });
 });
 
@@ -110,7 +136,7 @@ test('H2 AC6: targetsが空など契約外のready通知はunavailable(server)�
       }),
   });
 
-  assert.deepEqual(await client.fetchStartupNotifications('a'), {
+  assert.deepEqual(await client.fetchStartupNotifications('a', 'gen-1'), {
     status: 'unavailable',
     reason: 'server',
   });

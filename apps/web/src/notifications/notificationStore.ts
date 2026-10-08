@@ -1,3 +1,4 @@
+import type { NotificationTransportState } from './notificationFeedController';
 import type {
   NotificationDeltaCursor,
   NotificationFeedItem,
@@ -20,7 +21,8 @@ export interface ChimeRequest {
 export interface NotificationUiState {
   readonly items: readonly NotificationFeedItem[];
   readonly warningHistory: readonly WarningHistoryEntry[];
-  readonly cursor: NotificationDeltaCursor | null;
+  readonly cursors: Readonly<Record<'system' | 'weather', NotificationDeltaCursor | null>>;
+  readonly transport: Readonly<Record<'system' | 'weather', NotificationTransportState['phase']>>;
   readonly phase: NotificationPhase;
   readonly operationMessage: string;
   readonly confirmedFeedKeys: ReadonlySet<string>;
@@ -36,7 +38,8 @@ export function createNotificationUiState(): NotificationUiState {
   return {
     items: [],
     warningHistory: [],
-    cursor: null,
+    cursors: { system: null, weather: null },
+    transport: { system: 'starting', weather: 'starting' },
     phase: 'starting',
     operationMessage: INITIAL_OPERATION_MESSAGE,
     confirmedFeedKeys: new Set(),
@@ -160,16 +163,46 @@ export function expireWarningHistory(
   return warningHistory === state.warningHistory ? state : { ...state, warningHistory };
 }
 
+export function setNotificationTransport(
+  state: NotificationUiState,
+  update: NotificationTransportState,
+): NotificationUiState {
+  const cursors = { ...state.cursors, [update.origin]: update.cursor };
+  const transport = { ...state.transport, [update.origin]: update.phase };
+  const failed = (['system', 'weather'] as const).filter(
+    (origin) => transport[origin] === 'retrying',
+  );
+  const operationMessage = failed.length
+    ? `${failed.map((origin) => (origin === 'system' ? 'システム通知' : '気象通知')).join('・')}を受信できません。再試行します。`
+    : (update.message ?? INITIAL_OPERATION_MESSAGE);
+  return {
+    ...state,
+    cursors,
+    transport,
+    phase: failed.length ? 'retrying' : transport.system === 'ready' ? 'ready' : 'starting',
+    operationMessage,
+  };
+}
+
 export function setNotificationCursor(
   state: NotificationUiState,
   cursor: NotificationDeltaCursor,
   operationMessage = INITIAL_OPERATION_MESSAGE,
 ): NotificationUiState {
-  return { ...state, cursor, phase: 'ready', operationMessage };
+  return setNotificationTransport(state, {
+    origin: 'weather',
+    cursor,
+    phase: 'ready',
+    message: operationMessage,
+  });
 }
 
 export function setNotificationRetry(state: NotificationUiState): NotificationUiState {
-  return { ...state, phase: 'retrying', operationMessage: RETRY_OPERATION_MESSAGE };
+  return setNotificationTransport(state, {
+    origin: 'weather',
+    cursor: state.cursors.weather,
+    phase: 'retrying',
+  });
 }
 
 export function selectQuestionConfirmation(

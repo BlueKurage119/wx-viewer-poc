@@ -4,6 +4,10 @@ import {
   type MonitoringHealthSection,
   type MonitoringHealthSource,
   type MonitoringInformationSection,
+  type MonitoringInformationKind,
+  type MonitoringReadError,
+  type TileUpstreamAccess,
+  type WeatherPreparationFailure,
   type MonitoringOperationSection,
   type MonitoringReadinessSection,
   type MonitoringStatusResponse,
@@ -58,6 +62,7 @@ export interface MonitoringStatusServiceDependencies {
   readonly weatherApi: WeatherApiService;
   readonly nowcastApi: NowcastApiService;
   readonly kikikuruApi: KikikuruApiService;
+  readonly getTileUpstreamAccess: (layer: 'nowcast' | 'kikikuru') => TileUpstreamAccess;
   readonly fetchHealthConfig: FetchHealthConfig;
   readonly serverGenerationId: string;
   readonly serverStartedAt: UtcIso8601String;
@@ -186,6 +191,7 @@ function buildHealthSection(
 
 function buildReadinessSection(
   status: ReturnType<XmlPollingStatusProvider['getStatus']>,
+  preparationFailures: readonly WeatherPreparationFailure[],
 ): MonitoringReadinessSection {
   const { initialFetch } = status;
   const feedKinds = ['regular', 'extra', 'regular_l', 'extra_l'] as const;
@@ -201,6 +207,7 @@ function buildReadinessSection(
   };
 
   return {
+    preparationFailures,
     initialFetchPhase: initialFetch.phase,
     startedAt: initialFetch.result?.startedAt ?? null,
     finishedAt: initialFetch.result?.finishedAt ?? null,
@@ -217,16 +224,32 @@ export function createMonitoringStatusService(
 ): MonitoringStatusService {
   const adoptionWindowHours = deps.adoptionWindowHours ?? ADOPTION_WINDOW_HOURS_DEFAULT;
 
-  function buildVenues(generatedAt: UtcIso8601String): readonly MonitoringVenueSection[] {
+  function buildVenues(
+    generatedAt: UtcIso8601String,
+    readErrors: MonitoringReadError[],
+  ): readonly MonitoringVenueSection[] {
     const startupStatus = deps.startupInitialization.getStatus();
     const sinceMs = new Date(generatedAt).getTime() - adoptionWindowHours * 60 * 60 * 1000;
     const sinceIso = new Date(sinceMs).toISOString() as UtcIso8601String;
-    const summary = summarizeAdoptionResults(deps.connection, sinceIso);
+    let summary: ReturnType<typeof summarizeAdoptionResults> = [];
+    try {
+      summary = summarizeAdoptionResults(deps.connection, sinceIso);
+    } catch {
+      readErrors.push({
+        section: 'recent_adoptions',
+        venueId: null,
+        kind: null,
+        code: 'weather_data_read_failed',
+      });
+    }
 
     return deps.venueRegistry.listVenueIds().map((venueId) => {
       const startupEvaluated =
         startupStatus.initialFetchPhase === 'completed' &&
-        startupStatus.evaluatedVenueIds.has(venueId);
+        startupStatus.evaluatedVenueIds.has(venueId) &&
+        !startupStatus.preparationFailures.some(
+          (failure) => failure.venueId === null || failure.venueId === venueId,
+        );
 
       const recentAdoptions = summary
         .filter((row) => row.venueId === venueId)
@@ -271,7 +294,10 @@ export function createMonitoringStatusService(
     });
   }
 
-  function buildInformationForVenue(venueId: VenueId): readonly MonitoringInformationSection[] {
+  function buildInformationForVenue(
+    venueId: VenueId,
+    readErrors: MonitoringReadError[],
+  ): readonly MonitoringInformationSection[] {
     const terminal =
       deps.terminalRegistry.listTerminals().find((t) => t.venueId === venueId) ?? null;
     const sections: MonitoringInformationSection[] = [];
@@ -299,198 +325,233 @@ export function createMonitoringStatusService(
       }));
     }
 
-    const warnings = deps.weatherApi.getWarnings(terminal, 'normal');
-    sections.push({
-      kind: 'warning',
-      venueId,
-      availability: warnings.metadata.availability,
-      issuedAt: warnings.metadata.issuedAt,
-      validAt: warnings.metadata.validAt,
-      fetchedAt: warnings.metadata.fetchedAt,
-      lastSuccessAt: warnings.metadata.lastSuccessAt,
-      summaryCount: warnings.data ? warnings.data.items.length : null,
+    const readInformation = (
+      kind: MonitoringInformationKind,
+      read: () => MonitoringInformationSection,
+    ): void => {
+      try {
+        sections.push(read());
+      } catch {
+        readErrors.push({
+          section: 'information',
+          venueId,
+          kind,
+          code: 'weather_data_read_failed',
+        });
+        sections.push({
+          kind,
+          venueId,
+          availability: 'unavailable',
+          issuedAt: null,
+          validAt: null,
+          fetchedAt: null,
+          lastSuccessAt: null,
+          summaryCount: null,
+        });
+      }
+    };
+
+    readInformation('warning', () => {
+      const warnings = deps.weatherApi.getWarnings(terminal, 'normal');
+      return {
+        kind: 'warning',
+        venueId,
+        availability: warnings.metadata.availability,
+        issuedAt: warnings.metadata.issuedAt,
+        validAt: warnings.metadata.validAt,
+        fetchedAt: warnings.metadata.fetchedAt,
+        lastSuccessAt: warnings.metadata.lastSuccessAt,
+        summaryCount: warnings.data ? warnings.data.items.length : null,
+      };
     });
 
-    const warningTimeseries = deps.weatherApi.getWarningTimeseries(terminal, 'normal');
-    sections.push({
-      kind: 'warning_timeseries',
-      venueId,
-      availability: warningTimeseries.metadata.availability,
-      issuedAt: warningTimeseries.metadata.issuedAt,
-      validAt: warningTimeseries.metadata.validAt,
-      fetchedAt: warningTimeseries.metadata.fetchedAt,
-      lastSuccessAt: warningTimeseries.metadata.lastSuccessAt,
-      summaryCount: warningTimeseries.data ? warningTimeseries.data.values.length : null,
+    readInformation('warning_timeseries', () => {
+      const warningTimeseries = deps.weatherApi.getWarningTimeseries(terminal, 'normal');
+      return {
+        kind: 'warning_timeseries',
+        venueId,
+        availability: warningTimeseries.metadata.availability,
+        issuedAt: warningTimeseries.metadata.issuedAt,
+        validAt: warningTimeseries.metadata.validAt,
+        fetchedAt: warningTimeseries.metadata.fetchedAt,
+        lastSuccessAt: warningTimeseries.metadata.lastSuccessAt,
+        summaryCount: warningTimeseries.data ? warningTimeseries.data.values.length : null,
+      };
     });
 
-    const earlyWarning = deps.weatherApi.getEarlyWarning(terminal, 'normal');
-    const earlyAvailability = worseAvailability(
-      earlyWarning.near.metadata.availability,
-      earlyWarning.far.metadata.availability,
-    );
-    const earlyPrimary =
-      earlyWarning.near.metadata.availability === earlyAvailability
-        ? earlyWarning.near.metadata
-        : earlyWarning.far.metadata;
-    const earlyCount =
-      earlyWarning.near.data || earlyWarning.far.data
-        ? (earlyWarning.near.data?.cells.length ?? 0) + (earlyWarning.far.data?.cells.length ?? 0)
+    readInformation('early_warning', () => {
+      const earlyWarning = deps.weatherApi.getEarlyWarning(terminal, 'normal');
+      const earlyAvailability = worseAvailability(
+        earlyWarning.near.metadata.availability,
+        earlyWarning.far.metadata.availability,
+      );
+      const earlyPrimary =
+        earlyWarning.near.metadata.availability === earlyAvailability
+          ? earlyWarning.near.metadata
+          : earlyWarning.far.metadata;
+      const earlyCount =
+        earlyWarning.near.data || earlyWarning.far.data
+          ? (earlyWarning.near.data?.cells.length ?? 0) + (earlyWarning.far.data?.cells.length ?? 0)
+          : null;
+      return {
+        kind: 'early_warning',
+        venueId,
+        availability: earlyAvailability,
+        issuedAt: earlyPrimary.issuedAt,
+        validAt: earlyPrimary.validAt,
+        fetchedAt: earlyPrimary.fetchedAt,
+        lastSuccessAt: earlyPrimary.lastSuccessAt,
+        summaryCount: earlyCount,
+      };
+    });
+
+    readInformation('amedas', () => {
+      const amedas = deps.weatherApi.getAmedas(terminal, 'normal');
+      return {
+        kind: 'amedas',
+        venueId,
+        availability: amedas.metadata.availability,
+        issuedAt: amedas.metadata.issuedAt,
+        validAt: amedas.metadata.validAt,
+        fetchedAt: amedas.metadata.fetchedAt,
+        lastSuccessAt: amedas.metadata.lastSuccessAt,
+        summaryCount: amedas.data ? amedas.data.observations.length : null,
+      };
+    });
+
+    readInformation('area_timeseries', () => {
+      const areaTimeseries = deps.weatherApi.getAreaTimeseries(terminal, 'normal');
+      return {
+        kind: 'area_timeseries',
+        venueId,
+        availability: areaTimeseries.metadata.availability,
+        issuedAt: areaTimeseries.metadata.issuedAt,
+        validAt: areaTimeseries.metadata.validAt,
+        fetchedAt: areaTimeseries.metadata.fetchedAt,
+        lastSuccessAt: areaTimeseries.metadata.lastSuccessAt,
+        summaryCount: areaTimeseries.data ? areaTimeseries.data.values.length : null,
+      };
+    });
+
+    readInformation('bosai_bulletin', () => {
+      const bulletins = deps.weatherApi.getBulletins(terminal, 'normal');
+      return {
+        kind: 'bosai_bulletin',
+        venueId,
+        availability: bulletins.availability,
+        issuedAt: null,
+        validAt: null,
+        fetchedAt: null,
+        lastSuccessAt: null,
+        summaryCount: bulletins.bulletins.length,
+      };
+    });
+
+    readInformation('nowcast', () => {
+      const nowcast = deps.nowcastApi.getTimes(terminal, 'normal');
+      const nowcastN1 = nowcast.products.N1;
+      const nowcastN2 = nowcast.products.N2;
+      const nowcastAvailability = worseAvailability(
+        nowcastN1.metadata.availability,
+        nowcastN2.metadata.availability,
+      );
+      const nowcastPrimary =
+        nowcastN1.metadata.availability === nowcastAvailability
+          ? nowcastN1.metadata
+          : nowcastN2.metadata;
+      const nowcastCount =
+        nowcastN1.data || nowcastN2.data
+          ? (nowcastN1.data?.frames.length ?? 0) + (nowcastN2.data?.frames.length ?? 0)
+          : null;
+      return {
+        kind: 'nowcast',
+        venueId,
+        availability: nowcastAvailability,
+        issuedAt: nowcastPrimary.issuedAt,
+        validAt: nowcastPrimary.validAt,
+        fetchedAt: nowcastPrimary.fetchedAt,
+        lastSuccessAt: nowcastPrimary.lastSuccessAt,
+        summaryCount: nowcastCount,
+      };
+    });
+
+    readInformation('kikikuru', () => {
+      const kikikuru = deps.kikikuruApi.getTimes(terminal, 'normal');
+      const kikikuruLayers = Object.values(kikikuru.layers);
+      let kikikuruAvailability: Availability = 'available';
+      for (const layer of kikikuruLayers) {
+        kikikuruAvailability = worseAvailability(kikikuruAvailability, layer.metadata.availability);
+      }
+      const kikikuruPrimary =
+        kikikuruLayers.find((layer) => layer.metadata.availability === kikikuruAvailability)
+          ?.metadata ?? kikikuruLayers[0]?.metadata;
+      const kikikuruHasAnyData = kikikuruLayers.some((layer) => layer.data !== null);
+      const kikikuruCount = kikikuruHasAnyData
+        ? kikikuruLayers.reduce((sum, layer) => sum + (layer.data?.frames.length ?? 0), 0)
         : null;
-    sections.push({
-      kind: 'early_warning',
-      venueId,
-      availability: earlyAvailability,
-      issuedAt: earlyPrimary.issuedAt,
-      validAt: earlyPrimary.validAt,
-      fetchedAt: earlyPrimary.fetchedAt,
-      lastSuccessAt: earlyPrimary.lastSuccessAt,
-      summaryCount: earlyCount,
-    });
-
-    const amedas = deps.weatherApi.getAmedas(terminal, 'normal');
-    sections.push({
-      kind: 'amedas',
-      venueId,
-      availability: amedas.metadata.availability,
-      issuedAt: amedas.metadata.issuedAt,
-      validAt: amedas.metadata.validAt,
-      fetchedAt: amedas.metadata.fetchedAt,
-      lastSuccessAt: amedas.metadata.lastSuccessAt,
-      summaryCount: amedas.data ? amedas.data.observations.length : null,
-    });
-
-    const areaTimeseries = deps.weatherApi.getAreaTimeseries(terminal, 'normal');
-    sections.push({
-      kind: 'area_timeseries',
-      venueId,
-      availability: areaTimeseries.metadata.availability,
-      issuedAt: areaTimeseries.metadata.issuedAt,
-      validAt: areaTimeseries.metadata.validAt,
-      fetchedAt: areaTimeseries.metadata.fetchedAt,
-      lastSuccessAt: areaTimeseries.metadata.lastSuccessAt,
-      summaryCount: areaTimeseries.data ? areaTimeseries.data.values.length : null,
-    });
-
-    const bulletins = deps.weatherApi.getBulletins(terminal, 'normal');
-    sections.push({
-      kind: 'bosai_bulletin',
-      venueId,
-      availability: bulletins.availability,
-      issuedAt: null,
-      validAt: null,
-      fetchedAt: null,
-      lastSuccessAt: null,
-      summaryCount: bulletins.bulletins.length,
-    });
-
-    const nowcast = deps.nowcastApi.getTimes(terminal, 'normal');
-    const nowcastN1 = nowcast.products.N1;
-    const nowcastN2 = nowcast.products.N2;
-    const nowcastAvailability = worseAvailability(
-      nowcastN1.metadata.availability,
-      nowcastN2.metadata.availability,
-    );
-    const nowcastPrimary =
-      nowcastN1.metadata.availability === nowcastAvailability
-        ? nowcastN1.metadata
-        : nowcastN2.metadata;
-    const nowcastCount =
-      nowcastN1.data || nowcastN2.data
-        ? (nowcastN1.data?.frames.length ?? 0) + (nowcastN2.data?.frames.length ?? 0)
-        : null;
-    sections.push({
-      kind: 'nowcast',
-      venueId,
-      availability: nowcastAvailability,
-      issuedAt: nowcastPrimary.issuedAt,
-      validAt: nowcastPrimary.validAt,
-      fetchedAt: nowcastPrimary.fetchedAt,
-      lastSuccessAt: nowcastPrimary.lastSuccessAt,
-      summaryCount: nowcastCount,
-    });
-
-    const kikikuru = deps.kikikuruApi.getTimes(terminal, 'normal');
-    const kikikuruLayers = Object.values(kikikuru.layers);
-    let kikikuruAvailability: Availability = 'available';
-    for (const layer of kikikuruLayers) {
-      kikikuruAvailability = worseAvailability(kikikuruAvailability, layer.metadata.availability);
-    }
-    const kikikuruPrimary =
-      kikikuruLayers.find((layer) => layer.metadata.availability === kikikuruAvailability)
-        ?.metadata ?? kikikuruLayers[0]?.metadata;
-    const kikikuruHasAnyData = kikikuruLayers.some((layer) => layer.data !== null);
-    const kikikuruCount = kikikuruHasAnyData
-      ? kikikuruLayers.reduce((sum, layer) => sum + (layer.data?.frames.length ?? 0), 0)
-      : null;
-    sections.push({
-      kind: 'kikikuru',
-      venueId,
-      availability: kikikuruAvailability,
-      issuedAt: kikikuruPrimary?.issuedAt ?? null,
-      validAt: kikikuruPrimary?.validAt ?? null,
-      fetchedAt: kikikuruPrimary?.fetchedAt ?? null,
-      lastSuccessAt: kikikuruPrimary?.lastSuccessAt ?? null,
-      summaryCount: kikikuruCount,
+      return {
+        kind: 'kikikuru',
+        venueId,
+        availability: kikikuruAvailability,
+        issuedAt: kikikuruPrimary?.issuedAt ?? null,
+        validAt: kikikuruPrimary?.validAt ?? null,
+        fetchedAt: kikikuruPrimary?.fetchedAt ?? null,
+        lastSuccessAt: kikikuruPrimary?.lastSuccessAt ?? null,
+        summaryCount: kikikuruCount,
+      };
     });
 
     return sections;
   }
 
-  function buildTiles(): MonitoringTilesSection {
-    // タイルの索引・配信状態はサーバー共通（会場に依存しない）ため、任意の端末で読み出す。
+  function buildTiles(readErrors: MonitoringReadError[]): MonitoringTilesSection {
+    // タイルの索引・配信状態はサーバー共通（会場に依存しない）。
     const terminal = deps.terminalRegistry.listTerminals()[0]!;
-
-    const nowcast = deps.nowcastApi.getTimes(terminal, 'normal');
-    const nowcastAvailability = worseAvailability(
-      nowcast.products.N1.metadata.availability,
-      nowcast.products.N2.metadata.availability,
-    );
-    const nowcastUpdatedAt =
-      nowcast.products.N1.metadata.availability === nowcastAvailability
-        ? nowcast.products.N1.metadata.fetchedAt
-        : nowcast.products.N2.metadata.fetchedAt;
-    const nowcastFrameCount =
-      (nowcast.products.N1.data?.frames.length ?? 0) +
-      (nowcast.products.N2.data?.frames.length ?? 0);
-
-    const kikikuru = deps.kikikuruApi.getTimes(terminal, 'normal');
-    const kikikuruLayers = Object.values(kikikuru.layers);
-    let kikikuruAvailability: Availability = 'available';
-    for (const layer of kikikuruLayers) {
-      kikikuruAvailability = worseAvailability(kikikuruAvailability, layer.metadata.availability);
-    }
-    const kikikuruPrimary =
-      kikikuruLayers.find((layer) => layer.metadata.availability === kikikuruAvailability) ??
-      kikikuruLayers[0];
-    const kikikuruFrameCount = kikikuruLayers.reduce(
-      (sum, layer) => sum + (layer.data?.frames.length ?? 0),
-      0,
-    );
-
-    const layers: MonitoringTilesLayer[] = [
-      {
-        layer: 'nowcast',
-        catalogAvailability: nowcastAvailability,
-        catalogUpdatedAt: nowcastUpdatedAt,
-        availableFrameCount: nowcastFrameCount,
-        upstreamFetchAllowed: nowcast.imageAccess?.allowed ?? false,
-        nextUpstreamAllowedAt: nowcast.imageAccess?.nextAllowedAt ?? null,
-      },
-      {
-        layer: 'kikikuru',
-        catalogAvailability: kikikuruAvailability,
-        catalogUpdatedAt: kikikuruPrimary?.metadata.fetchedAt ?? null,
-        availableFrameCount: kikikuruFrameCount,
-        upstreamFetchAllowed: kikikuru.imageAccess?.allowed ?? false,
-        nextUpstreamAllowedAt: kikikuru.imageAccess?.nextAllowedAt ?? null,
-      },
-    ];
-
-    return {
-      healthMonitored: false,
-      healthCriteriaStatus: 'undecided',
-      layers,
-    };
+    const layers = (['nowcast', 'kikikuru'] as const).map((layer): MonitoringTilesLayer => {
+      const access = deps.getTileUpstreamAccess(layer);
+      let catalog: Pick<
+        MonitoringTilesLayer,
+        'catalogAvailability' | 'catalogUpdatedAt' | 'availableFrameCount'
+      >;
+      try {
+        const datasets =
+          layer === 'nowcast'
+            ? Object.values(deps.nowcastApi.getTimes(terminal, 'normal').products)
+            : Object.values(deps.kikikuruApi.getTimes(terminal, 'normal').layers);
+        const availability = datasets.reduce<Availability>(
+          (result, dataset) => worseAvailability(result, dataset.metadata.availability),
+          'available',
+        );
+        const primary = datasets.find((dataset) => dataset.metadata.availability === availability);
+        catalog = {
+          catalogAvailability: availability,
+          catalogUpdatedAt: primary?.metadata.fetchedAt ?? null,
+          availableFrameCount: datasets.reduce(
+            (count, dataset) => count + (dataset.data?.frames.length ?? 0),
+            0,
+          ),
+        };
+      } catch {
+        readErrors.push({
+          section: 'tiles',
+          venueId: null,
+          kind: layer,
+          code: 'weather_data_read_failed',
+        });
+        catalog = {
+          catalogAvailability: 'unavailable',
+          catalogUpdatedAt: null,
+          availableFrameCount: 0,
+        };
+      }
+      return {
+        layer,
+        ...catalog,
+        upstreamFetchAllowed: access.allowed,
+        nextUpstreamAllowedAt: access.nextAllowedAt,
+      };
+    });
+    return { healthMonitored: false, healthCriteriaStatus: 'undecided', layers };
   }
 
   return {
@@ -500,13 +561,16 @@ export function createMonitoringStatusService(
       const xmlStatus = deps.xmlPollingService.getStatus();
       const aggregate = deps.fetchHealthMonitor.getLastAggregate();
 
+      const readErrors: MonitoringReadError[] = [];
+      const venues = buildVenues(generatedAt, readErrors);
       const information: MonitoringInformationSection[] = [];
       for (const venueId of deps.venueRegistry.listVenueIds()) {
-        information.push(...buildInformationForVenue(venueId));
+        information.push(...buildInformationForVenue(venueId, readErrors));
       }
 
       return {
         status: 'ready',
+        readErrors,
         terminalId: terminal.id,
         requestedVenueId: deps.venueRegistry.resolveVenueId(terminal.venueId)!,
         serverGenerationId: deps.serverGenerationId,
@@ -518,10 +582,13 @@ export function createMonitoringStatusService(
         // schedulerRunning の出どころにする。
         operation: buildOperationSection(schedulerStatus, deps.scheduler.isRunningNow()),
         health: buildHealthSection(aggregate, deps.fetchHealthConfig),
-        readiness: buildReadinessSection(xmlStatus),
-        venues: buildVenues(generatedAt),
+        readiness: buildReadinessSection(
+          xmlStatus,
+          deps.startupInitialization.getStatus().preparationFailures,
+        ),
+        venues,
         information,
-        tiles: buildTiles(),
+        tiles: buildTiles(readErrors),
       };
     },
   };

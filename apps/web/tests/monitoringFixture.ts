@@ -67,6 +67,7 @@ export function createDefaultScheduledSources(): readonly MonitoringScheduledSou
 
 export const normalMonitoringResponseFixture: MonitoringStatusResponse = {
   status: 'ready',
+  readErrors: [],
   terminalId: 'kkeagh01',
   requestedVenueId: 'east',
   serverGenerationId: 'generation-a',
@@ -101,6 +102,7 @@ export const normalMonitoringResponseFixture: MonitoringStatusResponse = {
     },
   },
   readiness: {
+    preparationFailures: [],
     initialFetchPhase: 'completed',
     startedAt: '2026-09-20T05:00:00.000Z',
     finishedAt: '2026-09-20T05:01:00.000Z',
@@ -269,6 +271,7 @@ export const manualStoppedMonitoringResponseFixture: MonitoringStatusResponse = 
 
 export const monitoringResponseFixture: MonitoringStatusResponse = {
   status: 'ready',
+  readErrors: [],
   terminalId: 'kkeagh01',
   requestedVenueId: 'east',
   serverGenerationId: 'generation-a',
@@ -303,6 +306,7 @@ export const monitoringResponseFixture: MonitoringStatusResponse = {
     },
   },
   readiness: {
+    preparationFailures: [],
     initialFetchPhase: 'failed',
     startedAt: null,
     finishedAt: null,

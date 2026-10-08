@@ -1,3 +1,4 @@
+import { toNotificationDeltaCursor } from '@wx-viewer-poc/shared';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -145,6 +146,7 @@ test('Issue #247 AC5/6/9: 実reset後も操作照合・session・通知sequence�
     const first = runtime('server-before-reset');
     await first.control.request('start', requestId);
     const firstStartup = first.startup.inquire({
+      serverGenerationId: 'server-before-reset',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId,
@@ -197,6 +199,7 @@ test('Issue #247 AC5/6/9: 実reset後も操作照合・session・通知sequence�
       reason: 'weather_generation_changed',
     });
     const resumed = second.startup.inquire({
+      serverGenerationId: 'server-after-reset',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId,
@@ -208,12 +211,21 @@ test('Issue #247 AC5/6/9: 実reset後も操作照合・session・通知sequence�
     const sequence = saveNotification('new').id;
     assert.ok(sequence > old.id);
     const delta = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: (() => {
+        const state = new StartupNotificationInitialization();
+        state.setInitialFetchPhase('completed');
+        state.markVenueEvaluated(eastVenueId);
+        return state;
+      })(),
       connection: pair.retained.connection,
       venueRegistry: testVenueRegistry,
       serverGenerationId: 'server-after-reset',
       now: () => now,
     });
     const result = delta.query({
+      origin: 'weather',
+      serverGenerationId: 'server-after-reset',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       cursor: resumed.cursor,
@@ -226,6 +238,8 @@ test('Issue #247 AC5/6/9: 実reset後も操作照合・session・通知sequence�
       ['new'],
     );
     const next = delta.query({
+      origin: 'weather',
+      serverGenerationId: 'server-after-reset',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       cursor: result.cursor,

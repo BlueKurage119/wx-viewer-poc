@@ -93,6 +93,12 @@ export function buildMonitoringCards(
 ): readonly MonitoringCard[] {
   const readiness = readinessPresentation(data.readiness.initialFetchPhase);
   const health = healthPresentation(data.health.worstStatus);
+  const hasPreparationFailure = data.readiness.preparationFailures.some(
+    (failure) => failure.venueId === null || failure.venueId === data.requestedVenueId,
+  );
+  const hasReadError = data.readErrors.some(
+    (error) => error.venueId === null || error.venueId === data.requestedVenueId,
+  );
   const activeIntervals = [
     data.operation.period.xmlSeconds,
     data.operation.period.imageCatalogSeconds,
@@ -105,14 +111,14 @@ export function buildMonitoringCards(
       id: 'operation',
       title: '取得運転',
       value: data.operation.schedulerRunning ? '自動取得有効' : '自動取得停止',
-      details: [readiness.label],
+      details: [readiness.label, ...(hasPreparationFailure ? ['初回準備失敗'] : [])],
       tone:
         readiness.tone === 'error'
           ? 'neutral'
           : data.operation.schedulerRunning
             ? 'normal'
             : 'neutral',
-      detailTone: readiness.tone,
+      detailTone: hasPreparationFailure ? 'error' : readiness.tone,
     },
     {
       id: 'health',
@@ -137,8 +143,8 @@ export function buildMonitoringCards(
       id: 'processing',
       title: '処理待ち',
       value: processing.value,
-      details: processing.details,
-      tone: processing.tone,
+      details: [...processing.details, ...(hasReadError ? ['気象データ読取失敗'] : [])],
+      tone: hasReadError ? 'error' : processing.tone,
     },
   ];
 

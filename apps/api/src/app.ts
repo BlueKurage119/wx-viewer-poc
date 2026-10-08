@@ -214,6 +214,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   if (dependencies.startupNotifications) {
     const startupNotifications = dependencies.startupNotifications;
     app.post('/api/notifications/startup', (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
       if (!req.is('application/json')) {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
         return;
@@ -233,9 +234,12 @@ export function createApp(dependencies: AppDependencies = {}): Express {
           terminalId: parsed.terminalId,
           venueId: resolveConfiguredVenueId(terminal.id),
           sessionId: parsed.sessionId,
+          serverGenerationId: parsed.serverGenerationId,
           inquiredAt: new Date().toISOString(),
         });
-        res.status(result.status === 'initializing' ? 202 : 200).json(result);
+        res
+          .status(result.status === 'error' ? 409 : result.status === 'initializing' ? 202 : 200)
+          .json(result);
       } catch {
         res.status(500).json({ status: 'error', code: 'startup_notification_failed' });
       }
@@ -257,9 +261,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
       try {
         const result = notificationDelta.query({
-          terminalId: parsed.terminalId,
+          ...parsed,
           venueId: resolveConfiguredVenueId(terminal.id),
-          cursor: parsed.cursor,
           requestedAt: new Date().toISOString() as UtcIso8601String,
         });
         if (result.status === 'cursor_out_of_range') {
@@ -267,10 +270,16 @@ export function createApp(dependencies: AppDependencies = {}): Express {
             status: 'error',
             code: 'cursor_out_of_range',
             cursor: result.cursor,
+            origin: result.origin,
+            serverGenerationId: result.serverGenerationId,
           });
           return;
         }
-        sendJsonNoStore(res, 200, result);
+        sendJsonNoStore(
+          res,
+          result.status === 'error' ? 409 : result.status === 'initializing' ? 202 : 200,
+          result,
+        );
       } catch {
         sendJsonNoStore(res, 500, { status: 'error', code: 'notification_delta_failed' });
       }
@@ -631,7 +640,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       if (error instanceof SyntaxError && 'body' in error) {
-        res.status(400).json({ status: 'error', code: 'invalid_request' });
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
       next(error);

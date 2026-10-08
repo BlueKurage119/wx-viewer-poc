@@ -1,3 +1,4 @@
+import { StartupNotificationInitialization } from '../src/notifications/startupNotificationService.js';
 import {
   initializeTestDatabases,
   createTestServerDatabaseOptions,
@@ -416,7 +417,9 @@ test(
     }
     await new Promise((resolve) => setTimeout(resolve, 3100));
     const delta = (await (
-      await fetch(`http://127.0.0.1:${port}/api/notifications/delta?terminalId=hkeagh01&cursor=0`)
+      await fetch(
+        `http://127.0.0.1:${port}/api/notifications/delta?origin=system&terminalId=hkeagh01`,
+      )
     ).json()) as { notifications: Array<{ changeType: string }> };
     assert.deepEqual(
       delta.notifications.map((item) => item.changeType),
@@ -620,14 +623,18 @@ test(
     assert.equal(running.parsedReceptionCount, 0);
     assert.equal(running.errorCode, null);
     const eastDelta = (await (
-      await fetch(`http://127.0.0.1:${port}/api/notifications/delta?terminalId=hkeagh01&cursor=0`)
+      await fetch(
+        `http://127.0.0.1:${port}/api/notifications/delta?origin=system&terminalId=hkeagh01`,
+      )
     ).json()) as { notifications: Array<{ changeType: string }> };
     assert.deepEqual(
       eastDelta.notifications.map((item) => item.changeType),
       ['database_recovery_started'],
     );
     const trcDelta = (await (
-      await fetch(`http://127.0.0.1:${port}/api/notifications/delta?terminalId=htrcph01&cursor=0`)
+      await fetch(
+        `http://127.0.0.1:${port}/api/notifications/delta?origin=system&terminalId=htrcph01`,
+      )
     ).json()) as { notifications: Array<{ changeType: string }> };
     assert.deepEqual(trcDelta.notifications, []);
     release();
@@ -654,7 +661,7 @@ test(
     ] as const) {
       const delta = (await (
         await fetch(
-          `http://127.0.0.1:${port}/api/notifications/delta?terminalId=${terminalId}&cursor=0`,
+          `http://127.0.0.1:${port}/api/notifications/delta?origin=system&terminalId=${terminalId}`,
         )
       ).json()) as {
         notifications: Array<{ changeType: string; targets: Array<{ code: string }> }>;
@@ -748,10 +755,14 @@ test('AC16: 失敗通知はcommit後のDB再オープンでも会場別question�
     assert.equal(JSON.parse(failed.target_area_json)[0].code, trcVenueId);
     assert.equal(failed.message_definition_id, 'system-database-initialization-failed');
     const delta = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: new StartupNotificationInitialization(),
       venueRegistry: testVenueRegistry,
       connection: reopened.retained.connection,
       serverGenerationId: 'reopened-generation',
     }).query({
+      origin: 'system',
+      serverGenerationId: 'reopened-generation',
       terminalId: 'htrcph01',
       venueId: trcVenueId,
       cursor: toNotificationDeltaCursor(startedCursor),

@@ -30,7 +30,11 @@ import {
   StartupNotificationInitialization,
 } from '../src/notifications/startupNotificationService.js';
 import { parseVpbs50 } from '../src/polling/jmaVpbs50Parser.js';
-import { resolveBosaiBulletinTarget } from '../src/venueForecastTargets.js';
+import {
+  resolveBosaiBulletinTarget,
+  resolveWarningCurrentTargetArea,
+} from '../src/venueForecastTargets.js';
+import { saveWarningCurrentSnapshot } from '../src/repositories/index.js';
 import {
   testTerminalRegistry,
   testVenueRegistry,
@@ -82,6 +86,58 @@ function setupTestDb() {
       rmSync(directory, { recursive: true, force: true });
     },
   };
+}
+
+/** claimとoutputIdの検証には、system現況ではなく保存済みの気象現況を使う。 */
+function saveStartupWeatherCurrent(
+  connection: ReturnType<typeof initializeTestDatabases>['weather']['connection'],
+  venueId: typeof eastVenueId,
+  now: string,
+  includeAdvisory: boolean = true,
+): void {
+  const target = resolveWarningCurrentTargetArea(testVenueRegistry, venueId);
+  const kinds = includeAdvisory
+    ? [
+        { code: '12', name: '大雨注意報' },
+        { code: '02', name: '暴風警報' },
+      ]
+    : [{ code: '02', name: '暴風警報' }];
+  saveWarningCurrentSnapshot(connection, {
+    areaCode: target.municipalCode,
+    areaName: target.displayName,
+    metadata: {
+      source: 'xml',
+      issuedAt: now,
+      validAt: null,
+      validFrom: null,
+      validTo: null,
+      fetchedAt: now,
+      lastSuccessAt: now,
+      availability: 'available',
+      sourceVersion: 'startup-test',
+    },
+    telegram: {
+      controlStatus: 'normal',
+      infoType: '発表',
+      eventId: 'startup-test',
+      reportDateTime: now,
+      controlDateTime: now,
+    },
+    items: kinds.map((kind, sequence) => ({
+      sequence,
+      kindCode: kind.code,
+      kindName: kind.name,
+      kindStatus: '発表',
+      lastKindCode: null,
+      lastKindName: null,
+      significancyCode: null,
+      significancyName: null,
+      warningLevel: null,
+      attentionText: null,
+      kindIssuedAt: now,
+      sourceTelegram: 'VPWW53',
+    })),
+  });
 }
 
 function createNormalEmitDeps(
@@ -1661,9 +1717,9 @@ test('AC8: 同じ速報のnormal/trainingを投入し、別通知・別版識別
 });
 
 // -----------------------------------------------------------------------------
-// AC9: system 起動時通知の delayed/abnormal 投影検証
+// AC9: system 通知を気象起動応答へ再投影しないこと
 // -----------------------------------------------------------------------------
-test('AC9: system6取得元をすべてabnormal・同評価時刻として起動問い合わせし、異なるequipment codeの6件が返る。混合delayed/abnormalでも初回出力権ありなら全件返る。次の問い合わせはabnormal全件を返しdelayedを返さない。', () => {
+test('AC9: 取得健全性が全abnormalまたは混合delayed/abnormalでも、初回・継続の気象起動応答へsystem通知を再投影しない', () => {
   const { context, cleanup } = setupTestDb();
   try {
     const fixedNowIso = '2026-09-13T12:00:00.000Z';
@@ -1708,14 +1764,7 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
       fetchHealth: allAbnormal,
     });
 
-    assert.equal(projectedAbnormal.notifications.length, 6);
-    assert.ok(
-      projectedAbnormal.notifications.every(
-        (p) => p.origin === 'system' && p.category === 'question',
-      ),
-    );
-    const targetCodes = projectedAbnormal.notifications.map((p) => p.targets[0]?.code);
-    assert.equal(new Set(targetCodes).size, 6);
+    assert.deepEqual(projectedAbnormal.notifications, []);
 
     // 2. 混合: delayed 3件 + abnormal 3件
     const mixedHealth: FetchHealthAggregate = {
@@ -1759,37 +1808,35 @@ test('AC9: system6取得元をすべてabnormal・同評価時刻として起動
       getFetchHealth: () => currentHealth,
     });
 
-    // 1回目の問い合わせ (初回出力権あり) -> 6件すべて返る
+    // 初回出力権があってもシステム通知は起動応答に含めない。
     const res1 = service.inquire({
+      serverGenerationId: 'gen-ac9',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId: crypto.randomUUID(),
       inquiredAt: fixedNowIso,
     });
     assert.equal(res1.status, 'ready');
-    assert.equal(res1.notifications.length, 6);
-    const warnings1 = res1.notifications.filter((n) => n.category === 'warning');
-    const questions1 = res1.notifications.filter((n) => n.category === 'question');
-    assert.equal(warnings1.length, 3);
-    assert.equal(questions1.length, 3);
+    assert.deepEqual(res1.notifications, []);
 
-    // 2回目の問い合わせ (同セッション再問い合わせ) -> abnormal 3件のみ返り、delayed 3件は返らない
+    // 継続問い合わせでも取得健全性の現況を再提示しない。
     const sameSessionId = crypto.randomUUID();
     service.inquire({
+      serverGenerationId: 'gen-ac9',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId: sameSessionId,
       inquiredAt: fixedNowIso,
     });
     const res2 = service.inquire({
+      serverGenerationId: 'gen-ac9',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId: sameSessionId,
       inquiredAt: fixedNowIso,
     });
     assert.equal(res2.status, 'ready');
-    assert.equal(res2.notifications.length, 3);
-    assert.ok(res2.notifications.every((n) => n.category === 'question'));
+    assert.deepEqual(res2.notifications, []);
   } finally {
     cleanup();
   }
@@ -1851,6 +1898,7 @@ test('AC10: system normal/suspended/未評価・過去に復帰済みの状態�
     ).c;
 
     const res = service.inquire({
+      serverGenerationId: 'gen-ac10',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId: crypto.randomUUID(),
@@ -1883,45 +1931,8 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
   const { context, cleanup } = setupTestDb();
   try {
     const fixedNowIso = '2026-09-13T12:00:00.000Z';
-    const sourceIds = [
-      'xml_regular',
-      'xml_extra',
-      'nowcast_target_times',
-      'kikikuru_target_times',
-      'amedas_latest_time',
-      'amedas_point',
-    ] as const;
-
-    const mixedHealth: FetchHealthAggregate = {
-      evaluatedAt: fixedNowIso,
-      status: 'abnormal',
-      worstSourceIds: [sourceIds[1]!],
-      sources: sourceIds.map((id, idx) => ({
-        sourceId: id,
-        status:
-          idx === 0
-            ? ('delayed' as const)
-            : idx === 1
-              ? ('abnormal' as const)
-              : ('normal' as const),
-        reasons:
-          idx < 2
-            ? [
-                {
-                  kind: 'consecutive_failures' as const,
-                  status: idx === 0 ? ('delayed' as const) : ('abnormal' as const),
-                  sourceKind: id,
-                  text: idx === 0 ? '遅延' : '異常',
-                },
-              ]
-            : [],
-        lastAttemptAt: fixedNowIso,
-        lastSuccessAt: '2026-09-13T11:00:00.000Z',
-        maxConsecutiveFailures: idx === 1 ? 3 : 0,
-        intervalSeconds: 60,
-        lastDurationMs: 100,
-      })),
-    };
+    saveStartupWeatherCurrent(context.weather.connection, eastVenueId, fixedNowIso);
+    saveStartupWeatherCurrent(context.weather.connection, trcVenueId, fixedNowIso);
 
     const initialization = new StartupNotificationInitialization();
     initialization.setInitialFetchPhase('completed');
@@ -1937,12 +1948,12 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
       terminalRegistry: testTerminalRegistry,
       serverGenerationId: 'gen-ac11-1',
       now: () => fixedNowIso,
-      getFetchHealth: () => mixedHealth,
     });
 
     const session1 = crypto.randomUUID();
     // 端末 1 (east, session-1, terminal: hkeagh01) -> warning 1件, question 1件
     const res1 = service.inquire({
+      serverGenerationId: 'gen-ac11-1',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId: session1,
@@ -1955,6 +1966,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
     const session2 = crypto.randomUUID();
     // 同会場 端末 2 (east, session-2, terminal: kkeagh01) -> warning 出力権消費済みのため question 1件のみ
     const res2 = service.inquire({
+      serverGenerationId: 'gen-ac11-1',
       terminalId: 'kkeagh01',
       venueId: eastVenueId,
       sessionId: session2,
@@ -1970,6 +1982,7 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
     const session3 = crypto.randomUUID();
     // 別会場 端末 3 (trc, session-3, terminal: htrcph01) -> trc 会場として独立に warning 1件, question 1件
     const res3 = service.inquire({
+      serverGenerationId: 'gen-ac11-1',
       terminalId: 'htrcph01',
       venueId: trcVenueId,
       sessionId: session3,
@@ -1988,10 +2001,10 @@ test('AC11: 同会場別端末・別会場・サーバー再起動・同session�
       terminalRegistry: testTerminalRegistry,
       serverGenerationId: 'gen-ac11-2',
       now: () => fixedNowIso,
-      getFetchHealth: () => mixedHealth,
     });
     const session4 = crypto.randomUUID();
     const res4 = service.inquire({
+      serverGenerationId: 'gen-ac11-2',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId: session4,
@@ -2156,6 +2169,8 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
     initialization.setInitialFetchPhase('completed');
     initialization.markVenueEvaluated(eastVenueId);
 
+    saveStartupWeatherCurrent(context.weather.connection, eastVenueId, fixedNowIso, false);
+
     const service = createStartupNotificationService({
       weatherConnection: context.weather.connection,
       retainedConnection: context.retained.connection,
@@ -2165,44 +2180,10 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
       terminalRegistry: testTerminalRegistry,
       serverGenerationId: 'gen-ac12',
       now: () => fixedNowIso,
-      getFetchHealth: () => {
-        const sourceIds = [
-          'xml_regular',
-          'xml_extra',
-          'nowcast_target_times',
-          'kikikuru_target_times',
-          'amedas_latest_time',
-          'amedas_point',
-        ] as const;
-        return {
-          evaluatedAt: fixedNowIso,
-          status: 'abnormal',
-          worstSourceIds: ['xml_regular'],
-          sources: sourceIds.map((id) => ({
-            sourceId: id,
-            status: id === 'xml_regular' ? ('abnormal' as const) : ('normal' as const),
-            reasons:
-              id === 'xml_regular'
-                ? [
-                    {
-                      kind: 'consecutive_failures' as const,
-                      status: 'abnormal' as const,
-                      sourceKind: id,
-                      text: '異常',
-                    },
-                  ]
-                : [],
-            lastAttemptAt: fixedNowIso,
-            lastSuccessAt: '2026-09-13T11:00:00.000Z',
-            maxConsecutiveFailures: id === 'xml_regular' ? 1 : 0,
-            intervalSeconds: 60,
-            lastDurationMs: 100,
-          })),
-        };
-      },
     });
 
     const res = service.inquire({
+      serverGenerationId: 'gen-ac12',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId: crypto.randomUUID(),

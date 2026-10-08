@@ -15,10 +15,12 @@ test('起動通知 request は端末台帳と UUID v4 の厳密な入力だけ�
   assert.equal(registry.resolveTerminal('unknown'), null);
   assert.deepEqual(
     parseStartupNotificationRequest({
+      serverGenerationId: 'gen-1',
       terminalId: 'hkeagh01',
       sessionId: '00000000-0000-4000-8000-000000000001',
     }),
     {
+      serverGenerationId: 'gen-1',
       terminalId: 'hkeagh01',
       sessionId: '00000000-0000-4000-8000-000000000001',
     },

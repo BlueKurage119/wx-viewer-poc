@@ -1,6 +1,7 @@
 import type { UtcIso8601String } from './types.js';
 import type { Availability } from './availability.js';
 import type { VenueId } from './venueForecastTargets.js';
+import type { WeatherPreparationFailure } from './startupNotification.js';
 import type { WeatherControlStatus } from './weatherApi.js';
 
 /**
@@ -101,6 +102,7 @@ export interface MonitoringHealthSection {
 }
 
 export interface MonitoringReadinessSection {
+  readonly preparationFailures: readonly WeatherPreparationFailure[];
   readonly initialFetchPhase: 'not_started' | 'running' | 'completed' | 'failed';
   readonly startedAt: UtcIso8601String | null;
   readonly finishedAt: UtcIso8601String | null;
@@ -209,7 +211,15 @@ export interface MonitoringTilesSection {
   readonly layers: readonly MonitoringTilesLayer[];
 }
 
+export interface MonitoringReadError {
+  readonly section: 'recent_adoptions' | 'information' | 'tiles';
+  readonly venueId: VenueId | null;
+  readonly kind: MonitoringInformationKind | null;
+  readonly code: 'weather_data_read_failed';
+}
+
 export interface MonitoringStatusResponse {
+  readonly readErrors: readonly MonitoringReadError[];
   readonly status: 'ready';
   readonly terminalId: string;
   readonly requestedVenueId: VenueId;
