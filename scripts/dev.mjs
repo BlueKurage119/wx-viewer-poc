@@ -8,7 +8,7 @@ const apiOnly = process.argv.includes('--api-only');
 const args = process.argv.slice(2).filter((arg) => arg !== '--api-only');
 const colorsEnabled =
   process.env.FORCE_COLOR !== undefined
-    ? process.env.FORCE_COLOR !== '0'
+    ? ['', '1', 'true', '2', '3'].includes(process.env.FORCE_COLOR)
     : Boolean(process.stdout.isTTY) && process.env.NO_COLOR === undefined;
 // pipe越しの子にも端末の色設定を渡す。明示指定と非端末への出力は維持する。
 const childEnv =
