@@ -584,7 +584,9 @@ export class JmaXmlPollingService {
         };
         this.initialFetchPhase = 'failed';
         this.initialFetchResult = failedResult;
+        this.initialFetchAborted = this.abortController.signal.aborted;
         this.notifyInitialFetchPhaseChange();
+        if (this.isRunning && !this.abortController.signal.aborted) this.scheduleNextCycle();
         throw error;
       } finally {
         this.inFlightStartPromise = null;

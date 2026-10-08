@@ -8,6 +8,7 @@ import { getOrCreateTerminalSession, type TerminalSessionState } from '../sessio
 export type StartupNotificationClientResult =
   | StartupNotificationReadyResponse
   | StartupNotificationInitializingResponse
+  | { readonly status: 'server_generation_changed'; readonly serverGenerationId: string }
   | { readonly status: 'unavailable'; readonly reason: 'session' | 'network' | 'server' };
 
 export interface StartupNotificationClientDependencies {
@@ -18,6 +19,7 @@ export interface StartupNotificationClientDependencies {
 export interface StartupNotificationClient {
   fetchStartupNotifications(
     terminalId: string,
+    serverGenerationId: string,
     signal?: AbortSignal,
     options?: { readonly retry?: boolean },
   ): Promise<StartupNotificationClientResult>;
@@ -28,7 +30,10 @@ function isInitializing(value: unknown): value is StartupNotificationInitializin
     typeof value === 'object' &&
     value !== null &&
     (value as { status?: unknown }).status === 'initializing' &&
-    typeof (value as { venueId?: unknown }).venueId === 'string'
+    typeof (value as { venueId?: unknown }).venueId === 'string' &&
+    typeof (value as { terminalId?: unknown }).terminalId === 'string' &&
+    typeof (value as { serverGenerationId?: unknown }).serverGenerationId === 'string' &&
+    ['initializing', 'failed'].includes(String((value as { weatherState?: unknown }).weatherState))
   );
 }
 
@@ -60,9 +65,8 @@ function isNotification(value: unknown): boolean {
     (item.category === 'warning' ||
       item.category === 'question' ||
       item.category === 'emergency') &&
-    ((item.origin === 'weather' &&
-      (item.sourceType === 'warning_current' || item.sourceType === 'bosai_bulletin')) ||
-      (item.origin === 'system' && item.sourceType === 'fetch_health')) &&
+    item.origin === 'weather' &&
+    (item.sourceType === 'warning_current' || item.sourceType === 'bosai_bulletin') &&
     (item.sourceVersion === null || typeof item.sourceVersion === 'string') &&
     typeof item.occurredAt === 'string' &&
     isTargets(item.targets) &&
@@ -134,54 +138,65 @@ export function createStartupNotificationClient(
   return {
     fetchStartupNotifications(
       terminalId: string,
+      serverGenerationId: string,
       signal?: AbortSignal,
       options?: { readonly retry?: boolean },
     ) {
       // 呼出し元の中断は共有 POST を中断しない。StrictMode の cleanup は購読解除だけを表す。
       void signal;
-      const cached = options?.retry ? undefined : completed.get(terminalId);
-      if (cached !== undefined) return Promise.resolve(cached);
-      const current = inFlight.get(terminalId);
-      if (current !== undefined) return current;
-
       const session = dependencies.getSession(terminalId);
-      if (session.status !== 'ready') {
-        const unavailable: StartupNotificationClientResult = {
-          status: 'unavailable',
-          reason: 'session',
-        };
-        completed.set(terminalId, unavailable);
-        return Promise.resolve(unavailable);
+      if (session.status !== 'ready')
+        return Promise.resolve({ status: 'unavailable', reason: 'session' } as const);
+      const key = JSON.stringify([terminalId, session.sessionId, serverGenerationId]);
+      for (const oldKey of completed.keys()) {
+        if (oldKey !== key && JSON.parse(oldKey)[0] === terminalId) completed.delete(oldKey);
       }
+      const cached = options?.retry ? undefined : completed.get(key);
+      if (cached !== undefined) return Promise.resolve(cached);
+      const current = inFlight.get(key);
+      if (current !== undefined) return current;
 
       const request = dependencies
         .fetch('/api/notifications/startup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ terminalId, sessionId: session.sessionId }),
+          body: JSON.stringify({ terminalId, sessionId: session.sessionId, serverGenerationId }),
         })
         .then(async (response) => {
-          if (!response.ok && response.status !== 202) {
-            return { status: 'unavailable', reason: 'server' } as const;
-          }
           let body: unknown;
           try {
             body = await response.json();
           } catch {
             return { status: 'unavailable', reason: 'server' } as const;
           }
-          if (isReady(body) || isInitializing(body)) return body;
+          if (
+            response.status === 409 &&
+            isRecord(body) &&
+            body.code === 'server_generation_changed' &&
+            typeof body.serverGenerationId === 'string'
+          )
+            return {
+              status: 'server_generation_changed',
+              serverGenerationId: body.serverGenerationId,
+            } as const;
+          if (
+            ((response.status === 200 && isReady(body)) ||
+              (response.status === 202 && isInitializing(body))) &&
+            body.terminalId === terminalId &&
+            body.serverGenerationId === serverGenerationId
+          )
+            return body;
           return { status: 'unavailable', reason: 'server' } as const;
         })
         .catch(() => ({ status: 'unavailable', reason: 'network' }) as const)
         .then((result) => {
-          completed.set(terminalId, result);
+          if (result.status === 'ready') completed.set(key, result);
           return result;
         })
         .finally(() => {
-          inFlight.delete(terminalId);
+          inFlight.delete(key);
         });
-      inFlight.set(terminalId, request);
+      inFlight.set(key, request);
       return request;
     },
   };
@@ -201,8 +216,14 @@ function getDefaultClient(): StartupNotificationClient {
 
 export function fetchStartupNotifications(
   terminalId: string,
+  serverGenerationId: string,
   signal?: AbortSignal,
   options?: { readonly retry?: boolean },
 ): Promise<StartupNotificationClientResult> {
-  return getDefaultClient().fetchStartupNotifications(terminalId, signal, options);
+  return getDefaultClient().fetchStartupNotifications(
+    terminalId,
+    serverGenerationId,
+    signal,
+    options,
+  );
 }

@@ -44,13 +44,32 @@ export interface NotificationDeltaItem {
   };
 }
 
-export interface NotificationDeltaRequest {
+export type NotificationDeltaRequest =
+  | { readonly terminalId: string; readonly origin: 'system' }
+  | {
+      readonly terminalId: string;
+      readonly origin: NotificationOrigin;
+      readonly cursor: NotificationDeltaCursor;
+      readonly serverGenerationId: string;
+    };
+
+export interface NotificationDeltaGenerationError {
+  readonly status: 'error';
+  readonly code: 'server_generation_changed';
+  readonly serverGenerationId: string;
+}
+
+export interface WeatherNotificationPendingResponse {
+  readonly status: 'initializing';
   readonly terminalId: string;
-  readonly cursor: NotificationDeltaCursor;
+  readonly venueId: VenueId;
+  readonly serverGenerationId: string;
+  readonly weatherState: 'initializing' | 'failed';
 }
 
 export interface NotificationDeltaReadyResponse {
   readonly status: 'ready';
+  readonly origin: NotificationOrigin;
   readonly terminalId: string;
   readonly venueId: VenueId;
   readonly serverGenerationId: string;
@@ -64,6 +83,7 @@ export interface NotificationDeltaReadyResponse {
 }
 
 export type NotificationDeltaErrorResponse =
+  | NotificationDeltaGenerationError
   | {
       readonly status: 'error';
       readonly code: 'invalid_request' | 'terminal_not_found' | 'notification_delta_failed';
@@ -71,6 +91,8 @@ export type NotificationDeltaErrorResponse =
   | {
       readonly status: 'error';
       readonly code: 'cursor_out_of_range';
+      readonly origin: NotificationOrigin;
+      readonly serverGenerationId: string;
       readonly cursor: NotificationDeltaCursor;
     };
 
@@ -86,21 +108,18 @@ export function parseNotificationDeltaQuery(query: unknown): NotificationDeltaRe
     return null;
   }
   const keys = Object.keys(query);
-  if (keys.length !== 2 || !keys.includes('terminalId') || !keys.includes('cursor')) {
+  if (keys.some((key) => !['terminalId', 'origin', 'cursor', 'serverGenerationId'].includes(key)))
     return null;
-  }
-  const terminalId = query.terminalId;
-  const cursor = query.cursor;
-
-  if (typeof terminalId !== 'string' || terminalId.length === 0) {
+  const { terminalId, origin, cursor, serverGenerationId } = query;
+  if (typeof terminalId !== 'string' || terminalId.length === 0) return null;
+  if (origin !== 'system' && origin !== 'weather') return null;
+  if (origin === 'system' && keys.length === 2) return { terminalId, origin };
+  if (
+    keys.length !== 4 ||
+    !isNotificationDeltaCursor(cursor) ||
+    typeof serverGenerationId !== 'string' ||
+    !serverGenerationId
+  )
     return null;
-  }
-  if (typeof cursor !== 'string' || !isNotificationDeltaCursor(cursor)) {
-    return null;
-  }
-
-  return {
-    terminalId,
-    cursor,
-  };
+  return { terminalId, origin, cursor, serverGenerationId };
 }

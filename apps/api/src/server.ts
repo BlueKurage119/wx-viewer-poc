@@ -1,8 +1,18 @@
+import { findMaxNotificationOutputSequence } from './repositories/notificationOutputHistoryRepository.js';
+import { InitialSyncNotificationEmitter } from './notifications/initialSyncNotificationEmitter.js';
+import {
+  planInitialSyncNotification,
+  type InitialSyncFailureStage,
+} from './notifications/initialSyncNotificationPlanner.js';
+import { resolveOnDemandAccess } from './config/pollingSchedule.js';
+import { projectUpstreamAccess } from './services/tileApiSupport.js';
 import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
 import crypto from 'node:crypto';
 
 import {
+  toNotificationDeltaCursor,
+  type WeatherPreparationFailure,
   type TerminalRegistry,
   type VenueRegistry,
   type VenueId,
@@ -177,6 +187,9 @@ export function createStartupNotificationRuntime(
   retainedConnection: ReturnType<typeof initializeDatabase>['connection'],
   weatherDatabaseGenerationId: string,
 ) {
+  const serverStartCursor = toNotificationDeltaCursor(
+    findMaxNotificationOutputSequence(retainedConnection),
+  );
   const serverGenerationId = crypto.randomUUID();
   const serverStartedAt = clock() as UtcIso8601String;
   const initialization = new StartupNotificationInitialization();
@@ -206,6 +219,8 @@ export function createStartupNotificationRuntime(
   });
   const notificationDelta = createNotificationDeltaService({
     connection: retainedConnection,
+    serverStartCursor,
+    initialization,
     venueRegistry: registry,
     serverGenerationId,
     now: clock,
@@ -216,6 +231,40 @@ export function createStartupNotificationRuntime(
   );
   const recoveryTracker = new InMemoryWarningCurrentRecoveryTracker(registry);
   const recoveryEmitter = new DatabaseRecoveryNotificationEmitter(retainedConnection);
+  const initialSyncEmitter = new InitialSyncNotificationEmitter(retainedConnection);
+  let stopped = false;
+  const emitInitialFailure = (stage: InitialSyncFailureStage, venueId: VenueId | null = null) => {
+    if (stopped) return;
+    try {
+      initialSyncEmitter.emit(
+        planInitialSyncNotification({
+          stage,
+          venueId,
+          venueRegistry: registry,
+          serverGenerationId,
+          occurredAt: clock() as UtcIso8601String,
+        }),
+      );
+    } catch (error) {
+      console.error('[api] 初回準備失敗通知の記録に失敗しました:', error);
+    }
+  };
+  const failPreparation = (stage: WeatherPreparationFailure['stage']) => {
+    if (
+      stopped ||
+      initialization
+        .getStatus()
+        .preparationFailures.some((failure) => failure.stage !== 'venue_evaluation')
+    )
+      return;
+    initialization.markPreparationFailed({
+      stage,
+      venueId: null,
+      failedAt: clock() as UtcIso8601String,
+      code: 'weather_preparation_failed',
+    });
+    if (stage !== 'recovery') emitInitialFailure(stage);
+  };
   const setRecoveryTimeout = recoveryInternals?.setTimeout ?? setTimeout;
   const clearRecoveryTimeout = recoveryInternals?.clearTimeout ?? clearTimeout;
   const runRecovery = recoveryInternals?.recover ?? recoverWarningCurrent;
@@ -279,6 +328,13 @@ export function createStartupNotificationRuntime(
       return result;
     } catch (error) {
       if (timer) clearRecoveryTimeout(timer);
+      if (stopped) throw error;
+      initialization.markPreparationFailed({
+        stage: 'recovery',
+        venueId: venue.venueId,
+        failedAt: clock() as UtcIso8601String,
+        code: 'weather_preparation_failed',
+      });
       recoveryTracker.fail(venue.venueId, clock() as UtcIso8601String);
       console.error('[api] DB復旧または状態通知に失敗しました:', error);
       try {
@@ -290,12 +346,21 @@ export function createStartupNotificationRuntime(
     }
   };
   const evaluateVenues = async () => {
+    const errors: unknown[] = [];
     for (const venueId of registry.listVenueIds()) {
-      const venue = resolveVenueWarningContext(registry, venueId);
-      emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps);
-      emitInitialBosaiBulletinNotifications(connection, venueId, bosaiEmitDeps);
-      initialization.markVenueEvaluated(venueId);
+      if (stopped) return;
+      try {
+        const venue = resolveVenueWarningContext(registry, venueId);
+        emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps);
+        emitInitialBosaiBulletinNotifications(connection, venueId, bosaiEmitDeps);
+        initialization.markVenueEvaluated(venueId);
+      } catch (error) {
+        initialization.markVenueEvaluationFailed(venueId, clock() as UtcIso8601String);
+        emitInitialFailure('venue_evaluation', venueId);
+        errors.push(error);
+      }
     }
+    if (errors.length) throw new AggregateError(errors, '会場の初期評価に失敗しました');
   };
   const connectPolling = (pollingService: JmaXmlPollingService) => {
     let initialFetchStartMs: number | null = null;
@@ -315,6 +380,7 @@ export function createStartupNotificationRuntime(
           console.log(`[api] aborted initial JMA XML feed fetch (${elapsedMs}ms)`);
         } else {
           console.error(`[api] failed initial JMA XML feed fetch (${elapsedMs}ms)`);
+          emitInitialFailure('xml_initial_fetch');
         }
       }
     });
@@ -323,6 +389,11 @@ export function createStartupNotificationRuntime(
   return {
     serverGenerationId,
     serverStartedAt,
+    serverStartCursor,
+    failPreparation,
+    markStopped: () => {
+      stopped = true;
+    },
     initialization,
     startupNotifications,
     notificationDelta,
@@ -579,6 +650,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       weatherApi,
       nowcastApi,
       kikikuruApi,
+      getTileUpstreamAccess: (layer) =>
+        !enablePolling
+          ? { allowed: false, reason: 'disabled', nextAllowedAt: null }
+          : projectUpstreamAccess(resolveOnDemandAccess(layer, new Date(clock()), schedule), true),
       fetchHealthConfig: schedule.fetchHealth,
       serverGenerationId: startupRuntime.serverGenerationId,
       serverStartedAt: startupRuntime.serverStartedAt,
@@ -600,6 +675,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       monitoringHistory,
       fetchControl: fetchControlService,
     });
+    let preparationStage: WeatherPreparationFailure['stage'] = 'service_setup';
     const actualServer = app.listen(port);
 
     const serverListeningPromise = waitForServerListening(actualServer);
@@ -636,6 +712,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
                 fetchFn: options.pollingServiceOptions?.fetchFn,
               });
 
+            preparationStage = 'reprocessing';
             if (enablePolling)
               recoverLegacyVphwBulletinAreas(database.weather.connection, venueConfig.registry);
             reprocessVenueForecastBeforeWarningRecovery(
@@ -669,6 +746,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
               return;
             }
 
+            preparationStage = 'service_setup';
             pollingService =
               options.pollingService ??
               new JmaXmlPollingService(database.weather.connection, {
@@ -719,7 +797,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
             const schedulerStartPromise = scheduler.start(); // XML開始責務は scheduler に集約し、二重起動を防止する
             fetchHealthMonitorService.start();
             await schedulerStartPromise;
-          })(),
+          })().catch((error: unknown) => {
+            if (shutdownSignalPending) return;
+            // XML取得の失敗は既存recoveryが回復させるため恒久失敗へ固定しない。
+            if (startupRuntime.initialization.getStatus().initialFetchPhase !== 'failed')
+              startupRuntime.failPreparation(preparationStage);
+            console.error('[api] 初回同期に失敗しました。監視とシステム通知を継続します:', error);
+          }),
         ]);
       } finally {
         serverErrorMonitor.dispose();
@@ -763,6 +847,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
     const closeResources = createRetryableDatabaseClose(
       async (closeOptions) => {
+        startupRuntime.markStopped();
         if (fetchHealthMonitorService) {
           fetchHealthMonitorService.stop();
         }
@@ -987,6 +1072,10 @@ async function main(): Promise<void> {
       weatherApi,
       nowcastApi,
       kikikuruApi,
+      getTileUpstreamAccess: (layer) =>
+        process.env.DISABLE_POLLING === 'true'
+          ? { allowed: false, reason: 'disabled', nextAllowedAt: null }
+          : projectUpstreamAccess(resolveOnDemandAccess(layer, new Date(clock()), schedule), true),
       fetchHealthConfig: schedule.fetchHealth,
       serverGenerationId: startupRuntime.serverGenerationId,
       serverStartedAt: startupRuntime.serverStartedAt,
@@ -1013,6 +1102,7 @@ async function main(): Promise<void> {
     let closed = false;
     const closeResources = createRetryableDatabaseClose(
       async (closeOptions) => {
+        startupRuntime.markStopped();
         if (fetchHealthMonitorService) {
           fetchHealthMonitorService.stop();
         }
@@ -1044,6 +1134,7 @@ async function main(): Promise<void> {
       return closeResources(closeOptions);
     };
 
+    let preparationStage: WeatherPreparationFailure['stage'] = 'service_setup';
     const runInitialSync = async (): Promise<void> => {
       const enablePolling = process.env.DISABLE_POLLING !== 'true';
 
@@ -1058,6 +1149,7 @@ async function main(): Promise<void> {
         enablePolling,
       });
 
+      preparationStage = 'reprocessing';
       if (enablePolling)
         recoverLegacyVphwBulletinAreas(database.weather.connection, venueConfig.registry);
       reprocessVenueForecastBeforeWarningRecovery(
@@ -1100,6 +1192,7 @@ async function main(): Promise<void> {
       if (closed) {
         return;
       }
+      preparationStage = 'service_setup';
       pollingService = new JmaXmlPollingService(database.weather.connection, {
         freshnessPolicy: schedule.freshness.xml,
         venueRegistry: venueConfig.registry,
@@ -1160,13 +1253,21 @@ async function main(): Promise<void> {
       try {
         await Promise.race([serverErrorMonitor.promise, settled]);
         if (initializationFailed) {
-          throw initializationError;
+          if (!closed) {
+            if (startupRuntime.initialization.getStatus().initialFetchPhase !== 'failed')
+              startupRuntime.failPreparation(preparationStage);
+            console.error(
+              '[api] 初回同期に失敗しました。監視とシステム通知を継続します:',
+              initializationError,
+            );
+          }
+          return;
         }
         if (!closed) {
           console.log(`[api] initial sync completed (${Date.now() - startedMs}ms)`);
         }
       } catch (error) {
-        // 確定事項(1): 初期化失敗・server error のいずれでも close して異常終了させる。
+        // HTTP server error は同期失敗と分けて終了させる。
         // 既に close 済み（シグナル停止）なら異常終了扱いにしない。
         if (closed) {
           console.error('初期化中に停止したため初回同期を中断しました:', error);

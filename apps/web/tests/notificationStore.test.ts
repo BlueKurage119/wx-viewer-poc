@@ -166,9 +166,9 @@ test('H2 AC4/AC6/AC7: H端末のsystem通知は表示・件数・鳴動から除
     '通知の受信位置を同期しました。',
   );
   const retrying = setNotificationRetry(synchronized);
-  assert.equal(retrying.cursor, '9');
+  assert.equal(retrying.cursors.weather, '9');
   assert.equal(retrying.items.length, 1);
-  assert.equal(retrying.operationMessage, '通知を受信できません。再試行します。');
+  assert.equal(retrying.operationMessage, '気象通知を受信できません。再試行します。');
 });
 
 test('H2 AC6: 契約外応答による再試行でも既存通知を維持する', () => {

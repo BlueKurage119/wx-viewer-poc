@@ -3117,7 +3117,7 @@ test('22-8. pollOnce(trigger) の直接呼出しは initialFetch を変更せず
 // -------------------------------------------------------------------------------------------------
 // 22-9. 初期取得中の内部例外は failed を記録して reject し、startServer() がクリーンアップする
 // -------------------------------------------------------------------------------------------------
-test('22-9. 初期取得中の内部例外は phase=failed を記録して reject し、startServer() が全リソースを閉じる', async () => {
+test('22-9. 初期取得中の内部例外は phase=failed を記録し、startServer() はHTTPを維持する', async () => {
   const { databasePath, cleanup } = createTempDb();
   const server = await createTestHttpServer();
 
@@ -3150,9 +3150,10 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
     assert.equal(status.initialFetch.result?.cycleResult, null);
     assert.match(status.initialFetch.result?.errorReason ?? '', /no such table: fetch_attempt/);
 
+    await service.stop();
     db.close();
 
-    // 2. startServer() が start() の内部例外で reject され、HTTP サーバーや DB を閉じることの検証
+    // 2. startServer() は内部例外でもHTTPを維持し、明示closeで解放する。
     const fresh = createTempDb();
     try {
       const freshDb = initializeTestDatabases({
@@ -3168,22 +3169,28 @@ test('22-9. 初期取得中の内部例外は phase=failed を記録して rejec
       };
 
       freshDb.close();
-      await assert.rejects(
-        () =>
-          startServer({
-            ...createTestServerDatabaseOptions({
-              databasePath: fresh.databasePath,
-              migrationsDirectory,
-            }),
-            port: 0,
-            pollingSchedule: createAlwaysOnTestPollingSchedule(),
-            pollingService: crashingService,
-            schedulerOptions: {
-              now: () => new Date('2026-09-09T12:00:00+09:00'),
-            },
-          }),
-        /Database\/Internal fatal invariant violation/,
-      );
+      const api = await startServer({
+        ...createTestServerDatabaseOptions({
+          databasePath: fresh.databasePath,
+          migrationsDirectory,
+        }),
+        port: 0,
+        pollingSchedule: createAlwaysOnTestPollingSchedule(),
+        pollingService: crashingService,
+        schedulerOptions: {
+          now: () => new Date('2026-09-09T12:00:00+09:00'),
+          adapters: (['nowcast', 'kikikuru', 'amedas'] as const).map((source) => ({
+            source,
+            runScheduled: async () => {},
+            runManual: async () => {},
+          })),
+        },
+      });
+      try {
+        assert.equal((await fetch(`http://127.0.0.1:${api.port}/api/health`)).status, 200);
+      } finally {
+        await api.close();
+      }
     } finally {
       fresh.cleanup();
     }

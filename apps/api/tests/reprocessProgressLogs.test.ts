@@ -459,6 +459,7 @@ for (const [jstTime, fixedNow] of [
 
       const schedule = createTestPollingSchedule();
       const service = createMonitoringStatusService({
+        getTileUpstreamAccess: () => ({ allowed: false, reason: 'disabled', nextAllowedAt: null }),
         connection,
         venueRegistry: testVenueRegistry,
         terminalRegistry: testTerminalRegistry,
@@ -477,6 +478,7 @@ for (const [jstTime, fixedNow] of [
         startupInitialization: {
           getStatus: () => ({
             initialFetchPhase: 'completed',
+            preparationFailures: [],
             evaluatedVenueIds: new Set([eastVenueId, trcVenueId]),
           }),
         },

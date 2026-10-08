@@ -5,7 +5,6 @@ import {
   type NotificationMessageDefinitionId,
   type NotificationTarget,
   type StartupCurrentNotification,
-  type SystemNotification,
   type UtcIso8601String,
   type VenueId,
   type VenueRegistry,
@@ -13,7 +12,6 @@ import {
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import type { FetchHealthAggregate } from '../monitoring/fetchHealthEvaluator.js';
-import { MONITORED_FETCH_SOURCES } from '../monitoring/fetchHealthSources.js';
 import { findWarningCurrentSnapshot, listBosaiBulletins } from '../repositories/index.js';
 import { resolveWarningCurrentTargetArea } from '../venueForecastTargets.js';
 import {
@@ -312,70 +310,6 @@ export function projectStartupCurrentNotifications(
           output: resolveNotificationMessage(notification, { definitionId }),
         });
       }
-    }
-  }
-
-  // system (fetch_health)
-  if (input.fetchHealth && input.fetchHealth.sources) {
-    for (const sourceResult of input.fetchHealth.sources) {
-      if (sourceResult.status !== 'delayed' && sourceResult.status !== 'abnormal') {
-        continue;
-      }
-
-      const isDelayed = sourceResult.status === 'delayed';
-      if (isDelayed && !input.includeWarningCategory) {
-        continue;
-      }
-
-      const sourceDef = MONITORED_FETCH_SOURCES.find((s) => s.id === sourceResult.sourceId);
-      if (!sourceDef) continue;
-
-      const category = isDelayed ? 'warning' : 'question';
-      const definitionId = isDelayed ? 'system-data-fetch-delayed' : 'system-data-fetch-failed';
-      const detail = sourceResult.reasons[0]?.text ?? sourceDef.displayName;
-      const outputId = outputIdFactory();
-
-      const target: readonly [NotificationTarget] = [
-        {
-          kind: 'equipment',
-          codeType: 'wx-viewer-poc/fetch-source',
-          code: sourceDef.id,
-          name: sourceDef.displayName,
-        },
-      ];
-
-      const systemNotification: SystemNotification = {
-        notificationId: outputId,
-        origin: 'system',
-        category,
-        changeType: isDelayed ? 'fetch_delayed' : 'fetch_abnormal',
-        sourceType: 'fetch_health',
-        sourceVersion: null,
-        targets: target,
-        occurredAt: input.fetchHealth.evaluatedAt,
-        detectedAt: input.fetchHealth.evaluatedAt,
-        relatedRefs: [{ type: 'fetch_source', ref: sourceDef.id }],
-        detectionContext: 'normal',
-        isTraining: false,
-      };
-
-      const output = resolveNotificationMessage(systemNotification, {
-        definitionId,
-        detail,
-      });
-
-      notifications.push({
-        outputId,
-        category,
-        origin: 'system',
-        sourceType: 'fetch_health',
-        sourceVersion: null,
-        targets: systemNotification.targets,
-        occurredAt: systemNotification.occurredAt,
-        relatedRefs: systemNotification.relatedRefs,
-        isTraining: false,
-        output,
-      });
     }
   }
 

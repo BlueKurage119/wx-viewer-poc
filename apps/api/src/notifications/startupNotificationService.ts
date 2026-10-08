@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 
 import {
   type TerminalRegistry,
+  type NotificationDeltaGenerationError,
+  type WeatherPreparationFailure,
   toNotificationDeltaCursor,
   type StartupNotificationInitializingResponse,
   type StartupNotificationReadyResponse,
@@ -28,6 +30,7 @@ import {
 export interface StartupNotificationInitializationStatus {
   readonly initialFetchPhase: InitialFetchPhase;
   readonly evaluatedVenueIds: ReadonlySet<VenueId>;
+  readonly preparationFailures: readonly WeatherPreparationFailure[];
 }
 
 /** 起動世代ごとの初期取得・会場評価の状態。DB には保存しない。 */
@@ -35,10 +38,13 @@ export class StartupNotificationInitialization {
   private initialFetchPhase: InitialFetchPhase = 'not_started';
   private readonly evaluatedVenueIds = new Set<VenueId>();
 
+  private readonly preparationFailures = new Map<string, WeatherPreparationFailure>();
+
   getStatus(): StartupNotificationInitializationStatus {
     return {
       initialFetchPhase: this.initialFetchPhase,
       evaluatedVenueIds: new Set(this.evaluatedVenueIds),
+      preparationFailures: [...this.preparationFailures.values()],
     };
   }
 
@@ -49,10 +55,38 @@ export class StartupNotificationInitialization {
 
   markVenueEvaluated(venueId: VenueId): void {
     this.evaluatedVenueIds.add(venueId);
+    this.preparationFailures.delete(`venue_evaluation:${venueId}`);
+  }
+
+  markPreparationFailed(failure: WeatherPreparationFailure): void {
+    this.preparationFailures.set(`${failure.stage}:${failure.venueId}`, failure);
+  }
+
+  markVenueEvaluationFailed(venueId: VenueId, failedAt: UtcIso8601String): void {
+    this.evaluatedVenueIds.delete(venueId);
+    this.markPreparationFailed({
+      stage: 'venue_evaluation',
+      venueId,
+      failedAt,
+      code: 'weather_preparation_failed',
+    });
+  }
+
+  getWeatherState(venueId: VenueId): 'initializing' | 'failed' | 'ready' {
+    if (
+      [...this.preparationFailures.values()].some(
+        (failure) => failure.stage !== 'venue_evaluation' || failure.venueId === venueId,
+      ) ||
+      this.initialFetchPhase === 'failed'
+    )
+      return 'failed';
+    return this.initialFetchPhase === 'completed' && this.evaluatedVenueIds.has(venueId)
+      ? 'ready'
+      : 'initializing';
   }
 
   isReady(venueId: VenueId): boolean {
-    return this.initialFetchPhase === 'completed' && this.evaluatedVenueIds.has(venueId);
+    return this.getWeatherState(venueId) === 'ready';
   }
 }
 
@@ -60,13 +94,17 @@ export interface StartupNotificationInquiryInput {
   readonly terminalId: string;
   readonly venueId: VenueId;
   readonly sessionId: TerminalSessionId;
+  readonly serverGenerationId: string;
   readonly inquiredAt: UtcIso8601String;
 }
 
 export interface StartupNotificationService {
   inquire(
     input: StartupNotificationInquiryInput,
-  ): StartupNotificationInitializingResponse | StartupNotificationReadyResponse;
+  ):
+    | StartupNotificationInitializingResponse
+    | StartupNotificationReadyResponse
+    | NotificationDeltaGenerationError;
 }
 
 export interface CreateStartupNotificationServiceDependencies {
@@ -105,8 +143,21 @@ export function createStartupNotificationService(
       if (terminal === null || terminal.venueId !== input.venueId) {
         throw new Error('terminalId and venueId do not match the terminal registry');
       }
-      if (!dependencies.initialization.isReady(input.venueId)) {
-        return { status: 'initializing', venueId: input.venueId };
+      if (input.serverGenerationId !== dependencies.serverGenerationId)
+        return {
+          status: 'error',
+          code: 'server_generation_changed',
+          serverGenerationId: dependencies.serverGenerationId,
+        };
+      const weatherState = dependencies.initialization.getWeatherState(input.venueId);
+      if (weatherState !== 'ready') {
+        return {
+          status: 'initializing',
+          terminalId: input.terminalId,
+          venueId: input.venueId,
+          serverGenerationId: dependencies.serverGenerationId,
+          weatherState,
+        };
       }
 
       const inquiredAt = input.inquiredAt || now();
@@ -125,7 +176,6 @@ export function createStartupNotificationService(
               claimedAt: inquiredAt,
               sessionId: input.sessionId,
             });
-          const fetchHealth = dependencies.getFetchHealth?.() ?? null;
           const maxSequence = findMaxNotificationOutputSequence(dependencies.retainedConnection);
           const projection = dependencies.weatherConnection.transaction(() =>
             projector(
@@ -135,7 +185,6 @@ export function createStartupNotificationService(
                 venueId: input.venueId,
                 now: inquiredAt,
                 includeWarningCategory: warningClaimed,
-                fetchHealth,
               },
               outputIdFactory,
             ),

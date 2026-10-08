@@ -1,3 +1,4 @@
+import { toNotificationDeltaCursor } from '@wx-viewer-poc/shared';
 import {
   testTerminalRegistry,
   testVenueRegistry,
@@ -192,6 +193,7 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
       outputIdFactory: () => `00000000-0000-4000-8000-${String(++id).padStart(12, '0')}`,
     });
     const request = {
+      serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       terminalId: 'hkeagh01',
       venueId: eastVenueId,
       sessionId: '00000000-0000-4000-8000-000000000001',
@@ -222,6 +224,7 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
       ['question', 'emergency', 'question'],
     );
     const trc = service.inquire({
+      serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
       terminalId: 'htrcph01',
       venueId: trcVenueId,
       sessionId: '00000000-0000-4000-8000-000000000003',
@@ -241,12 +244,16 @@ test('AC3-5/11: 会場ごとの claim は一度だけで、継続問い合わせ
       now: () => now,
       outputIdFactory: () => `00000000-0000-4000-8000-${String(++id).padStart(12, '0')}`,
     });
-    const afterRestart = restarted.inquire(request);
+    const afterRestart = restarted.inquire({
+      ...request,
+      serverGenerationId: '00000000-0000-4000-8000-0000000000bb',
+    });
     assert.equal(afterRestart.status, 'ready');
     if (afterRestart.status !== 'ready') throw new Error('expected ready');
     assert.equal(afterRestart.warningClaimed, false);
     const freshAfterRestart = restarted.inquire({
       ...request,
+      serverGenerationId: '00000000-0000-4000-8000-0000000000bb',
       sessionId: '00000000-0000-4000-8000-000000000004',
     });
     assert.equal(freshAfterRestart.status, 'ready');
@@ -292,12 +299,19 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     });
     assert.deepEqual(
       unavailable.inquire({
+        serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
         terminalId: 'hkeagh01',
         venueId: eastVenueId,
         sessionId: '00000000-0000-4000-8000-000000000010',
         inquiredAt: now,
       }),
-      { status: 'initializing', venueId: eastVenueId },
+      {
+        status: 'initializing',
+        venueId: eastVenueId,
+        terminalId: 'hkeagh01',
+        serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
+        weatherState: 'initializing',
+      },
     );
     assert.equal(
       (
@@ -324,6 +338,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     });
     assert.throws(() =>
       rollback.inquire({
+        serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
         terminalId: 'hkeagh01',
         venueId: eastVenueId,
         sessionId: '00000000-0000-4000-8000-000000000011',
@@ -359,6 +374,7 @@ test('AC2/7/9/10: 未初期化は副作用なし、投影失敗は rollback、�
     });
     assert.throws(() =>
       auditRollback.inquire({
+        serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
         terminalId: 'hkeagh01',
         venueId: eastVenueId,
         sessionId: '00000000-0000-4000-8000-000000000012',
@@ -447,17 +463,26 @@ test('AC1/13: HTTP endpoint は JSON 契約・入力エラー・初期化中を�
           body: JSON.stringify({
             terminalId: 'hkeagh01',
             sessionId: '00000000-0000-4000-8000-000000000020',
+            serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
           }),
         });
         assert.equal(initializing.status, 202);
         assert.deepEqual(await initializing.json(), {
           status: 'initializing',
           venueId: eastVenueId,
+          terminalId: 'hkeagh01',
+          serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
+          weatherState: 'initializing',
         });
         const invalid = await fetch(`${baseUrl}/api/notifications/startup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ terminalId: 'hkeagh01', sessionId: 'bad', extra: true }),
+          body: JSON.stringify({
+            terminalId: 'hkeagh01',
+            sessionId: 'bad',
+            extra: true,
+            serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
+          }),
         });
         assert.equal(invalid.status, 400);
         assert.deepEqual(await invalid.json(), { status: 'error', code: 'invalid_request' });
@@ -467,6 +492,7 @@ test('AC1/13: HTTP endpoint は JSON 契約・入力エラー・初期化中を�
           body: JSON.stringify({
             terminalId: 'unknown',
             sessionId: '00000000-0000-4000-8000-000000000021',
+            serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
           }),
         });
         assert.equal(unknown.status, 404);
@@ -544,6 +570,7 @@ test('Issue #247 AC8: JSON化・weather読取・retained commit失敗をHTTP 500
             body: JSON.stringify({
               terminalId: 'hkeagh01',
               sessionId: '00000000-0000-4000-8000-000000000088',
+              serverGenerationId: '00000000-0000-4000-8000-0000000000aa',
             }),
           });
           assert.equal(response.status, 500, failure);
@@ -619,6 +646,7 @@ test('Issue #247 AC9: 予約更新callbackの境界前後でsnapshotとcursorと
       );
       if (ordering === 'after') await update;
       const response = startup.inquire({
+        serverGenerationId: 'boundary-generation',
         terminalId: 'hkeagh01',
         venueId: eastVenueId,
         sessionId: '00000000-0000-4000-8000-000000000099',
@@ -632,12 +660,16 @@ test('Issue #247 AC9: 予約更新callbackの境界前後でsnapshotとcursorと
       );
       await update;
       const delta = createNotificationDeltaService({
+        serverStartCursor: toNotificationDeltaCursor(0),
+        initialization: readyInitialization(),
         connection: context.retained.connection,
         venueRegistry: testVenueRegistry,
         serverGenerationId: 'boundary-generation',
         now: () => now,
       });
       const result = delta.query({
+        origin: 'weather',
+        serverGenerationId: 'boundary-generation',
         terminalId: 'hkeagh01',
         venueId: eastVenueId,
         cursor: response.cursor,

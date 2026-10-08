@@ -31,6 +31,13 @@ import { recordNotificationOutputHistory } from '../src/repositories/index.js';
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');
 const migrationsDirectory = join(apiRoot, 'migrations');
 const fixedNow = '2026-09-14T10:00:00.000Z';
+function readyInitialization() {
+  const state = new StartupNotificationInitialization();
+  state.setInitialFetchPhase('completed');
+  for (const venue of testVenueRegistry.listVenueIds()) state.markVenueEvaluated(venue);
+  return state;
+}
+
 const serverGenId = '00000000-0000-4000-8000-000000000001';
 
 function createDb() {
@@ -130,6 +137,8 @@ test('AC1 cursorの書式と検証', async () => {
   const { context, cleanup } = createDb();
   try {
     const deltaService = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       connection: context.retained.connection,
       serverGenerationId: serverGenId,
@@ -163,7 +172,9 @@ test('AC1 cursorの書式と検証', async () => {
       ];
 
       for (const query of invalidQueryList) {
-        const res = await fetch(`${baseUrl}/api/notifications/delta?${query}`);
+        const res = await fetch(
+          `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&${query}`,
+        );
         assert.equal(res.status, 400, `query "${query}" should return 400`);
         const json = await res.json();
         assert.deepEqual(json, { status: 'error', code: 'invalid_request' });
@@ -171,7 +182,7 @@ test('AC1 cursorの書式と検証', async () => {
 
       // 未知 terminalId は 404
       const notFoundRes = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=unknown_terminal&cursor=0`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=unknown_terminal&cursor=0`,
       );
       assert.equal(notFoundRes.status, 404);
       const notFoundJson = await notFoundRes.json();
@@ -179,13 +190,13 @@ test('AC1 cursorの書式と検証', async () => {
 
       // "0" と "1" は受理される（行が存在する場合または空の場合）
       const validRes0 = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=0`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=0`,
       );
       assert.equal(validRes0.status, 200);
 
       insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-1' });
       const validRes1 = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=1`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=1`,
       );
       assert.equal(validRes1.status, 200);
     } finally {
@@ -227,6 +238,7 @@ test('AC2 startup応答へのcursor追加', async () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          serverGenerationId: serverGenId,
           terminalId: 'hkeagh01',
           sessionId: '00000000-0000-4000-8000-000000000001',
         }),
@@ -245,6 +257,7 @@ test('AC2 startup応答へのcursor追加', async () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          serverGenerationId: serverGenId,
           terminalId: 'hkeagh01',
           sessionId: '00000000-0000-4000-8000-000000000002',
         }),
@@ -301,6 +314,7 @@ test('AC2 startup応答へのcursor追加', async () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            serverGenerationId: serverGenId,
             terminalId: 'hkeagh01',
             sessionId: '00000000-0000-4000-8000-000000000003',
           }),
@@ -342,6 +356,8 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
       now: () => fixedNow as UtcIso8601String,
     });
     const deltaService = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       connection: context.retained.connection,
       serverGenerationId: serverGenId,
@@ -361,6 +377,7 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          serverGenerationId: serverGenId,
           terminalId: 'hkeagh01',
           sessionId: '00000000-0000-4000-8000-000000000001',
         }),
@@ -370,7 +387,7 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
 
       // (a) 起動応答直後に差分を cursor=C で呼ぶと notifications が0件、応答 cursor は C
       const deltaResA = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=2`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=2`,
       );
       assert.equal(deltaResA.status, 200);
       const deltaBodyA = (await deltaResA.json()) as NotificationDeltaReadyResponse;
@@ -380,7 +397,7 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
       // (b) 起動応答の後にB4へ1件INSERTしてから差分を呼ぶと、その1件だけが返り応答cursorが1増える
       insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-3' });
       const deltaResB = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=2`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=2`,
       );
       const deltaBodyB = (await deltaResB.json()) as NotificationDeltaReadyResponse;
       assert.equal(deltaBodyB.notifications.length, 1);
@@ -394,19 +411,23 @@ test('AC3 起動→差分の欠落と二重表示の防止', async () => {
 
       // (d) 差分を同じcursorで2回呼んでも結果が完全一致する（冪等）
       const deltaResD = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=2`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=2`,
       );
       const deltaBodyD = (await deltaResD.json()) as NotificationDeltaReadyResponse;
       assert.deepEqual({ ...deltaBodyD, generatedAt: '' }, { ...deltaBodyB, generatedAt: '' });
 
       // サービス直接呼出しでは requestedAt を固定して完全一致を検証
       const serviceDirect1 = deltaService.query({
+        origin: 'weather',
+        serverGenerationId: serverGenId,
         terminalId: 'hkeagh01',
         venueId: eastVenueId,
         cursor: toNotificationDeltaCursor(2),
         requestedAt: fixedNow as UtcIso8601String,
       });
       const serviceDirect2 = deltaService.query({
+        origin: 'weather',
+        serverGenerationId: serverGenId,
         terminalId: 'hkeagh01',
         venueId: eastVenueId,
         cursor: toNotificationDeltaCursor(2),
@@ -482,6 +503,8 @@ test('AC4 会場スコープおよび端末モード非依存性', async () => {
     });
 
     const deltaService = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       connection: context.retained.connection,
       serverGenerationId: serverGenId,
@@ -497,13 +520,13 @@ test('AC4 会場スコープおよび端末モード非依存性', async () => {
     try {
       // east 端末 (hkeagh01) で取得
       const resEastH = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=0`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=0`,
       );
       const bodyEastH = (await resEastH.json()) as NotificationDeltaReadyResponse;
 
       // trc 端末 (htrcph01) で取得
       const resTrcH = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=htrcph01&cursor=0`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=htrcph01&cursor=0`,
       );
       const bodyTrcH = (await resTrcH.json()) as NotificationDeltaReadyResponse;
 
@@ -541,12 +564,28 @@ test('AC4 会場スコープおよび端末モード非依存性', async () => {
         false,
       );
 
+      const systemEastH = (await (
+        await fetch(`${baseUrl}/api/notifications/delta?origin=system&terminalId=hkeagh01`)
+      ).json()) as NotificationDeltaReadyResponse;
+      const systemTrcH = (await (
+        await fetch(`${baseUrl}/api/notifications/delta?origin=system&terminalId=htrcph01`)
+      ).json()) as NotificationDeltaReadyResponse;
+      const systemEastK = (await (
+        await fetch(`${baseUrl}/api/notifications/delta?origin=system&terminalId=kkeagh01`)
+      ).json()) as NotificationDeltaReadyResponse;
+      const systemTrcK = (await (
+        await fetch(`${baseUrl}/api/notifications/delta?origin=system&terminalId=ktrcph01`)
+      ).json()) as NotificationDeltaReadyResponse;
+      assert.deepEqual(systemEastH.notifications, systemEastK.notifications);
+      assert.deepEqual(systemTrcH.notifications, systemTrcK.notifications);
       // (c) kind='equipment' system通知は両端末に現れ venueScope='global'
-      const eastSys = bodyEastH.notifications.find((n) => n.notificationId === 'notif-sys-global');
+      const eastSys = systemEastH.notifications.find(
+        (n) => n.notificationId === 'notif-sys-global',
+      );
       assert.ok(eastSys);
       assert.equal(eastSys.venueScope, 'global');
 
-      const trcSys = bodyTrcH.notifications.find((n) => n.notificationId === 'notif-sys-global');
+      const trcSys = systemTrcH.notifications.find((n) => n.notificationId === 'notif-sys-global');
       assert.ok(trcSys);
       assert.equal(trcSys.venueScope, 'global');
 
@@ -571,12 +610,12 @@ test('AC4 会場スコープおよび端末モード非依存性', async () => {
 
       // (e) 端末モードで出し分けないこと (確定事項8): 同一会場 H/K 端末で比較
       const resEastK = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=kkeagh01&cursor=0`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=kkeagh01&cursor=0`,
       );
       const bodyEastK = (await resEastK.json()) as NotificationDeltaReadyResponse;
 
       const resTrcK = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=ktrcph01&cursor=0`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=ktrcph01&cursor=0`,
       );
       const bodyTrcK = (await resTrcK.json()) as NotificationDeltaReadyResponse;
 
@@ -591,9 +630,9 @@ test('AC4 会場スコープおよび端末モード非依存性', async () => {
       );
 
       // global / unresolved が H 端末の応答からも除外されていないこと
-      assert.ok(bodyEastH.notifications.some((n) => n.venueScope === 'global'));
+      assert.ok(systemEastH.notifications.some((n) => n.venueScope === 'global'));
       assert.ok(bodyEastH.notifications.some((n) => n.venueScope === 'unresolved'));
-      assert.ok(bodyEastK.notifications.some((n) => n.venueScope === 'global'));
+      assert.ok(systemEastK.notifications.some((n) => n.venueScope === 'global'));
       assert.ok(bodyEastK.notifications.some((n) => n.venueScope === 'unresolved'));
     } finally {
       await close();
@@ -660,6 +699,8 @@ test('AC5 origin/detectionContextの2軸独立（AD-H069）', async () => {
     });
 
     const deltaService = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       connection: context.retained.connection,
       serverGenerationId: serverGenId,
@@ -675,15 +716,18 @@ test('AC5 origin/detectionContextの2軸独立（AD-H069）', async () => {
     try {
       for (const terminalId of ['hkeagh01', 'kkeagh01']) {
         const res = await fetch(
-          `${baseUrl}/api/notifications/delta?terminalId=${terminalId}&cursor=0`,
+          `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=${terminalId}&cursor=0`,
         );
         const body = (await res.json()) as NotificationDeltaReadyResponse;
 
-        // 4通りすべてが含まれること
+        const system = (await (
+          await fetch(`${baseUrl}/api/notifications/delta?origin=system&terminalId=${terminalId}`)
+        ).json()) as NotificationDeltaReadyResponse;
+        // originごとにnormal/initialを両方配信する。
         assert.ok(body.notifications.some((n) => n.notificationId === 'notif-weather-normal'));
         assert.ok(body.notifications.some((n) => n.notificationId === 'notif-weather-initial'));
-        assert.ok(body.notifications.some((n) => n.notificationId === 'notif-system-normal'));
-        assert.ok(body.notifications.some((n) => n.notificationId === 'notif-system-initial'));
+        assert.ok(system.notifications.some((n) => n.notificationId === 'notif-system-normal'));
+        assert.ok(system.notifications.some((n) => n.notificationId === 'notif-system-initial'));
 
         // 100件挟んだ後の weather 1件が同じ1回の呼出しで取得でき、応答cursorが最大sequence (105) まで進む
         const lastWeather = body.notifications.find(
@@ -691,7 +735,9 @@ test('AC5 origin/detectionContextの2軸独立（AD-H069）', async () => {
         );
         assert.ok(lastWeather);
         assert.equal(body.cursor, '105');
-        assert.equal(body.notifications.length, 105);
+        assert.equal(body.notifications.length, 3);
+        assert.equal(system.notifications.length, 102);
+        assert.equal(system.cursor, '105');
       }
     } finally {
       await close();
@@ -723,6 +769,8 @@ test('AC6 件数上限なし（確定事項2）', async () => {
     })();
 
     const deltaService = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       connection: context.retained.connection,
       serverGenerationId: serverGenId,
@@ -736,7 +784,9 @@ test('AC6 件数上限なし（確定事項2）', async () => {
     const { baseUrl, close } = await startTestServer(app);
 
     try {
-      const res = await fetch(`${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=0`);
+      const res = await fetch(
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=0`,
+      );
       assert.equal(res.status, 200);
       const body = (await res.json()) as NotificationDeltaReadyResponse;
 
@@ -772,6 +822,8 @@ test('AC7 表示3要素の配信方式（AD-H024・確定事項4）', async () =
     });
 
     const deltaService = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       connection: context.retained.connection,
       serverGenerationId: serverGenId,
@@ -785,7 +837,9 @@ test('AC7 表示3要素の配信方式（AD-H024・確定事項4）', async () =
     const { baseUrl, close } = await startTestServer(app);
 
     try {
-      const res = await fetch(`${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=0`);
+      const res = await fetch(
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=0`,
+      );
       const body = (await res.json()) as NotificationDeltaReadyResponse;
 
       const item1 = body.notifications.find((n) => n.notificationId === 'notif-summary-test');
@@ -817,6 +871,8 @@ test('AC8 cursor_out_of_range と破損行', async () => {
     insertSampleHistoryRow(context.retained.connection, { notificationId: 'notif-2' });
 
     const deltaService = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       connection: context.retained.connection,
       serverGenerationId: serverGenId,
@@ -831,12 +887,16 @@ test('AC8 cursor_out_of_range と破損行', async () => {
 
     try {
       // (a) MAX(id) = 2 より大きい cursor=3 で呼ぶと 409 cursor_out_of_range
-      const res409 = await fetch(`${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=3`);
+      const res409 = await fetch(
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=3`,
+      );
       assert.equal(res409.status, 409);
       const body409 = await res409.json();
       assert.deepEqual(body409, {
         status: 'error',
         code: 'cursor_out_of_range',
+        origin: 'weather',
+        serverGenerationId: serverGenId,
         cursor: '2',
       });
       assert.equal('notifications' in body409, false);
@@ -926,7 +986,7 @@ test('AC8 cursor_out_of_range と破損行', async () => {
 
       // cursor=0 で取得
       const resSkipped = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=0`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=0`,
       );
       assert.equal(resSkipped.status, 200);
       const bodySkipped = (await resSkipped.json()) as NotificationDeltaReadyResponse;
@@ -967,6 +1027,8 @@ test('AC9 副作用がないこと（確定事項1）', async () => {
       now: () => fixedNow as UtcIso8601String,
     });
     const deltaService = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       connection: context.retained.connection,
       serverGenerationId: serverGenId,
@@ -999,9 +1061,15 @@ test('AC9 副作用がないこと（確定事項1）', async () => {
       const beforeCounts = getCounts();
 
       // 差分APIを複数回呼ぶ
-      await fetch(`${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=0`);
-      await fetch(`${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=1`);
-      await fetch(`${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=1`);
+      await fetch(
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=0`,
+      );
+      await fetch(
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=1`,
+      );
+      await fetch(
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=1`,
+      );
 
       const afterCounts = getCounts();
       assert.deepEqual(afterCounts, beforeCounts);
@@ -1011,6 +1079,7 @@ test('AC9 副作用がないこと（確定事項1）', async () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          serverGenerationId: serverGenId,
           terminalId: 'hkeagh01',
           sessionId: '00000000-0000-4000-8000-000000000001',
         }),
@@ -1030,6 +1099,8 @@ test('AC11 HTTP実挙動', async () => {
   const { context, cleanup } = createDb();
   try {
     const deltaService = createNotificationDeltaService({
+      serverStartCursor: toNotificationDeltaCursor(0),
+      initialization: readyInitialization(),
       venueRegistry: testVenueRegistry,
       connection: context.retained.connection,
       serverGenerationId: serverGenId,
@@ -1044,14 +1115,16 @@ test('AC11 HTTP実挙動', async () => {
 
     try {
       // 1. ヘッダー検証 (Cache-Control: no-store, Content-Type: application/json; charset=utf-8)
-      const res = await fetch(`${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=0`);
+      const res = await fetch(
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=0`,
+      );
       assert.equal(res.status, 200);
       assert.equal(res.headers.get('Cache-Control'), 'no-store');
       assert.equal(res.headers.get('Content-Type'), 'application/json; charset=utf-8');
 
       // 2. POST /api/notifications/delta は 404 (登録されていないメソッド)
       const postRes = await fetch(
-        `${baseUrl}/api/notifications/delta?terminalId=hkeagh01&cursor=0`,
+        `${baseUrl}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=0`,
         {
           method: 'POST',
         },
@@ -1071,7 +1144,7 @@ test('AC11 HTTP実挙動', async () => {
       const { baseUrl: urlNoDelta, close: closeNoDelta } = await startTestServer(appWithoutDelta);
       try {
         const noDeltaRes = await fetch(
-          `${urlNoDelta}/api/notifications/delta?terminalId=hkeagh01&cursor=0`,
+          `${urlNoDelta}/api/notifications/delta?origin=weather&serverGenerationId=${serverGenId}&terminalId=hkeagh01&cursor=0`,
         );
         assert.equal(noDeltaRes.status, 404);
       } finally {

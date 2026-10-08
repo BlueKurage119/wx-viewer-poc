@@ -1,11 +1,15 @@
 import {
   isNotificationDeltaCursor,
   type NotificationDeltaReadyResponse,
+  type NotificationDeltaRequest,
+  type WeatherNotificationPendingResponse,
 } from '@wx-viewer-poc/shared';
 
 export type NotificationDeltaClientResult =
   | { readonly status: 'ready'; readonly response: NotificationDeltaReadyResponse }
   | { readonly status: 'cursor_out_of_range'; readonly cursor: string }
+  | WeatherNotificationPendingResponse
+  | { readonly status: 'server_generation_changed'; readonly serverGenerationId: string }
   | { readonly status: 'unavailable' };
 
 function isReady(value: unknown): value is NotificationDeltaReadyResponse {
@@ -13,6 +17,7 @@ function isReady(value: unknown): value is NotificationDeltaReadyResponse {
   const body = value;
   return (
     body.status === 'ready' &&
+    (body.origin === 'system' || body.origin === 'weather') &&
     typeof body.terminalId === 'string' &&
     typeof body.venueId === 'string' &&
     typeof body.serverGenerationId === 'string' &&
@@ -108,12 +113,11 @@ function isCursorOutOfRange(value: unknown): value is { readonly cursor: string 
 
 /** 通常差分を取得し、UIが扱う三つの結果だけに正規化する。 */
 export async function fetchNotificationDelta(
-  terminalId: string,
-  cursor: string,
+  request: NotificationDeltaRequest,
   signal?: AbortSignal,
 ): Promise<NotificationDeltaClientResult> {
   try {
-    const query = new URLSearchParams({ terminalId, cursor });
+    const query = new URLSearchParams({ ...request });
     const response = await window.fetch(`/api/notifications/delta?${query}`, { signal });
     let body: unknown;
     try {
@@ -121,7 +125,33 @@ export async function fetchNotificationDelta(
     } catch {
       return { status: 'unavailable' };
     }
-    if (response.ok && isReady(body)) return { status: 'ready', response: body };
+    if (
+      response.status === 409 &&
+      isRecord(body) &&
+      body.code === 'server_generation_changed' &&
+      typeof body.serverGenerationId === 'string'
+    )
+      return { status: 'server_generation_changed', serverGenerationId: body.serverGenerationId };
+    if (
+      response.status === 202 &&
+      isRecord(body) &&
+      body.status === 'initializing' &&
+      typeof body.terminalId === 'string' &&
+      typeof body.venueId === 'string' &&
+      typeof body.serverGenerationId === 'string' &&
+      (body.weatherState === 'initializing' || body.weatherState === 'failed')
+    )
+      return body as unknown as WeatherNotificationPendingResponse;
+    if (
+      response.status === 200 &&
+      isReady(body) &&
+      body.origin === request.origin &&
+      body.terminalId === request.terminalId
+    ) {
+      if ('serverGenerationId' in request && body.serverGenerationId !== request.serverGenerationId)
+        return { status: 'server_generation_changed', serverGenerationId: body.serverGenerationId };
+      return { status: 'ready', response: body };
+    }
     if (response.status === 409 && isCursorOutOfRange(body)) {
       return { status: 'cursor_out_of_range', cursor: body.cursor };
     }

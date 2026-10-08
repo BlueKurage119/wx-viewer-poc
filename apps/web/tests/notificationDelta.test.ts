@@ -20,7 +20,9 @@ test('H2 AC6: targetsが空など契約外のdelta ready応答をunavailableと�
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   try {
-    assert.deepEqual(await fetchNotificationDelta('a', '0'), { status: 'unavailable' });
+    assert.deepEqual(await fetchNotificationDelta({ terminalId: 'a', origin: 'system' }), {
+      status: 'unavailable',
+    });
   } finally {
     window.fetch = originalFetch;
   }

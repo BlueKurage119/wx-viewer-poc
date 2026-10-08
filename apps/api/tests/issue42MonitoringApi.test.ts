@@ -368,6 +368,7 @@ function fakeStartupStatus(
 ): StartupNotificationInitializationStatus {
   return {
     initialFetchPhase: 'completed',
+    preparationFailures: [],
     evaluatedVenueIds: new Set([eastVenueId, trcVenueId]),
     ...overrides,
   };
@@ -381,6 +382,8 @@ interface BuildAppOptions {
   readonly aggregate?: FetchHealthAggregate | null;
   readonly startupStatus?: StartupNotificationInitializationStatus;
   readonly weatherApi?: WeatherApiService;
+  readonly nowcastApi?: NowcastApiService;
+  readonly monitoringConnection?: DatabaseConnection;
 }
 
 function buildApp(options: BuildAppOptions) {
@@ -391,13 +394,13 @@ function buildApp(options: BuildAppOptions) {
       connection: options.connection,
       now: () => FIXED_NOW,
     });
-  const nowcastApi = stubNowcastApi();
+  const nowcastApi = options.nowcastApi ?? stubNowcastApi();
   const kikikuruApi = stubKikikuruApi();
 
   const deps: MonitoringStatusServiceDependencies = {
     venueRegistry: testVenueRegistry,
     terminalRegistry: testTerminalRegistry,
-    connection: options.connection,
+    connection: options.monitoringConnection ?? options.connection,
     scheduler: {
       getStatus: () => options.schedulerStatus ?? fakeSchedulerStatus(),
       isRunningNow: () => options.schedulerRunning ?? true,
@@ -408,6 +411,7 @@ function buildApp(options: BuildAppOptions) {
     weatherApi,
     nowcastApi,
     kikikuruApi,
+    getTileUpstreamAccess: () => ({ allowed: true, reason: null, nextAllowedAt: FIXED_NOW }),
     fetchHealthConfig: {
       evaluationIntervalSeconds: 30,
       delayedConsecutiveFailures: 2,
@@ -507,6 +511,7 @@ test('AC2 セクション分離（確定事項1・AD-H063）: トップレベル
       const keys = new Set(Object.keys(body));
       const expected = new Set([
         'status',
+        'readErrors',
         'terminalId',
         'requestedVenueId',
         'serverGenerationId',
@@ -1689,6 +1694,7 @@ test('AC13 HTTP実挙動と依存注入（3依存の独立性・startup-inquirie
       weatherApi,
       nowcastApi: stubNowcastApi(),
       kikikuruApi: stubKikikuruApi(),
+      getTileUpstreamAccess: () => ({ allowed: true, reason: null, nextAllowedAt: FIXED_NOW }),
       fetchHealthConfig: {
         evaluationIntervalSeconds: 30,
         delayedConsecutiveFailures: 2,
@@ -1744,3 +1750,150 @@ test('AC14 境界（作りすぎていないこと）: POST/PUT/DELETE が /api/
     cleanup();
   }
 });
+
+for (const failure of ['recent_adoptions', 'information', 'tiles'] as const) {
+  test(`Issue #253 AC12: ${failure} の読取失敗だけを隔離し監視HTTPを継続する`, async () => {
+    const { context, cleanup } = createDb();
+    const weatherApi = stubWeatherApi();
+    const baseAmedas = weatherApi.getAmedas;
+    const nowcastApi = stubNowcastApi();
+    const baseNowcast = nowcastApi.getTimes;
+    let nowcastReads = 0;
+    const brokenConnection = new Proxy(context.connection, {
+      get(target, property) {
+        if (property === 'prepare')
+          return () => {
+            throw new Error('採用集計読取失敗');
+          };
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const preparationFailures = [
+      {
+        stage: 'service_setup' as const,
+        venueId: null,
+        failedAt: FIXED_NOW,
+        code: 'weather_preparation_failed' as const,
+      },
+    ];
+    const app = buildApp({
+      connection: context.connection,
+      monitoringConnection: failure === 'recent_adoptions' ? brokenConnection : context.connection,
+      startupStatus: fakeStartupStatus({ preparationFailures }),
+      weatherApi: {
+        ...weatherApi,
+        getAmedas: (...args) => {
+          if (failure === 'information' && args[0].venueId === eastVenueId)
+            throw new Error('情報読取失敗');
+          return baseAmedas(...args);
+        },
+      },
+      nowcastApi: {
+        ...nowcastApi,
+        getTimes: (...args) => {
+          nowcastReads += 1;
+          // 会場情報2件の読取後に行う、共通タイル索引の読取だけを失敗させる。
+          if (failure === 'tiles' && nowcastReads === 3) throw new Error('索引読取失敗');
+          return baseNowcast(...args);
+        },
+      },
+    });
+    try {
+      const { baseUrl, close } = await startTestServer(app);
+      try {
+        const response = await fetch(`${baseUrl}/api/monitoring/status?terminalId=kkeagh01`);
+        assert.equal(response.status, 200);
+        const body =
+          (await response.json()) as import('@wx-viewer-poc/shared').MonitoringStatusResponse;
+        assert.deepEqual(body.readErrors, [
+          {
+            section: failure,
+            venueId: failure === 'information' ? eastVenueId : null,
+            kind: failure === 'information' ? 'amedas' : failure === 'tiles' ? 'nowcast' : null,
+            code: 'weather_data_read_failed',
+          },
+        ]);
+        assert.deepEqual(body.readiness.preparationFailures, preparationFailures);
+        assert.equal(body.readiness.initialFetchPhase, 'completed');
+        assert.equal(body.serverGenerationId, 'gen-1');
+        assert.equal(body.serverStartedAt, '2026-09-09T00:00:00Z');
+        assert.equal(body.operation.schedulerRunning, true);
+        assert.deepEqual(
+          body.venues.map((venue) => venue.startupEvaluated),
+          [false, false],
+        );
+        assert.deepEqual(
+          body.information
+            .filter(
+              (item) =>
+                item.venueId === eastVenueId &&
+                ['warning', 'warning_timeseries'].includes(item.kind),
+            )
+            .map((item) => ({
+              kind: item.kind,
+              availability: item.availability,
+              issuedAt: item.issuedAt,
+              summaryCount: item.summaryCount,
+            })),
+          [
+            {
+              kind: 'warning',
+              availability: 'available',
+              issuedAt: STUB_WARNING_ISSUED_AT,
+              summaryCount: 0,
+            },
+            {
+              kind: 'warning_timeseries',
+              availability: 'stale',
+              issuedAt: STUB_TIMESERIES_ISSUED_AT,
+              summaryCount: null,
+            },
+          ],
+        );
+        if (failure === 'recent_adoptions') {
+          assert.deepEqual(
+            body.venues.map((venue) => venue.recentAdoptions),
+            [[], []],
+          );
+        }
+        if (failure === 'information') {
+          assert.deepEqual(
+            body.information.find((item) => item.kind === 'amedas' && item.venueId === eastVenueId),
+            {
+              kind: 'amedas',
+              venueId: eastVenueId,
+              availability: 'unavailable',
+              issuedAt: null,
+              validAt: null,
+              fetchedAt: null,
+              lastSuccessAt: null,
+              summaryCount: null,
+            },
+          );
+        }
+        if (failure === 'tiles') {
+          assert.deepEqual(
+            body.tiles.layers.find((layer) => layer.layer === 'nowcast'),
+            {
+              layer: 'nowcast',
+              catalogAvailability: 'unavailable',
+              catalogUpdatedAt: null,
+              availableFrameCount: 0,
+              upstreamFetchAllowed: true,
+              nextUpstreamAllowedAt: FIXED_NOW,
+            },
+          );
+          assert.equal(
+            body.tiles.layers.find((layer) => layer.layer === 'kikikuru')?.catalogAvailability,
+            'unavailable',
+          );
+        }
+      } finally {
+        await close();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+}

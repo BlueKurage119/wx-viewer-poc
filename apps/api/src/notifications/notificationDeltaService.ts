@@ -1,8 +1,12 @@
+import type { StartupNotificationInitialization } from './startupNotificationService.js';
 import {
   notificationDeltaCursorToSequence,
   toNotificationDeltaCursor,
   type NotificationCategory,
   type NotificationDeltaCursor,
+  type NotificationDeltaRequest,
+  type NotificationDeltaGenerationError,
+  type WeatherNotificationPendingResponse,
   type NotificationDeltaItem,
   type NotificationDeltaReadyResponse,
   type NotificationDetectionContext,
@@ -20,16 +24,22 @@ import {
 } from '../repositories/notificationOutputHistoryRepository.js';
 import { resolveNotificationVenueScope } from './notificationVenueScope.js';
 
-export interface NotificationDeltaQueryInput {
+export type NotificationDeltaQueryInput = NotificationDeltaRequest & {
   readonly terminalId: string;
   readonly venueId: VenueId;
-  readonly cursor: NotificationDeltaCursor;
   readonly requestedAt: UtcIso8601String;
-}
+};
 
 export type NotificationDeltaQueryResult =
   | NotificationDeltaReadyResponse
-  | { readonly status: 'cursor_out_of_range'; readonly cursor: NotificationDeltaCursor };
+  | NotificationDeltaGenerationError
+  | WeatherNotificationPendingResponse
+  | {
+      readonly status: 'cursor_out_of_range';
+      readonly cursor: NotificationDeltaCursor;
+      readonly origin: NotificationOrigin;
+      readonly serverGenerationId: string;
+    };
 
 export interface NotificationDeltaService {
   query(input: NotificationDeltaQueryInput): NotificationDeltaQueryResult;
@@ -39,6 +49,8 @@ export interface CreateNotificationDeltaServiceDependencies {
   readonly connection: DatabaseConnection;
   readonly venueRegistry: VenueRegistry;
   readonly serverGenerationId: string;
+  readonly serverStartCursor: NotificationDeltaCursor;
+  readonly initialization: StartupNotificationInitialization;
   readonly now?: () => UtcIso8601String;
 }
 
@@ -62,13 +74,40 @@ export function createNotificationDeltaService(
 
   return {
     query(input: NotificationDeltaQueryInput): NotificationDeltaQueryResult {
+      if (
+        'serverGenerationId' in input &&
+        input.serverGenerationId !== dependencies.serverGenerationId
+      )
+        return {
+          status: 'error',
+          code: 'server_generation_changed',
+          serverGenerationId: dependencies.serverGenerationId,
+        };
+      const weatherState = dependencies.initialization.getWeatherState(input.venueId);
+      if (input.origin === 'weather' && weatherState !== 'ready')
+        return {
+          status: 'initializing',
+          terminalId: input.terminalId,
+          venueId: input.venueId,
+          serverGenerationId: dependencies.serverGenerationId,
+          weatherState,
+        };
       return dependencies.connection
         .transaction((): NotificationDeltaQueryResult => {
           const max = findMaxNotificationOutputSequence(dependencies.connection);
-          const from = notificationDeltaCursorToSequence(input.cursor);
+          const requested = 'cursor' in input ? notificationDeltaCursorToSequence(input.cursor) : 0;
+          const from =
+            input.origin === 'system'
+              ? Math.max(
+                  requested,
+                  notificationDeltaCursorToSequence(dependencies.serverStartCursor),
+                )
+              : requested;
           if (from > max) {
             return {
               status: 'cursor_out_of_range',
+              origin: input.origin,
+              serverGenerationId: dependencies.serverGenerationId,
               cursor: toNotificationDeltaCursor(max),
             };
           }
@@ -78,6 +117,7 @@ export function createNotificationDeltaService(
           let skippedCount = 0;
 
           for (const row of rows) {
+            if (row.origin !== input.origin) continue;
             let targets: readonly NotificationTarget[];
             try {
               if (row.targetAreaJson === null) {
@@ -158,6 +198,7 @@ export function createNotificationDeltaService(
           const generatedAt = input.requestedAt || now();
           return {
             status: 'ready',
+            origin: input.origin,
             terminalId: input.terminalId,
             venueId: input.venueId,
             serverGenerationId: dependencies.serverGenerationId,

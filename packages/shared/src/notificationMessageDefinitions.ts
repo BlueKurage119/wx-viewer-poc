@@ -24,6 +24,7 @@ export type NotificationMessageDefinitionId =
   | 'weather-bosai-bulletin-corrected'
   | 'weather-bosai-bulletin-cancelled'
   | 'system-data-fetch-delayed'
+  | 'system-initial-sync-failed'
   | 'system-data-fetch-failed'
   | 'system-data-fetch-recovered'
   | 'system-database-initialization-started'
@@ -299,6 +300,16 @@ const MESSAGE_DEFINITIONS = {
     title: 'DB初期化完了',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'none' },
+  },
+  'system-initial-sync-failed': {
+    id: 'system-initial-sync-failed',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '気象情報の初回準備失敗',
+    fixedContent: '気象情報の初回準備に失敗しました。監視とシステム通知は継続しています。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
   },
   'system-database-initialization-failed': {
     id: 'system-database-initialization-failed',

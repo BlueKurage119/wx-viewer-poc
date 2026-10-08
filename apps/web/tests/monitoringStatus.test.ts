@@ -422,3 +422,55 @@ test('Issue #187: 境界バリデーションは information と tiles の全フ
     );
   }
 });
+
+test('Issue #253: 監視の準備失敗と部分読取失敗のDTOを検証する', async () => {
+  const body = {
+    ...monitoringResponseFixture,
+    readiness: {
+      ...monitoringResponseFixture.readiness,
+      preparationFailures: [
+        {
+          stage: 'reprocessing',
+          venueId: null,
+          failedAt: '2026-09-20T05:25:00.000Z',
+          code: 'weather_preparation_failed',
+        },
+      ],
+    },
+    readErrors: [
+      { section: 'recent_adoptions', venueId: null, kind: null, code: 'weather_data_read_failed' },
+      { section: 'information', venueId: 'east', kind: 'amedas', code: 'weather_data_read_failed' },
+      { section: 'tiles', venueId: null, kind: 'nowcast', code: 'weather_data_read_failed' },
+    ],
+  };
+  const clientFor = (value: unknown) =>
+    createMonitoringStatusClient({
+      fetch: async () => new Response(JSON.stringify(value)),
+      registry: testVenueRegistry,
+    });
+  assert.deepEqual(await clientFor(body).fetchMonitoringStatus('kkeagh01'), body);
+  for (const invalid of [
+    { ...body, readErrors: undefined },
+    { ...body, readErrors: [{ ...body.readErrors[0], code: 'unknown' }] },
+    { ...body, readErrors: [{ ...body.readErrors[1], venueId: 'unknown' }] },
+    { ...body, readErrors: [{ ...body.readErrors[2], kind: 'amedas' }] },
+    {
+      ...body,
+      readiness: {
+        ...body.readiness,
+        preparationFailures: [{ ...body.readiness.preparationFailures[0], stage: 'unknown' }],
+      },
+    },
+    {
+      ...body,
+      readiness: {
+        ...body.readiness,
+        preparationFailures: [{ ...body.readiness.preparationFailures[0], failedAt: 'invalid' }],
+      },
+    },
+  ]) {
+    await assert.rejects(clientFor(invalid).fetchMonitoringStatus('kkeagh01'), {
+      message: '監視情報の応答形式が不正です',
+    });
+  }
+});
