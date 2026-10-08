@@ -1,3 +1,4 @@
+import type { DecisionScope } from '../runtime/weatherDecisionRuntime.js';
 import crypto from 'node:crypto';
 import { type UtcIso8601String, type VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
@@ -28,7 +29,7 @@ import { processWarningTelegramReceptionForAllVenues } from './jmaWarningTelegra
 import { processVpwp50ReceptionForAllVenues } from './jmaVpwp50Processor.js';
 import { processEarlyWarningReceptionForVenues } from './jmaEarlyWarningProcessor.js';
 import { processVpfd51ReceptionForVenues } from './jmaVpfd51Processor.js';
-import { resolveBosaiBulletinTarget } from '../venueForecastTargets.js';
+import { resolveBosaiBulletinTarget, resolveVenueWarningContext } from '../venueForecastTargets.js';
 import { processVpbs50Reception } from './jmaVpbs50Processor.js';
 import { processVphwReception } from './jmaVphwProcessor.js';
 import {
@@ -49,6 +50,7 @@ import type { WarningNotificationEmitDeps } from '../notifications/warningNotifi
 import type { BosaiNotificationEmitDeps } from '../notifications/bosaiBulletinNotificationEmitter.js';
 
 export interface PollerContextOptions extends ParseAtomFeedOptions {
+  readonly runWeatherUpdate?: <T>(work: () => T, scope?: DecisionScope) => Promise<T>;
   readonly venueRegistry?: VenueRegistry;
   readonly fetchFn?: typeof fetch;
   readonly clock?: () => UtcIso8601String;
@@ -321,49 +323,77 @@ export async function pollSingleFeed(
       adoptions: envelopeInvalidAdoptions,
     };
 
-    const reception = recordTelegramReception(connection, receptionInput);
-    if (
-      reception.telegramType &&
-      (WARNING_TELEGRAM_TYPES as readonly string[]).includes(reception.telegramType)
-    ) {
-      processWarningTelegramReceptionForAllVenues(
-        connection,
-        reception,
-        docFinishedAt,
-        venueRegistry,
-        options?.warningNotificationEmitDeps,
+    const commitReception = () => {
+      const reception = recordTelegramReception(connection, receptionInput);
+      if (
+        reception.telegramType &&
+        (WARNING_TELEGRAM_TYPES as readonly string[]).includes(reception.telegramType)
+      ) {
+        processWarningTelegramReceptionForAllVenues(
+          connection,
+          reception,
+          docFinishedAt,
+          venueRegistry,
+          options?.warningNotificationEmitDeps,
+        );
+      } else if (reception.telegramType === VPWP50_TELEGRAM_TYPE) {
+        processVpwp50ReceptionForAllVenues(connection, reception, docFinishedAt, venueRegistry);
+      } else if (
+        reception.telegramType === VPFD61_TELEGRAM_TYPE ||
+        reception.telegramType === VPFW60_TELEGRAM_TYPE
+      ) {
+        processEarlyWarningReceptionForVenues(connection, reception, docFinishedAt, venueRegistry);
+      } else if (reception.telegramType === VPFD51_TELEGRAM_TYPE) {
+        processVpfd51ReceptionForVenues(connection, reception, docFinishedAt, venueRegistry);
+      } else if (reception.telegramType === VPBS50_TELEGRAM_TYPE) {
+        processVpbs50Reception(
+          connection,
+          reception,
+          docFinishedAt,
+          options?.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
+          options?.bosaiNotificationEmitDeps,
+          venueRegistry,
+        );
+      } else if (
+        reception.telegramType === VPHW50_TELEGRAM_TYPE ||
+        reception.telegramType === VPHW51_TELEGRAM_TYPE
+      ) {
+        processVphwReception(
+          connection,
+          reception,
+          docFinishedAt,
+          options?.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
+          options?.bosaiNotificationEmitDeps,
+          venueRegistry,
+        );
+      }
+    };
+    if (options?.runWeatherUpdate) {
+      const status = receptionInput.controlStatus;
+      const venues = venueRegistry.listVenueIds();
+      const warning = (WARNING_TELEGRAM_TYPES as readonly string[]).includes(
+        receptionInput.telegramType ?? '',
       );
-    } else if (reception.telegramType === VPWP50_TELEGRAM_TYPE) {
-      processVpwp50ReceptionForAllVenues(connection, reception, docFinishedAt, venueRegistry);
-    } else if (
-      reception.telegramType === VPFD61_TELEGRAM_TYPE ||
-      reception.telegramType === VPFW60_TELEGRAM_TYPE
-    ) {
-      processEarlyWarningReceptionForVenues(connection, reception, docFinishedAt, venueRegistry);
-    } else if (reception.telegramType === VPFD51_TELEGRAM_TYPE) {
-      processVpfd51ReceptionForVenues(connection, reception, docFinishedAt, venueRegistry);
-    } else if (reception.telegramType === VPBS50_TELEGRAM_TYPE) {
-      processVpbs50Reception(
-        connection,
-        reception,
-        docFinishedAt,
-        options?.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
-        options?.bosaiNotificationEmitDeps,
-        venueRegistry,
-      );
-    } else if (
-      reception.telegramType === VPHW50_TELEGRAM_TYPE ||
-      reception.telegramType === VPHW51_TELEGRAM_TYPE
-    ) {
-      processVphwReception(
-        connection,
-        reception,
-        docFinishedAt,
-        options?.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
-        options?.bosaiNotificationEmitDeps,
-        venueRegistry,
-      );
-    }
+      const bosai = (
+        [VPBS50_TELEGRAM_TYPE, VPHW50_TELEGRAM_TYPE, VPHW51_TELEGRAM_TYPE] as readonly string[]
+      ).includes(receptionInput.telegramType ?? '');
+      const warningAreas = venues
+        .map((id) => resolveVenueWarningContext(venueRegistry, id).targetArea.municipalCode)
+        .filter((code) => receptionInput.areas.some((area) => area.areaCode === code));
+      await options.runWeatherUpdate(commitReception, {
+        scopes: receptionInput.areas.map((area) => area.areaCode),
+        initialWarningKeys:
+          warning && (status === 'normal' || status === 'training')
+            ? warningAreas.map((code) => `${code}|${status}`)
+            : [],
+        initialBosaiKeys:
+          bosai &&
+          (status === 'normal' || status === 'training') &&
+          !options.bosaiNotificationEmitDeps?.initialState.isCollecting()
+            ? venues.map((id) => `${id}|${status}`)
+            : [],
+      });
+    } else commitReception();
   }
 
   return {

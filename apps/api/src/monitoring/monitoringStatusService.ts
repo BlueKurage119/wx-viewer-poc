@@ -71,7 +71,10 @@ export interface MonitoringStatusServiceDependencies {
 }
 
 export interface MonitoringStatusService {
-  getStatus(terminal: TerminalDefinition): MonitoringStatusResponse;
+  getStatus(
+    terminal: TerminalDefinition,
+    cached?: MonitoringStatusResponse,
+  ): MonitoringStatusResponse;
 }
 
 const AVAILABILITY_RANK: Readonly<Record<Availability, number>> = {
@@ -227,13 +230,14 @@ export function createMonitoringStatusService(
   function buildVenues(
     generatedAt: UtcIso8601String,
     readErrors: MonitoringReadError[],
+    cached?: MonitoringStatusResponse,
   ): readonly MonitoringVenueSection[] {
     const startupStatus = deps.startupInitialization.getStatus();
     const sinceMs = new Date(generatedAt).getTime() - adoptionWindowHours * 60 * 60 * 1000;
     const sinceIso = new Date(sinceMs).toISOString() as UtcIso8601String;
     let summary: ReturnType<typeof summarizeAdoptionResults> = [];
     try {
-      summary = summarizeAdoptionResults(deps.connection, sinceIso);
+      if (!cached) summary = summarizeAdoptionResults(deps.connection, sinceIso);
     } catch {
       readErrors.push({
         section: 'recent_adoptions',
@@ -288,7 +292,8 @@ export function createMonitoringStatusService(
           parsedReceptionCount: 0,
           errorCode: null,
         },
-        recentAdoptions,
+        recentAdoptions:
+          cached?.venues.find((v) => v.venueId === venueId)?.recentAdoptions ?? recentAdoptions,
         adoptionWindowHours,
       };
     });
@@ -555,18 +560,22 @@ export function createMonitoringStatusService(
   }
 
   return {
-    getStatus(terminal: TerminalDefinition): MonitoringStatusResponse {
+    getStatus(
+      terminal: TerminalDefinition,
+      cached?: MonitoringStatusResponse,
+    ): MonitoringStatusResponse {
       const generatedAt = deps.now();
       const schedulerStatus = deps.scheduler.getStatus();
       const xmlStatus = deps.xmlPollingService.getStatus();
       const aggregate = deps.fetchHealthMonitor.getLastAggregate();
 
-      const readErrors: MonitoringReadError[] = [];
-      const venues = buildVenues(generatedAt, readErrors);
+      const readErrors: MonitoringReadError[] = cached ? [...cached.readErrors] : [];
+      const venues = buildVenues(generatedAt, readErrors, cached);
       const information: MonitoringInformationSection[] = [];
-      for (const venueId of deps.venueRegistry.listVenueIds()) {
-        information.push(...buildInformationForVenue(venueId, readErrors));
-      }
+      if (!cached)
+        for (const venueId of deps.venueRegistry.listVenueIds()) {
+          information.push(...buildInformationForVenue(venueId, readErrors));
+        }
 
       return {
         status: 'ready',
@@ -587,8 +596,8 @@ export function createMonitoringStatusService(
           deps.startupInitialization.getStatus().preparationFailures,
         ),
         venues,
-        information,
-        tiles: buildTiles(readErrors),
+        information: cached?.information ?? information,
+        tiles: cached?.tiles ?? buildTiles(readErrors),
       };
     },
   };

@@ -1,3 +1,4 @@
+import type { DecisionCheckpoint } from '../runtime/weatherContracts.js';
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { MonitoredFetchSourceId } from './fetchHealthSources.js';
 import { MONITORED_FETCH_SOURCES } from './fetchHealthSources.js';
@@ -67,6 +68,20 @@ export class FetchHealthStateStore {
 
       this.activeSinceAt.set(sourceId, newActiveSinceAt);
       this.previousStatus.set(sourceId, sourceResult.status);
+    }
+  }
+
+  exportSnapshot(): DecisionCheckpoint['fetchHealth'] {
+    const activeSinceAtBySource = Object.fromEntries(
+      MONITORED_FETCH_SOURCES.map((s) => [s.id, this.getActiveSinceAt(s.id)]),
+    ) as DecisionCheckpoint['fetchHealth']['activeSinceAtBySource'];
+    return { previousStatusBySource: this.getPreviousStatusBySource(), activeSinceAtBySource };
+  }
+
+  importSnapshot(snapshot: DecisionCheckpoint['fetchHealth']): void {
+    for (const source of MONITORED_FETCH_SOURCES) {
+      this.previousStatus.set(source.id, snapshot.previousStatusBySource[source.id]);
+      this.activeSinceAt.set(source.id, snapshot.activeSinceAtBySource[source.id]);
     }
   }
 

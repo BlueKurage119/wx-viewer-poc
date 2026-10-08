@@ -1,3 +1,13 @@
+import type { WeatherRequest } from './runtime/weatherContracts.js';
+import { createAcquisitionControlTargets } from './runtime/acquisitionControlTargets.js';
+import { WeatherPublicationGate } from './runtime/weatherPublication.js';
+import {
+  createWeatherDecisionRuntime,
+  type DecisionScope,
+} from './runtime/weatherDecisionRuntime.js';
+import { createInlineWeatherRead } from './runtime/inlineWeatherRead.js';
+import { projectStartupCurrentNotifications } from './notifications/startupCurrentNotificationProjector.js';
+import { createApplicationRuntime } from './runtime/createApplicationRuntime.js';
 import { findMaxNotificationOutputSequence } from './repositories/notificationOutputHistoryRepository.js';
 import { InitialSyncNotificationEmitter } from './notifications/initialSyncNotificationEmitter.js';
 import {
@@ -55,10 +65,6 @@ import {
   type MonitoringProcessingService,
 } from './monitoring/monitoringProcessingService.js';
 import {
-  createMonitoringHistoryService,
-  type MonitoringHistoryService,
-} from './monitoring/monitoringHistoryService.js';
-import {
   JmaXmlPollingService,
   TimeBasedPollingScheduler,
   createScheduledAdapters,
@@ -76,8 +82,6 @@ import { reprocessPendingVenueForecastReceptions } from './polling/jmaVenueForec
 import { recoverLegacyVphwBulletinAreas } from './polling/jmaVphwProcessor.js';
 import { resolveVenueWarningContext } from './venueForecastTargets.js';
 import {
-  InitialWarningNotificationTracker,
-  InitialBosaiNotificationTracker,
   createStartupNotificationService,
   createNotificationDeltaService,
   StartupNotificationInitialization,
@@ -108,6 +112,7 @@ export interface StartedServer {
 }
 
 export interface StartServerOptions {
+  readonly weatherRequestObserver?: (request: WeatherRequest) => void;
   readonly config?: DatabasePairConfig;
   readonly port?: number;
   readonly enablePolling?: boolean;
@@ -186,6 +191,7 @@ export function createStartupNotificationRuntime(
   terminalRegistry: TerminalRegistry,
   retainedConnection: ReturnType<typeof initializeDatabase>['connection'],
   weatherDatabaseGenerationId: string,
+  observeRequest?: (request: WeatherRequest) => void,
 ) {
   const serverStartCursor = toNotificationDeltaCursor(
     findMaxNotificationOutputSequence(retainedConnection),
@@ -193,20 +199,61 @@ export function createStartupNotificationRuntime(
   const serverGenerationId = crypto.randomUUID();
   const serverStartedAt = clock() as UtcIso8601String;
   const initialization = new StartupNotificationInitialization();
-  const warningEmitDeps: WarningNotificationEmitDeps = {
-    retainedConnection,
+  const acquisitionEpoch = {
+    serverGenerationId,
+    workerGeneration: crypto.randomUUID(),
     weatherDatabaseGenerationId,
-    tracker: new InitialWarningNotificationTracker(),
+    readerEpoch: null,
+  };
+  const deliveryEpoch = {
+    ...acquisitionEpoch,
+    workerGeneration: crypto.randomUUID(),
+    readerEpoch: crypto.randomUUID(),
+  };
+  const publication = new WeatherPublicationGate(acquisitionEpoch, deliveryEpoch);
+  const decisions = createWeatherDecisionRuntime(retainedConnection, acquisitionEpoch, publication);
+  const scopeFor = (venueIds: readonly VenueId[]) => ({
+    scopes: venueIds,
+    initialWarningKeys: venueIds.flatMap((id) =>
+      ['normal', 'training'].map(
+        (status) =>
+          `${resolveVenueWarningContext(registry, id).targetArea.municipalCode}|${status}`,
+      ),
+    ),
+    initialBosaiKeys: venueIds.flatMap((id) =>
+      ['normal', 'training'].map((status) => `${id}|${status}`),
+    ),
+  });
+  const runWeatherUpdate = <T>(
+    work: () => T,
+    scope: DecisionScope = { scopes: [], initialWarningKeys: [], initialBosaiKeys: [] },
+  ) => decisions.runUpdate(scope, work);
+  const evaluateInitialWarning = (venue: ReturnType<typeof resolveVenueWarningContext>) =>
+    decisions.runUpdate(
+      {
+        scopes: [venue.venueId],
+        initialWarningKeys: ['normal', 'training'].map(
+          (status) => `${venue.targetArea.municipalCode}|${status}`,
+        ),
+        initialBosaiKeys: [],
+      },
+      () => emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps),
+    );
+
+  const warningEmitDeps: WarningNotificationEmitDeps = {
+    recordSink: decisions.recordSink,
+    weatherDatabaseGenerationId,
+    tracker: decisions.warning,
     now: clock,
   };
   const bosaiEmitDeps: BosaiNotificationEmitDeps = {
     venueRegistry: registry,
-    retainedConnection,
+    recordSink: decisions.recordSink,
     weatherDatabaseGenerationId,
-    initialState: new InitialBosaiNotificationTracker(),
+    initialState: decisions.bosai,
     now: clock,
   };
-  const startupNotifications = createStartupNotificationService({
+  const synchronousStartup = createStartupNotificationService({
     weatherConnection: connection,
     retainedConnection,
     weatherDatabaseGenerationId,
@@ -217,6 +264,54 @@ export function createStartupNotificationRuntime(
     now: clock,
     getFetchHealth,
   });
+  const startupReader = createInlineWeatherRead(deliveryEpoch, {
+    'startup.project': (input) => ({
+      ...connection.transaction(() =>
+        projectStartupCurrentNotifications(connection, {
+          venueRegistry: registry,
+          venueId: input.venueId,
+          now: input.inquiredAt,
+          includeWarningCategory: true,
+        }),
+      )(),
+      publicationToken: input.publicationToken,
+      weatherDatabaseGenerationId,
+    }),
+  });
+  const startupNotifications = {
+    inquireWithSignal(
+      input: Parameters<typeof synchronousStartup.inquire>[0],
+      signal?: AbortSignal,
+    ) {
+      if (input.serverGenerationId !== serverGenerationId || !initialization.isReady(input.venueId))
+        return synchronousStartup.inquire(input);
+      return publication.publish(async (token) => {
+        const cursor = findMaxNotificationOutputSequence(retainedConnection);
+        const request = {
+          protocolVersion: 1,
+          requestId: crypto.randomUUID(),
+          epoch: deliveryEpoch,
+          deadlineAt: token.expiresAt,
+          kind: 'startup.project',
+          payload: {
+            publicationToken: token,
+            venueId: input.venueId,
+            inquiredAt: input.inquiredAt,
+          },
+        } as const;
+        observeRequest?.(request);
+        const reply = await startupReader.request(request);
+        publication.assertValid(token);
+        if (reply.result.status !== 'completed') throw new Error('起動現況の投影に失敗しました');
+        return synchronousStartup.inquire(input, { projection: reply.result.value, cursor });
+      }, signal);
+    },
+  };
+  const startupFacade = {
+    ...startupNotifications,
+    inquire: (input: Parameters<typeof synchronousStartup.inquire>[0]) =>
+      startupNotifications.inquireWithSignal(input),
+  };
   const notificationDelta = createNotificationDeltaService({
     connection: retainedConnection,
     serverStartCursor,
@@ -317,6 +412,7 @@ export function createStartupNotificationRuntime(
         runRecovery(connection, venue, {
           yieldEveryParsedReceptions: config.yieldEveryParsedReceptions,
           candidatePageSize: config.candidatePageSize,
+          runWeatherUpdate,
           onProgress: (progress) => recoveryTracker.progress(venue.venueId, progress),
         }),
         delayedFailure,
@@ -351,8 +447,10 @@ export function createStartupNotificationRuntime(
       if (stopped) return;
       try {
         const venue = resolveVenueWarningContext(registry, venueId);
-        emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps);
-        emitInitialBosaiBulletinNotifications(connection, venueId, bosaiEmitDeps);
+        await decisions.runUpdate(scopeFor([venueId]), () => {
+          emitInitialWarningNotifications(connection, venue.targetArea, warningEmitDeps);
+          emitInitialBosaiBulletinNotifications(connection, venueId, bosaiEmitDeps);
+        });
         initialization.markVenueEvaluated(venueId);
       } catch (error) {
         initialization.markVenueEvaluationFailed(venueId, clock() as UtcIso8601String);
@@ -387,15 +485,26 @@ export function createStartupNotificationRuntime(
     pollingService.onInitialFetchCompleted(evaluateVenues);
   };
   return {
+    acquisitionEpoch,
+    deliveryEpoch,
+    runWeatherUpdate,
+    evaluateInitialWarning,
+    decisions,
+    publication,
     serverGenerationId,
     serverStartedAt,
     serverStartCursor,
     failPreparation,
     markStopped: () => {
+      startupReader.registry.close();
+      publication.replaceEpochs(
+        { ...acquisitionEpoch, workerGeneration: crypto.randomUUID() },
+        deliveryEpoch,
+      );
       stopped = true;
     },
     initialization,
-    startupNotifications,
+    startupNotifications: startupFacade,
     notificationDelta,
     warningEmitDeps,
     bosaiEmitDeps,
@@ -541,6 +650,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       terminalConfig.registry,
       database.retained.connection,
       database.weatherDatabaseGenerationId,
+      options.weatherRequestObserver,
     );
     let pollingService: JmaXmlPollingService | undefined;
     const weatherApi = createWeatherApiService({
@@ -604,17 +714,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
     const fetchControlService = createFetchControlService({
       connection: database.retained.connection,
-      targets: fetchControlTargets,
+      targets: createAcquisitionControlTargets(
+        fetchControlTargets,
+        startupRuntime.acquisitionEpoch,
+      ),
       now: () => clock() as UtcIso8601String,
       notificationIdFactory: options.fetchControlNotificationIdFactory,
     });
 
-    const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
-      weatherConnection: database.weather.connection,
-      retainedConnection: database.retained.connection,
-      weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
-      now: () => clock() as UtcIso8601String,
-    });
     const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
       connection: database.weather.connection,
       venueRegistry: venueConfig.registry,
@@ -660,7 +767,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       now: () => clock() as UtcIso8601String,
     });
 
-    const app = createApp({
+    const applicationRuntime = createApplicationRuntime({
+      deliveryEpoch: startupRuntime.deliveryEpoch,
+      acquisitionEpoch: startupRuntime.acquisitionEpoch,
+      observeRequest: options.weatherRequestObserver,
+      retainedConnection: database.retained.connection,
+      weatherConnection: database.weather.connection,
+      serverGenerationId: startupRuntime.serverGenerationId,
+      weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
       venueConfig: venueConfig.response,
       venueRegistry: venueConfig.registry,
       terminalConfig: terminalConfig.response,
@@ -672,10 +786,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
       kikikuruApi,
       monitoringStatus,
       monitoringProcessing,
-      monitoringHistory,
       fetchControl: fetchControlService,
     });
     let preparationStage: WeatherPreparationFailure['stage'] = 'service_setup';
+    const app = createApp(applicationRuntime.dependencies);
     const actualServer = app.listen(port);
 
     const serverListeningPromise = waitForServerListening(actualServer);
@@ -731,15 +845,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
                     venue,
                     clock,
                     startupRuntime.warningEmitDeps,
-                    { logger: console.log, progressTracker: startupRuntime.progressTracker },
+                    {
+                      logger: console.log,
+                      progressTracker: startupRuntime.progressTracker,
+                      runWeatherUpdate: startupRuntime.runWeatherUpdate,
+                    },
                   );
                 }
               });
-              emitInitialWarningNotifications(
-                database.weather.connection,
-                venue.targetArea,
-                startupRuntime.warningEmitDeps,
-              );
+              await startupRuntime.evaluateInitialWarning(venue);
             }
 
             if (!enablePolling) {
@@ -752,6 +866,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
               new JmaXmlPollingService(database.weather.connection, {
                 freshnessPolicy: schedule.freshness.xml,
                 venueRegistry: venueConfig.registry,
+                runWeatherUpdate: startupRuntime.runWeatherUpdate,
                 warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
                 bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
                 ...options.pollingServiceOptions,
@@ -782,7 +897,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
               });
 
             fetchHealthMonitorService = new FetchHealthMonitorService({
-              retainedConnection: database.retained.connection,
+              recordSink: startupRuntime.decisions.recordSink,
+              store: startupRuntime.decisions.health,
+              runDecision: (work) =>
+                startupRuntime.decisions.runSync(
+                  { scopes: [], initialWarningKeys: [], initialBosaiKeys: [] },
+                  work,
+                ),
               connection: database.weather.connection,
               statusProvider: scheduler,
               config: schedule.fetchHealth,
@@ -847,6 +968,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Sta
 
     const closeResources = createRetryableDatabaseClose(
       async (closeOptions) => {
+        applicationRuntime.close();
         startupRuntime.markStopped();
         if (fetchHealthMonitorService) {
           fetchHealthMonitorService.stop();
@@ -1027,16 +1149,13 @@ async function main(): Promise<void> {
 
     const fetchControlService = createFetchControlService({
       connection: database.retained.connection,
-      targets: fetchControlTargets,
+      targets: createAcquisitionControlTargets(
+        fetchControlTargets,
+        startupRuntime.acquisitionEpoch,
+      ),
       now: () => clock() as UtcIso8601String,
     });
 
-    const monitoringHistory: MonitoringHistoryService = createMonitoringHistoryService({
-      weatherConnection: database.weather.connection,
-      retainedConnection: database.retained.connection,
-      weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
-      now: () => clock() as UtcIso8601String,
-    });
     const monitoringProcessing: MonitoringProcessingService = createMonitoringProcessingService({
       connection: database.weather.connection,
       venueRegistry: venueConfig.registry,
@@ -1082,7 +1201,13 @@ async function main(): Promise<void> {
       now: () => clock() as UtcIso8601String,
     });
 
-    const app = createApp({
+    const applicationRuntime = createApplicationRuntime({
+      deliveryEpoch: startupRuntime.deliveryEpoch,
+      acquisitionEpoch: startupRuntime.acquisitionEpoch,
+      retainedConnection: database.retained.connection,
+      weatherConnection: database.weather.connection,
+      serverGenerationId: startupRuntime.serverGenerationId,
+      weatherDatabaseGenerationId: database.weatherDatabaseGenerationId,
       venueConfig: venueConfig.response,
       venueRegistry: venueConfig.registry,
       terminalConfig: terminalConfig.response,
@@ -1094,14 +1219,15 @@ async function main(): Promise<void> {
       kikikuruApi,
       monitoringStatus,
       monitoringProcessing,
-      monitoringHistory,
       fetchControl: fetchControlService,
     });
+    const app = createApp(applicationRuntime.dependencies);
     const server = app.listen(port);
 
     let closed = false;
     const closeResources = createRetryableDatabaseClose(
       async (closeOptions) => {
+        applicationRuntime.close();
         startupRuntime.markStopped();
         if (fetchHealthMonitorService) {
           fetchHealthMonitorService.stop();
@@ -1171,18 +1297,18 @@ async function main(): Promise<void> {
               venue,
               clock,
               startupRuntime.warningEmitDeps,
-              { logger: console.log, progressTracker: startupRuntime.progressTracker },
+              {
+                logger: console.log,
+                progressTracker: startupRuntime.progressTracker,
+                runWeatherUpdate: startupRuntime.runWeatherUpdate,
+              },
             );
           }
           if (closed) {
             throw new Error('DB復旧中にサーバー停止が要求されました');
           }
         });
-        emitInitialWarningNotifications(
-          database.weather.connection,
-          venue.targetArea,
-          startupRuntime.warningEmitDeps,
-        );
+        await startupRuntime.evaluateInitialWarning(venue);
       }
 
       if (!enablePolling) {
@@ -1196,6 +1322,7 @@ async function main(): Promise<void> {
       pollingService = new JmaXmlPollingService(database.weather.connection, {
         freshnessPolicy: schedule.freshness.xml,
         venueRegistry: venueConfig.registry,
+        runWeatherUpdate: startupRuntime.runWeatherUpdate,
         warningNotificationEmitDeps: startupRuntime.warningEmitDeps,
         bosaiNotificationEmitDeps: startupRuntime.bosaiEmitDeps,
       });
@@ -1217,7 +1344,13 @@ async function main(): Promise<void> {
       });
 
       fetchHealthMonitorService = new FetchHealthMonitorService({
-        retainedConnection: database.retained.connection,
+        recordSink: startupRuntime.decisions.recordSink,
+        store: startupRuntime.decisions.health,
+        runDecision: (work) =>
+          startupRuntime.decisions.runSync(
+            { scopes: [], initialWarningKeys: [], initialBosaiKeys: [] },
+            work,
+          ),
         connection: database.weather.connection,
         statusProvider: scheduler,
         config: schedule.fetchHealth,

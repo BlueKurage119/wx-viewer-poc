@@ -1,3 +1,4 @@
+import type { DecisionScope } from '../runtime/weatherDecisionRuntime.js';
 import { type UtcIso8601String, type VenueId, type VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import {
@@ -127,6 +128,7 @@ export function processWarningTelegramReceptionForAllVenues(
 }
 
 export interface ReprocessPendingWarningOptions {
+  readonly runWeatherUpdate?: <T>(work: () => T, scope?: DecisionScope) => Promise<T>;
   /** ログ出力用関数。省略時はログ出力なし（テスト時の静穏性担保）。サーバー起動時は console.log を渡す。 */
   readonly logger?: (message: string) => void;
   /** 進捗トラッカー。省略可能。 */
@@ -200,28 +202,43 @@ export async function reprocessPendingWarningTelegramReceptions(
       }
     });
 
-    processPageTransaction();
+    const commitPage = () => {
+      processPageTransaction();
 
-    for (const { reception, parseResult, currentResult } of pageResults) {
-      if (emitDeps && parseResult.ok && currentResult?.applied) {
-        emitWarningNotificationsForReception(
-          connection,
-          reception,
-          currentResult,
-          parseResult.value,
-          emitDeps,
-        );
-      }
+      for (const { reception, parseResult, currentResult } of pageResults) {
+        if (emitDeps && parseResult.ok && currentResult?.applied) {
+          emitWarningNotificationsForReception(
+            connection,
+            reception,
+            currentResult,
+            parseResult.value,
+            emitDeps,
+          );
+        }
 
-      processedCount += 1;
-      // 100件ごとの進捗ログとトラッカー更新（最終件数未満）
-      if (processedCount % batchLogInterval === 0 && processedCount < total) {
-        logger?.(
-          `[api] reprocessed ${processedCount}/${total} telegrams for venue '${venueId}'...`,
-        );
-        tracker?.updateVenueReprocessing(venueId, processedCount);
+        processedCount += 1;
+        // 100件ごとの進捗ログとトラッカー更新（最終件数未満）
+        if (processedCount % batchLogInterval === 0 && processedCount < total) {
+          logger?.(
+            `[api] reprocessed ${processedCount}/${total} telegrams for venue '${venueId}'...`,
+          );
+          tracker?.updateVenueReprocessing(venueId, processedCount);
+        }
       }
-    }
+    };
+    if (options?.runWeatherUpdate)
+      await options.runWeatherUpdate(commitPage, {
+        scopes: [venueId],
+        initialWarningKeys: [
+          ...new Set(
+            page.receptions
+              .map((reception) => reception.controlStatus)
+              .filter((status) => status === 'normal' || status === 'training'),
+          ),
+        ].map((status) => `${venue.targetArea.municipalCode}|${status}`),
+        initialBosaiKeys: [],
+      });
+    else commitPage();
 
     after = page.nextCursor ?? undefined;
     if (after) {

@@ -7,6 +7,15 @@ import type { ControlStatus } from '../repositories/types.js';
 export class InitialWarningNotificationTracker {
   private readonly processedKeys = new Set<string>();
 
+  exportSnapshot(): readonly string[] {
+    return [...this.processedKeys];
+  }
+
+  importSnapshot(keys: readonly string[]): void {
+    this.processedKeys.clear();
+    for (const key of keys) this.processedKeys.add(key);
+  }
+
   /**
    * 未処理（初期取得通知がまだ行われていない）かどうかを返す。
    */

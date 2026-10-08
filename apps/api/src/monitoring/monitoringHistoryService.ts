@@ -169,49 +169,7 @@ export function createMonitoringHistoryService(
         };
       })();
     },
-    listReceptions(query: MonitoringReceptionQuery): MonitoringReceptionListResponse {
-      const options = {
-        controlStatus: query.controlStatus,
-        telegramType: query.telegramType,
-        infoType: query.infoType,
-        areaCode: query.areaCode,
-        documentUrl: query.documentUrl,
-        adoptionResult: query.adoptionResult,
-        adoptionVenueId: query.adoptionVenueId,
-        receivedAtFrom: query.receivedAtFrom,
-        receivedAtTo: query.receivedAtTo,
-        reportDateTimeFrom: query.reportDateTimeFrom,
-        reportDateTimeTo: query.reportDateTimeTo,
-        limit: query.limit,
-        offset: query.offset,
-      };
-      const rows = listTelegramReceptions(deps.weatherConnection, options);
-      const totalCount = countTelegramReceptions(deps.weatherConnection, options);
-
-      return {
-        status: 'ready',
-        generatedAt: deps.now(),
-        totalCount,
-        limit: query.limit,
-        offset: query.offset,
-        items: rows.map(mapReceptionSummary),
-      };
-    },
-
-    getReceptionById(id: number): MonitoringReceptionDetailResponse | null {
-      const row = findTelegramReceptionById(deps.weatherConnection, id);
-      if (row === null) {
-        return null;
-      }
-      return {
-        status: 'ready',
-        generatedAt: deps.now(),
-        reception: {
-          ...mapReceptionSummary(row),
-          rawBody: row.rawBody,
-        },
-      };
-    },
+    ...createWeatherReceptionService(deps),
 
     listNotificationOutputs(
       query: MonitoringNotificationOutputQuery,
@@ -268,6 +226,57 @@ export function createMonitoringHistoryService(
         limit: query.limit,
         offset: query.offset,
         items: rows,
+      };
+    },
+  };
+}
+
+/** 提供側専用。保持DBを受け取らず、気象DBだけを読む。 */
+export function createWeatherReceptionService(
+  deps: Pick<MonitoringHistoryServiceDependencies, 'weatherConnection' | 'now'>,
+): Pick<MonitoringHistoryService, 'listReceptions' | 'getReceptionById'> {
+  return {
+    listReceptions(query: MonitoringReceptionQuery): MonitoringReceptionListResponse {
+      const options = {
+        controlStatus: query.controlStatus,
+        telegramType: query.telegramType,
+        infoType: query.infoType,
+        areaCode: query.areaCode,
+        documentUrl: query.documentUrl,
+        adoptionResult: query.adoptionResult,
+        adoptionVenueId: query.adoptionVenueId,
+        receivedAtFrom: query.receivedAtFrom,
+        receivedAtTo: query.receivedAtTo,
+        reportDateTimeFrom: query.reportDateTimeFrom,
+        reportDateTimeTo: query.reportDateTimeTo,
+        limit: query.limit,
+        offset: query.offset,
+      };
+      const rows = listTelegramReceptions(deps.weatherConnection, options);
+      const totalCount = countTelegramReceptions(deps.weatherConnection, options);
+
+      return {
+        status: 'ready',
+        generatedAt: deps.now(),
+        totalCount,
+        limit: query.limit,
+        offset: query.offset,
+        items: rows.map(mapReceptionSummary),
+      };
+    },
+
+    getReceptionById(id: number): MonitoringReceptionDetailResponse | null {
+      const row = findTelegramReceptionById(deps.weatherConnection, id);
+      if (row === null) {
+        return null;
+      }
+      return {
+        status: 'ready',
+        generatedAt: deps.now(),
+        reception: {
+          ...mapReceptionSummary(row),
+          rawBody: row.rawBody,
+        },
       };
     },
   };

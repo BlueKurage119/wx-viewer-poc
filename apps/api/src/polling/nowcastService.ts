@@ -348,6 +348,39 @@ export class NowcastService {
     };
   }
 
+  /** 保存済みPNGの読取専用経路。取得レーンや上流通信を待たない。 */
+  async readSavedTile(frame: NowcastFrameKey, coordinate: TileCoordinate) {
+    const catalog = this.readCatalog();
+    const entry = catalog.products[frame.product];
+    const frameExists = entry.frames.some(
+      (f) =>
+        f.baseTime === frame.baseTime &&
+        f.validTime === frame.validTime &&
+        f.element === frame.element &&
+        f.member === frame.member,
+    );
+    if (!frameExists || !this.options.allowedZooms.includes(coordinate.zoom)) return null;
+    const snapshot = findRadarSnapshot(this.connection, frame.product);
+    const savedFrame = snapshot?.frames.find(
+      (f) => f.baseTime === frame.baseTime && f.validTime === frame.validTime,
+    );
+    const tile = savedFrame?.tiles?.find(
+      (t) =>
+        t.zoom === coordinate.zoom && t.tileX === coordinate.tileX && t.tileY === coordinate.tileY,
+    );
+    if (!tile) return null;
+    const buffer = await this.readVerifiedTile(tile);
+    return buffer === null
+      ? null
+      : {
+          kind: 'success' as const,
+          buffer,
+          catalogAvailability: entry.availability,
+          tileResult: 'cached' as const,
+          storedAt: tile.storedAt,
+        };
+  }
+
   async fetchFrameTiles(
     frame: NowcastFrameKey,
     coordinates: readonly TileCoordinate[],

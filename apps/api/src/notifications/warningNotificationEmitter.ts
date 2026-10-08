@@ -1,10 +1,11 @@
+import {
+  RetainedNotificationSink,
+  type NotificationRecordSink,
+} from '../runtime/retainedNotificationSink.js';
 import crypto from 'node:crypto';
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
-import {
-  findWarningCurrentSnapshot,
-  recordNotificationOutputHistory,
-} from '../repositories/index.js';
+import { findWarningCurrentSnapshot } from '../repositories/index.js';
 import type {
   ControlStatus,
   ParsedWarningTelegram,
@@ -25,7 +26,8 @@ import { toNotificationOutputHistoryInput } from './notificationOutputHistoryMap
 export interface WarningNotificationEmitDeps {
   readonly tracker: InitialWarningNotificationTracker;
   readonly now: () => UtcIso8601String;
-  readonly retainedConnection: DatabaseConnection;
+  readonly retainedConnection?: DatabaseConnection;
+  readonly recordSink?: NotificationRecordSink;
   readonly weatherDatabaseGenerationId: string;
   readonly notificationIdFactory?: () => string; // 既定 crypto.randomUUID
 }
@@ -77,17 +79,18 @@ export function emitWarningNotificationsForReception(
   // 永続化（C3のトランザクションとは独立して実行し、失敗してもC3を取り消さない）
   if (plan.notifications.length > 0) {
     try {
-      const transaction = deps.retainedConnection.transaction(() => {
+      const records = [];
+      {
         for (const planned of plan.notifications) {
           const recordInput = toNotificationOutputHistoryInput(
             planned.notification,
             planned.output,
             deps.weatherDatabaseGenerationId,
           );
-          recordNotificationOutputHistory(deps.retainedConnection, recordInput);
+          records.push(recordInput);
         }
-      });
-      transaction();
+      }
+      resolveSink(deps).record(records);
     } catch (error) {
       console.error('Failed to record warning notification output history:', error);
     }
@@ -155,17 +158,18 @@ export function emitInitialWarningNotifications(
 
     if (plan.notifications.length > 0) {
       try {
-        const transaction = deps.retainedConnection.transaction(() => {
+        const records = [];
+        {
           for (const planned of plan.notifications) {
             const recordInput = toNotificationOutputHistoryInput(
               planned.notification,
               planned.output,
               deps.weatherDatabaseGenerationId,
             );
-            recordNotificationOutputHistory(deps.retainedConnection, recordInput);
+            records.push(recordInput);
           }
-        });
-        transaction();
+        }
+        resolveSink(deps).record(records);
       } catch (error) {
         console.error('Failed to record initial warning notification output history:', error);
       }
@@ -184,4 +188,13 @@ export function emitInitialWarningNotifications(
     recordedCount,
     skipped,
   };
+}
+
+function resolveSink(deps: {
+  readonly recordSink?: NotificationRecordSink;
+  readonly retainedConnection?: DatabaseConnection;
+}): NotificationRecordSink {
+  if (deps.recordSink) return deps.recordSink;
+  if (deps.retainedConnection) return new RetainedNotificationSink(deps.retainedConnection);
+  throw new Error('保持通知sinkが構成されていません');
 }

@@ -1,3 +1,4 @@
+import type { NotificationRecordSink } from '../runtime/retainedNotificationSink.js';
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 import type { TimeBasedPollingStatus } from '../polling/timeBasedPollingScheduler.js';
@@ -22,7 +23,9 @@ export interface FetchHealthStatusProvider {
 
 export interface FetchHealthMonitorServiceOptions {
   readonly connection: DatabaseConnection;
-  readonly retainedConnection: DatabaseConnection;
+  readonly retainedConnection?: DatabaseConnection;
+  readonly recordSink?: NotificationRecordSink;
+  readonly runDecision?: <T>(work: () => T) => T;
   readonly statusProvider: FetchHealthStatusProvider;
   readonly config: FetchHealthConfig;
   readonly store?: FetchHealthStateStore;
@@ -47,7 +50,7 @@ export class FetchHealthMonitorService {
   }
 
   /** 1 回だけ評価して通知判定まで行う。テストの主入口。 */
-  runOnce(): {
+  private evaluateOnce(): {
     readonly aggregate: FetchHealthAggregate;
     readonly emit: FetchHealthNotificationEmitResult;
   } {
@@ -99,12 +102,19 @@ export class FetchHealthMonitorService {
       aggregate,
       this.store,
       {
+        recordSink: this.options.recordSink,
         now: () => now,
         notificationIdFactory: this.options.notificationIdFactory,
       },
     );
 
     return { aggregate, emit };
+  }
+
+  runOnce(): ReturnType<FetchHealthMonitorService['evaluateOnce']> {
+    return this.options.runDecision
+      ? this.options.runDecision(() => this.evaluateOnce())
+      : this.evaluateOnce();
   }
 
   private runOnceSafe(): void {

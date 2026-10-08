@@ -31,19 +31,33 @@ import type { MonitoringHistoryService } from './monitoring/monitoringHistorySer
 import type { FetchControlService } from './services/fetchControlService.js';
 import { isFetchControlRequestId, parseFetchControlRequest } from '@wx-viewer-poc/shared';
 
+/** HTTPは同期実装と非同期port facadeのどちらも受け取れる。 */
+export type AsyncCompatible<T> = {
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R
+    ? (...args: A) => R | Promise<Awaited<R>>
+    : T[K];
+};
+
 export interface AppDependencies {
   readonly venueConfig?: VenueConfigResponse;
   readonly terminalConfig?: TerminalConfigResponse;
   readonly terminalRegistry?: TerminalRegistry;
   readonly venueRegistry?: VenueRegistry;
-  readonly startupNotifications?: StartupNotificationService;
+  readonly startupNotifications?: AsyncCompatible<StartupNotificationService> & {
+    inquireWithSignal?(
+      input: Parameters<StartupNotificationService['inquire']>[0],
+      signal: AbortSignal,
+    ):
+      | ReturnType<StartupNotificationService['inquire']>
+      | Promise<ReturnType<StartupNotificationService['inquire']>>;
+  };
   readonly notificationDelta?: NotificationDeltaService;
-  readonly weatherApi?: WeatherApiService;
-  readonly nowcastApi?: NowcastApiService;
-  readonly kikikuruApi?: KikikuruApiService;
+  readonly weatherApi?: AsyncCompatible<WeatherApiService>;
+  readonly nowcastApi?: AsyncCompatible<NowcastApiService>;
+  readonly kikikuruApi?: AsyncCompatible<KikikuruApiService>;
   readonly monitoringStatus?: MonitoringStatusService;
-  readonly monitoringProcessing?: MonitoringProcessingService;
-  readonly monitoringHistory?: MonitoringHistoryService;
+  readonly monitoringProcessing?: AsyncCompatible<MonitoringProcessingService>;
+  readonly monitoringHistory?: AsyncCompatible<MonitoringHistoryService>;
   readonly fetchControl?: FetchControlService;
 }
 
@@ -84,7 +98,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   if (dependencies.weatherApi) {
     const weatherApi = dependencies.weatherApi;
 
-    app.get('/api/weather/warnings', (req, res) => {
+    app.get('/api/weather/warnings', async (req, res) => {
       const parsed = parseWeatherApiQuery(req.query);
       if (!parsed.ok) {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
@@ -97,7 +111,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = weatherApi.getWarnings(terminal, parsed.value.controlStatus);
+        const result = await weatherApi.getWarnings(terminal, parsed.value.controlStatus);
         res.setHeader('Cache-Control', 'no-store');
         res.status(200).json(result);
       } catch {
@@ -105,7 +119,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
     });
 
-    app.get('/api/weather/warning-timeseries', (req, res) => {
+    app.get('/api/weather/warning-timeseries', async (req, res) => {
       const parsed = parseWeatherApiQuery(req.query);
       if (!parsed.ok) {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
@@ -118,7 +132,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = weatherApi.getWarningTimeseries(terminal, parsed.value.controlStatus);
+        const result = await weatherApi.getWarningTimeseries(terminal, parsed.value.controlStatus);
         res.setHeader('Cache-Control', 'no-store');
         res.status(200).json(result);
       } catch {
@@ -126,7 +140,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
     });
 
-    app.get('/api/weather/early-warning', (req, res) => {
+    app.get('/api/weather/early-warning', async (req, res) => {
       const parsed = parseWeatherApiQuery(req.query);
       if (!parsed.ok) {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
@@ -139,7 +153,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = weatherApi.getEarlyWarning(terminal, parsed.value.controlStatus);
+        const result = await weatherApi.getEarlyWarning(terminal, parsed.value.controlStatus);
         res.setHeader('Cache-Control', 'no-store');
         res.status(200).json(result);
       } catch {
@@ -147,7 +161,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
     });
 
-    app.get('/api/weather/area-timeseries', (req, res) => {
+    app.get('/api/weather/area-timeseries', async (req, res) => {
       const parsed = parseWeatherApiQuery(req.query);
       if (!parsed.ok) {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
@@ -160,7 +174,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = weatherApi.getAreaTimeseries(terminal, parsed.value.controlStatus);
+        const result = await weatherApi.getAreaTimeseries(terminal, parsed.value.controlStatus);
         res.setHeader('Cache-Control', 'no-store');
         res.status(200).json(result);
       } catch {
@@ -168,7 +182,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
     });
 
-    app.get('/api/weather/amedas', (req, res) => {
+    app.get('/api/weather/amedas', async (req, res) => {
       const parsed = parseWeatherApiQuery(req.query);
       if (!parsed.ok) {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
@@ -181,7 +195,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = weatherApi.getAmedas(terminal, parsed.value.controlStatus);
+        const result = await weatherApi.getAmedas(terminal, parsed.value.controlStatus);
         res.setHeader('Cache-Control', 'no-store');
         res.status(200).json(result);
       } catch {
@@ -189,7 +203,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
     });
 
-    app.get('/api/weather/bulletins', (req, res) => {
+    app.get('/api/weather/bulletins', async (req, res) => {
       const parsed = parseWeatherApiQuery(req.query);
       if (!parsed.ok) {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
@@ -202,7 +216,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = weatherApi.getBulletins(terminal, parsed.value.controlStatus);
+        const result = await weatherApi.getBulletins(terminal, parsed.value.controlStatus);
         res.setHeader('Cache-Control', 'no-store');
         res.status(200).json(result);
       } catch {
@@ -213,7 +227,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
 
   if (dependencies.startupNotifications) {
     const startupNotifications = dependencies.startupNotifications;
-    app.post('/api/notifications/startup', (req, res) => {
+    app.post('/api/notifications/startup', async (req, res) => {
       res.setHeader('Cache-Control', 'no-store');
       if (!req.is('application/json')) {
         res.status(400).json({ status: 'error', code: 'invalid_request' });
@@ -229,26 +243,36 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         res.status(404).json({ status: 'error', code: 'terminal_not_found' });
         return;
       }
+      const controller = new AbortController();
+      const onClose = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.once('close', onClose);
       try {
-        const result = startupNotifications.inquire({
+        const input = {
           terminalId: parsed.terminalId,
           venueId: resolveConfiguredVenueId(terminal.id),
           sessionId: parsed.sessionId,
           serverGenerationId: parsed.serverGenerationId,
           inquiredAt: new Date().toISOString(),
-        });
+        };
+        const result = await (startupNotifications.inquireWithSignal
+          ? startupNotifications.inquireWithSignal(input, controller.signal)
+          : startupNotifications.inquire(input));
         res
           .status(result.status === 'error' ? 409 : result.status === 'initializing' ? 202 : 200)
           .json(result);
       } catch {
         res.status(500).json({ status: 'error', code: 'startup_notification_failed' });
+      } finally {
+        res.off('close', onClose);
       }
     });
   }
 
   if (dependencies.notificationDelta) {
     const notificationDelta = dependencies.notificationDelta;
-    app.get('/api/notifications/delta', (req, res) => {
+    app.get('/api/notifications/delta', async (req, res) => {
       const parsed = parseNotificationDeltaQuery(req.query);
       if (parsed === null) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -289,7 +313,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   if (dependencies.nowcastApi) {
     const nowcastApi = dependencies.nowcastApi;
 
-    app.get('/api/weather/nowcast/times', (req, res) => {
+    app.get('/api/weather/nowcast/times', async (req, res) => {
       const parsed = parseWeatherApiQuery(req.query);
       if (!parsed.ok) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -302,7 +326,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = nowcastApi.getTimes(terminal, parsed.value.controlStatus);
+        const result = await nowcastApi.getTimes(terminal, parsed.value.controlStatus);
         sendJsonNoStore(res, 200, result);
       } catch (err) {
         if (err instanceof ImageServicesInitializingError) {
@@ -360,7 +384,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   if (dependencies.kikikuruApi) {
     const kikikuruApi = dependencies.kikikuruApi;
 
-    app.get('/api/weather/kikikuru/times', (req, res) => {
+    app.get('/api/weather/kikikuru/times', async (req, res) => {
       const parsed = parseWeatherApiQuery(req.query);
       if (!parsed.ok) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -373,7 +397,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = kikikuruApi.getTimes(terminal, parsed.value.controlStatus);
+        const result = await kikikuruApi.getTimes(terminal, parsed.value.controlStatus);
         sendJsonNoStore(res, 200, result);
       } catch (err) {
         if (err instanceof ImageServicesInitializingError) {
@@ -430,7 +454,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
 
   if (dependencies.monitoringStatus) {
     const monitoringStatus = dependencies.monitoringStatus;
-    app.get('/api/monitoring/status', (req, res) => {
+    app.get('/api/monitoring/status', async (req, res) => {
       const parsed = parseMonitoringStatusQuery(req.query);
       if (parsed === null) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -452,7 +476,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
 
   if (dependencies.monitoringProcessing) {
     const monitoringProcessing = dependencies.monitoringProcessing;
-    app.get('/api/monitoring/processing', (req, res) => {
+    app.get('/api/monitoring/processing', async (req, res) => {
       const parsed = parseMonitoringProcessingQuery(req.query);
       if (parsed === null) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -464,7 +488,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = monitoringProcessing.getProcessing(terminal);
+        const result = await monitoringProcessing.getProcessing(terminal);
         sendJsonNoStore(res, 200, result);
       } catch {
         sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_processing_failed' });
@@ -475,21 +499,21 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   if (dependencies.monitoringHistory) {
     const monitoringHistory = dependencies.monitoringHistory;
 
-    app.get('/api/monitoring/receptions', (req, res) => {
+    app.get('/api/monitoring/receptions', async (req, res) => {
       const parsed = parseMonitoringReceptionQuery(req.query);
       if (parsed === null) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
       try {
-        const result = monitoringHistory.listReceptions(parsed);
+        const result = await monitoringHistory.listReceptions(parsed);
         sendJsonNoStore(res, 200, result);
       } catch {
         sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
       }
     });
 
-    app.get('/api/monitoring/receptions/:id', (req, res) => {
+    app.get('/api/monitoring/receptions/:id', async (req, res) => {
       const id = parseMonitoringReceptionIdParam(req.params.id);
       if (Object.keys(req.query).length > 0) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -500,7 +524,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = monitoringHistory.getReceptionById(id);
+        const result = await monitoringHistory.getReceptionById(id);
         if (result === null) {
           sendJsonNoStore(res, 404, { status: 'error', code: 'reception_not_found' });
           return;
@@ -511,28 +535,28 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
     });
 
-    app.get('/api/monitoring/notification-outputs', (req, res) => {
+    app.get('/api/monitoring/notification-outputs', async (req, res) => {
       const parsed = parseMonitoringNotificationOutputQuery(req.query);
       if (parsed === null) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
       try {
-        const result = monitoringHistory.listNotificationOutputs(parsed);
+        const result = await monitoringHistory.listNotificationOutputs(parsed);
         sendJsonNoStore(res, 200, result);
       } catch {
         sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
       }
     });
 
-    app.get('/api/monitoring/notification-outputs/:id/reception', (req, res) => {
+    app.get('/api/monitoring/notification-outputs/:id/reception', async (req, res) => {
       const id = parseMonitoringReceptionIdParam(req.params.id);
       if (id === null || Object.keys(req.query).length > 0) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
       try {
-        const result = monitoringHistory.getNotificationReceptionById(id);
+        const result = await monitoringHistory.getNotificationReceptionById(id);
         if (result.kind === 'not_found') {
           sendJsonNoStore(res, 404, { status: 'error', code: 'notification_output_not_found' });
         } else if (result.kind === 'unavailable') {
@@ -549,14 +573,14 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
     });
 
-    app.get('/api/monitoring/operations', (req, res) => {
+    app.get('/api/monitoring/operations', async (req, res) => {
       const parsed = parseMonitoringOperationQuery(req.query);
       if (parsed === null) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
       try {
-        const result = monitoringHistory.listOperations(parsed);
+        const result = await monitoringHistory.listOperations(parsed);
         sendJsonNoStore(res, 200, result);
       } catch {
         sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
@@ -605,7 +629,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     app.post('/api/control/fetch/stop', handleOperation('stop'));
     app.post('/api/control/fetch/force-refresh', handleOperation('force_refresh'));
 
-    app.get('/api/control/operations/:requestId', (req, res) => {
+    app.get('/api/control/operations/:requestId', async (req, res) => {
       if (!fetchControl.isAvailable()) {
         sendJsonNoStore(res, 503, { status: 'error', code: 'fetch_control_unavailable' });
         return;

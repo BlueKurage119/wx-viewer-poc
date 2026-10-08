@@ -43,13 +43,13 @@ export class ForceRefreshFailedError extends Error {
 
 export interface FetchControlTargets {
   /** scheduler.start() 相当。冪等。 */
-  start(): Promise<void>;
+  start(operationId?: string): Promise<void>;
   /** scheduler.stop() 相当。新規投入を止め、実行中のXML取得サイクルを電文境界で打ち切ってから戻る。非XMLの実行中ジョブは完了を待つ。冪等。 */
-  stop(): Promise<void>;
+  stop(operationId?: string): Promise<void>;
   /** 定期予定に影響しない全取得元の単発実行。夜間帯でも実行する（§9-A）。失敗時は ForceRefreshFailedError を投げる。 */
-  forceRefresh(): Promise<void>;
+  forceRefresh(operationId?: string): Promise<void>;
   /** 長期フィードを含む復旧取得を1回行う（§9-B）。scheduler.runRecoveryOnce() 相当。 */
-  runRecovery(): Promise<void>;
+  runRecovery(operationId?: string): Promise<void>;
   /** 現在の運転状態（スケジューラの isRunning 由来）。 */
   isRunning(): boolean;
   /** 現在時刻が上流取得を許す時間帯か（resolvePollingPeriod(now).xmlSeconds !== null）。§9-B の復旧判定に使う。 */
@@ -205,6 +205,7 @@ export function createFetchControlService(
 
   async function runStartOrStop(
     kind: 'start' | 'stop',
+    operationId: string,
     requestedAt: UtcIso8601String,
   ): Promise<RunOutcome> {
     const targets = deps.targets;
@@ -220,13 +221,13 @@ export function createFetchControlService(
 
     try {
       if (kind === 'start') {
-        await targets.start();
+        await targets.start(operationId);
 
         if (lastStoppedAt !== null) {
           const elapsedMs = new Date(requestedAt).getTime() - new Date(lastStoppedAt).getTime();
           if (elapsedMs >= RESUME_RECOVERY_THRESHOLD_MS && targets.isUpstreamAllowedNow()) {
             try {
-              await targets.runRecovery();
+              await targets.runRecovery(operationId);
             } catch (error) {
               // §5.6: 復旧の失敗は開始操作の failure にしない。
               console.error('開始操作に伴う復旧取得に失敗しました:', error);
@@ -241,7 +242,7 @@ export function createFetchControlService(
         return { completedAt, result: 'success', errorCode: null, errorMessage: null };
       }
 
-      await targets.stop();
+      await targets.stop(operationId);
       const completedAt = deps.now();
       lastStoppedAt = completedAt;
       return { completedAt, result: 'success', errorCode: null, errorMessage: null };
@@ -256,7 +257,7 @@ export function createFetchControlService(
     }
   }
 
-  async function runForceRefresh(): Promise<RunOutcome> {
+  async function runForceRefresh(operationId: string): Promise<RunOutcome> {
     const targets = deps.targets;
     if (targets === null) {
       const completedAt = deps.now();
@@ -268,7 +269,7 @@ export function createFetchControlService(
       };
     }
     try {
-      await targets.forceRefresh();
+      await targets.forceRefresh(operationId);
       const completedAt = deps.now();
       return { completedAt, result: 'success', errorCode: null, errorMessage: null };
     } catch (error) {
@@ -400,7 +401,7 @@ export function createFetchControlService(
         // ことで、レーン待機中に届いた別 requestId の強制更新も正しくこの sharedPromise へ
         // 合流できるようにする（レーン内で登録すると、その順番が来るまでの間に届いた要求が
         // 合流できず、開始・停止を挟んで上流取得が複数回走ってしまう）。
-        const sharedPromise = lane.then(() => runForceRefresh());
+        const sharedPromise = lane.then(() => runForceRefresh(requestId));
         activeForceRefresh = { promise: sharedPromise };
         lane = sharedPromise.then(
           () => undefined,
@@ -415,7 +416,7 @@ export function createFetchControlService(
         return finalizeOperation(kind, requestId, requestedAt, outcome);
       }
 
-      const runPromise = lane.then(() => runStartOrStop(kind, requestedAt));
+      const runPromise = lane.then(() => runStartOrStop(kind, requestId, requestedAt));
       lane = runPromise.then(
         () => undefined,
         () => undefined,

@@ -101,6 +101,7 @@ export interface StartupNotificationInquiryInput {
 export interface StartupNotificationService {
   inquire(
     input: StartupNotificationInquiryInput,
+    prepared?: { readonly projection: StartupProjectionResult; readonly cursor: number },
   ):
     | StartupNotificationInitializingResponse
     | StartupNotificationReadyResponse
@@ -138,7 +139,7 @@ export function createStartupNotificationService(
   const recordInquiry = dependencies.recordInquiry ?? recordStartupNotificationInquiry;
 
   return {
-    inquire(input) {
+    inquire(input, prepared) {
       const terminal = dependencies.terminalRegistry.resolveTerminal(input.terminalId);
       if (terminal === null || terminal.venueId !== input.venueId) {
         throw new Error('terminalId and venueId do not match the terminal registry');
@@ -176,19 +177,22 @@ export function createStartupNotificationService(
               claimedAt: inquiredAt,
               sessionId: input.sessionId,
             });
-          const maxSequence = findMaxNotificationOutputSequence(dependencies.retainedConnection);
-          const projection = dependencies.weatherConnection.transaction(() =>
-            projector(
-              dependencies.weatherConnection,
-              {
-                venueRegistry: dependencies.venueRegistry,
-                venueId: input.venueId,
-                now: inquiredAt,
-                includeWarningCategory: warningClaimed,
-              },
-              outputIdFactory,
-            ),
-          )();
+          const maxSequence =
+            prepared?.cursor ?? findMaxNotificationOutputSequence(dependencies.retainedConnection);
+          const projection =
+            prepared?.projection ??
+            dependencies.weatherConnection.transaction(() =>
+              projector(
+                dependencies.weatherConnection,
+                {
+                  venueRegistry: dependencies.venueRegistry,
+                  venueId: input.venueId,
+                  now: inquiredAt,
+                  includeWarningCategory: warningClaimed,
+                },
+                outputIdFactory,
+              ),
+            )();
           if (
             projection &&
             typeof (projection as unknown as { then?: unknown }).then === 'function'
@@ -206,7 +210,12 @@ export function createStartupNotificationService(
               firstInquiredAt: session.firstInquiredAt as UtcIso8601String,
             },
             warningClaimed,
-            notifications: projection.notifications,
+            notifications:
+              prepared && !warningClaimed
+                ? projection.notifications.filter(
+                    (notification) => notification.category !== 'warning',
+                  )
+                : projection.notifications,
             cursor: toNotificationDeltaCursor(maxSequence),
           };
           recordInquiry(dependencies.retainedConnection, {

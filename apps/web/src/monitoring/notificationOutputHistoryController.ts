@@ -79,6 +79,7 @@ export function createNotificationOutputHistoryController(
             'reception_missing',
             'raw_body_missing',
             'generation_unknown',
+            'weather_unavailable',
           ] as const;
           const reason = reasons.find((value) => value === error.reason);
           if (reason === undefined) throw new Error('参照状態不明');

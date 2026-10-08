@@ -1,3 +1,7 @@
+import {
+  RetainedNotificationSink,
+  type NotificationRecordSink,
+} from '../runtime/retainedNotificationSink.js';
 import crypto from 'node:crypto';
 import type { SystemNotification, UtcIso8601String } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
@@ -9,9 +13,9 @@ import {
   type FetchHealthNotificationSkip,
 } from './fetchHealthNotificationPlanner.js';
 import { toNotificationOutputHistoryInput } from './notificationOutputHistoryMapper.js';
-import { recordNotificationOutputHistory } from '../repositories/notificationOutputHistoryRepository.js';
 
 export interface FetchHealthNotificationEmitDeps {
+  readonly recordSink?: NotificationRecordSink;
   readonly now: () => UtcIso8601String;
   readonly notificationIdFactory?: () => string; // 既定 crypto.randomUUID
 }
@@ -25,7 +29,7 @@ export interface FetchHealthNotificationEmitResult {
 }
 
 export function emitFetchHealthNotification(
-  connection: DatabaseConnection,
+  connection: DatabaseConnection | undefined,
   aggregate: FetchHealthAggregate,
   store: FetchHealthStateStore,
   deps: FetchHealthNotificationEmitDeps,
@@ -45,9 +49,16 @@ export function emitFetchHealthNotification(
   for (const planned of plan.notifications) {
     try {
       const input = toNotificationOutputHistoryInput(planned.notification, planned.output, null);
-      connection.transaction(() => {
-        recordNotificationOutputHistory(connection, input);
-      })();
+      const sink =
+        deps.recordSink ?? (connection ? new RetainedNotificationSink(connection) : null);
+      if (!sink) throw new Error('保持通知sinkが構成されていません');
+      sink.record([input], () => {
+        const index = recorded.findIndex(
+          (item) => item.notificationId === planned.notification.notificationId,
+        );
+        if (index >= 0) recorded.splice(index, 1);
+        recordFailedSourceIds.push(planned.sourceId);
+      });
       recorded.push(planned.notification);
     } catch (error) {
       console.error(
