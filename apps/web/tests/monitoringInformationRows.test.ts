@@ -493,3 +493,37 @@ test('Issue #187: isFailed === true のとき buildInformationRows は normal �
     }
   }
 });
+
+test('予報3行は発表時刻、その他5行は基準時刻を使い、null・JST・状態を保持する', () => {
+  const forecastKinds = ['warning_timeseries', 'early_warning', 'area_timeseries'];
+  for (const availability of ['available', 'stale', 'unavailable'] as const) {
+    for (const issuedAt of ['2026-10-08T08:00:00.000Z', null]) {
+      const information = createDefaultVenueInformation('east').map((section) => ({
+        ...section,
+        availability,
+        issuedAt,
+        validAt: '2026-10-08T15:00:00.000Z',
+        fetchedAt: '2026-10-08T08:05:00.000Z',
+      }));
+      const rows = buildInformationRows({
+        ...normalMonitoringResponseFixture,
+        requestedVenueId: 'east',
+        information,
+      });
+      for (const row of rows) {
+        const forecast = forecastKinds.includes(row.kind);
+        assert.equal(row.validAt, forecast ? issuedAt : '2026-10-08T15:00:00.000Z');
+        assert.equal(
+          row.validAtText,
+          forecast ? (issuedAt === null ? '—' : '10/08 17:00:00') : '10/09 00:00:00',
+        );
+        assert.equal(row.fetchedAt, '2026-10-08T08:05:00.000Z');
+        assert.equal(row.fetchedAtText, '10/08 17:05:00');
+        assert.equal(
+          row.stateLabel,
+          { available: '利用可能', stale: '情報なし', unavailable: '未取得' }[availability],
+        );
+      }
+    }
+  }
+});
