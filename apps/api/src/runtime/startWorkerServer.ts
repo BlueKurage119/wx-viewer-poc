@@ -509,12 +509,17 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
               validatedDatabaseGeneration === host.epoch.weatherDatabaseGenerationId &&
               validatedSchemaVersion !== null
             ) {
-              await delivery.connectReader({
-                generation: validatedDatabaseGeneration,
-                schemaVersion: validatedSchemaVersion,
-                acquisitionEpoch: host.epoch,
-                readerEpoch: randomUUID(),
-              });
+              try {
+                await delivery.connectReader({
+                  generation: validatedDatabaseGeneration,
+                  schemaVersion: validatedSchemaVersion,
+                  acquisitionEpoch: host.epoch,
+                  readerEpoch: randomUUID(),
+                });
+              } catch {
+                // 再開操作は新Workerの受付で確定する。reader接続障害はruntimeの異常状態に残す。
+                return;
+              }
               connectedAcquisitionEpoch = host.epoch;
               publication = new WeatherPublicationGate(host.epoch, delivery.epoch);
               for (const [id, sample] of application?.samples ?? []) lastSamples.set(id, sample);
