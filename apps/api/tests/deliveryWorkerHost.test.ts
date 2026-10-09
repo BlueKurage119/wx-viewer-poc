@@ -12,12 +12,23 @@ import {
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import { testTerminalRegistry, testVenueRegistry } from './helpers/venueConfigPreload.js';
 
-async function until(check: () => boolean) {
-  const deadline = Date.now() + 5000;
+async function until(check: () => boolean, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
   while (!check()) {
     if (Date.now() > deadline) assert.fail('Worker状態が期限内に更新されませんでした');
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+function workerEvent(worker: Worker, event: string): Promise<void> {
+  return new Promise((resolve) => {
+    const onMessage = (message: { test?: string }) => {
+      if (message.test !== event) return;
+      worker.off('message', onMessage);
+      resolve();
+    };
+    worker.on('message', onMessage);
+  });
 }
 
 function createHost(workerEntry?: URL) {
@@ -94,17 +105,93 @@ test('Worker errorイベントでは有限に失敗し、通知を重複させ�
   }
 });
 
-test('提供Workerの報告途絶は一度だけ異常通知し、freshな報告でもfailureを隠さない', async (t) => {
+test('提供Workerの報告途絶は処理をfailedにせず、一度だけ異常通知する', async (t) => {
   const f = createHost();
   try {
     await f.host.start();
     const realNow = Date.now;
     t.mock.method(Date, 'now', () => realNow() + 20000);
-    await until(() => f.host.status().failureCode === 'report_stale');
+    await until(() => f.failures.includes('report_stale'));
     assert.deepEqual(f.failures, ['report_stale']);
-    assert.equal(f.host.status().lifecycle, 'failed');
+    assert.equal(f.host.status().lifecycle, 'starting');
+    assert.equal(f.host.status().failureCode, null);
     await new Promise((resolve) => setTimeout(resolve, 1100));
     assert.deepEqual(f.failures, ['report_stale']);
+  } finally {
+    t.mock.restoreAll();
+    await f.host.close();
+    f.cleanup();
+  }
+});
+
+test('実提供Workerの報告停止中もreadを受付け、復帰後の再staleで通知を増やさない', async (t) => {
+  const f = createHost(new URL('./fixtures/worker/delivery-heartbeat.ts', import.meta.url));
+  const databases = initializeDatabases(f.config);
+  const generation = databases.weatherDatabaseGenerationId;
+  const schemaVersion = (
+    databases.weather.connection
+      .prepare('SELECT MAX(version) AS version FROM __schema_migrations')
+      .get() as {
+      version: number;
+    }
+  ).version;
+  databases.close();
+  try {
+    await f.host.start();
+    await f.host.connectReader({
+      generation,
+      schemaVersion,
+      acquisitionEpoch: {
+        serverGenerationId: 'server',
+        workerGeneration: 'acquisition',
+        weatherDatabaseGenerationId: generation,
+        readerEpoch: null,
+      },
+      readerEpoch: 'reader',
+    });
+    const worker = f.workers[0]!;
+    const paused = workerEvent(worker, 'reports-paused');
+    worker.postMessage({ type: 'test', id: 'fixture-control', test: 'pause-reports' });
+    await paused;
+    await until(() => f.host.status().reportFreshness === 'stale', 22000);
+    await until(() => f.failures.includes('report_stale'));
+    assert.equal(f.host.status().lifecycle, 'ready');
+    assert.equal(f.host.status().failureCode, null);
+    assert.equal(f.host.status().restartAllowed, true);
+    assert.equal(f.workers.length, 1);
+    const response = await f.host.read(
+      'monitoring.sample',
+      {
+        terminal: testTerminalRegistry.listTerminals()[0]!,
+        requestedAt: new Date().toISOString(),
+      } as never,
+      { report: null, unknownScopes: [], validatedScopes: [] },
+    );
+    assert.equal(typeof response, 'object');
+    const resumed = workerEvent(worker, 'reports-resumed');
+    worker.postMessage({ type: 'test', id: 'fixture-control', test: 'resume-reports' });
+    await resumed;
+    await until(() => f.host.status().reportFreshness === 'fresh', 7000);
+    const pausedAgain = workerEvent(worker, 'reports-paused');
+    worker.postMessage({ type: 'test', id: 'fixture-control', test: 'pause-reports' });
+    await pausedAgain;
+    const realNow = Date.now;
+    t.mock.method(Date, 'now', () => realNow() + 20000);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    assert.deepEqual(f.failures, ['report_stale']);
+    assert.equal(f.host.status().lifecycle, 'ready');
+    t.mock.restoreAll();
+    worker.postMessage({ type: 'test', id: 'fixture-control', test: 'send-protocol-error' });
+    await until(() => f.host.status().failureCode === 'protocol_error');
+    assert.equal(f.host.status().lifecycle, 'failed');
+    const beforeReport = f.host.status().receivedAt;
+    const reportsResumed = workerEvent(worker, 'reports-resumed');
+    worker.postMessage({ type: 'test', id: 'fixture-control', test: 'resume-reports' });
+    await reportsResumed;
+    await until(() => f.host.status().receivedAt !== beforeReport, 7000);
+    assert.equal(f.host.status().failureCode, 'protocol_error');
+    assert.equal(f.host.status().lifecycle, 'failed');
+    assert.deepEqual(f.failures, ['report_stale', 'protocol_error']);
   } finally {
     t.mock.restoreAll();
     await f.host.close();

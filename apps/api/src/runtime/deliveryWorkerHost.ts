@@ -52,19 +52,24 @@ export class DeliveryWorkerHost {
         this.receivedAt &&
         Date.now() - Date.parse(this.receivedAt) > 15000
       )
-        this.fail('report_stale');
+        this.notice('report_stale');
     }, 1000);
     this.staleTimer.unref();
+  }
+  private notice(code: string) {
+    if (this.closing) return;
+    const key = `${this.epoch.workerGeneration}:${code}`;
+    if (!this.failures.has(key)) {
+      this.failures.add(key);
+      this.options.onFailure(code, this.epoch.workerGeneration);
+      this.options.onReport?.();
+    }
   }
   private fail(code: string) {
     if (this.closing) return;
     this.failureCode ??= code as WeatherRuntimeStatus['failureCode'];
     this.lifecycle = 'failed';
-    const key = `${this.epoch.workerGeneration}:${code}`;
-    if (!this.failures.has(key)) {
-      this.failures.add(key);
-      this.options.onFailure(code, this.epoch.workerGeneration);
-    }
+    this.notice(code);
     this.options.onReport?.();
   }
   status(): WeatherRuntimeStatus {
