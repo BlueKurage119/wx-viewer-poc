@@ -64,12 +64,15 @@ test('提供転送は容量予約後に分割した完全なbytesを返す', asy
       statusCode: number;
       contentType: string;
       bytes: Uint8Array;
+      release: () => void;
     }>(randomUUID(), epoch, 'read.http', null, 5000, true);
     assert.equal(reply.statusCode, 200);
     assert.equal(reply.contentType, 'image/png');
     assert.deepEqual(reply.bytes, source);
     assert.deepEqual(detached, [0, 0, 0]);
     assert.deepEqual(failures, []);
+    assert.equal(client.size, 1);
+    reply.release();
     assert.equal(client.size, 0);
   } finally {
     client.close();
@@ -322,6 +325,56 @@ test('受領bytes予約はreleaseまで保持し、二重releaseは安全', asyn
     );
     assert.equal(third.bytes.byteLength, 1);
     third.release();
+  } finally {
+    client.close();
+    server.close();
+    port1.close();
+    port2.close();
+  }
+});
+
+test('起動読取のHTTP leaseは8枠を保持し、closeで要求数とbytes予約を戻す', async () => {
+  const { port1, port2 } = new MessageChannel();
+  const server = new DeliveryTransport(
+    port2,
+    async () => ({
+      __deliveryHttp: {
+        statusCode: 200,
+        contentType: 'application/json; charset=utf-8',
+        bytes: new Uint8Array([123, 125]),
+        headers: {},
+      },
+    }),
+    () => {},
+  );
+  const client = new DeliveryTransport(
+    port1,
+    async () => null,
+    () => {},
+  );
+  try {
+    const leases = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        client.call<{ release: () => void }>(
+          randomUUID(),
+          epoch,
+          'read.http',
+          { kind: 'startup.project' },
+          5000,
+          true,
+        ),
+      ),
+    );
+    assert.equal(client.size, 8);
+    await assert.rejects(
+      client.call(randomUUID(), epoch, 'read.http', { kind: 'startup.project' }, 5000, true),
+      /busy/,
+    );
+    client.close();
+    assert.equal(client.size, 0);
+    assert.equal((client as unknown as { reservedBytes: number }).reservedBytes, 0);
+    for (const lease of leases) lease.release();
+    assert.equal(client.size, 0);
   } finally {
     client.close();
     server.close();

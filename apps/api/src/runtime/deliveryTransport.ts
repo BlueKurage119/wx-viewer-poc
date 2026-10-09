@@ -64,6 +64,8 @@ export class DeliveryTransport {
   private reservedBytes = 0;
   private sendingBytes = 0;
   private readonly leases = new Set<() => void>();
+  private readonly leasedByLane = { payload: 0, control: 0, lifecycle: 0 };
+  private leasedStartups = 0;
   private readonly inFlight = new Set<string>();
   private closed = false;
   constructor(
@@ -80,7 +82,12 @@ export class DeliveryTransport {
     endpoint.on('message', this.onMessage);
   }
   get size() {
-    return this.pending.size;
+    return (
+      this.pending.size +
+      this.leasedByLane.payload +
+      this.leasedByLane.control +
+      this.leasedByLane.lifecycle
+    );
   }
   isCancelled(id: string) {
     return this.cancelled.has(id);
@@ -196,8 +203,7 @@ export class DeliveryTransport {
         headers: packet.headers,
       };
       this.reservedBytes += packet.byteLength;
-      if (packet.byteLength === 0)
-        this.finish(packet.id, null, { ...pending.result, bytes: new Uint8Array(0) });
+      if (packet.byteLength === 0) this.completeHttp(packet.id, pending, new Uint8Array(0));
       return;
     }
     if (packet.type === 'frame') {
@@ -232,19 +238,26 @@ export class DeliveryTransport {
           bytes.set(chunk, offset);
           offset += chunk.byteLength;
         }
-        const heldBytes = pending.byteLength;
-        pending.byteLength = 0;
-        let released = false;
-        const release = () => {
-          if (released) return;
-          released = true;
-          this.reservedBytes -= heldBytes;
-          this.leases.delete(release);
-        };
-        this.leases.add(release);
-        this.finish(packet.id, null, { ...pending.result!, bytes, release });
+        this.completeHttp(packet.id, pending, bytes);
       }
     }
+  }
+  private completeHttp(id: string, pending: Pending, bytes: Uint8Array) {
+    const heldBytes = pending.byteLength ?? 0;
+    pending.byteLength = 0;
+    this.leasedByLane[pending.lane]++;
+    if (pending.startup) this.leasedStartups++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      this.reservedBytes -= heldBytes;
+      this.leasedByLane[pending.lane]--;
+      if (pending.startup) this.leasedStartups--;
+      this.leases.delete(release);
+    };
+    this.leases.add(release);
+    this.finish(id, null, { ...pending.result!, bytes, release });
   }
   private readonly cancelled = new Set<string>();
   private acquireFrame(): Promise<void> {
@@ -287,14 +300,23 @@ export class DeliveryTransport {
           ? 'control'
           : 'lifecycle';
     const laneLimit = lane === 'payload' ? 64 : lane === 'control' ? 8 : 2;
-    if ([...this.pending.values()].filter((pending) => pending.lane === lane).length >= laneLimit)
+    if (
+      [...this.pending.values()].filter((pending) => pending.lane === lane).length +
+        this.leasedByLane[lane] >=
+      laneLimit
+    )
       return Promise.reject(new WeatherRequestError('busy'));
     const startup =
       (method === 'read' || method === 'read.http') &&
       typeof value === 'object' &&
       value !== null &&
       (value as { kind?: unknown }).kind === 'startup.project';
-    if (startup && [...this.pending.values()].filter((pending) => pending.startup).length >= 8)
+    if (
+      startup &&
+      [...this.pending.values()].filter((pending) => pending.startup).length +
+        this.leasedStartups >=
+        8
+    )
       return Promise.reject(new WeatherRequestError('busy'));
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
