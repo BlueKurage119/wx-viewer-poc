@@ -39,6 +39,7 @@ export class AcquisitionWorkerHost {
   private readonly sink: RetainedNotificationSink;
   epoch: WeatherEpoch;
   report: AcquisitionReport | null = null;
+  preparationCompleted = false;
   desiredRunning: boolean;
   private intentRevision = 0;
   weatherPrepared: Promise<WeatherPreparationOutcome>;
@@ -134,6 +135,7 @@ export class AcquisitionWorkerHost {
     this.stopReason = null;
     this.failureCode = null;
     this.report = null;
+    this.preparationCompleted = false;
     this.receivedAt = null;
     const nonce = randomUUID();
     const authorizeUntil = Date.now() + 5000;
@@ -237,6 +239,8 @@ export class AcquisitionWorkerHost {
           return null;
         }
         if (method === 'initialization.failed') {
+          this.preparationCompleted = true;
+          this.options.onReport();
           this.lifecycle = 'failed';
           this.stopReason = 'initialization_failed';
           this.notify('initialization_failed');
@@ -245,6 +249,8 @@ export class AcquisitionWorkerHost {
         }
         if (this.failureCode) throw new Error(this.failureCode);
         if (method === 'prepared') {
+          this.preparationCompleted = true;
+          this.options.onReport();
           this.preparedResolve({ status: 'ready', workerGeneration: this.epoch.workerGeneration });
           return null;
         }

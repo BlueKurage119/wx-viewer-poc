@@ -197,6 +197,8 @@ async function prepare() {
 }
 void prepare().catch(async () => {
   try {
+    // 準備途中の失敗でも、確定したローカル検証結果を最終報告する。
+    await report().catch(() => {});
     await transport.call('initialization.failed', {
       epoch,
       code: failureCode ?? 'initialization_failed',

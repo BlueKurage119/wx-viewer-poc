@@ -1,4 +1,4 @@
-import { weatherScopeBlocks, type WeatherScopeKind } from './weatherReadScope.js';
+import { weatherReadScope, weatherScopeBlocks, type WeatherScopeKind } from './weatherReadScope.js';
 import { InMemoryStartupProgressTracker } from '../monitoring/startupProgressTracker.js';
 import { InMemoryWarningCurrentRecoveryTracker } from '../monitoring/warningCurrentRecoveryTracker.js';
 import { logPollingConfig } from '../server.js';
@@ -102,6 +102,17 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
     let deliveryEpoch: WeatherEpoch | null = null;
     let readerImages: ReturnType<typeof createImageServices> | null = null;
     let closed = false;
+    let validatedDatabaseGeneration: string | null = null;
+    const locallyValidatedScopes = new Set<string>();
+    const isScopeReadable = (
+      venueId: Parameters<typeof weatherReadScope>[0],
+      status: Parameters<typeof weatherReadScope>[1],
+      kind: WeatherScopeKind,
+    ) =>
+      !weatherScopeBlocks(host.status().unknownScopes ?? [], venueId, status, kind) &&
+      (kind === 'nowcast' ||
+        kind === 'kikikuru' ||
+        locallyValidatedScopes.has(weatherReadScope(venueId, status, kind)));
     const initialization = new StartupNotificationInitialization();
     const emptyProgress = new InMemoryStartupProgressTracker(now, venue.registry);
     const emptyRecovery = new InMemoryWarningCurrentRecoveryTracker(venue.registry);
@@ -127,6 +138,11 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       serverGenerationId,
       retainedConnection: retained.connection,
       onReport() {
+        // 同一DBの旧検証値は準備中だけ継続し、再検証失敗は完了時に公開対象から外す。
+        if (host.preparationCompleted) locallyValidatedScopes.clear();
+        if (host.report) {
+          for (const scope of host.report.locallyValidatedScopes) locallyValidatedScopes.add(scope);
+        }
         const state = host.report?.initialization;
         if (!state) return;
         initialization.replaceStatus({
@@ -215,6 +231,8 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       },
       async databaseReady(generation, schemaVersion, acquisitionEpoch) {
         if (closed) throw new Error('not_ready');
+        if (validatedDatabaseGeneration !== generation) locallyValidatedScopes.clear();
+        validatedDatabaseGeneration = generation;
         reader = openWeatherReader(config.weather, generation, schemaVersion);
         deliveryEpoch = {
           ...acquisitionEpoch,
@@ -227,8 +245,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
           connection,
           venueRegistry: venue.registry,
           getPollingStatus: () => host.report?.polling ?? undefined,
-          isScopeReadable: (venueId, status, kind) =>
-            !weatherScopeBlocks(host.status().unknownScopes ?? [], venueId, status, kind),
+          isScopeReadable,
           now,
         });
         readerImages = createImageServices({
@@ -386,7 +403,14 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       });
       if (!initialization.isReady(input.venueId) || input.serverGenerationId !== serverGenerationId)
         return service.inquire(input);
+      const hasValidatedProjection = () =>
+        (['normal', 'training'] as const).every((status) =>
+          (['warnings', 'bulletins'] as const).every((kind) =>
+            isScopeReadable(input.venueId, status, kind),
+          ),
+        );
       if (
+        !hasValidatedProjection() ||
         weatherScopeBlocks(host.decisions.pendingUnit?.scopes ?? [], input.venueId) ||
         weatherScopeBlocks(host.status().unknownScopes ?? [], input.venueId)
       )
@@ -409,7 +433,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
             if (running)
               await host.call('publication.pause', { token: token.id, expiresAt: token.expiresAt });
             gate.assertValid(token);
-            if (host.decisions.pendingUnit || deliveryEpoch !== epoch)
+            if (!hasValidatedProjection() || host.decisions.pendingUnit || deliveryEpoch !== epoch)
               throw new WeatherRequestError('generation_changed');
             const cursor = findMaxNotificationOutputSequence(retained.connection);
             options.weatherRequestObserver?.({
@@ -543,7 +567,6 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
               now: now(),
             });
           const status = application.dependencies.monitoringStatus!.getStatus(t);
-          const unknown = host.status().unknownScopes ?? [];
           const kinds: Record<string, WeatherScopeKind> = {
             warning: 'warnings',
             warning_timeseries: 'warning-timeseries',
@@ -555,7 +578,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
             kikikuru: 'kikikuru',
           };
           const blockedInformation = (item: MonitoringStatusResponse['information'][number]) =>
-            weatherScopeBlocks(unknown, item.venueId, 'normal', kinds[item.kind]);
+            !isScopeReadable(item.venueId, 'normal', kinds[item.kind]!);
           // 未完了unitは最終正常キャッシュより優先し、読取不能を正常0件にしない。
           const blocked = status.information.filter((item) => blockedInformation(item));
           return {

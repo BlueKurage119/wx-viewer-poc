@@ -129,3 +129,27 @@ AC15は既存MaterialボタンのsoftDisabledを専用再開ボタンに適用�
 AC15のChrome機能確認では1280/768/360pxで開始・処理中・完了後の同一再開ボタンと内部buttonへのフォーカス維持を確認した。1280pxの処理中にEnter/Space/クリックを追加してもPOSTは1件。360pxで利用者がTabにより再開履歴へ移動した場合は、完了後もその位置を維持し、フォーカスを奪い返さなかった。新規試験はコメント対照PASS→旧disabled使用でFAIL、soft-disabled属性の伝播除去で2件FAIL→byte完全復元を確認した。検証専用HTTP fixtureとChromeタブは終了・閉鎖し、viewportをresetした。
 
 AC7/AC15修正後の品質確認: 全API **982件PASS**、全Web **483件PASS**、`lint` / `typecheck` / `format:check` / `build` はすべてexit code 0。sharedは今回未変更のため前回63件PASSを再利用した。ビルドには既存の500kB超bundle警告のみが残る。
+
+## PR #262 初回レビュー修正（監視fallback / 未検証scope）
+
+レビュー指摘 `discussion_r4226490083`・`discussion_r4226490086` を受け、監視fallbackの`recent_adoptions`読取エラーを会場なし1件、`tiles`読取エラーをnowcast/kikikuru各1件に修正した。実HTTPのDB初期化前・初期化失敗のDTOをWeb本来の`createMonitoringStatusClient`へ通し、失敗後の専用再開APIがsuccessとなりWorker世代が交代することを確認した。
+
+通常気象APIと監視はDB世代に結び付けたローカル検証成功scopeを使う。初回の未検証snapshotは公開せず、同じDB世代の確認済み旧scopeは異常終了後・手動再開準備中に維持する。preparedまたはinitialization.failed時に今回の確定検証集合へ置換し、読取失敗scopeや未確認scopeの旧成功を残さない。準備途中に例外が出てもWorkerは最終reportを試み、報告が欠落した場合は確認根拠のない成功集合を公開しない。未知update scopeの遮断が検証成功集合より優先する既存保証は維持する。新DB世代では旧集合を破棄する。
+
+起動現況の投影も通常/訓練×警報/速報の4scopeを照合し、publication.pause後にも再照合する。未検証の訓練速報scopeで当該会場はinitializing、検証済み別会場はreadyを確認した。Web UIの配置・文言・見た目は変更していない。
+
+追加した`workerStartupReadContract.test.ts`の実Worker/HTTP試験5件は次を確認した。
+
+- 監視fallbackのWeb検証通過・失敗状態・専用再開success。
+- 保存済み不整合警報snapshotの初回準備中公開抑止。
+- 検証済み旧scopeの異常終了後・再開準備中継続、再検証読取失敗だけの遮断。
+- ローカル読取失敗後の準備全体例外でも検証成功scopeは維持、失敗/未確認scopeは遮断。最終report欠落時は根拠のない旧成功を遮断。
+- 起動現況の訓練速報scope未検証を迂回せず、別会場の投影を継続。初回取得phase・警報通知checkpoint・停止意図の独立を維持。
+
+意味を変えないコメント改変の対照5件PASSを先に確認した。旧fallbackと通常APIのローカル検証ゲート無効化は、Web応答形式エラーと未整合snapshotのstale公開を新規試験が検出した。準備失敗時の確定集合反映・起動投影scopeゲートを無効化すると、該当3件がFAIL、残り2件はPASSとなった。すべて復元した。既存scope/公開境界試験も復元後に通過した。
+
+検証環境の差分: `NODE_ENV`未指定では`config/venues.local.yaml`の追加会場が読まれ、API984件中46件が失敗した。採用行の期待値へ追加会場が入る等の差であり、修正前HEADの同条件再実行はしていないため、修正前からの失敗とは断定しない。本番会場条件`NODE_ENV=production`では、途中の実行で新規試験のローカル会場期待値1件と公開監査試験の`UND_ERR_SOCKET`1件が失敗した。期待値を入力会場集合に合わせ、公開監査と新境界7件の個別通過後、API全984件の通過を確認した。準備失敗/報告欠落/起動投影の追加後の全987件では、986件PASS・dev:host試験1件が一時ポートの「already in use」で失敗した。製品や範囲外試験を変更せず、ビルド併走なしの再実行でAPI全987件PASS（52.92秒）を確認した。
+
+品質確認: `NODE_ENV=production npm run test -w apps/api` **987件PASS**。`lint` / `typecheck` / `format:check` / `build` はすべてexit code 0。sharedは63件PASS。WebにAPIと同じ`NODE_ENV=production`を指定するとReactの`act`が利用できず、StrictMode関連を含む6件が失敗したため、通常のWeb試験条件（`NODE_ENV`未指定の`npm run test -w apps/web`）で再実行し483件PASSを確認した。ビルドには従来の500kB超bundle警告が残る。
+
+記録: Codex (GPT-6.1 Sol)。

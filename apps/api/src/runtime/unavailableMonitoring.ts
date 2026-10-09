@@ -80,13 +80,18 @@ export function unavailableMonitoring(input: {
       })),
     ),
     readErrors: [
-      ...input.registry.listVenueIds().map((venueId) => ({
-        section: 'recent_adoptions' as const,
-        venueId,
+      {
+        section: 'recent_adoptions',
+        venueId: null,
         kind: null,
+        code: 'weather_data_read_failed',
+      },
+      ...(['nowcast', 'kikikuru'] as const).map((kind) => ({
+        section: 'tiles' as const,
+        venueId: null,
+        kind,
         code: 'weather_data_read_failed' as const,
       })),
-      { section: 'tiles', venueId: null, kind: null, code: 'weather_data_read_failed' },
     ],
     tiles: { healthMonitored: false, healthCriteriaStatus: 'undecided', layers: [] },
   };

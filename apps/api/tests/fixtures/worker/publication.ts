@@ -32,6 +32,13 @@ const transport = new WeatherTransport(
       await new Promise((resolve) => setTimeout(resolve, pauseDelay));
       return runtime.decisions.pause(input.token, input.expiresAt);
     }
+    if (method === 'fixture.invalidate-scope') {
+      report.locallyValidatedScopes = report.locallyValidatedScopes.filter(
+        (scope) => scope !== value,
+      );
+      await transport.call('status', { epoch, report, failureCode: null });
+      return null;
+    }
     if (method === 'fixture.pause-delay') {
       pauseDelay = value as number;
       return null;
@@ -107,5 +114,19 @@ const runtime = createAcquisitionRuntime(
 );
 runtime.initialization.setInitialFetchPhase('completed');
 for (const venue of data.settings.venues) runtime.initialization.markVenueEvaluated(venue.venueId);
-await transport.call('status', { epoch, report: runtime.status(), failureCode: null });
+// このfixtureは準備処理を省き、公開境界用に注入した整合済みsnapshotのscopeを明示する。
+const report = runtime.status();
+report.locallyValidatedScopes = data.settings.venues.flatMap((venue) =>
+  ['normal', 'training', 'test'].flatMap((status) =>
+    [
+      'warnings',
+      'warning-timeseries',
+      'early-warning',
+      'area-timeseries',
+      'amedas',
+      'bulletins',
+    ].map((kind) => `${venue.venueId}|${status}|${kind}`),
+  ),
+);
+await transport.call('status', { epoch, report, failureCode: null });
 await transport.call('prepared', { epoch });
