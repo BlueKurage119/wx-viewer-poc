@@ -151,6 +151,135 @@ test('8MiBちょうどの応答は全frameを受領して成功する', async ()
   }
 });
 
+test('256KiB-1と8MiB-1の提供応答は末尾frameまで受領し予約を解放する', async () => {
+  const { port1, port2 } = new MessageChannel();
+  const lengths: number[] = [];
+  port1.on('message', (packet: { type: string; bytes?: Uint8Array }) => {
+    if (packet.type === 'frame') lengths.push(packet.bytes!.byteLength);
+  });
+  let responseSize = 256 * 1024 - 1;
+  const server = new DeliveryTransport(
+    port2,
+    async () => ({
+      __deliveryHttp: {
+        statusCode: 200,
+        contentType: 'image/png',
+        bytes: new Uint8Array(responseSize),
+        headers: { 'content-type': 'image/png' },
+      },
+    }),
+    () => {},
+  );
+  const client = new DeliveryTransport(
+    port1,
+    async () => null,
+    () => {},
+  );
+  try {
+    for (const size of [256 * 1024 - 1, 8 * 1024 * 1024 - 1]) {
+      responseSize = size;
+      const result = await client.call<{ bytes: Uint8Array; release: () => void }>(
+        randomUUID(),
+        epoch,
+        'read.http',
+        null,
+        5000,
+        true,
+      );
+      assert.equal(result.bytes.byteLength, size);
+      assert.equal(lengths.at(-1), 256 * 1024 - 1);
+      assert.equal(lengths.length, Math.ceil(size / (256 * 1024)));
+      result.release();
+      assert.equal(client.size, 0);
+      lengths.length = 0;
+    }
+  } finally {
+    client.close();
+    server.close();
+    port1.close();
+    port2.close();
+  }
+});
+
+test(
+  'frame ACK途絶後は送受信のpending・frame・bytes予約をすべて解放する',
+  { timeout: 8000 },
+  async () => {
+    const { port1, port2 } = new MessageChannel();
+    const post = port1.postMessage.bind(port1);
+    port1.postMessage = ((message: { type?: string }, transfer?: readonly ArrayBuffer[]) => {
+      if (message.type !== 'ack') post(message, transfer as ArrayBuffer[]);
+    }) as typeof port1.postMessage;
+    const failures: string[] = [];
+    const server = new DeliveryTransport(
+      port2,
+      async () => ({
+        __deliveryHttp: {
+          statusCode: 200,
+          contentType: 'image/png',
+          bytes: new Uint8Array(256 * 1024 + 1),
+          headers: { 'content-type': 'image/png' },
+        },
+      }),
+      (code) => failures.push(code),
+    );
+    const client = new DeliveryTransport(
+      port1,
+      async () => null,
+      () => {},
+    );
+    const reservations = (transport: DeliveryTransport) =>
+      transport as unknown as {
+        pending: Map<string, unknown>;
+        waiters: Map<string, unknown>;
+        frameAcks: Map<string, unknown>;
+        activeFrames: number;
+        frameWaiters: unknown[];
+        reservedBytes: number;
+        sendingBytes: number;
+        leases: Set<unknown>;
+        inFlight: Set<string>;
+      };
+    const empty = (transport: DeliveryTransport) => {
+      const state = reservations(transport);
+      return (
+        state.pending.size === 0 &&
+        state.waiters.size === 0 &&
+        state.frameAcks.size === 0 &&
+        state.activeFrames === 0 &&
+        state.frameWaiters.length === 0 &&
+        state.reservedBytes === 0 &&
+        state.sendingBytes === 0 &&
+        state.leases.size === 0 &&
+        state.inFlight.size === 0
+      );
+    };
+    try {
+      const result = await client.call<{ release: () => void }>(
+        randomUUID(),
+        epoch,
+        'read.http',
+        null,
+        5000,
+        true,
+      );
+      assert.equal(reservations(client).reservedBytes, 256 * 1024 + 1);
+      result.release();
+      const deadline = performance.now() + 6500;
+      while (!failures.includes('handshake_timeout') || !empty(client) || !empty(server)) {
+        assert.ok(performance.now() < deadline, 'ACK途絶後の予約が解放されません');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.deepEqual(failures, ['handshake_timeout', 'handshake_timeout']);
+    } finally {
+      client.close();
+      server.close();
+      port1.close();
+      port2.close();
+    }
+  },
+);
+
 test('受領bytes予約はreleaseまで保持し、二重releaseは安全', async () => {
   const { port1, port2 } = new MessageChannel();
   let calls = 0;

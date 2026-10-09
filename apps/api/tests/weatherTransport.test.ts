@@ -73,6 +73,15 @@ test('実transportは256KiBでframe化し8MiB境界を守る', async () => {
     const overhead = Buffer.byteLength(
       JSON.stringify({ kind: 'call', id: '0'.repeat(36), method: 'echo', value: '', error: null }),
     );
+    const justUnderFrame = 256 * 1024 - overhead - 1;
+    assert.equal(await left.call('echo', 'x'.repeat(justUnderFrame)), justUnderFrame);
+    assert.deepEqual(lengths, [256 * 1024 - 1]);
+    lengths.length = 0;
+    const justUnderMaximum = 8 * 1024 * 1024 - overhead - 1;
+    assert.equal(await left.call('echo', 'x'.repeat(justUnderMaximum)), justUnderMaximum);
+    assert.equal(lengths.length, 32);
+    assert.equal(lengths.at(-1), 256 * 1024 - 1);
+    lengths.length = 0;
     const size = 8 * 1024 * 1024 - overhead;
     assert.equal(await left.call('echo', 'x'.repeat(size)), size);
     assert.equal(lengths.length, 32);
