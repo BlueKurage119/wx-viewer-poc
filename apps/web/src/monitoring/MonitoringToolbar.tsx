@@ -106,7 +106,10 @@ export function MonitoringToolbar({
           <Icon>keyboard_arrow_left</Icon>
         </GbIconButton>
         {!atRoot && (
-          <span className="monitoring-toolbar-title" title={currentToolbar.title}>
+          <span
+            className="monitoring-toolbar-title md-typescale-label-large"
+            title={currentToolbar.title}
+          >
             {currentToolbar.title}
           </span>
         )}

@@ -526,3 +526,48 @@ test('予報3行の情報時刻は発表時刻の表示とtime属性が一致し
     }
   }
 });
+
+test('C26: 集計の受領状況は更新行の「画面更新」の隣に、古いときだけ attention で出る', () => {
+  const render = (weatherSampleReceivedAt: string | null) =>
+    renderToStaticMarkup(
+      el(MonitoringDashboardView, {
+        state: {
+          phase: 'ready',
+          data: {
+            ...normalMonitoringResponseFixture,
+            weatherSampleReceivedAt,
+            weatherRuntimes: {
+              ...normalMonitoringResponseFixture.weatherRuntimes,
+              delivery: {
+                ...normalMonitoringResponseFixture.weatherRuntimes.delivery,
+                mode: 'worker' as const,
+              },
+            },
+          },
+        },
+      }),
+    );
+  const generated = Date.parse(normalMonitoringResponseFixture.generatedAt);
+  const ago = (seconds: number) => new Date(generated - seconds * 1000).toISOString();
+  const row = (html: string) =>
+    html.match(/<div class="monitoring-update-row">(.*?)<\/div>/)?.[1] ?? '';
+
+  for (const normal of [render(ago(3)), render(ago(15))]) {
+    assert.equal(normal.includes('集計'), false);
+  }
+  const stale = render(ago(16));
+  assert.match(
+    row(stale),
+    /<span class="monitoring-sample-freshness monitoring-tone-attention"[^>]*>集計 鮮度低下<\/span><span>画面更新/,
+  );
+  const missing = render(null);
+  assert.match(
+    row(missing),
+    /<span class="monitoring-sample-freshness monitoring-tone-attention"[^>]*>集計 未受領<\/span><span>画面更新/,
+  );
+  // 提供Workerカードの詳細には集計の語を出さない
+  for (const html of [stale, missing]) {
+    const cards = html.match(/<section class="monitoring-cards".*?<\/section>/)?.[0] ?? '';
+    assert.equal(cards.includes('集計'), false);
+  }
+});

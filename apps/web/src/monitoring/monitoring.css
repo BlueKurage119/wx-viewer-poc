@@ -24,6 +24,10 @@
   white-space: nowrap;
 }
 
+.monitoring-update-row .monitoring-sample-freshness.monitoring-tone-attention {
+  color: var(--wx-system-status-yellow-foreground);
+}
+
 .monitoring-cards {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -80,9 +84,9 @@
   white-space: nowrap;
 }
 
-/* 詳細行は最大3行分の高さを常に確保し、状態によるカード高さの変化を防ぐ。 */
+/* 詳細行は最大2行分の高さを常に確保し、状態によるカード高さの変化を防ぐ。 */
 .monitoring-card-details {
-  min-height: 65px;
+  min-height: 43px;
 }
 
 .monitoring-card h2,
@@ -513,66 +517,6 @@ md-gb-button[soft-disabled] .monitoring-toolbar-button-content {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--md-sys-color-on-surface);
-}
-
-.monitoring-worker-section {
-  padding: 16px;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 12px;
-  background: var(--md-sys-color-surface-container);
-}
-.monitoring-worker-section h2 {
-  margin: 0 0 12px;
-  font-size: 1rem;
-}
-.monitoring-worker-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 32px;
-  margin: 0 0 12px;
-}
-.monitoring-worker-status dt {
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 0.8rem;
-}
-.monitoring-worker-status dd {
-  margin: 4px 0 0;
-}
-.monitoring-worker-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.monitoring-worker-actions md-circular-progress {
-  width: 24px;
-  height: 24px;
-}
-.monitoring-worker-result {
-  min-height: 1.5em;
-  margin: 12px 0;
-  overflow-wrap: anywhere;
-}
-.monitoring-worker-section summary {
-  cursor: pointer;
-}
-.monitoring-worker-section summary:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
-  outline-offset: 4px;
-}
-.monitoring-worker-history {
-  padding-left: 20px;
-}
-.monitoring-worker-history li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin-block: 12px;
-  overflow-wrap: anywhere;
-}
-.monitoring-worker-history li span:last-child {
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 0.8rem;
 }
 
 .monitoring-dialog.monitoring-dialog-wide {

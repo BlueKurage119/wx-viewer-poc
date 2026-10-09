@@ -16,6 +16,7 @@ import {
   currentToolbar,
   monitoringToolbarDefinitions,
   navigateToolbar,
+  resetToolbarToRoot,
   isSelectionSubmittable,
   isWorkerRestartSelection,
   openMonitoringDialog,
@@ -141,7 +142,8 @@ export function useMonitoringToolbar({
   }, [controller]);
   useEffect(() => {
     if (active) return;
-    setLocalState((state) => closeMonitoringDialog(clearToolbarSelection(state)));
+    // 監視画面を離れたら、戻ったときに常に最初のメニュー（ルート）から始める。
+    setLocalState((state) => resetToolbarToRoot(state));
   }, [active]);
 
   // 階層移動後のフォーカス: 進むときは先頭の項目、戻るときは移動元の navigate 項目へ。

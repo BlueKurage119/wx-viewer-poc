@@ -180,3 +180,10 @@ export function backToolbarToRoot(state: ToolbarLocalState): ToolbarLocalState {
   if (state.history.length <= 1) return state;
   return { history: [state.history[0]!], selectedOperation: null, openDialog: null };
 }
+
+/** 監視画面から離れたとき。階層・選択・ダイアログをすべて破棄してルートへ戻す。 */
+export function resetToolbarToRoot(state: ToolbarLocalState): ToolbarLocalState {
+  if (state.history.length <= 1 && state.selectedOperation === null && state.openDialog === null)
+    return state;
+  return { history: [state.history[0]!], selectedOperation: null, openDialog: null };
+}

@@ -1,6 +1,6 @@
 import type { WeatherRole } from '@wx-viewer-poc/shared';
 import type { WeatherRestartModel } from './useWeatherRestart';
-import { workerRestartabilityId } from './weatherWorkerPresentation';
+import { presentSampleFreshness, workerRestartabilityId } from './weatherWorkerPresentation';
 import { memo, useEffect, useMemo } from 'react';
 import type { VenueForecastTargets } from '@wx-viewer-poc/shared';
 import type { MonitoringLoadState } from './useMonitoringStatus';
@@ -355,6 +355,7 @@ export function MonitoringDashboardView({
       }),
     [state.data, isFailed, acquisitionRestart, deliveryRestart, restartBaselines],
   );
+  const sampleFreshness = useMemo(() => presentSampleFreshness(state.data), [state.data]);
   const sourceRows = useMemo(
     () => buildSourceStatusRows(state.data, isFailed),
     [state.data, isFailed],
@@ -368,6 +369,14 @@ export function MonitoringDashboardView({
     <div className="monitoring-dashboard" aria-label="取得監視">
       <div className="monitoring-update-row">
         <span className="monitoring-uptime">メイン 運転時間: {uptimeText}</span>
+        {sampleFreshness ? (
+          <span
+            className={`monitoring-sample-freshness monitoring-tone-${sampleFreshness.tone}`}
+            data-monitoring-sample="true"
+          >
+            {sampleFreshness.text}
+          </span>
+        ) : null}
         <span>
           画面更新{' '}
           {state.data ? (

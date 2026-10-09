@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { MonitoringStatusResponse, WeatherRole } from '@wx-viewer-poc/shared';
-import { presentWorker } from '../src/monitoring/weatherWorkerPresentation.ts';
+import {
+  presentSampleFreshness,
+  presentWorker,
+} from '../src/monitoring/weatherWorkerPresentation.ts';
 import { buildMonitoringCards } from '../src/monitoring/monitoringPresentation.ts';
 import {
   composeRestartResult,
@@ -122,31 +125,54 @@ test('D3: 報告途絶（ready+stale）は稼働中のまま attention で「応
   assert.notEqual(failed.tone, stale.tone);
 });
 
-test('D3: 集計受領は16秒前で鮮度低下、未受領はnull、15秒以内は通常表示', () => {
-  const line = (sampleSecondsAgo: number | null) =>
-    presentWorker('delivery', {
-      ...{ monitoringFailed: false, restart: idle, baselineGeneratedAt: null },
-      data: applyWorkerState(base, { acquisition: {}, delivery: {}, sampleSecondsAgo }).data,
-    }).lines.find((item) => item.kind === 'sample')!.text;
-  assert.equal(line(16).endsWith('（鮮度低下）'), true);
-  assert.equal(line(15).includes('鮮度低下'), false);
-  assert.equal(line(null), '集計 未受領');
+test('C26: 集計の受領状況は正常（15秒以内）では出さず、16秒前は鮮度低下、nullは未受領を attention で出す', () => {
+  const freshness = (sampleSecondsAgo: number | null) =>
+    presentSampleFreshness(
+      applyWorkerState(base, { acquisition: {}, delivery: {}, sampleSecondsAgo }).data,
+    );
+  assert.equal(freshness(3), null);
+  assert.equal(freshness(15), null);
+  assert.deepEqual(freshness(16), { text: '集計 鮮度低下', tone: 'attention' });
+  assert.deepEqual(freshness(null), { text: '集計 未受領', tone: 'attention' });
+  assert.equal(presentSampleFreshness(null), null);
+  // 提供Workerを使わない（inline）構成では集計を受け取らないのが正常
+  const inline = applyWorkerState(base, {
+    acquisition: {},
+    delivery: {},
+    sampleSecondsAgo: null,
+  }).data;
+  assert.equal(
+    presentSampleFreshness({
+      ...inline,
+      weatherRuntimes: {
+        ...inline.weatherRuntimes,
+        delivery: { ...inline.weatherRuntimes.delivery, mode: 'inline' },
+      },
+    }),
+    null,
+  );
+  // 集計の行は Worker カードの詳細に含まれない
+  for (const role of ['acquisition', 'delivery'] as const)
+    assert.equal(
+      view(role, '正常').lines.some((line) => line.text.includes('集計')),
+      false,
+    );
 });
 
-test('Worker詳細行: 取得は 最終報告／再開可否／3行目、提供は 最終報告／集計／3行目（結果→再開可否→理由）', () => {
+test('C25: Worker詳細は2行。1行目は最終報告、2行目は 結果→理由→結果不明→再開可否 の優先度で1つ', () => {
   const acquisition = view('acquisition', '取得のみ異常停止');
   assert.deepEqual(
     acquisition.lines.map((line) => line.kind),
-    ['report', 'restartability', 'reason'],
+    ['report', 'reason'],
   );
-  assert.equal(acquisition.lines[2]!.text, '理由 予期しない終了');
+  assert.equal(acquisition.lines[1]!.text, '理由 予期しない終了');
   // 結果行は理由より優先される
   const failedRestart = view('acquisition', '再起動失敗');
-  assert.deepEqual(failedRestart.lines[2], {
+  assert.deepEqual(failedRestart.lines[1], {
     text: '再起動失敗（サーバーが許可していません）',
     kind: 'restart-result',
   });
-  // 結果不明 n件
+  // 結果不明 n件（理由がないとき）。再開可否より優先される
   const unknownScopes = presentWorker('acquisition', {
     data: applyWorkerState(base, {
       acquisition: { unknownScopes: ['a', 'b'] },
@@ -156,23 +182,26 @@ test('Worker詳細行: 取得は 最終報告／再開可否／3行目、提供�
     restart: idle,
     baselineGeneratedAt: null,
   });
-  assert.equal(unknownScopes.lines[2]!.text, '結果不明 2件');
+  assert.deepEqual(unknownScopes.lines[1], { text: '結果不明 2件', kind: 'unknown' });
 
   const delivery = view('delivery', '提供のみ異常停止');
   assert.deepEqual(
     delivery.lines.map((line) => line.kind),
-    ['report', 'sample', 'reason'],
+    ['report', 'reason'],
   );
-  const healthy = view('delivery', '正常');
-  assert.deepEqual(
-    healthy.lines.map((line) => line.kind),
-    ['report', 'sample', 'restartability'],
-  );
+  // 何もなければ再開可否
+  for (const role of ['acquisition', 'delivery'] as const) {
+    const healthy = view(role, '正常');
+    assert.deepEqual(
+      healthy.lines.map((line) => line.kind),
+      ['report', 'restartability'],
+    );
+  }
   const connectFailed = view('delivery', '再起動受付後の接続失敗');
-  assert.equal(connectFailed.lines[2]!.kind, 'restart-result');
+  assert.equal(connectFailed.lines[1]!.kind, 'restart-result');
   for (const name of workerStateFixtures.map((item) => item.name)) {
     for (const role of ['acquisition', 'delivery'] as const)
-      assert.equal(view(role, name).lines.length <= 3, true, `${name}/${role}`);
+      assert.equal(view(role, name).lines.length <= 2, true, `${name}/${role}`);
   }
 });
 

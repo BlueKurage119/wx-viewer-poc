@@ -3,7 +3,6 @@ import {
   type WeatherRole,
   type WeatherRuntimeStatus,
   type MonitoringStatusResponse,
-  type WeatherRestartOperation,
 } from '@wx-viewer-poc/shared';
 import { formatJstClock } from './monitoringTimeFormat';
 import {
@@ -25,7 +24,7 @@ export type WorkerTone = 'neutral' | 'normal' | 'attention' | 'error';
 
 export interface WorkerDetailLine {
   readonly text: string;
-  readonly kind: 'report' | 'sample' | 'restartability' | 'restart-result' | 'reason' | 'unknown';
+  readonly kind: 'report' | 'restartability' | 'restart-result' | 'reason' | 'unknown';
 }
 
 export interface WorkerView {
@@ -37,7 +36,7 @@ export interface WorkerView {
   readonly canRestart: boolean;
   /** カードの再開可否の文言（ボタンの説明に使う）。 */
   readonly restartability: string;
-  /** 詳細行（最大3行）。 */
+  /** 詳細行（最大2行）。1行目は最終報告、2行目は優先度の高い1つ。 */
   readonly lines: readonly WorkerDetailLine[];
   readonly result: RestartResult;
 }
@@ -67,11 +66,18 @@ function reportLine(runtime: WeatherRuntimeStatus, generatedAt: string): string 
     : '最終報告 —';
 }
 
-function sampleLine(data: MonitoringStatusResponse): string {
+/**
+ * 気象集計の受領状況。画面全体の値の鮮度を表すため、Workerカードではなく更新行に出す。
+ * 正常なとき、および提供Workerを使わないとき（inline）は何も出さない。
+ */
+export function presentSampleFreshness(
+  data: MonitoringStatusResponse | null,
+): { readonly text: string; readonly tone: 'attention' } | null {
+  if (!data || data.weatherRuntimes.delivery.mode === 'inline') return null;
   const at = data.weatherSampleReceivedAt ?? null;
-  if (at === null) return '集計 未受領';
+  if (at === null) return { text: '集計 未受領', tone: 'attention' };
   const stale = Date.parse(data.generatedAt) - Date.parse(at) > SAMPLE_STALE_AFTER_MS;
-  return `集計受領 ${formatJstClock(at)}${stale ? '（鮮度低下）' : ''}`;
+  return stale ? { text: '集計 鮮度低下', tone: 'attention' } : null;
 }
 
 function reasonText(runtime: WeatherRuntimeStatus): string | null {
@@ -213,24 +219,15 @@ export function presentWorker(role: WeatherRole, input: WorkerPresentInput): Wor
     : { text: reportLine(runtime, data.generatedAt), kind: 'report' };
   const reason = reasonText(runtime);
   const unknownCount = runtime.unknownScopes?.length ?? 0;
-  const resultLine: WorkerDetailLine | null = result.cardText
+  // 2行目は優先度の高い1つ: 再起動結果 → 理由 → 結果不明 → 再開可否。
+  const second: WorkerDetailLine = result.cardText
     ? { text: result.cardText, kind: 'restart-result' }
-    : null;
-  if (role === 'acquisition') {
-    const third =
-      resultLine ??
-      (reason ? { text: reason, kind: 'reason' as const } : null) ??
-      (unknownCount > 0 ? { text: `結果不明 ${unknownCount}件`, kind: 'unknown' as const } : null);
-    lines.push(first, { text: restartability, kind: 'restartability' });
-    if (third) lines.push(third);
-  } else {
-    lines.push(first, { text: sampleLine(data), kind: 'sample' });
-    const third =
-      resultLine ??
-      (!canRestart ? { text: restartability, kind: 'restartability' as const } : null) ??
-      (reason ? { text: reason, kind: 'reason' as const } : null);
-    if (third) lines.push(third);
-  }
+    : reason
+      ? { text: reason, kind: 'reason' }
+      : unknownCount > 0
+        ? { text: `結果不明 ${unknownCount}件`, kind: 'unknown' }
+        : { text: restartability, kind: 'restartability' };
+  lines.push(first, second);
   return finalize(role, decision, canRestart, restartability, lines, result);
 }
 
@@ -252,54 +249,4 @@ function finalize(
     lines,
     result,
   };
-}
-
-// --- 以下は仮UI（WeatherWorkerPanel）だけが参照する旧表現。新しい監視画面では使わない。 ---
-const lifecycleLabels: Record<WeatherRuntimeStatus['lifecycle'], string> = {
-  starting: '準備中',
-  ready: '稼働中',
-  stopping: '停止を確認中',
-  stopped: 'Worker停止',
-  failed: 'Worker異常',
-  restarting: '停止を確認中・再開中',
-};
-export function weatherWorkerLabel(runtime: WeatherRuntimeStatus | undefined): string {
-  if (!runtime) return '状態不明';
-  if (
-    runtime.lifecycle === 'failed' ||
-    runtime.lifecycle === 'stopped' ||
-    runtime.lifecycle === 'stopping' ||
-    runtime.lifecycle === 'restarting'
-  )
-    return lifecycleLabels[runtime.lifecycle];
-  if (runtime.reportFreshness === 'stale') return '応答を確認できません';
-  if (runtime.reportFreshness === 'unknown') return '報告待ち';
-  return lifecycleLabels[runtime.lifecycle];
-}
-export function weatherRestartResult(
-  operation: WeatherRestartOperation,
-  data?: MonitoringStatusResponse | null,
-): string {
-  const suffix = operation.historyRecorded ? '' : '（履歴未記録）';
-  if (operation.status === 'in_progress') return `停止を確認中・再開中${suffix}`;
-  if (operation.result === 'unknown') return `再開結果は不明です${suffix}`;
-  if (operation.role === 'delivery') {
-    if (operation.result === 'failure') return `提供Workerを再開できませんでした${suffix}`;
-    const runtime = data?.weatherRuntimes.delivery;
-    return runtime?.lifecycle === 'ready'
-      ? `提供Workerを再開しました${suffix}`
-      : `提供Workerの再開を受け付けました。接続は準備中です${suffix}`;
-  }
-  if (operation.result === 'failure') return `取得Workerを再開できませんでした${suffix}`;
-  if (operation.desiredRunning === false)
-    return `取得Workerを再開しました。取得は停止したままです${suffix}`;
-  if (!data) return `取得Workerを再開しました${suffix}`;
-  if (
-    data.readiness.initialFetchPhase === 'failed' ||
-    data.readiness.preparationFailures.length > 0
-  )
-    return `取得Workerを再開しました。気象情報の準備に失敗しています${suffix}`;
-  if (data.readiness.initialFetchPhase !== 'completed')
-    return `取得Workerを再開しました。気象情報は準備中です${suffix}`;
-  return `取得Workerを再開しました${suffix}`;
 }

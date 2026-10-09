@@ -1,6 +1,6 @@
 import './setupEnv.ts';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   createToolbarLocalState,
@@ -263,4 +263,37 @@ test('D7: 警報へ区分を変えたWorker通知は警報の行に出て警報�
     assert.equal(question.chime?.category, 'question', mode);
     assert.equal(notificationCounts(question.state, mode).pending, 1, mode);
   }
+});
+
+test('C27/C28/C30: 画面を離れたらルートへ戻す配線、タイトルのタイポグラフィ、削除済みの仮UIが残らない', () => {
+  const read = (file: string) =>
+    readFileSync(new URL(`../src/monitoring/${file}`, import.meta.url), 'utf8');
+  const hook = read('useMonitoringToolbar.ts');
+  assert.match(
+    hook,
+    /if \(active\) return;\s*(?:\/\/[^\n]*\n\s*)?setLocalState\(\(state\) => resetToolbarToRoot\(state\)\);/,
+  );
+  const css = read('monitoring.css');
+  const titleRule = css.match(/\.monitoring-toolbar-title \{[^}]*\}/)?.[0] ?? '';
+  assert.match(titleRule, /inline-size: 120px;/);
+  assert.equal(/font-weight/.test(titleRule), false);
+  assert.match(read('MonitoringToolbar.tsx'), /monitoring-toolbar-title md-typescale-label-large/);
+  assert.equal(
+    /\.monitoring-worker-(section|status|actions|result)\b|\.monitoring-worker-history\s*[{,]/.test(
+      css,
+    ),
+    false,
+  );
+  assert.equal(
+    existsSync(new URL('../src/monitoring/WeatherWorkerPanel.tsx', import.meta.url)),
+    false,
+  );
+  assert.equal(
+    /weatherWorkerLabel|weatherRestartResult\(/.test(read('weatherWorkerPresentation.ts')),
+    false,
+  );
+  assert.equal(
+    /recheck/.test(read('useWeatherRestart.ts') + read('weatherRestartController.ts')),
+    false,
+  );
 });

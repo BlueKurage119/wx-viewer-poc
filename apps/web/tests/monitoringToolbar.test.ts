@@ -300,7 +300,9 @@ test('ルートは空タイトルを予約せず、下位階層ではタイト�
     );
     assert.deepEqual(
       [
-        ...markup.matchAll(/<span class="monitoring-toolbar-title" title="(.*?)">(.*?)<\/span>/g),
+        ...markup.matchAll(
+          /<span class="monitoring-toolbar-title md-typescale-label-large" title="(.*?)">(.*?)<\/span>/g,
+        ),
       ].map((match) => [match[1], match[2]]),
       history.length === 1 ? [] : [['子メニュー', '子メニュー']],
     );
