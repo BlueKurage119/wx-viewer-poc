@@ -169,7 +169,29 @@ function interceptOpen(
 }
 
 for (const layer of ['nowcast', 'kikikuru'] as const) {
-  test(`${layer}: descriptor取得後のrename・unlinkでも完全な旧PNGを返し、次回は新PNGまたは有限miss`, async (t) => {
+  test(`${layer}: 8MiB超のstatをreadFile前に拒否する`, async (t) => {
+    const f = await setup(layer);
+    try {
+      fs.writeFileSync(path.join(f.root, relative), Buffer.alloc(8 * 1024 * 1024 + 1));
+      const originalOpen = fs.promises.open.bind(fs.promises);
+      t.mock.method(fs.promises, 'open', async (...args: Parameters<typeof fs.promises.open>) => {
+        const file = await originalOpen(...args);
+        t.mock.method(file, 'readFile', async () => {
+          assert.fail('過大statの後にreadFileを実行しました');
+        });
+        return file;
+      });
+      const verified = await f.store.verifyTile(
+        relative,
+        8 * 1024 * 1024 + 1,
+        crypto.createHash('sha256').update(png).digest('hex'),
+      );
+      assert.deepEqual(verified, { valid: false, buffer: null });
+    } finally {
+      f.close();
+    }
+  });
+  test(`${layer}: descriptor取得後のrename・unlinkで索引を再照合し、完全な新PNGまたは有限missを返す`, async (t) => {
     const f = await setup(layer);
     try {
       let phase: 'replace' | 'delete' | 'none' = 'replace';
@@ -187,13 +209,13 @@ for (const layer of ['nowcast', 'kikikuru'] as const) {
           await f.store.deleteTile(relative);
         }
       });
-      assert.deepEqual((await f.read())?.buffer, png);
+      assert.deepEqual((await f.read())?.buffer, nextPng);
       assert.deepEqual((await f.read())?.buffer, nextPng);
       phase = 'delete';
       assert.deepEqual((await f.read())?.buffer, nextPng);
       assert.equal(await f.read(), null);
-      assert.equal(io.opened(), 3);
-      assert.equal(io.closed(), 3);
+      assert.equal(io.opened(), 4);
+      assert.equal(io.closed(), 4);
       assert.deepEqual(fs.readFileSync(f.orphan), png, 'readonly起動または読取で清掃しました');
     } finally {
       f.close();

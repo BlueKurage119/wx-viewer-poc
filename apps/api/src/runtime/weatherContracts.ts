@@ -41,6 +41,7 @@ export type WeatherFailureCode =
   | 'generation_changed'
   | 'database_unavailable'
   | 'read_failed'
+  | 'payload_too_large'
   | 'operation_result_unknown';
 export interface DecisionCheckpoint {
   readonly revision: number;
@@ -131,6 +132,8 @@ export interface WeatherOperations {
         readonly contentType: 'image/png';
         readonly storedAt: UtcIso8601String;
         readonly catalogAvailability: 'available' | 'stale' | 'unavailable';
+        /** メイン内でHTTP送信完了までbytes予約を保持する。Workerには渡さない。 */
+        readonly release?: () => void;
       }
     | { readonly kind: 'miss' }
   >;
