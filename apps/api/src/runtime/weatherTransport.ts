@@ -23,6 +23,7 @@ export class WeatherTransport {
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
       lane: Lane;
+      cleanup: () => void;
     }
   >();
   private readonly frames = new Map<
@@ -80,10 +81,15 @@ export class WeatherTransport {
   constructor(
     private readonly endpoint: Endpoint,
     private readonly generation: string,
-    private readonly handle: (method: string, value: unknown) => unknown | Promise<unknown>,
+    private readonly handle: (
+      method: string,
+      value: unknown,
+      id: string,
+    ) => unknown | Promise<unknown>,
     private readonly failure: (
       code: 'protocol_error' | 'payload_too_large' | 'handshake_timeout',
     ) => void,
+    private readonly onCancel?: (id: string) => void,
   ) {
     endpoint.on('message', this.onMessage);
   }
@@ -105,6 +111,11 @@ export class WeatherTransport {
     if (m.protocolVersion !== 1) throw new Error('protocol_version');
     if (m.type === 'ack') {
       this.acknowledgements.get(`${m.id}:${m.index}`)?.();
+      return;
+    }
+    if (m.type === 'cancel') {
+      if (typeof m.id !== 'string' || m.id.length > 128) throw new Error('cancel_id');
+      this.onCancel?.(m.id);
       return;
     }
     if (
@@ -152,6 +163,7 @@ export class WeatherTransport {
       if (!pending) return;
       clearTimeout(pending.timer);
       this.pending.delete(packet.id);
+      pending.cleanup();
       if (packet.error) pending.reject(new Error(packet.error));
       else pending.resolve(packet.value);
       return;
@@ -159,7 +171,7 @@ export class WeatherTransport {
     // 応答内容にはoperationが残らないため、元要求のレーンで返信する。
     const lane = this.laneFor(packet.method, packet.value);
     try {
-      const value = await this.handle(packet.method, packet.value);
+      const value = await this.handle(packet.method, packet.value, packet.id);
       await this.send({ ...packet, kind: 'reply', value: value ?? null, error: null }, lane);
     } catch (error) {
       await this.send(
@@ -227,8 +239,9 @@ export class WeatherTransport {
       this.sendingBytes[lane] -= bytes.length;
     }
   }
-  call<T>(method: string, value: unknown, timeoutMs = 5000): Promise<T> {
+  call<T>(method: string, value: unknown, timeoutMs = 5000, signal?: AbortSignal): Promise<T> {
     if (this.closed) return Promise.reject(new WeatherRequestError('not_ready'));
+    if (signal?.aborted) return Promise.reject(new WeatherRequestError('deadline_exceeded'));
     const lane = this.laneFor(method, value);
     if (
       [...this.pending.values()].filter((entry) => entry.lane === lane).length >=
@@ -237,17 +250,59 @@ export class WeatherTransport {
       return Promise.reject(new WeatherRequestError('busy'));
     const id = randomUUID();
     return new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        const pending = this.pending.get(id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pending.delete(id);
+        pending.cleanup();
+        if (method === 'tile.ensure')
+          this.endpoint.postMessage({
+            protocolVersion: 1,
+            type: 'cancel',
+            generation: this.generation,
+            id,
+          });
+        reject(new WeatherRequestError('deadline_exceeded'));
+      };
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        signal?.removeEventListener('abort', onAbort);
+        if (method === 'tile.ensure')
+          this.endpoint.postMessage({
+            protocolVersion: 1,
+            type: 'cancel',
+            generation: this.generation,
+            id,
+          });
         reject(new Error('handshake_timeout'));
-        if (method !== 'status' && method !== 'fetch.execute' && method !== 'operation.query')
+        if (
+          method !== 'status' &&
+          method !== 'fetch.execute' &&
+          method !== 'operation.query' &&
+          method !== 'tile.ensure'
+        )
           this.failure('handshake_timeout');
       }, timeoutMs);
-      this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer, lane });
+      signal?.addEventListener('abort', onAbort, { once: true });
+      this.pending.set(id, {
+        resolve: (value) => resolve(value as T),
+        reject,
+        timer,
+        lane,
+        cleanup: () => signal?.removeEventListener('abort', onAbort),
+      });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
       void this.send({ kind: 'call', id, method, value, error: null }, lane).catch((error) => {
-        clearTimeout(timer);
-        this.pending.delete(id);
-        reject(error);
+        if (this.pending.has(id)) {
+          clearTimeout(timer);
+          this.pending.delete(id);
+          signal?.removeEventListener('abort', onAbort);
+          reject(error);
+        }
       });
     });
   }
@@ -260,6 +315,7 @@ export class WeatherTransport {
     this.endpoint.off('message', this.onMessage);
     for (const item of this.pending.values()) {
       clearTimeout(item.timer);
+      item.cleanup();
       item.reject(new WeatherRequestError('operation_result_unknown'));
     }
     this.pending.clear();

@@ -75,6 +75,7 @@ export class DeliveryTransport {
       epoch: WeatherEpoch,
     ) => unknown | Promise<unknown>,
     private readonly onProtocolFailure: (code: string) => void,
+    private readonly onCancel?: (id: string) => void,
   ) {
     endpoint.on('message', this.onMessage);
   }
@@ -94,6 +95,7 @@ export class DeliveryTransport {
     if (packet.type === 'cancel') {
       // 同期 SQLite 処理の中断はできない。結果送信時に取消済みか確認する。
       if (this.inFlight.has(packet.id)) this.cancelled.add(packet.id);
+      this.onCancel?.(packet.id);
       return;
     }
     if (packet.type === 'reserve') {

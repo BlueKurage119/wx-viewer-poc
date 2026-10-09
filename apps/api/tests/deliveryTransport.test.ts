@@ -32,8 +32,18 @@ test('提供転送は容量予約後に分割した完全なbytesを返す', asy
   const failures: string[] = [];
   const source = new Uint8Array(600 * 1024);
   for (let i = 0; i < source.byteLength; i++) source[i] = i % 251;
+  const detached: number[] = [];
+  const serverEndpoint = {
+    postMessage(message: unknown, transfer?: readonly ArrayBuffer[]) {
+      port2.postMessage(message, transfer as ArrayBuffer[]);
+      if ((message as { type?: string }).type === 'frame')
+        detached.push((message as { bytes: Uint8Array }).bytes.byteLength);
+    },
+    on: port2.on.bind(port2),
+    off: port2.off.bind(port2),
+  } as unknown as MessagePort;
   const server = new DeliveryTransport(
-    port2,
+    serverEndpoint,
     async () => ({
       __deliveryHttp: {
         statusCode: 200,
@@ -58,6 +68,7 @@ test('提供転送は容量予約後に分割した完全なbytesを返す', asy
     assert.equal(reply.statusCode, 200);
     assert.equal(reply.contentType, 'image/png');
     assert.deepEqual(reply.bytes, source);
+    assert.deepEqual(detached, [0, 0, 0]);
     assert.deepEqual(failures, []);
     assert.equal(client.size, 0);
   } finally {

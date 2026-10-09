@@ -287,10 +287,10 @@ export class AcquisitionWorkerHost {
     );
     return accepted;
   }
-  async call<T>(method: string, value: unknown, timeout = 5000): Promise<T> {
+  async call<T>(method: string, value: unknown, timeout = 5000, signal?: AbortSignal): Promise<T> {
     if (!this.transport || this.exited || this.shuttingDown || this.lifecycle !== 'ready')
       throw new Error('not_ready');
-    return this.transport.call<T>(method, value, timeout);
+    return this.transport.call<T>(method, value, timeout, signal);
   }
   async execute(
     operation: 'start' | 'stop' | 'force_refresh' | 'recovery',

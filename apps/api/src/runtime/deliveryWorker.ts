@@ -3,6 +3,7 @@ import { openWeatherReader } from '../database/roleDatabase.js';
 import type { DatabasePairConfig } from '../database/pairConfig.js';
 import { createDeliveryRuntime } from './createDeliveryRuntime.js';
 import { DeliveryTransport } from './deliveryTransport.js';
+import { DeliveryReadLimiter } from './deliveryReadLimiter.js';
 import type {
   DeliveryConnectionSpec,
   DeliveryReadInput,
@@ -28,41 +29,7 @@ let closing = false;
 let accepted = false;
 let workerFailure: string | null = null;
 let reportTimer: ReturnType<typeof setInterval> | undefined;
-let active = 0;
-let activeTiles = 0;
-let suspending = false;
-const idleWaiters: (() => void)[] = [];
-const readQueue: {
-  readonly tile: boolean;
-  readonly resolve: () => void;
-  readonly reject: (error: Error) => void;
-}[] = [];
-function releaseRead(tile: boolean) {
-  active--;
-  if (tile) activeTiles--;
-  for (let index = 0; index < readQueue.length && active < 16;) {
-    const queued = readQueue[index]!;
-    if (queued.tile && activeTiles >= 4) {
-      index++;
-      continue;
-    }
-    readQueue.splice(index, 1);
-    active++;
-    if (queued.tile) activeTiles++;
-    queued.resolve();
-  }
-  if (active === 0) while (idleWaiters.length) idleWaiters.shift()?.();
-}
-function acquireRead(tile: boolean): Promise<void> {
-  if (suspending) return Promise.reject(new Error('not_ready'));
-  if (active < 16 && (!tile || activeTiles < 4)) {
-    active++;
-    if (tile) activeTiles++;
-    return Promise.resolve();
-  }
-  if (readQueue.length >= 48) return Promise.reject(new Error('busy'));
-  return new Promise<void>((resolve, reject) => readQueue.push({ tile, resolve, reject }));
-}
+const readLimiter = new DeliveryReadLimiter();
 const transport = new DeliveryTransport(
   port,
   async (method, value, _id, requestEpoch) => {
@@ -84,13 +51,12 @@ const transport = new DeliveryTransport(
     }
     if (!accepted || closing) throw new Error('not_ready');
     if (method === 'reader.suspend') {
-      suspending = true;
-      for (const queued of readQueue.splice(0)) queued.reject(new Error('not_ready'));
-      if (active > 0) {
+      readLimiter.suspend();
+      if (readLimiter.status.active > 0) {
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
-            new Promise<void>((resolve) => idleWaiters.push(resolve)),
+            readLimiter.waitForIdle(),
             new Promise<never>((_resolve, reject) => {
               timer = setTimeout(() => reject(new Error('reader_close_unconfirmed')), 10000);
             }),
@@ -104,7 +70,7 @@ const transport = new DeliveryTransport(
       connection?.close();
       connection = null;
       epoch = { ...epoch, weatherDatabaseGenerationId: null, readerEpoch: null };
-      suspending = false;
+      readLimiter.resume();
       return { closed: true };
     }
     if (method === 'reader.connect') {
@@ -140,7 +106,8 @@ const transport = new DeliveryTransport(
       });
       return { accepted: true };
     }
-    if (method === 'status') return { epoch, ready: runtime !== null, pendingRequests: active };
+    if (method === 'status')
+      return { epoch, ready: runtime !== null, pendingRequests: readLimiter.status.active };
     if (method === 'read' || method === 'read.http') {
       if (workerFailure) throw new Error('not_ready');
       const input = value as DeliveryReadInput;
@@ -152,7 +119,11 @@ const transport = new DeliveryTransport(
         throw new Error('generation_changed');
       if (Date.now() >= Date.parse(input.deadlineAt)) throw new Error('deadline_exceeded');
       const tile = input.kind === 'tile.read';
-      await acquireRead(tile);
+      const releaseRead = await readLimiter.acquire(
+        input.requestId,
+        tile,
+        Date.parse(input.deadlineAt),
+      );
       try {
         if (transport.isCancelled(input.requestId)) throw new Error('deadline_exceeded');
         const output = await runtime.read(
@@ -219,7 +190,7 @@ const transport = new DeliveryTransport(
           },
         };
       } finally {
-        releaseRead(tile);
+        releaseRead();
       }
     }
     throw new Error('invalid_request');
@@ -228,6 +199,7 @@ const transport = new DeliveryTransport(
     workerFailure ??= code;
     void report();
   },
+  (id) => readLimiter.cancel(id),
 );
 
 async function report() {
@@ -236,7 +208,12 @@ async function report() {
       `status:${Date.now()}`,
       epoch,
       'status.report',
-      { epoch, ready: runtime !== null, pendingRequests: active, failureCode: workerFailure },
+      {
+        epoch,
+        ready: runtime !== null,
+        pendingRequests: readLimiter.status.active,
+        failureCode: workerFailure,
+      },
       5000,
     );
   } catch {
