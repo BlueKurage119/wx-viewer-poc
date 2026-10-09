@@ -6,6 +6,7 @@
 - 基点: `main` の `fde8ce876e8cc7dd3e48afe403bb17aeab46332e`。着手時の既存差分なし。ブランチ・コミット・コード・設定は変更しない。
 - 【確定】メイン＋取得 Worker 1つ＋提供 Worker 1つ。会場数に応じて Worker を増やさない。HTTP、保持 DB、監視応答、通知配信はメインに残す。
 - 【確定】異常終了・報告途絶で自動再起動しない。専用操作で手動再開し、旧 Worker の終了を確認してから代替を起動する。
+- 【確定】2026-10-09の追加判断: 取得・提供とも報告 `stale` だけでは `lifecycle=failed` にせず、処理と新規要求の受付を継続する。報告鮮度と制御処理の健全性を別軸に保つ。実際の通信失敗、プロトコル異常、exit等は別途失敗として扱う。
 - 【確定】通知保存失敗・候補受領前の終了による欠落は監視等で確認する運用として許容し、補完・再送保証を追加しない。通常の公開整合・重複抑止は維持する。
 - 【確定】今回の最小 UI・通知も暫定。#259で必ずユーザー監修を受ける。仮 UI は流用予定なし。監視4カードの再設計・全体配置・細部の仕上げへ拡張しない。
 - 【確定】具体方式・制限・性能検収案は統括へ委任された詳細設計。本書で提案する。既存保証・操作意味を変更する必要が判明した場合だけ統括へ戻す。
@@ -182,6 +183,8 @@ missはメインが取得hostへ依頼し、保存完了後に新しい提供rea
 
 提供statusは5秒ごと、受領後15秒超でstale（既存project関数）。未報告acceptingは5秒期限、accepting後reader接続中もheartbeatがなく15秒経過すればstaleとする。メインがexit/error/report_stale/initialization_failed/protocol・handshake異常を検知し、提供role/workerGeneration/種別ごとにsystem通知を1回記録する。定義ID案は `system-weather-delivery-{initialization-failed,exited,report-stale,control-failed}`。保存失敗でも重複抑止状態は進め、再開で補完しない。表示はquestion系の既存system方針を踏襲し、weather initial trackerに混ぜない。ACK途絶でもheartbeatだけfreshになるケースはfailureCodeを優先して再開可にする。単発read deadline/busy/応答過大とWorker全体異常を区別する。
 
+報告 `stale` のみでは取得・提供の `lifecycle` を `failed` に変更しない。提供Workerが `ready` でreader接続済みなら新規readを受け付け、既存の5秒期限と取消、返却直前のscope・epoch・readerEpoch・DB世代の再検証を維持する。応答が届かなければ個別要求を有限の明示失敗とし、保存済み情報を正常空として返さない。監視には `reportFreshness=stale` と最終受領時刻を表示し、role×世代の `report_stale` 通知は復帰後の再staleでも追加しない。`stale` で専用手動再開を受け付けるが、自動停止・terminate・spawnはしない。これらは#256の再開契約および#257の取得側処理継続と揃える。実際の通信/制御失敗やプロトコル・handshake異常、初回受付期限超過、初期化失敗、error/exitは既存の分類に従い `failed` 等へ遷移させ、heartbeatの `fresh` や単なるread期限切れで隠したり混同したりしない。
+
 ## 7. HTTP再開・暫定UI・停止
 
 - `POST /api/control/weather-workers/:role/restart`: acquisition/deliveryのみ。bodyは既存 `{requestId, expectedWorkerGeneration}`、202 in_progress、200 completed、400不正、409世代/role/並行競合、503履歴照合不能/容量。取得専用コード/文言はrole対応する。
@@ -205,13 +208,13 @@ missはメインが取得hostへ依頼し、保存完了後に新しい提供rea
 - [ ] **AC3 / C3 状態:** 未保存、期限切れ、復旧途中、unknown scope、再検証失敗、未検証schema、異世代DBを固定fixtureで作り、情報時刻/available・stale・unavailable/initializing/明示503が期待どおり。正常空への変換0、1会場/複数会場・normal/training/test・isTraining伝播を全読取/通知/履歴/表示で確認する。
 - [ ] **AC4 / C4 miss:** 取得ensureをbarrierで保留し、後続hit/textを各20回実行して2秒以内。取得停止/失敗/夜間/期限/HTTP中断で既存利用不能か絶対30秒内失敗。ensure4並列/16待機/同tile合流を維持。取消後も不要な二重取得/予約残存0。
 - [ ] **AC5 / C5 ファイル競合:** 索引読取→file open→read→再照合の各境界で同tile差替え/清掃を重ねる。完全な旧/新PNG、再照合1回後miss/有限失敗だけ。SHA-256/byteSize/PNG不一致のsuccess0。開いたdescriptorを必ずcloseし、別tile/text応答が停止しない。過大statをreadFile前に拒否する。
-- [ ] **AC6 / C6 提供障害:** 実提供Workerをterminate/error/heartbeat停止/accepting未送信/ACK未送信にする。閲覧は有限な明示失敗、取得側更新/通知判定とメインhealth/監視/system継続、勝手なspawn0。種別/世代ごとのsystem異常1件、通知保存失敗時も補完0、fresh heartbeatだけでfailureを隠さない。
+- [ ] **AC6 / C6 提供障害:** 実提供Workerをterminate/error/heartbeat停止/accepting未送信/ACK未送信にする。heartbeat停止だけなら `reportFreshness=stale`、`lifecycle=ready` のままreadを受付け、応答可能な保存済みtext/PNGは成功し、応答途絶は個別の5秒期限内に明示失敗する。scope・epoch・readerEpoch・DB世代の返却直前検証を通らない旧結果/正常空への変換は0。staleからの手動再開は受付可、自動停止・terminate・spawn0。実際の通信/制御失敗、protocol・handshake異常、初回受付期限超過、初期化失敗、error/exitは別にfailed等へ遷移し、fresh heartbeatでもfailureを隠さない。取得側更新/通知判定とメインhealth/監視/system継続、role×世代×種別ごとのsystem異常1件（復帰後の再staleも追加0）、通知保存失敗時の補完0を確認する。
 - [ ] **AC7 / C7 再開:** 同ID再試行・別ID競合・異role同ID・古いexpected世代・両role同時操作を試し、実行1回/競合409/結果照合を確認。旧exit以前spawn0、readerClosed ACK/exit未確認時の取得migration0。schema/gen/readerEpoch切替、ready後着、期限後authorizeを注入して未検証・旧結果公開0。正常suspendは同じ提供Worker再接続、異常提供を取得再開がspawnしない。
 - [ ] **AC8 / C8 公開:** weather101/system102/weather103固定系列で更新・複数startup・提供再開を両順序で並行実行。先行現況・後続weather103・system102、claim1件、監査と返却JSON一致。token期限/reader失効/HTTP中断/読取失敗/監査失敗時session・claim・監査増分0、gate/release残存0。提供再開でsequence/checkpoint/初回tracker/fetch_health/確認状態不変、同一通知増分0、新しい変化の通知は維持。
 - [ ] **AC9 / C9 上限:** 64/65要求、8/9起動、16実行、4PNG、48queue、8MiB±1bytes、256KiB±1、ACK2枠、期限直前/直後を実transportと固定時計で検証。capacity予約前frame送信0、超過はbusy/明示過大失敗、完了/取消/ACK途絶後pending・frame・予約0。期限切れ同期処理は実完了まで枠保持、遅いHTTPclientは5秒で解放。受領frameを旧epochで混ぜても部分成功0。転送後元bufferのdetachとbyte一致を確認。
 - [ ] **AC10 / C9 busy・監視:** 外部接続でDB lock、長いreader、checkpoint busyを再現し100ms設定と有限read失敗を確認。監視GETは提供RPC0、最終正常sample保持/受領時刻鮮度、未受領も応答。runtime heartbeatとsample鮮度を別に確認。busy時のsidecar削除0、保持system配信は§8基準で継続。
 - [ ] **AC11 / C10 終了:** 正常/初期化失敗/読取中/再開中/migration中にclose二重呼出し。接続/file/timer/port/queue/所有Worker/自己lease残存0、新要求拒否、終了未確認は失敗。提供だけreaderを開いた状態でresetを拒否し、全停止後plan/apply/resume成功・保持DB不変を確認する。
-- [ ] **AC12 / C11 ブラウザ・操作:** 隔離実HTTPブラウザの360/768/1280pxで提供ready/準備中/stale/異常/再開中/再開受付成功後接続失敗/結果不明/履歴保存失敗を表示。専用role操作、二重抑止、同ID再確認、両role履歴、Tab/Enter/Space/フォーカスを確認。取得の停止意図・H/K・確認状態不変、DOM id重複0、MD3違反0。仮UI合格を#259の監修完了としない。
+- [ ] **AC12 / C11 ブラウザ・操作:** 隔離実HTTPブラウザの360/768/1280pxで提供ready/準備中/stale/異常/再開中/再開受付成功後接続失敗/結果不明/履歴保存失敗を表示。両roleのstaleをfailedと混同せず最終報告時刻・手動再開可を表示し、staleのまま成功した保存済み読取も確認する。専用role操作、二重抑止、同ID再確認、両role履歴、Tab/Enter/Space/フォーカスを確認。取得の停止意図・H/K・確認状態不変、DOM id重複0、MD3違反0。仮UI合格を#259の監修完了としない。
 - [ ] **AC13 / C11 既存回帰:** #253 AC1〜13、#256 AC1〜14、#257 AC1〜16を最終構成へ対応付けて回帰。inline限定の観測は実Workerへ置換。既存HTTP body/status/cache/header/画像準備中503、history generatedAtの注入時計、通知参照理由、取得requestId/合流/30分境界/夜間/DISABLE_POLLING、保存失敗欠落許容を確認する。
 - [ ] **AC14 / C12 品質・範囲:** `npm run lint`、`npm run typecheck`、`npm run format:check`、api/web/shared各workspace test、`npm run build`、本番出力起動成功。新規red/対照証跡を提示。差分が§2範囲内で、通知再送・parser意味変更・監視再設計・依存追加・実環境操作がない。
 
