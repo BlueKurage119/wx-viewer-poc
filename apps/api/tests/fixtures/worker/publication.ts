@@ -1,4 +1,4 @@
-import { createVenueRegistry } from '@wx-viewer-poc/shared';
+import { createVenueRegistry, type UtcIso8601String } from '@wx-viewer-poc/shared';
 import { telegramWeatherScopes } from '../../../src/runtime/weatherReadScope.js';
 import { parentPort, threadId, workerData } from 'node:worker_threads';
 import { initializeRoleDatabase } from '../../../src/database/roleDatabase.js';
@@ -8,6 +8,8 @@ import type { AcquisitionWorkerData } from '../../../src/runtime/acquisitionWork
 import { saveWarningCurrentSnapshot } from '../../../src/repositories/index.js';
 import type { NotificationOutputHistoryInput } from '../../../src/repositories/types.js';
 import type { WeatherEpoch } from '../../../src/runtime/weatherContracts.js';
+import { aggregateFetchHealth } from '../../../src/monitoring/fetchHealthEvaluator.js';
+import { MONITORED_FETCH_SOURCES } from '../../../src/monitoring/fetchHealthSources.js';
 
 const data = workerData as AcquisitionWorkerData;
 let epoch = data.epoch;
@@ -116,6 +118,30 @@ runtime.initialization.setInitialFetchPhase('completed');
 for (const venue of data.settings.venues) runtime.initialization.markVenueEvaluated(venue.venueId);
 // このfixtureは準備処理を省き、公開境界用に注入した整合済みsnapshotのscopeを明示する。
 const report = runtime.status();
+const healthAt = '2026-10-09T03:00:00.000Z' as UtcIso8601String;
+report.health = aggregateFetchHealth(
+  MONITORED_FETCH_SOURCES.map((source, index) => ({
+    sourceId: source.id,
+    status: index === 0 ? ('delayed' as const) : ('normal' as const),
+    reasons:
+      index === 0
+        ? [
+            {
+              kind: 'consecutive_failures' as const,
+              status: 'delayed' as const,
+              sourceKind: source.sourceKinds[0],
+              text: '連続失敗',
+            },
+          ]
+        : [],
+    lastAttemptAt: healthAt,
+    lastSuccessAt: index === 0 ? null : healthAt,
+    maxConsecutiveFailures: index === 0 ? 3 : 0,
+    intervalSeconds: 60,
+    lastDurationMs: 12,
+  })),
+  healthAt,
+);
 report.locallyValidatedScopes = data.settings.venues.flatMap((venue) =>
   ['normal', 'training', 'test'].flatMap((status) =>
     [
