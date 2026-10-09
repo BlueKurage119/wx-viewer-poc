@@ -29,6 +29,11 @@ const errorCodeLabels: Readonly<Record<string, string>> = {
   ...WEATHER_RUNTIME_REASON_LABELS,
   restart_not_allowed: 'サーバーが許可していません',
   exit_unconfirmed: '終了を確認できません',
+  worker_start_failed: 'Workerの起動失敗',
+  not_ready: '準備が整っていません',
+  restart_failed: '再起動の失敗',
+  restart_generation_unconfirmed: '再起動後の世代を確認できません',
+  server_restarted: 'サーバーの再起動で結果を確認できません',
 };
 
 export function restartReasonLabel(code: string | null | undefined): string | null {

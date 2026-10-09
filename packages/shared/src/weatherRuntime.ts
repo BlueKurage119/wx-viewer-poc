@@ -42,6 +42,7 @@ export const WEATHER_RUNTIME_REASON_LABELS = {
   protocol_error: '通信手順の異常',
   payload_too_large: '通信容量の上限超過',
   report_stale: '応答を確認できません',
+  worker_exited: 'Workerの終了',
 } as const;
 export type WeatherRuntimeReasonCode = keyof typeof WEATHER_RUNTIME_REASON_LABELS;
 

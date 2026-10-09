@@ -668,3 +668,22 @@ test('取得Workerの準備中に報告が途絶えても「応答を確認で�
   assert.deepEqual([afterPrepared.state, afterPrepared.tone], ['稼働中', 'attention']);
   assert.equal(afterPrepared.lines[0]!.text.startsWith('応答を確認できません（最終報告 '), true);
 });
+
+test('理由の語: worker_exited は「Workerの終了」、未知のコードは「不明（コード）」で、undefined を出さない', () => {
+  for (const [code, text] of [
+    ['worker_exited', '理由 Workerの終了'],
+    ['unheard_of_code', '理由 不明（unheard_of_code）'],
+  ] as const) {
+    const data = accepted('delivery', {
+      lifecycle: 'failed',
+      failureCode: code as never,
+    });
+    const worker = presentWorker('delivery', {
+      data,
+      monitoringFailed: false,
+      restart: idle,
+      baselineGeneratedAt: null,
+    });
+    assert.deepEqual(worker.lines, [{ text, kind: 'reason' }]);
+  }
+});

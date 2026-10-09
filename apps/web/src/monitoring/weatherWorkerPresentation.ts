@@ -88,7 +88,9 @@ export function presentSampleFreshness(
 
 function reasonText(runtime: WeatherRuntimeStatus): string | null {
   const code = runtime.failureCode ?? runtime.stopReason;
-  return code ? `理由 ${reasonLabels[code]}` : null;
+  if (!code) return null;
+  const label = (reasonLabels as Readonly<Record<string, string | undefined>>)[code];
+  return `理由 ${label ?? `不明（${code}）`}`;
 }
 
 interface StateDecision {
