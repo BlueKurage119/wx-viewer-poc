@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import BetterSqlite3 from 'better-sqlite3';
+import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   createTemporaryTestDatabaseFixture,
@@ -188,6 +189,7 @@ for (const failure of ['read', 'audit', 'pause-expired', 'http-abort'] as const)
       enablePolling: false,
       pollingSchedule: createTestPollingSchedule(),
       acquisitionWorkerEntry: new URL('./fixtures/worker/publication.ts', import.meta.url),
+      deliveryWorkerEntry: new URL('./fixtures/worker/delivery-read-failure.ts', import.meta.url),
     });
     const retained = new BetterSqlite3(options.config.retained.databasePath);
     const request = (signal?: AbortSignal) =>
@@ -209,17 +211,11 @@ for (const failure of ['read', 'audit', 'pause-expired', 'http-abort'] as const)
       );
     try {
       assert.equal((await server.weatherPrepared).status, 'ready');
-      const originalPrepare = BetterSqlite3.prototype.prepare;
-      if (failure === 'read')
-        t.mock.method(
-          BetterSqlite3.prototype,
-          'prepare',
-          function (this: BetterSqlite3.Database, sql: string) {
-            if (this.readonly && sql.includes('warning_current'))
-              throw new Error('読取障害fixture');
-            return originalPrepare.call(this, sql);
-          },
-        );
+      const readFailureMarker = join(options.nowcastCacheRoot, 'fail-startup-project');
+      if (failure === 'read') {
+        mkdirSync(options.nowcastCacheRoot, { recursive: true });
+        writeFileSync(readFailureMarker, '1');
+      }
       if (failure === 'audit')
         retained.exec(
           "CREATE TRIGGER reject_inquiry BEFORE INSERT ON startup_notification_inquiry BEGIN SELECT RAISE(ABORT, 'fixture'); END",
@@ -242,6 +238,7 @@ for (const failure of ['read', 'audit', 'pause-expired', 'http-abort'] as const)
       }
       assert.deepEqual(counts(), [0, 0, 0]);
       t.mock.restoreAll();
+      if (failure === 'read') unlinkSync(readFailureMarker);
       if (failure === 'audit') retained.exec('DROP TRIGGER reject_inquiry');
       await server.acquisitionHost.call('fixture.pause-delay', 0);
       assert.equal((await request()).status, 200);

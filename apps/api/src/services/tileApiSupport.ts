@@ -13,6 +13,7 @@ export type TileDeliveryResult =
       readonly catalogAvailability: Availability;
       readonly tileResult: 'cached' | 'downloaded';
       readonly storedAt: UtcIso8601String;
+      readonly release?: () => void;
     }
   | {
       readonly kind: 'error';

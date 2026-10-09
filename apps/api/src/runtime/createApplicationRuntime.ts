@@ -348,3 +348,170 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
     },
   };
 }
+
+/** 実提供 Worker の読取だけを公開する構成。メインは気象DBを所有しない。 */
+export function createDeliveryApplicationRuntime(input: {
+  readonly read: <K extends keyof WeatherOperations>(
+    kind: K,
+    payload: WeatherOperations[K]['request'],
+    timeoutMs?: number,
+  ) => Promise<WeatherOperations[K]['response']>;
+  readonly ensureTile: (
+    input: TileInput & { readonly explicit: boolean },
+    timeoutMs?: number,
+  ) => Promise<WeatherOperations['tile.ensure']['response']>;
+  readonly retainedConnection: DatabaseConnection;
+  readonly terminalRegistry: NonNullable<AppDependencies['terminalRegistry']>;
+  readonly weatherDatabaseGenerationId: string;
+  readonly now: () => string;
+}) {
+  const { read, ensureTile, now } = input;
+  const samples = new Map<string, MonitoringStatusResponse>();
+  const sampleReceivedAt = new Map<string, string>();
+  let closed = false;
+  let sampling = false;
+  async function sampleMonitoring() {
+    if (sampling || closed) return;
+    sampling = true;
+    try {
+      for (const terminal of input.terminalRegistry.listTerminals()) {
+        try {
+          const sample = await read('monitoring.sample', { terminal, requestedAt: now() });
+          if (!closed) {
+            samples.set(terminal.id, sample);
+            sampleReceivedAt.set(terminal.id, now());
+          }
+        } catch {
+          // 監視GETは最終正常報告を使う。
+        }
+      }
+    } finally {
+      sampling = false;
+    }
+  }
+  const timer = setInterval(() => void sampleMonitoring(), 5000);
+  timer.unref();
+  void sampleMonitoring();
+  async function tile(payload: TileInput): Promise<TileDeliveryResult> {
+    const deadline = Date.now() + 30000;
+    const remaining = () => {
+      const value = deadline - Date.now();
+      if (value <= 0) throw new WeatherRequestError('deadline_exceeded');
+      return value;
+    };
+    let result = await read('tile.read', payload, Math.min(5000, remaining()));
+    let tileResult: 'cached' | 'downloaded' = 'cached';
+    if (result.kind === 'miss') {
+      const ensured = await ensureTile({ ...payload, explicit: false }, remaining());
+      if (ensured.kind === 'unavailable')
+        return { kind: 'error', httpStatus: ensured.httpStatus, error: ensured.error };
+      tileResult = ensured.tileResult;
+      result = await read('tile.read', payload, Math.min(5000, remaining()));
+    }
+    if (result.kind === 'miss')
+      return {
+        kind: 'error',
+        httpStatus: 500,
+        error: { status: 'error', code: 'tile_read_failed' },
+      };
+    return {
+      kind: 'success',
+      buffer: Buffer.from(result.bytes),
+      catalogAvailability: result.catalogAvailability,
+      tileResult,
+      storedAt: result.storedAt,
+      release: result.release,
+    };
+  }
+  const history = createRetainedMonitoringHistory(input.retainedConnection, read, now);
+  const dependencies: AppDependencies = {
+    weatherApi: {
+      getWarnings: (terminal, controlStatus) =>
+        read('weather.read', {
+          kind: 'warnings',
+          terminal,
+          controlStatus,
+          requestedAt: now(),
+        }) as Promise<ReturnType<WeatherApiService['getWarnings']>>,
+      getWarningTimeseries: (terminal, controlStatus) =>
+        read('weather.read', {
+          kind: 'warning-timeseries',
+          terminal,
+          controlStatus,
+          requestedAt: now(),
+        }) as Promise<ReturnType<WeatherApiService['getWarningTimeseries']>>,
+      getEarlyWarning: (terminal, controlStatus) =>
+        read('weather.read', {
+          kind: 'early-warning',
+          terminal,
+          controlStatus,
+          requestedAt: now(),
+        }) as Promise<ReturnType<WeatherApiService['getEarlyWarning']>>,
+      getAreaTimeseries: (terminal, controlStatus) =>
+        read('weather.read', {
+          kind: 'area-timeseries',
+          terminal,
+          controlStatus,
+          requestedAt: now(),
+        }) as Promise<ReturnType<WeatherApiService['getAreaTimeseries']>>,
+      getAmedas: (terminal, controlStatus) =>
+        read('weather.read', {
+          kind: 'amedas',
+          terminal,
+          controlStatus,
+          requestedAt: now(),
+        }) as Promise<ReturnType<WeatherApiService['getAmedas']>>,
+      getBulletins: (terminal, controlStatus) =>
+        read('weather.read', {
+          kind: 'bulletins',
+          terminal,
+          controlStatus,
+          requestedAt: now(),
+        }) as Promise<ReturnType<WeatherApiService['getBulletins']>>,
+    },
+    nowcastApi: {
+      getTimes: (terminal, controlStatus) =>
+        read('image.times', {
+          layer: 'nowcast',
+          terminal,
+          controlStatus,
+          requestedAt: now(),
+        }) as Promise<ReturnType<NowcastApiService['getTimes']>>,
+      getTile: (frame, coordinate) => tile({ layer: 'nowcast', frame, coordinate }),
+    },
+    kikikuruApi: {
+      getTimes: (terminal, controlStatus) =>
+        read('image.times', {
+          layer: 'kikikuru',
+          terminal,
+          controlStatus,
+          requestedAt: now(),
+        }) as Promise<ReturnType<KikikuruApiService['getTimes']>>,
+      getTile: (frame, coordinate) => tile({ layer: 'kikikuru', frame, coordinate }),
+    },
+    monitoringProcessing: {
+      getProcessing: (terminal) => read('monitoring.processing', { terminal }),
+    },
+    monitoringHistory: {
+      listReceptions: (query) => read('history.receptions', query),
+      getReceptionById: (receptionId) =>
+        read('history.reception', {
+          receptionId,
+          expectedDatabaseGenerationId: input.weatherDatabaseGenerationId,
+        }),
+      listNotificationOutputs: history.listNotificationOutputs,
+      getNotificationReceptionById: history.getNotificationReceptionById,
+      listOperations: history.listOperations,
+    },
+  };
+  return {
+    dependencies,
+    samples,
+    sampleReceivedAt,
+    sampleMonitoring,
+    close: () => {
+      closed = true;
+      clearInterval(timer);
+    },
+  };
+}

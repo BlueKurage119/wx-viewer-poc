@@ -4,6 +4,7 @@ import type {
   WeatherRuntimeStatus,
   WeatherWorkerOperationHistoryItem,
   WeatherWorkerOperationHistoryResponse,
+  WeatherRole,
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
 
@@ -50,6 +51,10 @@ export interface WeatherWorkerControlDependencies {
   readonly getRuntimeStatus: () => WeatherRuntimeStatus;
   readonly restart: () => Promise<void>;
   readonly getDesiredRunning: () => boolean;
+  readonly delivery?: {
+    readonly getRuntimeStatus: () => WeatherRuntimeStatus;
+    readonly restart: () => Promise<void>;
+  };
 }
 function error(statusCode: number, code: string): WeatherWorkerControlReply {
   return { statusCode, body: { status: 'error', code } };
@@ -93,7 +98,7 @@ function reply(operation: WeatherRestartOperation): WeatherWorkerControlReply {
 export function createWeatherWorkerControlService(deps: WeatherWorkerControlDependencies) {
   const now = deps.now ?? (() => new Date().toISOString());
   const memory = new Map<string, MemoryEntry>();
-  let active: Promise<void> | null = null;
+  const active = new Map<WeatherRole, Promise<void>>();
   let accepting = true;
   let recovered = false;
   try {
@@ -128,16 +133,17 @@ export function createWeatherWorkerControlService(deps: WeatherWorkerControlDepe
         memory.delete(id);
     }
   }
-  async function execute(request: WeatherRestartRequest, recorded: boolean) {
+  async function execute(request: WeatherRestartRequest, recorded: boolean, role: WeatherRole) {
     let result: 'success' | 'failure' | 'unknown' = 'success';
     let errorCode: string | null = null;
     try {
-      await deps.restart();
+      await (role === 'delivery' ? deps.delivery!.restart() : deps.restart());
     } catch (cause) {
       result = cause instanceof WeatherWorkerRestartError ? cause.result : 'failure';
       errorCode = cause instanceof WeatherWorkerRestartError ? cause.code : 'restart_failed';
     }
-    const runtime = deps.getRuntimeStatus();
+    const runtime =
+      role === 'delivery' ? deps.delivery!.getRuntimeStatus() : deps.getRuntimeStatus();
     // 受付成功を返す実装契約が崩れた場合も成功と偽らない。
     if (
       result === 'success' &&
@@ -147,16 +153,16 @@ export function createWeatherWorkerControlService(deps: WeatherWorkerControlDepe
       result = 'unknown';
       errorCode = 'restart_generation_unconfirmed';
     }
-    const desiredRunning = deps.getDesiredRunning();
+    const desiredRunning = role === 'acquisition' ? deps.getDesiredRunning() : null;
     const operation: WeatherRestartOperation = {
       status: 'completed',
       requestId: request.requestId,
-      role: 'acquisition',
+      role,
       result,
       workerGeneration: runtime.workerGeneration,
       errorCode,
       historyRecorded: recorded,
-      desiredRunning,
+      ...(desiredRunning === null ? {} : { desiredRunning }),
     };
     if (recorded) {
       try {
@@ -176,7 +182,7 @@ export function createWeatherWorkerControlService(deps: WeatherWorkerControlDepe
               : result === 'unknown'
                 ? '再開結果を確認できません'
                 : '取得Workerを再開できませんでした',
-            desiredRunning ? 1 : 0,
+            desiredRunning === null ? null : desiredRunning ? 1 : 0,
             request.requestId,
           );
         recorded = updated.changes === 1;
@@ -190,7 +196,10 @@ export function createWeatherWorkerControlService(deps: WeatherWorkerControlDepe
     });
   }
   return {
-    request(body: unknown): WeatherWorkerControlReply {
+    request(body: unknown, role: WeatherRole = 'acquisition'): WeatherWorkerControlReply {
+      if (role !== 'acquisition' && role !== 'delivery') return error(400, 'invalid_request');
+      if (role === 'delivery' && !deps.delivery)
+        return error(503, 'weather_worker_control_unavailable');
       if (!isRequest(body)) return error(400, 'invalid_request');
       let existing: MemoryEntry | null;
       try {
@@ -199,18 +208,20 @@ export function createWeatherWorkerControlService(deps: WeatherWorkerControlDepe
         return error(503, 'weather_worker_history_unavailable');
       }
       if (existing)
-        return existing.request.expectedWorkerGeneration === body.expectedWorkerGeneration
+        return existing.operation.role === role &&
+          existing.request.expectedWorkerGeneration === body.expectedWorkerGeneration
           ? reply(existing.operation)
           : error(409, 'request_conflict');
       if (!accepting) return error(503, 'weather_worker_control_unavailable');
       if (!recovered) return error(503, 'weather_worker_history_unavailable');
-      const runtime = deps.getRuntimeStatus();
+      const runtime =
+        role === 'delivery' ? deps.delivery!.getRuntimeStatus() : deps.getRuntimeStatus();
       if (
-        active !== null ||
+        active.has(role) ||
         runtime.workerGeneration !== body.expectedWorkerGeneration ||
         !runtime.restartAllowed ||
         runtime.mode !== 'worker' ||
-        runtime.role !== 'acquisition' ||
+        runtime.role !== role ||
         runtime.lifecycle === 'restarting' ||
         runtime.lifecycle === 'stopping'
       )
@@ -222,15 +233,16 @@ export function createWeatherWorkerControlService(deps: WeatherWorkerControlDepe
         deps.connection
           .prepare(
             `INSERT INTO weather_worker_operation (request_id, role, expected_worker_generation,
-          server_generation_id, status, requested_at) VALUES (?, 'acquisition', ?, ?, 'in_progress', ?)`,
+          server_generation_id, status, requested_at) VALUES (?, ?, ?, ?, 'in_progress', ?)`,
           )
-          .run(body.requestId, body.expectedWorkerGeneration, deps.serverGenerationId, now());
+          .run(body.requestId, role, body.expectedWorkerGeneration, deps.serverGenerationId, now());
       } catch {
         // UNIQUE衝突と書込み失敗を区別し、既存操作を再実行しない。
         try {
           const conflict = find(body.requestId);
           if (conflict)
-            return conflict.request.expectedWorkerGeneration === body.expectedWorkerGeneration
+            return conflict.operation.role === role &&
+              conflict.request.expectedWorkerGeneration === body.expectedWorkerGeneration
               ? reply(conflict.operation)
               : error(409, 'request_conflict');
         } catch {
@@ -241,16 +253,19 @@ export function createWeatherWorkerControlService(deps: WeatherWorkerControlDepe
       const operation: WeatherRestartOperation = {
         status: 'in_progress',
         requestId: body.requestId,
-        role: 'acquisition',
+        role,
         historyRecorded: recorded,
       };
       memory.set(body.requestId, { request: body, operation });
       // request内で同期予約し、別IDの再開が同時に入る隙間を作らない。
-      active = Promise.resolve()
-        .then(() => execute(body, recorded))
-        .finally(() => {
-          active = null;
-        });
+      active.set(
+        role,
+        Promise.resolve()
+          .then(() => execute(body, recorded, role))
+          .finally(() => {
+            active.delete(role);
+          }),
+      );
       return reply(operation);
     },
     get(requestId: string): WeatherWorkerControlReply {
@@ -315,7 +330,7 @@ export function createWeatherWorkerControlService(deps: WeatherWorkerControlDepe
       accepting = false;
     },
     async waitForIdle() {
-      await active;
+      await Promise.all(active.values());
     },
   };
 }
