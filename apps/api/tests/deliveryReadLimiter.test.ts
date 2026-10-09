@@ -71,3 +71,21 @@ test('PNG枠で先頭が待つ間、後着の通常読取はFIFOを追い越さ�
   releaseText();
   await limiter.waitForIdle();
 });
+
+test('固定時計の期限直前は受付け、期限到達後は待機を開始せず実行中枠を保持する', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const limiter = new DeliveryReadLimiter();
+  const active = await Promise.all(
+    Array.from({ length: 16 }, (_, index) => limiter.acquire(`active-${index}`, false, 1001)),
+  );
+  const waiting = limiter.acquire('waiting', false, 1001);
+  now = 1001;
+  active[0]!();
+  await assert.rejects(waiting, /deadline_exceeded/);
+  await assert.rejects(limiter.acquire('at-deadline', false, 1001), /deadline_exceeded/);
+  assert.deepEqual(limiter.status, { active: 15, tiles: 0, queued: 0 });
+  for (const release of active) release();
+  await limiter.waitForIdle();
+  assert.deepEqual(limiter.status, { active: 0, tiles: 0, queued: 0 });
+});

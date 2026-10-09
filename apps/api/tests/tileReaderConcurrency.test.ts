@@ -258,4 +258,76 @@ for (const layer of ['nowcast', 'kikikuru'] as const) {
       f.close();
     }
   });
+
+  test(`${layer}: descriptor読取直後の索引差替え・削除でも旧bytesを公開せず必ずcloseする`, async (t) => {
+    const f = await setup(layer);
+    try {
+      const originalOpen = fs.promises.open.bind(fs.promises);
+      let phase: 'replace' | 'delete' | 'none' = 'replace';
+      let opens = 0;
+      let closes = 0;
+      t.mock.method(fs.promises, 'open', async (...args: Parameters<typeof fs.promises.open>) => {
+        const file = await originalOpen(...args);
+        opens++;
+        const readFile = file.readFile.bind(file);
+        const close = file.close.bind(file);
+        t.mock.method(file, 'readFile', async () => {
+          const bytes = await readFile();
+          if (phase === 'replace') {
+            phase = 'none';
+            await f.write(nextPng);
+          } else if (phase === 'delete') {
+            phase = 'none';
+            await f.write(png);
+            await f.store.deleteTile(relative);
+          }
+          return bytes;
+        });
+        t.mock.method(file, 'close', async () => {
+          await close();
+          closes++;
+        });
+        return file;
+      });
+      assert.deepEqual((await f.read())?.buffer, nextPng);
+      assert.equal(opens, 2);
+      assert.equal(closes, 2);
+      phase = 'delete';
+      assert.equal(await f.read(), null);
+      assert.equal(opens, 3);
+      assert.equal(closes, 3);
+    } finally {
+      f.close();
+    }
+  });
+
+  test(`${layer}: byteSize・SHA-256・PNGの各不一致をsuccessにせずdescriptorを閉じる`, async (t) => {
+    const f = await setup(layer);
+    try {
+      const io = interceptOpen(t, async () => {});
+      const hash = crypto.createHash('sha256').update(png).digest('hex');
+      assert.deepEqual(await f.store.verifyTile(relative, png.byteLength + 1, hash), {
+        valid: false,
+        buffer: null,
+      });
+      assert.deepEqual(await f.store.verifyTile(relative, png.byteLength, '0'.repeat(64)), {
+        valid: false,
+        buffer: null,
+      });
+      const invalid = Buffer.alloc(png.byteLength, 0);
+      fs.writeFileSync(path.join(f.root, relative), invalid);
+      assert.deepEqual(
+        await f.store.verifyTile(
+          relative,
+          invalid.byteLength,
+          crypto.createHash('sha256').update(invalid).digest('hex'),
+        ),
+        { valid: false, buffer: null },
+      );
+      assert.equal(io.opened(), 3);
+      assert.equal(io.closed(), 3);
+    } finally {
+      f.close();
+    }
+  });
 }

@@ -91,6 +91,47 @@ test('受付未送信は5秒で障害となり、自動spawnしない', async ()
   }
 });
 
+test('受付期限後にauthorizeが到着してもreaderを開かず、旧世代のまま失敗する', async () => {
+  const f = createHost(new URL('./fixtures/worker/delivery-late-authorize.ts', import.meta.url));
+  try {
+    const started = f.host.start();
+    await until(() => f.workers.length === 1);
+    const replies: { type?: string; error?: string }[] = [];
+    f.workers[0]!.on('message', (message: { type?: string; error?: string }) => {
+      replies.push(message);
+    });
+    await assert.rejects(started, /deadline_exceeded/);
+    await until(
+      () =>
+        replies.some(
+          (message) => message.type === 'reply' && message.error === 'initial_accept_timeout',
+        ),
+      5000,
+    );
+    assert.equal(f.host.status().lifecycle, 'failed');
+    assert.equal(f.host.epoch.readerEpoch, null);
+    assert.equal(f.workers.length, 1);
+    await assert.rejects(
+      f.host.connectReader({
+        generation: 'late',
+        schemaVersion: 1,
+        acquisitionEpoch: {
+          serverGenerationId: 'server',
+          workerGeneration: 'acquisition',
+          weatherDatabaseGenerationId: 'late',
+          readerEpoch: null,
+        },
+        readerEpoch: 'late',
+      }),
+      /not_ready/,
+    );
+  } finally {
+    if (f.workers[0]) await f.workers[0].terminate();
+    await f.host.close();
+    f.cleanup();
+  }
+});
+
 test('Worker errorイベントでは有限に失敗し、通知を重複させない', async () => {
   const f = createHost(new URL('./fixtures/worker/delivery-error.ts', import.meta.url));
   try {
@@ -257,6 +298,21 @@ test('実提供readerが開いた間はresetを拒否し、suspend ACKと二重c
       /対象DBを開いているプロセスがあります/,
     );
     await f.host.suspendReader();
+    assert.equal(f.workers.length, 1);
+    await f.host.connectReader({
+      generation,
+      schemaVersion,
+      acquisitionEpoch: {
+        serverGenerationId: 'server',
+        workerGeneration: 'acquisition',
+        weatherDatabaseGenerationId: generation,
+        readerEpoch: null,
+      },
+      readerEpoch: 'reader-reconnected',
+    });
+    assert.equal(f.host.epoch.readerEpoch, 'reader-reconnected');
+    assert.equal(f.workers.length, 1);
+    await f.host.suspendReader();
     const first = f.host.close();
     assert.equal(first, f.host.close());
     await first;
@@ -331,5 +387,77 @@ test('外部exclusive lock中の実提供読取は有限に失敗し、lock解�
     locker.close();
     await f.host.close();
     f.cleanup();
+  }
+});
+
+test('読取中と再開中の二重closeは旧Worker終了を確認し、後続要求を拒否する', async () => {
+  const f = createHost(new URL('./fixtures/worker/delivery-heartbeat.ts', import.meta.url));
+  const databases = initializeDatabases(f.config);
+  const generation = databases.weatherDatabaseGenerationId;
+  const schemaVersion = (
+    databases.weather.connection
+      .prepare('SELECT MAX(version) AS version FROM __schema_migrations')
+      .get() as {
+      version: number;
+    }
+  ).version;
+  databases.close();
+  try {
+    await f.host.start();
+    await f.host.connectReader({
+      generation,
+      schemaVersion,
+      acquisitionEpoch: {
+        serverGenerationId: 'server',
+        workerGeneration: 'acquisition',
+        weatherDatabaseGenerationId: generation,
+        readerEpoch: null,
+      },
+      readerEpoch: 'reader',
+    });
+    const worker = f.workers[0]!;
+    const blocked = workerEvent(worker, 'reads-blocked');
+    worker.postMessage({ type: 'test', id: 'fixture-control', test: 'block-reads' });
+    await blocked;
+    const reading = f.host.read(
+      'history.reception',
+      { expectedDatabaseGenerationId: generation, receptionId: 1 },
+      { report: null, unknownScopes: [], validatedScopes: [] },
+    );
+    void reading.catch(() => {});
+    await until(() => f.host.status().pendingRequests > 0);
+    const first = f.host.close();
+    assert.equal(first, f.host.close());
+    await first;
+    await assert.rejects(reading);
+    assert.equal(f.host.status().exitConfirmed, true);
+    assert.equal(f.host.status().pendingRequests, 0);
+    await assert.rejects(
+      f.host.read(
+        'history.reception',
+        { expectedDatabaseGenerationId: generation, receptionId: 1 },
+        { report: null, unknownScopes: [], validatedScopes: [] },
+      ),
+      /not_ready/,
+    );
+  } finally {
+    await f.host.close();
+    f.cleanup();
+  }
+
+  const restarting = createHost();
+  try {
+    await restarting.host.start();
+    const operation = restarting.host.restart();
+    void operation.catch(() => {});
+    const close = restarting.host.close();
+    assert.equal(close, restarting.host.close());
+    await close;
+    await assert.rejects(operation, /not_ready/);
+    assert.equal(restarting.host.status().exitConfirmed, true);
+    assert.equal(restarting.workers.length, 1, '終了要求後に新Workerをspawnしました');
+  } finally {
+    await restarting.host.close();
+    restarting.cleanup();
   }
 });
