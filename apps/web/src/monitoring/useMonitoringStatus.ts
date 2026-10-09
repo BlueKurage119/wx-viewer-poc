@@ -12,7 +12,7 @@ const REFRESH_DELAY_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 /** 監視画面が表示中だけ、直列の状態取得を行う。 */
-export function useMonitoringStatus(terminalId: string): MonitoringLoadState {
+export function useMonitoringStatus(terminalId: string, refreshVersion = 0): MonitoringLoadState {
   const [state, setState] = useState<MonitoringLoadState>({ phase: 'loading', data: null });
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export function useMonitoringStatus(terminalId: string): MonitoringLoadState {
       clearTimers();
       requestController?.abort();
     };
-  }, [terminalId]);
+  }, [terminalId, refreshVersion]);
 
   return state;
 }

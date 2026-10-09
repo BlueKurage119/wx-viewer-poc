@@ -22,7 +22,7 @@ import { promisify } from 'node:util';
 
 import {
   createStartupNotificationRuntime as createStartupNotificationRuntimeImpl,
-  startServer,
+  startInlineServer as startServer,
   type StartServerOptions,
 } from '../src/server.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
@@ -923,7 +923,7 @@ for (const [jstTime, fixedNow] of [
         import.meta.resolve('tsx'),
         '--input-type=module',
         '--eval',
-        `import { startServer } from ${JSON.stringify(new URL('../src/server.ts', import.meta.url).href)};
+        `import { startInlineServer as startServer } from ${JSON.stringify(new URL('../src/server.ts', import.meta.url).href)};
        import { createTestPollingSchedule } from ${JSON.stringify(new URL('./helpers/pollingSchedule.ts', import.meta.url).href)};
        const server = await startServer({ ${JSON.stringify(createTestServerDatabaseOptions({ databasePath: disabledDb, migrationsDirectory })).slice(1, -1)}, port: 0, pollingSchedule: createTestPollingSchedule() });
        const status = await (await fetch('http://127.0.0.1:' + server.port + '/api/monitoring/status?terminalId=hkeagh01')).json();

@@ -1,3 +1,5 @@
+import { WeatherWorkerPanel } from './WeatherWorkerPanel';
+import type { WeatherRestartModel } from './useWeatherRestart';
 import { memo, useEffect, useMemo } from 'react';
 import type { VenueForecastTargets } from '@wx-viewer-poc/shared';
 import type { MonitoringLoadState } from './useMonitoringStatus';
@@ -315,8 +317,10 @@ export function MonitoringDashboardView({
   state,
   uptimeSeconds,
   resolveTargets,
+  workerModel,
 }: {
   state: MonitoringLoadState;
+  workerModel?: WeatherRestartModel;
   uptimeSeconds?: number | null;
   resolveTargets?: (venueId: string) => VenueForecastTargets | undefined;
 }) {
@@ -398,6 +402,11 @@ export function MonitoringDashboardView({
           </>
         )}
       </section>
+      <WeatherWorkerPanel
+        data={state.data}
+        unavailable={state.phase === 'failed' || state.data === null}
+        model={workerModel}
+      />
       <SourceStatusTable rows={sourceRows} />
       {state.data !== null && informationRows !== null ? (
         <InformationTable rows={informationRows} />
@@ -416,11 +425,16 @@ export function MonitoringDashboardView({
 
 export interface MonitoringDashboardProps {
   terminalId: string;
+  workerModel?: WeatherRestartModel;
   onLoadStateChange?: (state: MonitoringLoadState) => void;
 }
 
-export function MonitoringDashboard({ terminalId, onLoadStateChange }: MonitoringDashboardProps) {
-  const state = useMonitoringStatus(terminalId);
+export function MonitoringDashboard({
+  terminalId,
+  onLoadStateChange,
+  workerModel,
+}: MonitoringDashboardProps) {
+  const state = useMonitoringStatus(terminalId, workerModel?.refreshVersion);
   const registry = useVenueRegistry();
 
   useEffect(() => {
@@ -430,6 +444,7 @@ export function MonitoringDashboard({ terminalId, onLoadStateChange }: Monitorin
   return (
     <MonitoringDashboardView
       state={state}
+      workerModel={workerModel}
       resolveTargets={(venueId) => {
         const resolved = registry.resolveVenueId(venueId);
         return resolved ? registry.getVenue(resolved) : undefined;

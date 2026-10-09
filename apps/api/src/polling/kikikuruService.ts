@@ -68,8 +68,8 @@ export class KikikuruService {
       throw new Error('freshnessPolicy.staleAfterSeconds must be a positive safe integer');
     }
 
-    this.tileStore = new KikikuruTileStore(options.cacheRoot);
-    this.tileStore.cleanOrphanAndTempFiles(connection);
+    this.tileStore = new KikikuruTileStore(options.cacheRoot, options.readOnly);
+    if (!options.readOnly) this.tileStore.cleanOrphanAndTempFiles(connection);
   }
 
   private getClock(): () => UtcIso8601String {
@@ -361,6 +361,12 @@ export class KikikuruService {
 
   /** 保存済みPNGの読取専用経路。取得レーンや上流通信を待たない。 */
   async readSavedTile(frame: KikikuruFrameKey, coordinate: TileCoordinate) {
+    return (
+      (await this.readSavedTileOnce(frame, coordinate)) ?? this.readSavedTileOnce(frame, coordinate)
+    );
+  }
+
+  private async readSavedTileOnce(frame: KikikuruFrameKey, coordinate: TileCoordinate) {
     const catalog = this.readCatalog();
     const entry = catalog.layers[frame.layer];
     const frameExists = entry.frames.some(

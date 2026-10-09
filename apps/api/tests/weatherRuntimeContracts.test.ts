@@ -209,6 +209,8 @@ test('報告鮮度は受領時刻で判定し、通常取得停止とは独立�
   const input = {
     role: 'acquisition' as const,
     mode: 'inline' as const,
+    exitConfirmed: false,
+    failureCode: null,
     workerGeneration: 'w',
     lifecycle: 'ready' as const,
     reportedAt: '2099-01-01T00:00:00Z',
@@ -337,6 +339,7 @@ test('実startServerの気象・times・reception・processingはplain request�
     },
   });
   try {
+    await server.weatherPrepared;
     const root = `http://127.0.0.1:${server.port}`;
     const paths = [
       'warnings',

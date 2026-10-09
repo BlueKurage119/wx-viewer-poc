@@ -48,6 +48,14 @@ export class StartupNotificationInitialization {
     };
   }
 
+  replaceStatus(status: StartupNotificationInitializationStatus): void {
+    this.initialFetchPhase = status.initialFetchPhase;
+    this.evaluatedVenueIds.clear();
+    for (const id of status.evaluatedVenueIds) this.evaluatedVenueIds.add(id);
+    this.preparationFailures.clear();
+    for (const failure of status.preparationFailures) this.markPreparationFailed(failure);
+  }
+
   setInitialFetchPhase(phase: InitialFetchPhase): void {
     this.initialFetchPhase = phase;
     if (phase !== 'completed') this.evaluatedVenueIds.clear();

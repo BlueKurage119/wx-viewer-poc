@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import {
   findFetchAttemptById,

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { JmaXmlPollingService } from '../src/polling/jmaXmlPollingService.js';
 import {
   TimeBasedPollingScheduler,

@@ -137,6 +137,10 @@ for (const mode of ['K', 'H'] as const)
     assert.ok(address && typeof address === 'object');
     const base = `http://127.0.0.1:${address.port}`;
     const originalFetch = window.fetch;
+    let releaseBoundary!: () => void;
+    const boundaryReceived = new Promise<void>((resolve) => {
+      releaseBoundary = resolve;
+    });
     const transport = async (input: RequestInfo | URL, init?: RequestInit) => {
       const response = await fetch(`${base}${input}`, init);
       const path = String(input);
@@ -145,7 +149,7 @@ for (const mode of ['K', 'H'] as const)
         (mode === 'K' && path.includes('origin=system') && path.includes('cursor=')) ||
         (mode === 'H' && path === '/api/notifications/startup' && response.status === 200)
       )
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        await boundaryReceived;
       return response;
     };
     window.fetch = transport;
@@ -175,6 +179,14 @@ for (const mode of ['K', 'H'] as const)
       fetchStartup: client.fetchStartupNotifications,
       receive: (items) => {
         received.push(...items.map((item) => item.feedKey));
+        if (
+          received.includes(
+            mode === 'K'
+              ? `startup:snapshot-${current.serverGenerationId}`
+              : 'delta:system-boundary',
+          )
+        )
+          releaseBoundary();
         const result = receiveNotifications(state, items, mode, Date.parse(now));
         state = result.state;
         if (result.chime) chimes.push(result.chime.feedKey);

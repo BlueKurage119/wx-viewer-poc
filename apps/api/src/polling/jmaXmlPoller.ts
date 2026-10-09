@@ -1,3 +1,4 @@
+import { telegramWeatherScopes } from '../runtime/weatherReadScope.js';
 import type { DecisionScope } from '../runtime/weatherDecisionRuntime.js';
 import crypto from 'node:crypto';
 import { type UtcIso8601String, type VenueRegistry } from '@wx-viewer-poc/shared';
@@ -381,7 +382,7 @@ export async function pollSingleFeed(
         .map((id) => resolveVenueWarningContext(venueRegistry, id).targetArea.municipalCode)
         .filter((code) => receptionInput.areas.some((area) => area.areaCode === code));
       await options.runWeatherUpdate(commitReception, {
-        scopes: receptionInput.areas.map((area) => area.areaCode),
+        scopes: telegramWeatherScopes(venueRegistry, receptionInput),
         initialWarningKeys:
           warning && (status === 'normal' || status === 'training')
             ? warningAreas.map((code) => `${code}|${status}`)

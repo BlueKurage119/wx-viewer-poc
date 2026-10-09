@@ -162,11 +162,49 @@ function isReadError(value: unknown, registry: VenueRegistry): boolean {
   }
 }
 
+function isWeatherRuntime(value: unknown, role: 'acquisition' | 'delivery'): boolean {
+  return (
+    isRecord(value) &&
+    value.role === role &&
+    ['inline', 'worker'].includes(String(value.mode)) &&
+    (value.workerGeneration === null || typeof value.workerGeneration === 'string') &&
+    ['starting', 'ready', 'stopping', 'stopped', 'failed', 'restarting'].includes(
+      String(value.lifecycle),
+    ) &&
+    isNullableIsoDate(value.reportedAt) &&
+    isNullableIsoDate(value.receivedAt) &&
+    ['unknown', 'fresh', 'stale'].includes(String(value.reportFreshness)) &&
+    (value.stopReason === null ||
+      ['requested', 'unexpected_exit', 'initialization_failed'].includes(
+        String(value.stopReason),
+      )) &&
+    typeof value.restartAllowed === 'boolean' &&
+    isNonNegativeInteger(value.pendingRequests) &&
+    typeof value.exitConfirmed === 'boolean' &&
+    (value.unknownScopes === undefined ||
+      (Array.isArray(value.unknownScopes) &&
+        value.unknownScopes.every((scope: unknown) => typeof scope === 'string'))) &&
+    (value.failureCode === null ||
+      [
+        'initial_accept_timeout',
+        'handshake_timeout',
+        'protocol_error',
+        'payload_too_large',
+      ].includes(String(value.failureCode)))
+  );
+}
+
 function isMonitoringResponse(
   value: unknown,
   registry: VenueRegistry,
 ): value is MonitoringStatusResponse {
   if (!isRecord(value) || value.status !== 'ready' || typeof value.terminalId !== 'string')
+    return false;
+  if (
+    !isRecord(value.weatherRuntimes) ||
+    !isWeatherRuntime(value.weatherRuntimes.acquisition, 'acquisition') ||
+    !isWeatherRuntime(value.weatherRuntimes.delivery, 'delivery')
+  )
     return false;
   if (
     !registry.resolveVenueId(value.requestedVenueId) ||

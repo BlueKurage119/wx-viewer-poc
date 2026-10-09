@@ -29,7 +29,7 @@ import { saveAmedasSnapshot } from '../src/repositories/amedasRepository.js';
 import { saveBosaiBulletin } from '../src/repositories/bosaiBulletinRepository.js';
 import { recordTelegramReception } from '../src/repositories/telegramReceptionRepository.js';
 import type { JmaXmlPollingStatus } from '../src/polling/jmaXmlPollingService.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');

@@ -79,9 +79,9 @@ export class NowcastService {
       throw new Error('freshnessPolicy.staleAfterSeconds must be a positive safe integer');
     }
 
-    this.tileStore = new NowcastTileStore(options.cacheRoot);
+    this.tileStore = new NowcastTileStore(options.cacheRoot, options.readOnly);
     // 同期起動処理により、読出し・変更操作より先に清掃を完了させる。
-    this.tileStore.cleanOrphanAndTempFiles(connection);
+    if (!options.readOnly) this.tileStore.cleanOrphanAndTempFiles(connection);
   }
 
   private getClock(): () => UtcIso8601String {
@@ -350,6 +350,12 @@ export class NowcastService {
 
   /** 保存済みPNGの読取専用経路。取得レーンや上流通信を待たない。 */
   async readSavedTile(frame: NowcastFrameKey, coordinate: TileCoordinate) {
+    return (
+      (await this.readSavedTileOnce(frame, coordinate)) ?? this.readSavedTileOnce(frame, coordinate)
+    );
+  }
+
+  private async readSavedTileOnce(frame: NowcastFrameKey, coordinate: TileCoordinate) {
     const catalog = this.readCatalog();
     const entry = catalog.products[frame.product];
     const frameExists = entry.frames.some(

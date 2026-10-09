@@ -40,6 +40,7 @@ export type NowcastTileResult = {
 );
 
 export interface NowcastOptions {
+  readonly readOnly?: boolean;
   readonly cacheRoot: string;
   readonly allowedZooms: readonly number[];
   readonly getCatalogAccess: () => UpstreamAccess;

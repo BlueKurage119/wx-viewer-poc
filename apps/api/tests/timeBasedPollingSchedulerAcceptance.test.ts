@@ -18,7 +18,7 @@ import {
 
 import { NowcastService, JmaXmlPollingService, createImageServices } from '../src/polling/index.js';
 import { FeedBackoffManager } from '../src/polling/retryBackoff.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const VALID_1X1_PNG_BASE64 =

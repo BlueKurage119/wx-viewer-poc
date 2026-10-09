@@ -25,6 +25,7 @@ export interface FetchHealthMonitorServiceOptions {
   readonly connection: DatabaseConnection;
   readonly retainedConnection?: DatabaseConnection;
   readonly recordSink?: NotificationRecordSink;
+  readonly runDecisionAsync?: (work: () => void) => Promise<void>;
   readonly runDecision?: <T>(work: () => T) => T;
   readonly statusProvider: FetchHealthStatusProvider;
   readonly config: FetchHealthConfig;
@@ -119,6 +120,14 @@ export class FetchHealthMonitorService {
 
   private runOnceSafe(): void {
     try {
+      if (this.options.runDecisionAsync) {
+        void this.options
+          .runDecisionAsync(() => {
+            this.evaluateOnce();
+          })
+          .catch((error) => console.error('取得健全性判定に失敗しました:', error));
+        return;
+      }
       this.runOnce();
     } catch (error) {
       console.error('FetchHealthMonitorService runOnce failed:', error);

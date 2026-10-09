@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { initializeDatabase } from '../src/database/index.js';
 import { runMigrations } from '../src/database/migrations.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import {
   planBosaiBulletinNotifications,

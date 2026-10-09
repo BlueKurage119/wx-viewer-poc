@@ -41,6 +41,7 @@ export interface ApplicationRuntimeDependencies extends Omit<
   readonly weatherDatabaseGenerationId: string;
   readonly now?: () => string;
   readonly readPort?: WeatherPort;
+  readonly acquisitionPort?: WeatherPort;
   readonly observeRequest?: (request: WeatherRequest) => void;
 }
 /** 両起動入口が使用するローカル構成。DB/service実体はここからHTTPへ渡さない。 */
@@ -126,17 +127,19 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
   );
   const readPort = deps.readPort ?? inline;
   const acquisitionEpoch = deps.acquisitionEpoch;
-  const acquisitionPort = createInlineWeatherAcquisition(acquisitionEpoch, {
-    'tile.ensure': async (p) => {
-      const result =
-        p.layer === 'nowcast'
-          ? await deps.nowcastApi.getTile(p.frame, p.coordinate)
-          : await deps.kikikuruApi.getTile(p.frame, p.coordinate);
-      return result.kind === 'success'
-        ? { kind: 'stored', tileResult: result.tileResult }
-        : { kind: 'unavailable', httpStatus: result.httpStatus, error: result.error };
-    },
-  });
+  const acquisitionPort =
+    deps.acquisitionPort ??
+    createInlineWeatherAcquisition(acquisitionEpoch, {
+      'tile.ensure': async (p) => {
+        const result =
+          p.layer === 'nowcast'
+            ? await deps.nowcastApi.getTile(p.frame, p.coordinate)
+            : await deps.kikikuruApi.getTile(p.frame, p.coordinate);
+        return result.kind === 'success'
+          ? { kind: 'stored', tileResult: result.tileResult }
+          : { kind: 'unavailable', httpStatus: result.httpStatus, error: result.error };
+      },
+    });
   async function tile(input: TileInput): Promise<TileDeliveryResult> {
     let result = await read('tile.read', input);
     let tileResult: 'cached' | 'downloaded' = 'cached';
@@ -307,6 +310,8 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
       {
         role,
         mode: 'inline',
+        exitConfirmed: closed,
+        failureCode: null,
         workerGeneration:
           role === 'delivery' ? epoch.workerGeneration : acquisitionEpoch.workerGeneration,
         lifecycle: closed ? 'stopped' : 'ready',
@@ -331,9 +336,11 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
       retainedWriter: { role: 'main' as const, lease: 'pair_factory' as const },
     },
     readPort,
+    registry: inline.registry,
     acquisitionPort,
     epoch,
     sampleMonitoring,
+    drain: () => inline.drain(),
     close: () => {
       closed = true;
       clearInterval(sampleTimer);

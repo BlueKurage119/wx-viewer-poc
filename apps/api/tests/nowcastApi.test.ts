@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 import { openDatabase, runMigrations } from '../src/database/index.js';
 import { createApp } from '../src/app.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { NowcastService } from '../src/polling/nowcastService.js';
 import {
   createNowcastApiService as createNowcastApiServiceImpl,
@@ -1348,6 +1348,18 @@ test('B18 (統合検証): startServer 起動統合テストと main 子プロセ
     });
 
     const port = await portPromise;
+    const readyDeadline = Date.now() + 10000;
+    for (;;) {
+      const status = await fetch(
+        `http://127.0.0.1:${port}/api/monitoring/status?terminalId=hkeagh01`,
+      );
+      const body = (await status.json()) as {
+        weatherRuntimes: { delivery: { lifecycle: string } };
+      };
+      if (body.weatherRuntimes.delivery.lifecycle === 'ready') break;
+      if (Date.now() >= readyDeadline) assert.fail('実Workerの準備が期限内に完了しません');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     let res: Response;
     try {
       res = await fetch(

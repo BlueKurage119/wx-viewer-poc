@@ -8,11 +8,13 @@ export type GbButtonProps = Omit<React.ComponentPropsWithoutRef<'button'>, 'colo
   readonly color: 'filled' | 'elevated' | 'tonal' | 'outlined' | 'text';
   readonly size: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   readonly square?: boolean;
+  /** 無効な状態でもキーボードフォーカスを維持する。 */
+  readonly softDisabled?: boolean;
 };
 
 /** M3 Expressive Labsボタンを登録し、React propsとして型安全に公開する。 */
 export const GbButton = React.forwardRef<HTMLElement, GbButtonProps>(function GbButton(
-  { color, size, square = false, ...props },
+  { color, size, square = false, softDisabled = false, ...props },
   ref,
 ) {
   return React.createElement('md-gb-button', {
@@ -20,6 +22,7 @@ export const GbButton = React.forwardRef<HTMLElement, GbButtonProps>(function Gb
     color,
     size,
     square,
+    'soft-disabled': softDisabled ? '' : undefined,
     ref,
   } as React.HTMLAttributes<HTMLElement> & React.RefAttributes<HTMLElement>);
 });

@@ -44,6 +44,7 @@ export type KikikuruTileResult = {
 );
 
 export interface KikikuruOptions {
+  readonly readOnly?: boolean;
   readonly cacheRoot: string;
   readonly allowedZooms: readonly number[];
   readonly getCatalogAccess: () => UpstreamAccess;

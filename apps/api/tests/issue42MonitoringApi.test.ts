@@ -523,6 +523,7 @@ test('AC2 セクション分離（確定事項1・AD-H063）: トップレベル
         'venues',
         'information',
         'tiles',
+        'weatherRuntimes',
       ]);
       assert.deepEqual(keys, expected);
       assert.equal('processing' in body, false);

@@ -10,7 +10,7 @@ import path from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { DEFAULT_CONFIG_URL, LOCAL_CONFIG_URL } from '../src/config/pollingScheduleLoader.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 

@@ -19,6 +19,7 @@ export interface ImageServices {
 }
 
 export interface CreateImageServicesOptions {
+  readonly readOnly?: boolean;
   readonly connection: DatabaseConnection;
   readonly schedule: PollingScheduleConfig;
   readonly enablePolling?: boolean;
@@ -122,6 +123,7 @@ export function createImageServices(options: CreateImageServicesOptions): ImageS
 
   const rawNowcast = new NowcastService(options.connection, {
     cacheRoot: nowcastCacheRoot,
+    readOnly: options.readOnly,
     allowedZooms: [...TILE_API_ALLOWED_ZOOMS],
     getCatalogAccess,
     getImageAccess: () => getImageAccess('nowcast'),
@@ -133,6 +135,7 @@ export function createImageServices(options: CreateImageServicesOptions): ImageS
 
   const rawKikikuru = new KikikuruService(options.connection, {
     cacheRoot: kikikuruCacheRoot,
+    readOnly: options.readOnly,
     allowedZooms: [...TILE_API_ALLOWED_ZOOMS],
     getCatalogAccess,
     getImageAccess: () => getImageAccess('kikikuru'),

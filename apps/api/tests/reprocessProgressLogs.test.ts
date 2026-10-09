@@ -38,7 +38,7 @@ import type { NowcastApiService } from '../src/services/nowcastApiService.js';
 import type { KikikuruApiService } from '../src/services/kikikuruApiService.js';
 import { createMonitoringStatusService } from '../src/monitoring/monitoringStatusService.js';
 import { resolveVenueWarningContext } from '../src/venueForecastTargets.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import type {
   JmaXmlPollingService,
   InitialFetchPhase,

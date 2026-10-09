@@ -23,7 +23,7 @@ export interface DatabasePairContext {
   readonly weatherDatabaseGenerationId: string;
   close(): void;
 }
-function initializeRole(
+export function initializeRole(
   config: RoleDatabaseConfig,
   registerConnection: (connection: DatabaseConnection) => void,
 ): DatabaseContext {

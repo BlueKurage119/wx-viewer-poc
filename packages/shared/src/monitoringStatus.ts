@@ -1,3 +1,4 @@
+import type { WeatherRuntimeStatus } from './weatherRuntime.js';
 import type { UtcIso8601String } from './types.js';
 import type { Availability } from './availability.js';
 import type { VenueId } from './venueForecastTargets.js';
@@ -219,6 +220,10 @@ export interface MonitoringReadError {
 }
 
 export interface MonitoringStatusResponse {
+  readonly weatherRuntimes: {
+    readonly acquisition: WeatherRuntimeStatus;
+    readonly delivery: WeatherRuntimeStatus;
+  };
   readonly readErrors: readonly MonitoringReadError[];
   readonly status: 'ready';
   readonly terminalId: string;
