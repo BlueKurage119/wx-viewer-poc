@@ -34,6 +34,8 @@ export function releaseOwnedRoleLease(config: RoleDatabaseConfig, owner: WriterL
     throw new Error('lease_owner_unverified');
   }
   if (
+    typeof actual !== 'object' ||
+    actual === null ||
     Object.keys(owner).some(
       (key) => actual[key as keyof WriterLeaseOwner] !== owner[key as keyof WriterLeaseOwner],
     )

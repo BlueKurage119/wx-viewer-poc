@@ -349,6 +349,20 @@ describe('解放失敗ログ', () => {
     );
     assert.ok(!lines[0]?.includes(homedir()));
   });
+
+  it('owner.jsonが null でも lease_owner_unverified を投げ release_failed を1行出す', () => {
+    const errorMock = mock.method(console, 'error', () => undefined);
+    acquireWriterLock(lock, owner('new-token-1'), makeDeps({ state: 'absent' }));
+    writeFileSync(join(lock, 'owner.json'), 'null');
+    const config = { databasePath: join(dir, 'retained.sqlite3') } as never;
+    assert.throws(
+      () => releaseOwnedRoleLease(config, owner('new-token-1')),
+      /lease_owner_unverified/,
+    );
+    const lines = errorMock.mock.calls.map((c) => String(c.arguments[0]));
+    assert.equal(lines.length, 1);
+    assert.match(lines[0] as string, /release_failed .*reason=lease_owner_unverified/);
+  });
 });
 
 describe('API終了ログ', () => {
