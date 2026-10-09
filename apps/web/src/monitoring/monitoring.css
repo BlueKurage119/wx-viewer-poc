@@ -160,6 +160,7 @@
 }
 
 .monitoring-table-scroll {
+  position: relative; /* 視覚的非表示の補足語を、この領域内へ閉じ込める */
   overflow-x: auto;
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: 4px;

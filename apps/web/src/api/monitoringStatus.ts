@@ -190,6 +190,9 @@ function isWeatherRuntime(value: unknown, role: 'acquisition' | 'delivery'): boo
         'handshake_timeout',
         'protocol_error',
         'payload_too_large',
+        'report_stale',
+        'unexpected_exit',
+        'initialization_failed',
       ].includes(String(value.failureCode)))
   );
 }

@@ -77,8 +77,14 @@ export function toolbarFocusKey(
   return null;
 }
 
-function toolbarItemElement(key: string): HTMLElement | null {
-  return document.querySelector<HTMLElement>(`[data-toolbar-item="${CSS.escape(key)}"]`);
+/** 描画直後の Lit 要素は内部の button が未生成のため、更新完了を待ってからフォーカスする。 */
+function focusToolbarItem(key: string): void {
+  const element = document.querySelector<HTMLElement>(`[data-toolbar-item="${CSS.escape(key)}"]`);
+  if (!element) return;
+  const updateComplete = (element as HTMLElement & { updateComplete?: Promise<unknown> })
+    .updateComplete;
+  if (updateComplete) void updateComplete.then(() => element.focus());
+  else element.focus();
 }
 
 function isBusy(state: OperationState): boolean {
@@ -146,7 +152,7 @@ export function useMonitoringToolbar({
     focusRequest.current = null;
     if (!request) return;
     const key = toolbarFocusKey(definitionsRef.current, localState.history, request);
-    if (key) toolbarItemElement(key)?.focus();
+    if (key) focusToolbarItem(key);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyKey]);
 

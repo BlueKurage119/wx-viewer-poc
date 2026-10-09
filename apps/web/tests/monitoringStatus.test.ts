@@ -497,3 +497,37 @@ test('未判定の警報系電文件数: 件数とnull（読取失敗）を受�
     await assert.rejects(read(invalid), { message: '監視情報の応答形式が不正です' });
   }
 });
+
+test('Workerの異常コード7種すべてを受理し、未知のコードは拒否する', async () => {
+  const read = (failureCode: unknown) =>
+    createMonitoringStatusClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            ...monitoringResponseFixture,
+            weatherRuntimes: {
+              ...monitoringResponseFixture.weatherRuntimes,
+              acquisition: {
+                ...monitoringResponseFixture.weatherRuntimes.acquisition,
+                lifecycle: 'failed',
+                failureCode,
+              },
+            },
+          }),
+        ),
+      registry: testVenueRegistry,
+    }).fetchMonitoringStatus('kkeagh01');
+  for (const code of [
+    'initial_accept_timeout',
+    'handshake_timeout',
+    'protocol_error',
+    'payload_too_large',
+    'report_stale',
+    'unexpected_exit',
+    'initialization_failed',
+    null,
+  ]) {
+    assert.equal((await read(code)).weatherRuntimes.acquisition.failureCode, code);
+  }
+  await assert.rejects(read('unknown_code'), { message: '監視情報の応答形式が不正です' });
+});

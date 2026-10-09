@@ -207,7 +207,7 @@ export function presentWorker(role: WeatherRole, input: WorkerPresentInput): Wor
   const data = input.data;
   const first: WorkerDetailLine = decision.stale
     ? {
-        text: `応答を確認できません（${reportLine(runtime, data.generatedAt)}）`,
+        text: `応答を確認できません（最終報告 ${formatJstClock(runtime.receivedAt)}）`,
         kind: 'report',
       }
     : { text: reportLine(runtime, data.generatedAt), kind: 'report' };
