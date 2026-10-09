@@ -593,7 +593,7 @@ test('提供Workerの同期encode中もhealth/監視/system差分各20要求が�
         }
       });
     });
-    worker!.postMessage({ test: 'encode-load' });
+    worker!.postMessage({ type: 'test', id: 'fixture-control', test: 'encode-load' });
     const fixture = await started;
     const measurements: Record<string, { count: number; maximumMs: number; p95Ms: number }> = {};
     for (const [name, path, bound] of [
