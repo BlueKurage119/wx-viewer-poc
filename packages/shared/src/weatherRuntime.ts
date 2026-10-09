@@ -13,7 +13,10 @@ export interface WeatherRuntimeStatus {
   readonly restartAllowed: boolean;
   readonly pendingRequests: number;
   readonly exitConfirmed: boolean;
+  /** 完了の応答が失われ、結果が分からない範囲。画面の「結果不明」はこれだけを数える。 */
   readonly unknownScopes?: readonly string[];
+  /** いま処理中の更新の対象範囲。読み出しの公開ゲートでは unknownScopes と同様にブロックする。 */
+  readonly pendingScopes?: readonly string[];
   /** 取得Workerが準備完了（prepared）を報告済みか。提供Workerでは省略される。 */
   readonly prepared?: boolean;
   readonly failureCode:

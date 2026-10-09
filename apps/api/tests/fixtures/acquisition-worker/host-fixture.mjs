@@ -106,6 +106,10 @@ transport = new WeatherTransport(
       }, 50);
       return null;
     }
+    if (method === 'fixture.prepared') {
+      await transport.call('prepared', { epoch });
+      return null;
+    }
     if (method === 'fixture.database') {
       epoch = await transport.call('database.ready', {
         epoch,

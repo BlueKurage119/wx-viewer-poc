@@ -74,7 +74,13 @@ export class AcquisitionWorkerHost {
       this.preparedResolve = resolve;
     });
     this.staleTimer = setInterval(() => {
-      if (!this.exited && this.status().reportFreshness === 'stale' && !this.intentional)
+      // 準備中は同期処理で報告が途絶えるため、準備完了までは通知しない（通知だけの抑止）。
+      if (
+        !this.exited &&
+        this.preparationCompleted &&
+        this.status().reportFreshness === 'stale' &&
+        !this.intentional
+      )
         this.notify('report_stale');
     }, 1000);
     this.staleTimer.unref();
@@ -94,6 +100,8 @@ export class AcquisitionWorkerHost {
     this.preparedResolve({ status: 'failed', code: code ?? 'protocol_error' });
   }
   status(): WeatherRuntimeStatus {
+    const pendingScopes = [...new Set(this.decisions.pendingUnit?.scopes ?? [])];
+    const workerGone = this.exited || this.lifecycle === 'failed' || this.lifecycle === 'stopped';
     const status = projectWeatherRuntimeStatus(
       {
         role: 'acquisition',
@@ -105,9 +113,11 @@ export class AcquisitionWorkerHost {
         stopReason: this.stopReason,
         exitConfirmed: this.exited,
         failureCode: this.failureCode,
+        pendingScopes: workerGone ? [] : pendingScopes,
         unknownScopes: [
           ...new Set([
-            ...(this.decisions.pendingUnit?.scopes ?? []),
+            // Workerが失敗・停止・終了した後に残った処理中の更新は、完了を確認できないため結果不明として扱う。
+            ...(workerGone ? pendingScopes : []),
             ...this.decisions
               .getUnknownUnits()
               .flatMap((unit) =>

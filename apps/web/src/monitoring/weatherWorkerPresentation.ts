@@ -149,6 +149,20 @@ function decide(
       ? { state: '停止', tone: 'neutral', restartability: allowed, serverPermits: true }
       : { state: '異常停止', tone: 'error', restartability: allowed, serverPermits: true };
   }
+  // 取得Workerは準備中に同期処理でイベントループが止まり、報告が途絶えることがある。
+  // 準備中の途絶は「応答を確認できません」ではなく「準備中」を示す（再開可否はサーバー許可のまま）。
+  if (
+    runtime.role === 'acquisition' &&
+    runtime.prepared === false &&
+    runtime.reportFreshness === 'stale'
+  ) {
+    return {
+      state: '準備中',
+      tone: 'attention',
+      restartability: allowed,
+      serverPermits: true,
+    };
+  }
   if (runtime.reportFreshness === 'stale') {
     return {
       state: '稼働中',

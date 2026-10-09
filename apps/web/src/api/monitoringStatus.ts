@@ -184,6 +184,9 @@ function isWeatherRuntime(value: unknown, role: 'acquisition' | 'delivery'): boo
     (value.unknownScopes === undefined ||
       (Array.isArray(value.unknownScopes) &&
         value.unknownScopes.every((scope: unknown) => typeof scope === 'string'))) &&
+    (value.pendingScopes === undefined ||
+      (Array.isArray(value.pendingScopes) &&
+        value.pendingScopes.every((scope: unknown) => typeof scope === 'string'))) &&
     (value.failureCode === null ||
       [
         'initial_accept_timeout',

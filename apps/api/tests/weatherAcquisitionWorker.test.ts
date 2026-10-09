@@ -141,7 +141,7 @@ test('提供Worker異常終了後は閲覧を503に閉じ、専用再開だけ�
         change_type: 'unexpected_exit',
         category: 'question',
         message_definition_id: 'system-weather-delivery-exited',
-        summary: '提供系停止\n気象Worker\n予期しない終了',
+        summary: '気象Worker停止\n提供系\n予期しない終了',
       },
     ]);
     const newGeneration = server.deliveryHost.epoch.workerGeneration;
@@ -159,7 +159,7 @@ test('提供Worker異常終了後は閲覧を503に閉じ、専用再開だけ�
         change_type: 'restart_completed',
         category: 'warning',
         message_definition_id: 'system-weather-delivery-restart-completed',
-        summary: '提供系再起動完了\n気象Worker',
+        summary: '気象Worker再起動完了\n提供系',
       },
     ]);
     assert.equal(acquisitionSpawns, 1);
@@ -383,7 +383,7 @@ test('実Worker異常終了後も保存済み気象を提供し、同IDの専用
         {
           change_type: 'unexpected_exit',
           category: 'question',
-          summary: '取得系停止\n気象Worker\n予期しない終了',
+          summary: '気象Worker停止\n取得系\n予期しない終了',
         },
       ],
     );
@@ -429,7 +429,7 @@ test('実Worker異常終了後も保存済み気象を提供し、同IDの専用
         change_type: 'restart_completed',
         category: 'warning',
         message_definition_id: 'system-weather-acquisition-restart-completed',
-        summary: '取得系再起動完了\n気象Worker',
+        summary: '気象Worker再起動完了\n取得系',
       },
     ]);
     await eventually(

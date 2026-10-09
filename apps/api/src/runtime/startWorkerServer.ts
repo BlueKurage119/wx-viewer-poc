@@ -199,9 +199,14 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       });
     },
   });
+  /** 読み出しを公開しない範囲。処理中（pending）と結果不明（unknown）の両方をブロックする。 */
+  const blockedScopes = (): string[] => {
+    const status = host.status();
+    return [...new Set([...(status.pendingScopes ?? []), ...(status.unknownScopes ?? [])])];
+  };
   const context = () => ({
     report: host.report,
-    unknownScopes: host.status().unknownScopes ?? [],
+    unknownScopes: blockedScopes(),
     validatedScopes: [...locallyValidatedScopes],
     now: now(),
   });
@@ -225,12 +230,14 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       recordFailure('delivery', code, generation);
     },
   });
-  const workerNotificationTargets = (): SystemNotification['targets'] => [
+  const workerNotificationTargets = (
+    role: 'acquisition' | 'delivery',
+  ): SystemNotification['targets'] => [
     {
       kind: 'equipment',
       codeType: 'wx-viewer-poc/service',
-      code: 'weather',
-      name: '気象Worker',
+      code: role,
+      name: role === 'delivery' ? '提供系' : '取得系',
     },
   ];
   function recordWorkerNotification(
@@ -248,7 +255,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       sourceType: 'weather_worker',
       sourceVersion: generation,
       changeType,
-      targets: workerNotificationTargets(),
+      targets: workerNotificationTargets(role),
       occurredAt: now(),
       detectedAt: now(),
       relatedRefs: [{ type: 'worker_generation', ref: generation }],
@@ -352,7 +359,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
     status: Parameters<typeof weatherReadScope>[1],
     kind: WeatherScopeKind,
   ) =>
-    !weatherScopeBlocks(host.status().unknownScopes ?? [], venueId, status, kind) &&
+    !weatherScopeBlocks(blockedScopes(), venueId, status, kind) &&
     (kind === 'nowcast' ||
       kind === 'kikikuru' ||
       locallyValidatedScopes.has(weatherReadScope(venueId, status, kind)));
@@ -370,7 +377,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       !sameWeatherEpoch(delivery.epoch, deliveryEpoch)
     )
       throw new WeatherRequestError('generation_changed');
-    const currentUnknown = host.status().unknownScopes ?? [];
+    const currentUnknown = blockedScopes();
     const currentValidated = new Set(locallyValidatedScopes);
     const scopes: string[] = [];
     if (kind === 'weather.read') {
@@ -514,11 +521,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
           isScopeReadable(input.venueId, status, kind),
         ),
       );
-    if (
-      !validated() ||
-      weatherScopeBlocks(host.decisions.pendingUnit?.scopes ?? [], input.venueId) ||
-      weatherScopeBlocks(host.status().unknownScopes ?? [], input.venueId)
-    )
+    if (!validated() || weatherScopeBlocks(blockedScopes(), input.venueId))
       return {
         status: 'initializing' as const,
         terminalId: input.terminalId,

@@ -211,9 +211,12 @@ for (const granular of [false, true]) {
             await new Promise((resolve) => setTimeout(resolve, 10));
           assert.equal(server.acquisitionHost.status().exitConfirmed, true);
         }
-        assert.deepEqual(server.acquisitionHost.status().unknownScopes, [
-          granular ? 'east|normal|warnings' : 'east',
-        ]);
+        // 実行中の更新は処理中（pending）、異常終了後は完了を確認できない結果不明（unknown）。
+        // どちらの場合も読み出しは公開しない（以降の assertion）。
+        const scope = [granular ? 'east|normal|warnings' : 'east'];
+        const runtime = server.acquisitionHost.status();
+        assert.deepEqual(runtime.unknownScopes, exit ? scope : []);
+        assert.deepEqual(runtime.pendingScopes, exit ? [] : scope);
         const unavailable = {
           source: null,
           issuedAt: null,
@@ -266,6 +269,8 @@ for (const granular of [false, true]) {
         });
         assert.equal(((await startup.json()) as { status: string }).status, 'initializing');
         const monitoring = (await (await fetch(monitoringUrl)).json()) as MonitoringStatusResponse;
+        assert.deepEqual(monitoring.weatherRuntimes.acquisition.unknownScopes, exit ? scope : []);
+        assert.deepEqual(monitoring.weatherRuntimes.acquisition.pendingScopes, exit ? [] : scope);
         const information = monitoring.information.filter(
           (item) => item.venueId === 'east' && (!granular || item.kind === 'warning'),
         );

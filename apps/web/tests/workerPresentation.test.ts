@@ -555,3 +555,69 @@ test('D6: 受付済み・失敗・結果不明・409・400・履歴未記録の�
     });
   }
 });
+
+test('処理中の範囲（pendingScopes）は結果不明に数えず、画面に出さない。結果不明は unknownScopes だけを数える', () => {
+  const present = (acquisition: Record<string, unknown>) =>
+    presentWorker('acquisition', {
+      data: applyWorkerState(base, { acquisition, delivery: {} }).data,
+      monitoringFailed: false,
+      restart: idle,
+      baselineGeneratedAt: null,
+    });
+  const pendingOnly = present({
+    pendingScopes: ['east', 'east|normal|warnings'],
+    unknownScopes: [],
+  });
+  assert.equal(
+    pendingOnly.lines.some((line) => line.kind === 'unknown' || line.text.includes('結果不明')),
+    false,
+  );
+  assert.equal(
+    pendingOnly.lines.some((line) => line.text.includes('east')),
+    false,
+  );
+  const both = present({ pendingScopes: ['east', 'trc', 'x'], unknownScopes: ['a'] });
+  assert.deepEqual(both.lines[1], { text: '結果不明 1件', kind: 'unknown' });
+});
+
+test('取得Workerの準備中に報告が途絶えても「応答を確認できません」を出さず、準備中を示す（再開可否は変えない）', () => {
+  const present = (acquisition: Record<string, unknown>) =>
+    presentWorker('acquisition', {
+      data: applyWorkerState(base, { acquisition, delivery: {} }).data,
+      monitoringFailed: false,
+      restart: idle,
+      baselineGeneratedAt: null,
+    });
+  const preparing = present({
+    lifecycle: 'starting',
+    reportFreshness: 'stale',
+    prepared: false,
+    restartAllowed: true,
+  });
+  assert.deepEqual([preparing.state, preparing.tone], ['準備中', 'attention']);
+  assert.equal(preparing.canRestart, true);
+  assert.equal(preparing.lines[0]!.text.includes('応答を確認できません'), false);
+  assert.equal(
+    preparing.lines.some((line) => line.text.includes('応答を確認できません')),
+    false,
+  );
+  // サーバーが許可しなければ押せない（再開可否はサーバー値のまま）
+  assert.equal(
+    present({
+      lifecycle: 'starting',
+      reportFreshness: 'stale',
+      prepared: false,
+      restartAllowed: false,
+    }).canRestart,
+    false,
+  );
+  // 準備完了後の途絶は従来どおり
+  const afterPrepared = present({
+    lifecycle: 'ready',
+    reportFreshness: 'stale',
+    prepared: true,
+    restartAllowed: true,
+  });
+  assert.deepEqual([afterPrepared.state, afterPrepared.tone], ['稼働中', 'attention']);
+  assert.equal(afterPrepared.lines[0]!.text.startsWith('応答を確認できません（最終報告 '), true);
+});
