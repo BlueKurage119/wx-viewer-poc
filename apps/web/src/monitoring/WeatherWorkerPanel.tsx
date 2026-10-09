@@ -108,7 +108,7 @@ export function WeatherWorkerPanel({
         <GbButton
           color="filled"
           size="sm"
-          disabled={!canRestart}
+          softDisabled={!canRestart}
           onClick={() => {
             if (canRestart && runtime?.workerGeneration) model.restart(runtime.workerGeneration);
           }}

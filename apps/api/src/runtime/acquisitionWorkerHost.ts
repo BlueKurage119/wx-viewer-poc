@@ -1,4 +1,3 @@
-import { weatherScopeVenue } from './weatherReadScope.js';
 import { Worker } from 'node:worker_threads';
 import { randomUUID } from 'node:crypto';
 import { projectWeatherRuntimeStatus, type WeatherRuntimeStatus } from '@wx-viewer-poc/shared';
@@ -114,9 +113,7 @@ export class AcquisitionWorkerHost {
                 unit.scopes.filter(
                   (scope) =>
                     unit.epoch.workerGeneration === this.epoch.workerGeneration ||
-                    !this.report?.initialization.evaluatedVenueIds.some(
-                      (id) => id === weatherScopeVenue(scope),
-                    ),
+                    !this.report?.locallyValidatedScopes?.includes(scope),
                 ),
               ),
           ]),

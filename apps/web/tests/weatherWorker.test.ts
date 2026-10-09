@@ -285,7 +285,8 @@ test('専用ボタンは不明・準備中・再開中では無効、freshな異
     );
     // ラッパーの属性だけを抽出し、他sectionの文言には依存しない。
     const attributes = html.match(/<md-gb-button([^>]*)>/)?.[1] ?? '';
-    assert.equal(/disabled=""/.test(attributes), expectedDisabled);
+    assert.equal(/soft-disabled=""/.test(attributes), expectedDisabled);
+    assert.equal(/\sdisabled=""/.test(attributes), false);
     assert.equal(
       html.match(/<p class="monitoring-worker-result"[^>]*>/)?.[0],
       '<p class="monitoring-worker-result" aria-live="polite" role="status">',

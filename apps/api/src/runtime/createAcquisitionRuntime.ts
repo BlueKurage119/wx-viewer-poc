@@ -1,3 +1,4 @@
+import { createWeatherApiService } from '../services/weatherApiService.js';
 import { weatherReadScope } from './weatherReadScope.js';
 import {
   createVenueRegistry,
@@ -65,6 +66,7 @@ export function createAcquisitionRuntime(
   const weatherDatabaseGenerationId = epoch.weatherDatabaseGenerationId!;
   const initialization = new StartupNotificationInitialization();
   const decisions = createWorkerDecisions(epoch, checkpoint, transport);
+  const locallyValidatedScopes = new Set<string>();
   const scopeFor = (venueIds: readonly VenueId[]) => ({
     scopes: venueIds.flatMap((id) =>
       (['normal', 'training'] as const).flatMap((status) =>
@@ -311,7 +313,7 @@ export function createAcquisitionRuntime(
     for (const venueId of registry.listVenueIds()) {
       if (stopped) return;
       const venue = resolveVenueWarningContext(registry, venueId);
-      await recoverVenue(venue, settings.schedule.startupRecovery, async () => {
+      const recovered = await recoverVenue(venue, settings.schedule.startupRecovery, async () => {
         if (settings.enablePolling)
           await reprocessPendingWarningTelegramReceptions(
             connection,
@@ -321,6 +323,36 @@ export function createAcquisitionRuntime(
             { progressTracker, runWeatherUpdate },
           );
       });
+      // 保存済み整合性の検証は上流初回取得や通知済みcheckpointとは独立して記録する。
+      for (const result of recovered.statuses)
+        locallyValidatedScopes.add(weatherReadScope(venueId, result.controlStatus, 'warnings'));
+      const localReader = createWeatherApiService({
+        connection,
+        venueRegistry: registry,
+        now: clock,
+      });
+      const terminal = {
+        id: 'local-validation',
+        name: '保存済み整合性検証',
+        mode: 'H' as const,
+        venueId,
+      };
+      for (const status of ['normal', 'training', 'test'] as const) {
+        for (const [kind, method] of [
+          ['warning-timeseries', 'getWarningTimeseries'],
+          ['early-warning', 'getEarlyWarning'],
+          ['area-timeseries', 'getAreaTimeseries'],
+          ['amedas', 'getAmedas'],
+          ['bulletins', 'getBulletins'],
+        ] as const) {
+          try {
+            localReader[method](terminal, status);
+            locallyValidatedScopes.add(weatherReadScope(venueId, status, kind));
+          } catch {
+            // 読取に失敗したscopeは未確定のままとし、他scopeの成功へ混ぜない。
+          }
+        }
+      }
       await evaluateInitialWarning(venue);
     }
     if (!settings.enablePolling || stopped) return;
@@ -382,6 +414,7 @@ export function createAcquisitionRuntime(
         polling: pollingService?.getStatus() ?? null,
         health: healthMonitor?.getLastAggregate() ?? null,
         initialization: { ...status, evaluatedVenueIds: [...status.evaluatedVenueIds] },
+        locallyValidatedScopes: [...locallyValidatedScopes],
         venues: registry.listVenueIds().map((venueId) => ({
           venueId,
           reprocessing: progressTracker.getVenueReprocessingStatus(venueId),

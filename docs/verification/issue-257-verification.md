@@ -113,3 +113,19 @@ AC3はコメントのみ対照7件PASSの後、読取抑止を外して実Worker
 追加UI・通知の見た目と文言は引き続き暫定であり、#259でユーザー監修を受けて確定する。
 
 修正後の品質確認: 全API **980件PASS**、`lint` / `typecheck` / `format:check` / `build` はすべてexit code 0。Web・sharedは今回変更がないため再実行していない（直前の初回検収はWeb481件・shared63件PASS）。ビルドには既存の500kB超bundle警告のみが残る。
+
+## 再検収差戻しの修正（AC7 / AC15）
+
+AC7では、旧scopeの解除が上流初回取得後の会場評価に依存し、取得停止の意図で再開すると保存済み警報をunavailableにし続けていた。取得Workerの報告に`locallyValidatedScopes`を分離し、警報のローカル復旧結果と他テキスト情報の保存済み読取が成功したscopeだけを明示する。メインは旧世代の未確定scopeをこの成功報告と照合する。preparedだけによる一括解除は行わず、上流初回取得・通知済みcheckpointの意味は変えない。
+
+検収担当の同一実Worker/HTTP再現fixtureが通過し、再開後unknownなし、initialFetch=not_started、evaluatedVenueIdsは空を維持した。追加実Worker回帰2件では更新開始ACKを落とし、enablePolling=true・desiredRunning=falseで再開した。保存済み警報の完全一致、別会場・訓練の検証成功と既存空状態の不変、上流fetch0、気象通知の補完0を確認した。読取失敗の境界では、未完了unitへ早期注意scopeを追加注入し、そのローカル読取だけを故障させた。prepared受領後も早期注意だけ未確定を維持し、警報は回復した。
+
+AC7のコメントのみ対照2件PASSの後、旧会場評価への依存へ戻す改変で2件FAIL、検証結果によらず全scopeを解除する改変で1件FAILを確認し、すべて復元した。
+
+AC15は既存MaterialボタンのsoftDisabledを専用再開ボタンに適用した。ボタンDOM・キーボードフォーカスを維持しながら、既存の操作可否ガードとcontrollerで重複要求を抑止する。配置・CSS・文言は変更していない。
+
+ユーザー追加指示: **仮UIは#259で流用予定なし。今回は必要な機能検証に限定する。** 見た目・文言・細部の追加仕上げや流用目的の作り込みは行わず、#259でユーザー監修を受ける。
+
+AC15のChrome機能確認では1280/768/360pxで開始・処理中・完了後の同一再開ボタンと内部buttonへのフォーカス維持を確認した。1280pxの処理中にEnter/Space/クリックを追加してもPOSTは1件。360pxで利用者がTabにより再開履歴へ移動した場合は、完了後もその位置を維持し、フォーカスを奪い返さなかった。新規試験はコメント対照PASS→旧disabled使用でFAIL、soft-disabled属性の伝播除去で2件FAIL→byte完全復元を確認した。検証専用HTTP fixtureとChromeタブは終了・閉鎖し、viewportをresetした。
+
+AC7/AC15修正後の品質確認: 全API **982件PASS**、全Web **483件PASS**、`lint` / `typecheck` / `format:check` / `build` はすべてexit code 0。sharedは今回未変更のため前回63件PASSを再利用した。ビルドには既存の500kB超bundle警告のみが残る。
