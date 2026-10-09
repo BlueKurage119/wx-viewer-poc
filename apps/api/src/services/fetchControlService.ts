@@ -251,8 +251,16 @@ export function createFetchControlService(
       return {
         completedAt,
         result: 'failure',
-        errorCode: kind === 'start' ? 'start_failed' : 'stop_failed',
-        errorMessage: truncate(sanitizeErrorMessage(String(error)), MAX_ERROR_MESSAGE_LENGTH),
+        errorCode:
+          error instanceof Error && error.message === 'operation_result_unknown'
+            ? 'operation_result_unknown'
+            : kind === 'start'
+              ? 'start_failed'
+              : 'stop_failed',
+        errorMessage:
+          error instanceof Error && error.message === 'operation_result_unknown'
+            ? '処理結果を確認できません'
+            : truncate(sanitizeErrorMessage(String(error)), MAX_ERROR_MESSAGE_LENGTH),
       };
     }
   }
@@ -293,8 +301,14 @@ export function createFetchControlService(
       return {
         completedAt,
         result: 'failure',
-        errorCode: 'force_refresh_failed',
-        errorMessage: truncate(sanitizeErrorMessage(String(error)), MAX_ERROR_MESSAGE_LENGTH),
+        errorCode:
+          error instanceof Error && error.message === 'operation_result_unknown'
+            ? 'operation_result_unknown'
+            : 'force_refresh_failed',
+        errorMessage:
+          error instanceof Error && error.message === 'operation_result_unknown'
+            ? '処理結果を確認できません'
+            : truncate(sanitizeErrorMessage(String(error)), MAX_ERROR_MESSAGE_LENGTH),
       };
     }
   }

@@ -1,4 +1,5 @@
 import {
+  projectWeatherRuntimeStatus,
   type TerminalRegistry,
   type Availability,
   type MonitoringHealthSection,
@@ -57,8 +58,8 @@ export interface MonitoringStatusServiceDependencies {
   readonly xmlPollingService: XmlPollingStatusProvider;
   readonly fetchHealthMonitor: Pick<FetchHealthMonitorService, 'getLastAggregate'>;
   readonly startupInitialization: StartupInitializationStatusProvider;
-  readonly progressTracker?: StartupProgressTracker;
-  readonly recoveryTracker?: WarningCurrentRecoveryTracker;
+  readonly progressTracker?: Pick<StartupProgressTracker, 'getVenueReprocessingStatus'>;
+  readonly recoveryTracker?: Pick<WarningCurrentRecoveryTracker, 'getStatus'>;
   readonly weatherApi: WeatherApiService;
   readonly nowcastApi: NowcastApiService;
   readonly kikikuruApi: KikikuruApiService;
@@ -87,7 +88,7 @@ function worseAvailability(a: Availability, b: Availability): Availability {
   return AVAILABILITY_RANK[a] >= AVAILABILITY_RANK[b] ? a : b;
 }
 
-function buildOperationSection(
+export function buildOperationSection(
   status: ReturnType<TimeBasedPollingScheduler['getStatus']>,
   schedulerRunning: boolean,
 ): MonitoringOperationSection {
@@ -112,7 +113,7 @@ function buildOperationSection(
   };
 }
 
-function buildHealthSection(
+export function buildHealthSection(
   aggregate: ReturnType<FetchHealthMonitorService['getLastAggregate']>,
   config: FetchHealthConfig,
 ): MonitoringHealthSection {
@@ -192,7 +193,7 @@ function buildHealthSection(
   };
 }
 
-function buildReadinessSection(
+export function buildReadinessSection(
   status: ReturnType<XmlPollingStatusProvider['getStatus']>,
   preparationFailures: readonly WeatherPreparationFailure[],
 ): MonitoringReadinessSection {
@@ -579,6 +580,26 @@ export function createMonitoringStatusService(
 
       return {
         status: 'ready',
+        weatherRuntimes: Object.fromEntries(
+          ['acquisition', 'delivery'].map((role) => [
+            role,
+            projectWeatherRuntimeStatus(
+              {
+                role: role as 'acquisition' | 'delivery',
+                mode: 'inline',
+                workerGeneration: null,
+                lifecycle: 'ready',
+                reportedAt: generatedAt,
+                receivedAt: generatedAt,
+                stopReason: null,
+                exitConfirmed: false,
+                failureCode: null,
+                pendingRequests: 0,
+              },
+              generatedAt,
+            ),
+          ]),
+        ) as MonitoringStatusResponse['weatherRuntimes'],
         readErrors,
         terminalId: terminal.id,
         requestedVenueId: deps.venueRegistry.resolveVenueId(terminal.venueId)!,

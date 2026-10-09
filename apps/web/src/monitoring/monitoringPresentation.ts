@@ -110,7 +110,12 @@ export function buildMonitoringCards(
     {
       id: 'operation',
       title: '取得運転',
-      value: data.operation.schedulerRunning ? '自動取得有効' : '自動取得停止',
+      value:
+        data.weatherRuntimes.acquisition.reportFreshness === 'unknown'
+          ? '取得状態未確認'
+          : data.operation.schedulerRunning
+            ? '自動取得有効'
+            : '自動取得停止',
       details: [readiness.label, ...(hasPreparationFailure ? ['初回準備失敗'] : [])],
       tone:
         readiness.tone === 'error'
@@ -279,6 +284,8 @@ export function buildSourceStatusRows(
       stateCell = { text: '異常', tone: 'error' };
     } else if (healthSource.status === 'delayed') {
       stateCell = { text: '遅延', tone: 'attention' };
+    } else if (data.weatherRuntimes.acquisition.reportFreshness === 'unknown') {
+      stateCell = { text: '未確認', tone: 'neutral' };
     } else if (!data.operation.schedulerRunning) {
       stateCell = { text: '停止', tone: 'neutral' };
     } else if (

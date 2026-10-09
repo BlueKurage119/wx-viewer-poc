@@ -24,12 +24,30 @@ interface Pending {
 export class WeatherRequestRegistry {
   private closed = false;
   private readonly pending = new Map<string, Pending>();
+  private startupReservations = 0;
   constructor(
     private epoch: WeatherEpoch,
     private readonly now: () => number = Date.now,
   ) {}
   get size(): number {
-    return this.pending.size;
+    return this.pending.size + this.startupReservations;
+  }
+  /** メイン内の公開待機も通常読取と同じ上限へ含める。 */
+  reserveStartup(): () => void {
+    if (this.closed) throw new WeatherRequestError('not_ready');
+    if (
+      this.size >= WEATHER_LIMITS.requests ||
+      this.startupReservations + [...this.pending.values()].filter((p) => p.startup).length >=
+        WEATHER_LIMITS.startups
+    )
+      throw new WeatherRequestError('busy');
+    this.startupReservations += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.startupReservations -= 1;
+    };
   }
   replaceEpoch(epoch: WeatherEpoch): void {
     this.epoch = { ...epoch };
@@ -71,9 +89,10 @@ export class WeatherRequestRegistry {
         : Promise.resolve(fail('invalid_request'));
     const startup = request.kind === 'startup.project';
     if (
-      this.pending.size >= WEATHER_LIMITS.requests ||
+      this.size >= WEATHER_LIMITS.requests ||
       (startup &&
-        [...this.pending.values()].filter((p) => p.startup).length >= WEATHER_LIMITS.startups)
+        this.startupReservations + [...this.pending.values()].filter((p) => p.startup).length >=
+          WEATHER_LIMITS.startups)
     )
       return Promise.resolve(fail('busy'));
     const deadline = Math.min(

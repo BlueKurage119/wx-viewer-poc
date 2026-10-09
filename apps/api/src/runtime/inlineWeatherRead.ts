@@ -19,9 +19,13 @@ export function createInlineWeatherRead(
   handlers: WeatherHandlers,
   now: () => number = Date.now,
   registry = new WeatherRequestRegistry(epoch, now),
-): WeatherPort & { readonly registry: WeatherRequestRegistry } {
+): WeatherPort & { readonly registry: WeatherRequestRegistry; drain(): Promise<void> } {
+  const active = new Set<Promise<unknown>>();
   return {
     registry,
+    async drain() {
+      await Promise.allSettled([...active]);
+    },
     request<K extends keyof WeatherOperations>(request: WeatherRequest<K>) {
       return registry.request(request, async () => {
         const handler = handlers[request.kind] as
@@ -30,7 +34,14 @@ export function createInlineWeatherRead(
             ) => WeatherOperations[K]['response'] | Promise<WeatherOperations[K]['response']>)
           | undefined;
         if (!handler) throw new WeatherRequestError('invalid_request');
-        const value = await handler(structuredClone(request.payload));
+        const work = Promise.resolve().then(() => handler(structuredClone(request.payload)));
+        active.add(work);
+        let value: WeatherOperations[K]['response'];
+        try {
+          value = await work;
+        } finally {
+          active.delete(work);
+        }
         assertWeatherData(value);
         return structuredClone(value);
       });

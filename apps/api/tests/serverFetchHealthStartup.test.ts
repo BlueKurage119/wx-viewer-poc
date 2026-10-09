@@ -12,7 +12,7 @@ import test from 'node:test';
 import type { UtcIso8601String } from '@wx-viewer-poc/shared';
 
 import { recordFetchAttempt, listNotificationOutputHistory } from '../src/repositories/index.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { createAlwaysOnTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 /**

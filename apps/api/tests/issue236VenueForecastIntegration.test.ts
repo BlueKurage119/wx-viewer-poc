@@ -11,7 +11,7 @@ import { createVenueRegistry, type VenueForecastTargets } from '@wx-viewer-poc/s
 
 import { loadVenueConfig } from '../src/config/venueConfigLoader.js';
 import { createWeatherApiService } from '../src/services/weatherApiService.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { processEarlyWarningReceptionForVenues } from '../src/polling/jmaEarlyWarningProcessor.js';
 import { processVpfd51ReceptionForVenues } from '../src/polling/jmaVpfd51Processor.js';
 import { reprocessPendingVenueForecastReceptions } from '../src/polling/jmaVenueForecastReprocessor.js';

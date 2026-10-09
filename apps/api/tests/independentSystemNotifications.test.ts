@@ -10,7 +10,10 @@ import {
   testTerminalRegistry,
   eastVenueId,
 } from './helpers/venueConfigPreload.js';
-import { createStartupNotificationRuntime, startServer } from '../src/server.js';
+import {
+  createStartupNotificationRuntime,
+  startInlineServer as startServer,
+} from '../src/server.js';
 import { createApp } from '../src/app.js';
 import {
   JmaXmlPollingService,
@@ -294,8 +297,17 @@ test(
     const exited = new Promise<number | null>((resolve) => child.once('exit', resolve));
     try {
       const deadline = Date.now() + 10000;
-      while (!output.includes('監視とシステム通知を継続します')) {
+      for (;;) {
         if (child.exitCode !== null || Date.now() > deadline) throw new Error(output);
+        const status = await fetch(
+          `http://127.0.0.1:${port}/api/monitoring/status?terminalId=kkeagh01`,
+        ).catch(() => null);
+        const body = status ? ((await status.json()) as MonitoringStatusResponse) : null;
+        if (
+          body?.weatherRuntimes.acquisition.exitConfirmed &&
+          body.weatherRuntimes.acquisition.stopReason === 'initialization_failed'
+        )
+          break;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       const status = await fetch(
@@ -309,12 +321,12 @@ test(
       const feed = (await delta.json()) as NotificationDeltaReadyResponse;
       assert.deepEqual(
         feed.notifications.map((item) => item.changeType),
-        ['initial_sync_failed'],
+        ['initial_sync_failed', 'initialization_failed'],
       );
       assert.equal(child.exitCode, null);
       child.kill('SIGTERM');
       assert.equal(await exited, 0);
-      assert.equal(readFileSync(marker, 'utf8'), 'close\nclose\n');
+      assert.equal(readFileSync(marker, 'utf8'), 'close\nclose\nclose\n');
     } finally {
       if (child.exitCode === null) {
         child.kill('SIGTERM');

@@ -47,7 +47,7 @@ import {
   JmaXmlPollingService,
   type PollingTimerScheduler,
 } from '../src/polling/jmaXmlPollingService.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { createAlwaysOnTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const apiRoot = join(fileURLToPath(import.meta.url), '../..');

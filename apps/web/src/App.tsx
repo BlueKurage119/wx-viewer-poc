@@ -1,3 +1,4 @@
+import { useWeatherRestart } from './monitoring/useWeatherRestart';
 import type { WeatherDangerLevel } from './weather/weatherDangerModel';
 import { useWeatherDangerData } from './weather/useWeatherDangerData';
 import { useEffect, useState } from 'react';
@@ -116,6 +117,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     onChimeRequest: buzzer.request,
     nowMs: now.getTime(),
   });
+  const workerRestart = useWeatherRestart();
   const monitoringToolbar = useMonitoringToolbar({ active: view === 'monitor' });
   const current = views.find((item) => item.id === view)!;
   const selectScenario = (next: PreviewScenario) => {
@@ -249,7 +251,11 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           onSearchChange={setWarningSearch}
         />
       ) : view === 'monitor' ? (
-        <MonitoringDashboard terminalId={terminal.id} onLoadStateChange={setMonitoringState} />
+        <MonitoringDashboard
+          terminalId={terminal.id}
+          onLoadStateChange={setMonitoringState}
+          workerModel={workerRestart}
+        />
       ) : (
         <div className="view-placeholder">
           <span className="placeholder-symbol" aria-hidden="true">

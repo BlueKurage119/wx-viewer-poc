@@ -56,7 +56,7 @@ import type { VenueId } from '@wx-viewer-poc/shared';
 import type { ControlStatus } from '../src/repositories/types.js';
 
 import { createApp } from '../src/app.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 import { createWeatherApiService } from '../src/services/weatherApiService.js';
 import { evaluateWeatherAvailability } from '../src/services/weatherAvailability.js';

@@ -1,3 +1,4 @@
+import type { WeatherWorkerControlService } from './services/weatherWorkerControlService.js';
 import express, { type Express } from 'express';
 import {
   parseKikikuruTileRequest,
@@ -39,6 +40,7 @@ export type AsyncCompatible<T> = {
 };
 
 export interface AppDependencies {
+  readonly weatherWorkerControl?: WeatherWorkerControlService;
   readonly venueConfig?: VenueConfigResponse;
   readonly terminalConfig?: TerminalConfigResponse;
   readonly terminalRegistry?: TerminalRegistry;
@@ -82,6 +84,38 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   app.get('/api/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });
+
+  if (dependencies.weatherWorkerControl) {
+    const control = dependencies.weatherWorkerControl;
+    app.post('/api/control/weather-workers/:role/restart', (req, res) => {
+      if (req.params.role !== 'acquisition') {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const result = control.request(req.body);
+      sendJsonNoStore(res, result.statusCode, result.body);
+    });
+    app.get('/api/control/weather-workers/operations/:requestId', (req, res) => {
+      const result = control.get(req.params.requestId);
+      sendJsonNoStore(res, result.statusCode, result.body);
+    });
+    app.get('/api/monitoring/weather-worker-operations', (req, res) => {
+      if (
+        Object.keys(req.query).some((key) => !['limit', 'beforeId'].includes(key)) ||
+        Object.values(req.query).some(
+          (value) => typeof value !== 'string' || !/^[0-9]+$/.test(value),
+        )
+      ) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const result = control.history({
+        limit: req.query.limit === undefined ? undefined : Number(req.query.limit),
+        beforeId: req.query.beforeId === undefined ? undefined : Number(req.query.beforeId),
+      });
+      sendJsonNoStore(res, result.statusCode, result.body);
+    });
+  }
 
   if (dependencies.venueConfig) {
     app.get('/api/config/venues', (_req, res) => {

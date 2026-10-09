@@ -51,7 +51,7 @@ test('物理2DB・最終DDL・保持5表・世代・checksumは再起動で不�
   try {
     const pair = initializeDatabases(config);
     const generation = pair.weatherDatabaseGenerationId;
-    assert.deepEqual(tables(pair.retained), retainedTables);
+    assert.deepEqual(tables(pair.retained), [...retainedTables, 'weather_worker_operation']);
     assert.equal(
       tables(pair.weather).some((t) => retainedTables.includes(t)),
       false,
@@ -232,8 +232,14 @@ test('正当な未適用migrationと他側異常ではmigration無実行、適�
       join(weatherMigrations, '0002_pending.sql'),
       'CREATE TABLE pending_weather (id INTEGER);',
     );
+    copyFileSync(
+      join(config.retained.migrationsDirectory, '0002_weather_worker_operation.sql'),
+      join(retainedMigrations, '0002_weather_worker_operation.sql'),
+    );
     const corrupted = initializeDatabases(config);
-    corrupted.retained.connection.prepare("UPDATE __schema_migrations SET checksum='bad'").run();
+    corrupted.retained.connection
+      .prepare("UPDATE __schema_migrations SET checksum='bad' WHERE version=1")
+      .run();
     corrupted.close();
     const weatherBefore = captureFiles(config.weather.databasePath);
     assert.throws(() =>
@@ -257,7 +263,7 @@ test('正当な未適用migrationと他側異常ではmigration無実行、適�
     const retained = openDatabase(config.retained.databasePath);
     retained.prepare('UPDATE __schema_migrations SET checksum=? WHERE version=1').run(checksum);
     retained.close();
-    writeFileSync(join(retainedMigrations, '0002_fail.sql'), 'INSERT INTO nonexistent VALUES (1);');
+    writeFileSync(join(retainedMigrations, '0003_fail.sql'), 'INSERT INTO nonexistent VALUES (1);');
     const before = captureFiles(config.retained.databasePath);
     assert.throws(() =>
       initializeDatabases({

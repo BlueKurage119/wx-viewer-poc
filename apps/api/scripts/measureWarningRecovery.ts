@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { initializeDatabases, type DatabasePairConfig } from '../src/database/index.js';
 import { loadVenueConfig } from '../src/config/venueConfigLoader.js';
-import { startServer } from '../src/server.js';
+// #253の同期復旧基線を計測する。実Workerの負荷分離は専用結合試験で計測する。
+import { startInlineServer as startServer } from '../src/server.js';
 import { recoverWarningCurrent } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { applyWarningCurrentReception } from '../src/polling/jmaWarningCurrentProcessor.js';
 import { parseWarningTelegram } from '../src/polling/jmaWarningTelegramParser.js';

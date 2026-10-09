@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { once } from 'node:events';
 import { createApp } from '../src/app.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { WeatherRequestRegistry } from '../src/runtime/weatherRequestRegistry.js';
 import type { WeatherEpoch } from '../src/runtime/weatherContracts.js';
 import { createApplicationRuntime } from '../src/runtime/createApplicationRuntime.js';

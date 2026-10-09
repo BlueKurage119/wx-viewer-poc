@@ -68,7 +68,11 @@ export function planOperationNotification(
   let omitTarget = true;
   let detail: string | undefined;
 
-  if (input.operationKind === 'start') {
+  if (input.errorCode === 'operation_result_unknown') {
+    definitionId = 'system-fetch-operation-unknown';
+    changeType = 'fetch_operation_unknown';
+    category = 'question';
+  } else if (input.operationKind === 'start') {
     if (input.result !== 'success') {
       return null;
     }

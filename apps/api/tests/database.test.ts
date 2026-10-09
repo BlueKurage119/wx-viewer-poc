@@ -16,7 +16,7 @@ import {
   resolveDatabaseConfig,
   runMigrations,
 } from '../src/database/index.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const temporaryDirectories: string[] = [];

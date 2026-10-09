@@ -5,7 +5,7 @@ import express from 'express';
 import Database from 'better-sqlite3';
 import test from 'node:test';
 import { join } from 'node:path';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import {
   createTemporaryTestDatabaseFixture,
   createTestServerDatabaseOptions,
@@ -32,7 +32,7 @@ test('startServerは不正portをDB作成前に拒否しport0は再起動でき�
 });
 
 for (const method of ['use', 'listen'] as const) {
-  test(`startServerは同期${method}失敗で両接続を閉じ同じpairで再起動できる`, async () => {
+  test(`startServerは同期${method}失敗で保持接続を閉じ同じpairで再起動できる`, async () => {
     const fixture = createTemporaryTestDatabaseFixture();
     const options = createTestServerDatabaseOptions(fixture.config);
     const original = express.application[method];
@@ -104,7 +104,7 @@ test('mainは不正portをDB作成前に拒否する', () => {
 });
 
 for (const method of ['use', 'listen']) {
-  test(`mainは同期${method}失敗で両接続を閉じ同じpairで再起動できる`, async () => {
+  test(`mainは同期${method}失敗で保持接続を閉じ同じpairで再起動できる`, async () => {
     const fixture = createTemporaryTestDatabaseFixture();
     const options = createTestServerDatabaseOptions(fixture.config);
     const marker = join(fixture.config.databasePath, '..', 'closed.txt');
@@ -135,7 +135,8 @@ for (const method of ['use', 'listen']) {
       assert.equal(child.error, undefined);
       assert.equal(child.status, 1, child.stderr);
       assert.match(child.stderr, new RegExp(`fixture synchronous ${method} failure`));
-      assert.equal(readFileSync(marker, 'utf8'), 'close\nclose\n');
+      assert.equal(readFileSync(marker, 'utf8'), 'close\n');
+      assert.equal(existsSync(options.config.weather.databasePath), false);
       const server = await startServer({ ...options, port: 0, enablePolling: false });
       await server.close();
     } finally {

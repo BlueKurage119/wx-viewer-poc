@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import test from 'node:test';
 import { realpathSync } from 'node:fs';
 import { createRetryableDatabaseClose } from '../src/serverClose.js';
-import { startServer } from '../src/server.js';
+import { startInlineServer as startServer } from '../src/server.js';
 import {
   createTemporaryTestDatabaseFixture,
   createTestServerDatabaseOptions,

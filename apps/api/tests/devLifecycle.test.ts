@@ -15,6 +15,21 @@ interface Event {
   at: number;
   code?: number;
   port?: number;
+  threadId?: number;
+  isMainThread?: boolean;
+  role?: string;
+  readonly?: boolean;
+}
+function assertDatabaseOwners(events: Event[]) {
+  const main = events.filter((event) => event.kind === 'db-close' && event.isMainThread);
+  const workers = events.filter((event) => event.kind === 'db-close' && !event.isMainThread);
+  assert.deepEqual(main.map((event) => [event.role, event.readonly, event.threadId]).sort(), [
+    ['retained', false, 0],
+    ['weather', true, 0],
+  ]);
+  assert.equal(workers.length, 1);
+  assert.deepEqual([workers[0]!.role, workers[0]!.readonly], ['weather', false]);
+  assert.ok(workers[0]!.threadId! > 0);
 }
 function fixture() {
   const directory = fs.mkdtempSync(path.join(tmpdir(), 'wx-dev-lifecycle-'));
@@ -203,7 +218,7 @@ for (const command of ['dev', 'dev:host', 'api', 'dev-sighup']) {
         /Cannot find base config|failed to resolve "extends"/,
       );
       const closedEvents = f.events().filter((e) => e.kind === 'db-close');
-      assert.equal(closedEvents.length, 2);
+      assertDatabaseOwners(closedEvents);
       assert.ok(closedEvents.every((e) => e.at <= runnerExit.at));
       for (const name of ['weather', 'retained'])
         assert.equal(fs.existsSync(path.join(f.directory, `${name}.sqlite3.writer-lock`)), false);
@@ -215,7 +230,7 @@ for (const command of ['dev', 'dev:host', 'api', 'dev-sighup']) {
           .map((e) => (e as Event & { signal: string }).signal),
         ['SIGTERM'],
       );
-      assert.equal(firstEvents.filter((e) => e.kind === 'db-close').length, 2);
+      assertDatabaseOwners(firstEvents);
       assert.equal(firstEvents.filter((e) => e.kind === 'http-stop').length, 1);
       const retained = new Database(path.join(f.directory, 'retained.sqlite3'), { readonly: true });
       assert.equal(
@@ -260,7 +275,7 @@ for (const command of ['dev', 'dev:host', 'api', 'dev-sighup']) {
       await exited;
       for (const name of ['weather', 'retained'])
         assert.equal(fs.existsSync(path.join(f.directory, `${name}.sqlite3.writer-lock`)), false);
-      assert.equal(f.events().filter((e) => e.pid === apiPid && e.kind === 'db-close').length, 2);
+      assertDatabaseOwners(f.events().filter((e) => e.pid === apiPid));
     } finally {
       await cleanupFixture(f, child, exited);
     }
@@ -316,7 +331,7 @@ test('watchは旧API終了後に再起動し複数変更で並行起動しない
     const [first, second] = all;
     const oldExit = f.events().find((e) => e.pid === first!.pid && e.kind === 'exit')!;
     assert.ok(oldExit.at <= second!.at);
-    assert.equal(f.events().filter((e) => e.pid === first!.pid && e.kind === 'db-close').length, 2);
+    assertDatabaseOwners(f.events().filter((e) => e.pid === first!.pid));
     process.kill(-child.pid!, 'SIGINT');
     await exited;
     assert.equal(f.events().filter((e) => e.kind === 'api-process').length, 4);
@@ -383,10 +398,26 @@ for (const scenario of ['warning', 'failed-watch', 'early-signal', 'unexpected-a
       if (scenario === 'warning') assert.match(output, /強制終了せず終了を待ち/);
       if (scenario === 'failed-watch') assert.match(output, /停止が失敗しました \(7\)/);
       assert.equal(f.events().filter((e) => e.kind === 'api-process').length, 1);
-      assert.equal(
-        f.events().filter((e) => e.kind === 'db-close').length,
-        scenario === 'unexpected-api' ? 0 : 2,
-      );
+      if (scenario === 'unexpected-api') {
+        assert.deepEqual(
+          f.events().filter((event) => event.kind === 'db-close'),
+          [],
+        );
+      } else if (early) {
+        assert.deepEqual(
+          f
+            .events()
+            .filter((event) => event.kind === 'db-close')
+            .map((event) => [event.role, event.readonly, event.threadId]),
+          [['retained', false, 0]],
+        );
+        assert.deepEqual(
+          f.events().filter((event) => event.kind === 'worker-process'),
+          [],
+        );
+      } else {
+        assertDatabaseOwners(f.events());
+      }
       for (const name of ['weather', 'retained'])
         assert.equal(
           fs.existsSync(path.join(f.directory, `${name}.sqlite3.writer-lock`)),

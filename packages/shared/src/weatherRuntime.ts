@@ -12,20 +12,32 @@ export interface WeatherRuntimeStatus {
   readonly stopReason: 'requested' | 'unexpected_exit' | 'initialization_failed' | null;
   readonly restartAllowed: boolean;
   readonly pendingRequests: number;
+  readonly exitConfirmed: boolean;
+  readonly unknownScopes?: readonly string[];
+  readonly failureCode:
+    'initial_accept_timeout' | 'handshake_timeout' | 'protocol_error' | 'payload_too_large' | null;
 }
 export interface WeatherRestartRequest {
   readonly requestId: string;
   readonly expectedWorkerGeneration: string;
 }
 export type WeatherRestartOperation =
-  | { readonly status: 'in_progress'; readonly requestId: string; readonly role: WeatherRole }
+  | {
+      readonly status: 'in_progress';
+      readonly requestId: string;
+      readonly role: WeatherRole;
+      readonly historyRecorded: boolean;
+    }
   | {
       readonly status: 'completed';
       readonly requestId: string;
       readonly role: WeatherRole;
+      readonly historyRecorded: boolean;
       readonly result: 'success' | 'failure' | 'unknown';
       readonly workerGeneration: string | null;
       readonly errorCode: string | null;
+      /** 再開時点でメインが保持している取得運転の意図。 */
+      readonly desiredRunning?: boolean;
     };
 
 /** 報告時刻ではなく、メインの受領時刻で鮮度を判定する。 */
@@ -59,4 +71,20 @@ export function canRestartWeatherRuntime(
     status.workerGeneration === request.expectedWorkerGeneration &&
     status.restartAllowed
   );
+}
+
+/** 保持DBへ記録済みの再開操作。メモリfallbackは一覧へ混入させない。 */
+export interface WeatherWorkerOperationHistoryItem {
+  readonly id: number;
+  readonly operation: WeatherRestartOperation;
+  readonly expectedWorkerGeneration: string;
+  readonly serverGenerationId: string;
+  readonly requestedAt: UtcIso8601String;
+  readonly completedAt: UtcIso8601String | null;
+}
+export interface WeatherWorkerOperationHistoryResponse {
+  readonly status: 'ready';
+  readonly generatedAt: UtcIso8601String;
+  readonly items: readonly WeatherWorkerOperationHistoryItem[];
+  readonly nextBeforeId: number | null;
 }

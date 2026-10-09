@@ -24,6 +24,10 @@ export type NotificationMessageDefinitionId =
   | 'weather-bosai-bulletin-corrected'
   | 'weather-bosai-bulletin-cancelled'
   | 'system-data-fetch-delayed'
+  | 'system-weather-acquisition-initialization-failed'
+  | 'system-weather-acquisition-exited'
+  | 'system-weather-acquisition-report-stale'
+  | 'system-weather-acquisition-control-failed'
   | 'system-initial-sync-failed'
   | 'system-data-fetch-failed'
   | 'system-data-fetch-recovered'
@@ -37,7 +41,8 @@ export type NotificationMessageDefinitionId =
   | 'system-fetch-manually-started'
   | 'system-force-fetch-completed'
   | 'system-force-fetch-aborted'
-  | 'system-force-fetch-failed';
+  | 'system-force-fetch-failed'
+  | 'system-fetch-operation-unknown';
 
 export interface ResolveNotificationMessageInput {
   readonly definitionId: NotificationMessageDefinitionId;
@@ -300,6 +305,56 @@ const MESSAGE_DEFINITIONS = {
     title: 'DB初期化完了',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'none' },
+  },
+  'system-weather-acquisition-initialization-failed': {
+    id: 'system-weather-acquisition-initialization-failed',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '気象取得処理の準備失敗',
+    fixedContent: '気象取得処理の準備に失敗しました。監視画面で状態を確認してください。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
+  },
+  'system-weather-acquisition-exited': {
+    id: 'system-weather-acquisition-exited',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '気象取得処理の停止',
+    fixedContent: '気象取得処理が停止しました。監視画面から再開できます。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
+  },
+  'system-weather-acquisition-report-stale': {
+    id: 'system-weather-acquisition-report-stale',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '気象取得処理の応答不明',
+    fixedContent: '気象取得処理の応答を確認できません。監視画面で状態を確認してください。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
+  },
+  'system-weather-acquisition-control-failed': {
+    id: 'system-weather-acquisition-control-failed',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '気象取得Workerの処理失敗',
+    fixedContent: '気象取得Workerの処理を継続できません。監視画面で状態を確認してください。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
+  },
+  'system-fetch-operation-unknown': {
+    id: 'system-fetch-operation-unknown',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '取得操作の結果不明',
+    fixedContent: '処理結果を確認できません。監視画面で状態を確認してください。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
   },
   'system-initial-sync-failed': {
     id: 'system-initial-sync-failed',

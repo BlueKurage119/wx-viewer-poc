@@ -192,12 +192,12 @@ export function validatePngBuffer(buffer: Buffer): PngValidationResult {
 export class KikikuruTileStore {
   readonly cacheRoot: string;
 
-  constructor(cacheRoot: string) {
+  constructor(cacheRoot: string, readOnly = false) {
     if (!path.isAbsolute(cacheRoot)) {
       throw new Error(`cacheRoot must be an absolute path: ${cacheRoot}`);
     }
     this.cacheRoot = path.normalize(cacheRoot);
-    if (!fs.existsSync(this.cacheRoot)) {
+    if (!readOnly && !fs.existsSync(this.cacheRoot)) {
       fs.mkdirSync(this.cacheRoot, { recursive: true });
     }
   }
@@ -247,12 +247,16 @@ export class KikikuruTileStore {
   ): Promise<{ valid: boolean; buffer: Buffer | null }> {
     try {
       const fullPath = this.resolvePath(relativePath);
-      const stat = await fs.promises.stat(fullPath);
-      if (stat.size !== expectedByteSize) {
-        return { valid: false, buffer: null };
+      const file = await fs.promises.open(fullPath, 'r');
+      let buf: Buffer;
+      try {
+        const stat = await file.stat();
+        if (stat.size !== expectedByteSize) return { valid: false, buffer: null };
+        buf = await file.readFile();
+      } finally {
+        await file.close();
       }
-
-      const buf = await fs.promises.readFile(fullPath);
+      if (buf.byteLength !== expectedByteSize) return { valid: false, buffer: null };
       const hash = crypto.createHash('sha256').update(buf).digest('hex');
       if (hash !== expectedHash) {
         return { valid: false, buffer: null };
