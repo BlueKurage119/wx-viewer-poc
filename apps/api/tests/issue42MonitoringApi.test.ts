@@ -512,6 +512,7 @@ test('AC2 セクション分離（確定事項1・AD-H063）: トップレベル
       const expected = new Set([
         'status',
         'readErrors',
+        'warningTelegrams',
         'terminalId',
         'requestedVenueId',
         'serverGenerationId',

@@ -15,6 +15,7 @@ import {
   type MonitoringTilesLayer,
   type MonitoringTilesSection,
   type MonitoringVenueSection,
+  type MonitoringWarningTelegramSection,
   type TerminalDefinition,
   type UtcIso8601String,
   type VenueId,
@@ -30,7 +31,10 @@ import type { StartupNotificationInitializationStatus } from '../notifications/s
 import type { WeatherApiService } from '../services/weatherApiService.js';
 import type { NowcastApiService } from '../services/nowcastApiService.js';
 import type { KikikuruApiService } from '../services/kikikuruApiService.js';
-import { summarizeAdoptionResults } from '../repositories/telegramReceptionRepository.js';
+import {
+  countPendingWarningTelegramReceptions,
+  summarizeAdoptionResults,
+} from '../repositories/telegramReceptionRepository.js';
 import type { StartupProgressTracker } from './startupProgressTracker.js';
 import type { WarningCurrentRecoveryTracker } from './warningCurrentRecoveryTracker.js';
 
@@ -560,6 +564,22 @@ export function createMonitoringStatusService(
     return { healthMonitored: false, healthCriteriaStatus: 'undecided', layers };
   }
 
+  /** 表示対象会場の未判定の警報系電文件数。失敗は readErrors を増やさず null にする。 */
+  function buildWarningTelegrams(
+    terminal: TerminalDefinition,
+  ): MonitoringWarningTelegramSection | null {
+    try {
+      const venueId = deps.venueRegistry.resolveVenueId(terminal.venueId);
+      if (!venueId) return null;
+      return {
+        venueId,
+        pendingCount: countPendingWarningTelegramReceptions(deps.connection, venueId),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   return {
     getStatus(
       terminal: TerminalDefinition,
@@ -601,6 +621,7 @@ export function createMonitoringStatusService(
           ]),
         ) as MonitoringStatusResponse['weatherRuntimes'],
         readErrors,
+        warningTelegrams: cached ? cached.warningTelegrams : buildWarningTelegrams(terminal),
         terminalId: terminal.id,
         requestedVenueId: deps.venueRegistry.resolveVenueId(terminal.venueId)!,
         serverGenerationId: deps.serverGenerationId,
