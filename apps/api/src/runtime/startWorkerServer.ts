@@ -308,7 +308,8 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
   // 成功した再起動要求の世代だけを保持し、完了条件を満たした時点で1回だけ通知する。
   const pendingRestartNotices: {
     acquisition: { generation: string; desiredRunning: boolean } | null;
-    delivery: { generation: string; application: object } | null;
+    // application: 接続できた世代の新application。未接続で受け付けた場合は null とし、baseline と異なる新applicationで判定する。
+    delivery: { generation: string; application: object | null; baseline: object | null } | null;
   } = { acquisition: null, delivery: null };
   function checkRestartNotices() {
     const acquisition = pendingRestartNotices.acquisition;
@@ -338,7 +339,10 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
         pendingRestartNotices.delivery = null;
       } else if (
         status.lifecycle === 'ready' &&
-        application === deliveryNotice.application &&
+        application !== null &&
+        (deliveryNotice.application
+          ? application === deliveryNotice.application
+          : application !== deliveryNotice.baseline) &&
         application.sampleReceivedAt.size > 0
       ) {
         pendingRestartNotices.delivery = null;
@@ -621,6 +625,15 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
               pendingRestartNotices.delivery = {
                 generation: delivery.status().workerGeneration ?? delivery.epoch.workerGeneration,
                 application,
+                baseline: null,
+              };
+            }
+            // reader未接続でも再開受付済みの世代は追跡し、後の再接続で作られた新applicationで完了を検出する。
+            if (!pendingRestartNotices.delivery) {
+              pendingRestartNotices.delivery = {
+                generation: delivery.status().workerGeneration ?? delivery.epoch.workerGeneration,
+                application: null,
+                baseline: application,
               };
             }
           });

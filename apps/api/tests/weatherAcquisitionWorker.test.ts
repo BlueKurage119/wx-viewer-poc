@@ -171,6 +171,78 @@ test('提供Worker異常終了後は閲覧を503に閉じ、専用再開だけ�
   }
 });
 
+test('取得Worker再起動中に受け付けた提供Worker再起動も、再接続後に完了通知を1回だけ出す', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wx-delivery-restart-suspended-'));
+  const options = fixtureOptions(directory);
+  let acquisitionWorker: Worker | undefined;
+  let deliveryWorker: Worker | undefined;
+  const server = await startServer({
+    ...options,
+    onDeliveryWorkerCreated: (value) => {
+      deliveryWorker = value;
+    },
+    onAcquisitionWorkerCreated: (value) => {
+      acquisitionWorker = value;
+    },
+  });
+  const root = `http://127.0.0.1:${server.port}`;
+  const postRestart = (role: string, requestId: string, expectedWorkerGeneration: string) =>
+    fetch(`${root}/api/control/weather-workers/${role}/restart`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ requestId, expectedWorkerGeneration }),
+    });
+  try {
+    assert.equal((await server.weatherPrepared).status, 'ready');
+    await eventually(
+      () => server.deliveryHost.status(),
+      (status) => status.lifecycle === 'ready',
+    );
+    const acquisitionGeneration = server.acquisitionHost.epoch.workerGeneration;
+    const deliveryGeneration = server.deliveryHost.epoch.workerGeneration;
+    await acquisitionWorker!.terminate();
+    await deliveryWorker!.terminate();
+    await eventually(
+      () => [server.acquisitionHost.status(), server.deliveryHost.status()],
+      ([acquisition, delivery]) =>
+        acquisition?.exitConfirmed === true && delivery?.exitConfirmed === true,
+    );
+    // 取得系の再起動で reader が切り離されている間に、提供系の再起動を受け付ける。
+    assert.equal(
+      (await postRestart('acquisition', 'acq-restart', acquisitionGeneration)).status,
+      202,
+    );
+    assert.equal((await postRestart('delivery', 'del-restart', deliveryGeneration)).status, 202);
+    const newGeneration = await eventually(
+      () => server.deliveryHost.epoch.workerGeneration,
+      (value) => value !== deliveryGeneration,
+    );
+    const completed = await eventually(
+      () => workerNotifications(options.config.retained.databasePath, newGeneration),
+      (rows) => rows.length >= 1,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.deepEqual(
+      workerNotifications(options.config.retained.databasePath, newGeneration),
+      completed,
+    );
+    assert.deepEqual(
+      completed.filter((row) => row.change_type === 'restart_completed'),
+      [
+        {
+          change_type: 'restart_completed',
+          category: 'warning',
+          message_definition_id: 'system-weather-delivery-restart-completed',
+          summary: '気象Worker再起動完了\n提供系',
+        },
+      ],
+    );
+  } finally {
+    await server.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('提供Worker異常通知の保存失敗は再開後に補完されない', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'wx-delivery-notification-failure-'));
   const options = fixtureOptions(directory);
