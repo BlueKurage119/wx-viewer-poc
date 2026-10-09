@@ -76,6 +76,26 @@
   flex: 1 1 auto;
 }
 
+.monitoring-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  min-width: 0;
+}
+
+.monitoring-card-badge {
+  flex: none;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: var(--wx-system-status-yellow-container);
+  color: var(--wx-system-status-yellow-on-container);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
 .monitoring-card h2,
 .monitoring-card-value,
 .monitoring-card-detail {

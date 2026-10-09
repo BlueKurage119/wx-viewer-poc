@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { VenueForecastTargets } from '@wx-viewer-poc/shared';
+import type { MonitoringStatusResponse, VenueForecastTargets } from '@wx-viewer-poc/shared';
+import type { WeatherRestartModel } from '../src/monitoring/useWeatherRestart.ts';
+import { runtimeFixture } from '../src/monitoring/__fixtures__/workerStates.ts';
 import {
   MonitoringDashboard,
   MonitoringDashboardView,
@@ -570,4 +572,51 @@ test('C26: 集計の受領状況は更新行の「画面更新」の隣に、古
     const cards = html.match(/<section class="monitoring-cards".*?<\/section>/)?.[0] ?? '';
     assert.equal(cards.includes('集計'), false);
   }
+});
+
+test('Worker見出しの「再起動可」バッジは、サーバー許可かつ再起動進行中でないときだけ出る', () => {
+  const withAllowed = (acquisition: boolean, delivery: boolean) => ({
+    ...normalMonitoringResponseFixture,
+    weatherRuntimes: {
+      acquisition: runtimeFixture('acquisition', {
+        lifecycle: 'stopped',
+        stopReason: 'unexpected_exit',
+        restartAllowed: acquisition,
+      }),
+      delivery: runtimeFixture('delivery', {
+        lifecycle: 'stopped',
+        stopReason: 'unexpected_exit',
+        restartAllowed: delivery,
+      }),
+    },
+  });
+  const render = (data: MonitoringStatusResponse, sending = false) =>
+    renderToStaticMarkup(
+      el(MonitoringDashboardView, {
+        state: { phase: 'ready', data },
+        ...(sending
+          ? { workerModel: { state: { phase: 'sending' } } as unknown as WeatherRestartModel }
+          : {}),
+      }),
+    );
+  const badges = (html: string) =>
+    [...html.matchAll(/id="(monitoring-worker-\w+-restartable-badge)"[^>]*>([^<]*)</g)].map(
+      (m) => `${m[1]}:${m[2]}`,
+    );
+
+  assert.deepEqual(badges(render(withAllowed(false, false))), []);
+  assert.deepEqual(badges(render(withAllowed(true, false))), [
+    'monitoring-worker-acquisition-restartable-badge:再起動可',
+  ]);
+  assert.deepEqual(badges(render(withAllowed(false, true))), [
+    'monitoring-worker-delivery-restartable-badge:再起動可',
+  ]);
+  assert.equal(badges(render(withAllowed(true, true))).length, 2);
+  // 取得系が再起動進行中なら、サーバーが許可していても出ない(提供系は影響を受けない)
+  assert.deepEqual(badges(render(withAllowed(true, true), true)), [
+    'monitoring-worker-delivery-restartable-badge:再起動可',
+  ]);
+  // 見出しと関連付け、ボタンの説明(restartability)とは別ID
+  const html = render(withAllowed(true, false));
+  assert.ok(html.includes('aria-describedby="monitoring-worker-acquisition-restartable-badge"'));
 });

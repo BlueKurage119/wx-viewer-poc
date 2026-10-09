@@ -1,6 +1,10 @@
 import type { WeatherRole } from '@wx-viewer-poc/shared';
 import type { WeatherRestartModel } from './useWeatherRestart';
-import { presentSampleFreshness, workerRestartabilityId } from './weatherWorkerPresentation';
+import {
+  presentSampleFreshness,
+  workerRestartabilityId,
+  workerRestartableBadgeId,
+} from './weatherWorkerPresentation';
 import { memo, useEffect, useMemo } from 'react';
 import type { VenueForecastTargets } from '@wx-viewer-poc/shared';
 import type { MonitoringLoadState } from './useMonitoringStatus';
@@ -73,7 +77,18 @@ const MonitoringCardView = memo(function MonitoringCardView({ card }: { card: Mo
         <span className="monitoring-card-icon-symbol">{CARD_ICON_NAMES[card.id]}</span>
       </span>
       <div className="monitoring-card-content">
-        <h2>{card.title}</h2>
+        <div className="monitoring-card-heading">
+          <h2
+            aria-describedby={role && card.canRestart ? workerRestartableBadgeId(role) : undefined}
+          >
+            {card.title}
+          </h2>
+          {role && card.canRestart ? (
+            <span className="monitoring-card-badge" id={workerRestartableBadgeId(role)}>
+              再起動可
+            </span>
+          ) : null}
+        </div>
         <p className="monitoring-card-value" title={card.value}>
           {card.value}
         </p>

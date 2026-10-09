@@ -20,6 +20,10 @@ export function workerRestartabilityId(role: WeatherRole): string {
   return `monitoring-worker-${role}-restartability`;
 }
 
+export function workerRestartableBadgeId(role: WeatherRole): string {
+  return `monitoring-worker-${role}-restartable-badge`;
+}
+
 export type WorkerTone = 'neutral' | 'normal' | 'attention' | 'error';
 
 export interface WorkerDetailLine {

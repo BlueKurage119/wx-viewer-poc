@@ -33,6 +33,8 @@ export interface MonitoringCard {
   readonly tone: MonitoringTone;
   /** Worker カードのとき、ボタンの説明参照に使う再開可否の文言。 */
   readonly restartability?: string;
+  /** Worker カードのとき、再起動ボタンが押せる状態か(ツールバーと同じ判定)。 */
+  readonly canRestart?: boolean;
 }
 
 export interface MonitoringCardsInput {
@@ -63,6 +65,7 @@ function workerCard(role: WeatherRole, input: MonitoringCardsInput): MonitoringC
     details: view.lines.map((line) => ({ text: line.text, kind: line.kind })),
     tone: view.tone,
     restartability: view.restartability,
+    canRestart: view.canRestart,
   };
 }
 
@@ -87,7 +90,7 @@ function autoFetchCard(data: MonitoringStatusResponse | null): MonitoringCard {
       ? [{ text: '定期取得の設定なし' }]
       : [
           {
-            text: `${data.operation.period.start}–${data.operation.period.end}\u3000次 ${formatJstTime(data.operation.nextPeriodChangeAt)}`,
+            text: `時間帯 ${data.operation.period.start}–${data.operation.period.end}`,
           },
         ];
   return {

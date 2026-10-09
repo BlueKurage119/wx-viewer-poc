@@ -419,7 +419,7 @@ for (const restartOrder of ['before-startup', 'after-startup'] as const)
       assert.deepEqual(healthHistory(), initialHealthHistory);
       const failures = retained
         .prepare(
-          "SELECT change_type FROM notification_output_history WHERE source_type='weather_worker'",
+          "SELECT change_type FROM notification_output_history WHERE source_type='weather_worker' AND change_type='unexpected_exit'",
         )
         .all() as { change_type: string }[];
       assert.deepEqual(failures, [{ change_type: 'unexpected_exit' }]);

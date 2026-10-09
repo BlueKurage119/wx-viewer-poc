@@ -283,7 +283,7 @@ test('カードは常に4枚で、取得健全性・スケジュールの独立�
   const auto = cards.find((card) => card.id === 'autoFetch')!;
   assert.deepEqual(
     [auto.value, auto.tone, auto.details.map((detail) => detail.text)],
-    ['有効', 'normal', ['09:00–18:00\u3000次 18:00']],
+    ['有効', 'normal', ['時間帯 09:00–18:00']],
   );
   const nothing = buildMonitoringCards({
     data: null,
