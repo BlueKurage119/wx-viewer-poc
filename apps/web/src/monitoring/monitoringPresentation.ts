@@ -1,8 +1,10 @@
 import type {
   MonitoredFetchSourceId,
-  MonitoringHealthStatus,
   MonitoringStatusResponse,
+  WeatherRole,
 } from '@wx-viewer-poc/shared';
+import { presentWorker, type WorkerDetailLine } from './weatherWorkerPresentation.js';
+import type { WeatherRestartState } from './weatherRestartController.js';
 import {
   formatElapsedTime,
   formatJstDateTime,
@@ -14,156 +16,181 @@ export { formatElapsedTime, formatJstDateTime, formatJstMonthDayClock, formatJst
 
 export type MonitoringTone = 'neutral' | 'normal' | 'active' | 'attention' | 'error';
 
+export type MonitoringCardId = 'acquisitionWorker' | 'deliveryWorker' | 'autoFetch' | 'telegram';
+
+export interface MonitoringCardDetail {
+  readonly text: string;
+  readonly tone?: MonitoringTone;
+  /** 再起動結果の行は aria-live で通知する。 */
+  readonly kind?: WorkerDetailLine['kind'];
+}
+
 export interface MonitoringCard {
-  readonly id: 'operation' | 'health' | 'schedule' | 'processing';
+  readonly id: MonitoringCardId;
   readonly title: string;
   readonly value: string;
-  readonly details: readonly string[];
+  readonly details: readonly MonitoringCardDetail[];
   readonly tone: MonitoringTone;
-  readonly detailTone?: MonitoringTone;
+  /** Worker カードのとき、ボタンの説明参照に使う再開可否の文言。 */
+  readonly restartability?: string;
+  /** Worker カードのとき、再起動ボタンが押せる状態か(ツールバーと同じ判定)。 */
+  readonly canRestart?: boolean;
 }
 
-function healthPresentation(status: MonitoringHealthStatus | null): {
-  readonly value: string;
-  readonly tone: MonitoringTone;
-} {
-  switch (status) {
-    case 'normal':
-      return { value: '正常', tone: 'normal' };
-    case 'delayed':
-      return { value: '遅延', tone: 'attention' };
-    case 'abnormal':
-      return { value: '異常', tone: 'error' };
-    case 'suspended':
-      return { value: '停止中（評価対象外）', tone: 'neutral' };
-    case null:
-      return { value: '判定待ち', tone: 'neutral' };
-  }
+export interface MonitoringCardsInput {
+  readonly data: MonitoringStatusResponse | null;
+  /** 監視取得が失敗中か。 */
+  readonly monitoringFailed: boolean;
+  readonly restarts: Readonly<Record<WeatherRole, WeatherRestartState>>;
+  readonly baselines: Readonly<Record<WeatherRole, string | null>>;
+  /** 再起動が完了に到達した要求の識別子。 */
+  readonly completions?: Readonly<Record<WeatherRole, string | null>>;
 }
 
-function readinessPresentation(phase: MonitoringStatusResponse['readiness']['initialFetchPhase']): {
-  readonly label: string;
-  readonly tone: MonitoringTone;
-} {
-  switch (phase) {
-    case 'not_started':
-      return { label: '初回同期 未開始', tone: 'neutral' };
-    case 'running':
-      return { label: '初回同期中', tone: 'active' };
-    case 'completed':
-      return { label: '初回同期完了', tone: 'normal' };
-    case 'failed':
-      return { label: '初回同期失敗', tone: 'error' };
-  }
+const IDLE_RESTARTS: MonitoringCardsInput['restarts'] = {
+  acquisition: { phase: 'idle' },
+  delivery: { phase: 'idle' },
+};
+const NO_BASELINES: MonitoringCardsInput['baselines'] = { acquisition: null, delivery: null };
+
+function workerCard(role: WeatherRole, input: MonitoringCardsInput): MonitoringCard {
+  const view = presentWorker(role, {
+    data: input.data,
+    monitoringFailed: input.monitoringFailed,
+    restart: input.restarts[role],
+    baselineGeneratedAt: input.baselines[role],
+    completedRequestId: input.completions?.[role] ?? null,
+  });
+  return {
+    id: role === 'acquisition' ? 'acquisitionWorker' : 'deliveryWorker',
+    title: view.title,
+    value: view.state,
+    details: view.lines.map((line) => ({ text: line.text, kind: line.kind })),
+    tone: view.tone,
+    restartability: view.restartability,
+    canRestart: view.canRestart,
+  };
 }
 
-function processingPresentation(
-  response: MonitoringStatusResponse,
-): Pick<MonitoringCard, 'value' | 'details' | 'tone'> {
-  const venue = response.venues.find((v) => v.venueId === response.requestedVenueId);
-  if (!venue) {
-    return { value: '起動時再処理', details: ['—'], tone: 'neutral' };
+function autoFetchCard(data: MonitoringStatusResponse | null): MonitoringCard {
+  if (!data) {
+    return {
+      id: 'autoFetch',
+      title: '自動取得',
+      value: '—',
+      details: [{ text: '—' }],
+      tone: 'neutral',
+    };
   }
-
-  const { reprocessing } = venue;
-  let detail: string;
-  let tone: MonitoringTone;
-  switch (reprocessing.status) {
-    case 'idle':
-      detail = '未開始';
-      tone = 'neutral';
-      break;
-    case 'running':
-      detail = `再処理中 ${reprocessing.processedCount} / ${reprocessing.total}`;
-      tone = 'active';
-      break;
-    case 'completed':
-      detail = `再処理完了 ${reprocessing.processedCount}件`;
-      tone = 'normal';
-      break;
-  }
-
-  return { value: '起動時再処理', details: [detail], tone };
-}
-
-/** DTOの状態をカード向けの表示語へ変換する。閾値や時刻からの再判定は行わない。 */
-export function buildMonitoringCards(
-  data: MonitoringStatusResponse,
-  isFailed: boolean = false,
-): readonly MonitoringCard[] {
-  const readiness = readinessPresentation(data.readiness.initialFetchPhase);
-  const health = healthPresentation(data.health.worstStatus);
-  const hasPreparationFailure = data.readiness.preparationFailures.some(
-    (failure) => failure.venueId === null || failure.venueId === data.requestedVenueId,
-  );
-  const hasReadError = data.readErrors.some(
-    (error) => error.venueId === null || error.venueId === data.requestedVenueId,
-  );
+  const reported = data.weatherRuntimes.acquisition.reportFreshness !== 'unknown';
   const activeIntervals = [
     data.operation.period.xmlSeconds,
     data.operation.period.imageCatalogSeconds,
     data.operation.period.amedasSeconds,
   ].filter((interval): interval is number => interval !== null);
-  const processing = processingPresentation(data);
-
-  const cards: readonly MonitoringCard[] = [
-    {
-      id: 'operation',
-      title: '取得運転',
-      value:
-        data.weatherRuntimes.acquisition.reportFreshness === 'unknown'
-          ? '取得状態未確認'
-          : data.operation.schedulerRunning
-            ? '自動取得有効'
-            : '自動取得停止',
-      details: [readiness.label, ...(hasPreparationFailure ? ['初回準備失敗'] : [])],
-      tone:
-        readiness.tone === 'error'
-          ? 'neutral'
-          : data.operation.schedulerRunning
-            ? 'normal'
-            : 'neutral',
-      detailTone: hasPreparationFailure ? 'error' : readiness.tone,
-    },
-    {
-      id: 'health',
-      title: '取得健全性',
-      value: health.value,
-      details: [
-        `評価時刻 ${data.health.evaluatedAt ? formatJstTime(data.health.evaluatedAt) : '—'}`,
-      ],
-      tone: health.tone,
-    },
-    {
-      id: 'schedule',
-      title: 'スケジュール',
-      value: `${data.operation.period.start} – ${data.operation.period.end}`,
-      details: [
-        `次の切替 ${formatJstTime(data.operation.nextPeriodChangeAt)}`,
-        ...(activeIntervals.length === 0 ? ['定期取得の設定なし'] : []),
-      ],
-      tone: 'neutral',
-    },
-    {
-      id: 'processing',
-      title: '処理待ち',
-      value: processing.value,
-      details: [...processing.details, ...(hasReadError ? ['気象データ読取失敗'] : [])],
-      tone: hasReadError ? 'error' : processing.tone,
-    },
-  ];
-
-  if (!isFailed) {
-    return cards;
-  }
-
-  return cards.map((card) => ({
-    ...card,
-    tone: card.tone === 'normal' || card.tone === 'active' ? 'neutral' : card.tone,
-    detailTone:
-      card.detailTone === 'normal' || card.detailTone === 'active' ? 'neutral' : card.detailTone,
-  }));
+  const details: MonitoringCardDetail[] =
+    activeIntervals.length === 0
+      ? [{ text: '定期取得の設定なし' }]
+      : [
+          {
+            text: `時間帯 ${data.operation.period.start}–${data.operation.period.end}`,
+          },
+        ];
+  return {
+    id: 'autoFetch',
+    title: '自動取得',
+    value: !reported ? '—' : data.operation.schedulerRunning ? '有効' : '停止',
+    details,
+    tone: reported && data.operation.schedulerRunning ? 'normal' : 'neutral',
+  };
 }
+
+const syncStageLabels: Record<MonitoringStatusResponse['readiness']['initialFetchPhase'], string> =
+  {
+    not_started: '初回同期 未開始',
+    running: '初回同期 実行中',
+    completed: '初回同期 完了',
+    failed: '初回同期 失敗',
+  };
+
+/** 電文処理カード。準備失敗＞初回同期中＞再処理中＞未判定の順に主表示を決める。 */
+function telegramCard(data: MonitoringStatusResponse | null): MonitoringCard {
+  if (!data) {
+    return {
+      id: 'telegram',
+      title: '電文処理',
+      value: '—',
+      details: [{ text: '—' }],
+      tone: 'neutral',
+    };
+  }
+  const venue = data.venues.find((v) => v.venueId === data.requestedVenueId);
+  const failures = data.readiness.preparationFailures.filter(
+    (failure) => failure.venueId === null || failure.venueId === data.requestedVenueId,
+  );
+  const hasReadError =
+    data.warningTelegrams == null ||
+    data.readErrors.some(
+      (error) => error.venueId === null || error.venueId === data.requestedVenueId,
+    );
+  const pending = data.warningTelegrams ?? null;
+  const reprocessing = venue?.reprocessing;
+  const reprocessLabel = !reprocessing
+    ? '—'
+    : reprocessing.status === 'completed'
+      ? '起動時再処理 完了'
+      : '起動時再処理 未開始';
+  const phase = data.readiness.initialFetchPhase;
+  let value: string;
+  let tone: MonitoringTone;
+  let supplement: string;
+  if (failures.length > 0 || phase === 'failed') {
+    value = failures.length > 0 ? `準備失敗（${failures.length}件）` : '準備失敗';
+    tone = 'error';
+    supplement = data.readiness.errorReason ?? syncStageLabels[phase];
+  } else if (phase === 'not_started' || phase === 'running') {
+    value = '初回同期中';
+    tone = 'attention';
+    supplement = syncStageLabels[phase];
+  } else if (reprocessing?.status === 'running') {
+    value = `再処理中 ${reprocessing.processedCount}/${reprocessing.total}`;
+    tone = 'attention';
+    supplement = syncStageLabels[phase];
+  } else if (pending === null) {
+    value = '未判定 —';
+    tone = 'neutral';
+    supplement = reprocessLabel;
+  } else if (pending.pendingCount >= 1) {
+    value = `未判定 ${pending.pendingCount}件`;
+    tone = 'attention';
+    supplement = reprocessLabel;
+  } else {
+    value = '未判定なし';
+    tone = 'normal';
+    supplement = reprocessLabel;
+  }
+  // 詳細は1行。気象データの読取失敗があれば、それを優先する。
+  const details: MonitoringCardDetail[] = [
+    hasReadError ? { text: '気象データを読み取れません', tone: 'error' } : { text: supplement },
+  ];
+  return { id: 'telegram', title: '電文処理', value, details, tone };
+}
+
+/** DTOの状態をカード向けの表示語へ変換する。閾値や時刻からの再判定は行わない。 */
+export function buildMonitoringCards(input: MonitoringCardsInput): readonly MonitoringCard[] {
+  const demote = (card: MonitoringCard): MonitoringCard =>
+    input.monitoringFailed && (card.tone === 'normal' || card.tone === 'active')
+      ? { ...card, tone: 'neutral' }
+      : card;
+  return [
+    workerCard('acquisition', input),
+    workerCard('delivery', input),
+    demote(autoFetchCard(input.data)),
+    demote(telegramCard(input.data)),
+  ];
+}
+
+export { IDLE_RESTARTS, NO_BASELINES };
 
 export interface SourceStatusCell {
   /** 可視テキスト。欠測は '—'。 */

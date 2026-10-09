@@ -113,3 +113,27 @@ export function formatElapsedTime(elapsedSeconds: number): string {
   const ss = String(seconds).padStart(2, '0');
   return `${hh}:${mm}:${ss}`;
 }
+
+/** 時刻のみ "HH:mm:ss"（JST）。Worker の最終報告・集計受領に使う。 */
+export function formatJstClock(value: string | null): string {
+  if (!value || Number.isNaN(Date.parse(value))) {
+    return '—';
+  }
+  try {
+    const parts = new Intl.DateTimeFormat('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(value));
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value;
+    const hour = get('hour');
+    const minute = get('minute');
+    const second = get('second');
+    return hour && minute && second ? `${hour}:${minute}:${second}` : '—';
+  } catch {
+    return '—';
+  }
+}

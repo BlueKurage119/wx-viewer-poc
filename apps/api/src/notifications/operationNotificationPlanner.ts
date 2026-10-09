@@ -71,7 +71,7 @@ export function planOperationNotification(
   if (input.errorCode === 'operation_result_unknown') {
     definitionId = 'system-fetch-operation-unknown';
     changeType = 'fetch_operation_unknown';
-    category = 'question';
+    category = 'warning';
   } else if (input.operationKind === 'start') {
     if (input.result !== 'success') {
       return null;

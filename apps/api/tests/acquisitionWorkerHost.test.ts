@@ -148,12 +148,14 @@ test('実通信の64要求上限と8MiB超過を有限失敗とし、pendingを�
 });
 
 test(
-  '実Worker同期負荷中はheartbeatだけがstaleとなり、メインのタイマーが進む',
+  '準備完了後の同期負荷中はheartbeatだけがstaleとなり、メインのタイマーが進み、応答不明を1件通知する',
   { timeout: 25_000 },
   async () => {
     const fixture = setup();
     try {
       await fixture.host.start();
+      await fixture.host.call('fixture.prepared', null);
+      await until(() => fixture.host.status().prepared === true);
       await until(() => fixture.host.status().reportFreshness === 'fresh');
       await fixture.host.call('fixture.block', { duration: 17_000 });
       await until(() => fixture.events().some((event) => event.event === 'block-start'));
@@ -180,6 +182,31 @@ test(
       } finally {
         clearInterval(timer);
       }
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  '準備完了前の同期負荷でstaleになっても応答不明を通知せず、状態・再開可否は変えない',
+  { timeout: 25_000 },
+  async () => {
+    const fixture = setup();
+    try {
+      await fixture.host.start();
+      await until(() => fixture.host.status().reportFreshness === 'fresh');
+      assert.equal(fixture.host.status().prepared, false);
+      await fixture.host.call('fixture.block', { duration: 17_000 });
+      await until(() => fixture.host.status().reportFreshness === 'stale', 18_000);
+      // 通知の判定周期（1秒）を少なくとも1回またぐ。
+      await delay(1_500);
+      assert.equal(fixture.host.status().prepared, false);
+      assert.equal(fixture.host.status().restartAllowed, true);
+      assert.deepEqual(fixture.failures, []);
+      await until(() => fixture.events().some((event) => event.event === 'block-end'), 4_000);
+      await until(() => fixture.host.status().reportFreshness === 'fresh');
+      assert.deepEqual(fixture.failures, []);
     } finally {
       await fixture.close();
     }

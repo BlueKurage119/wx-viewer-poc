@@ -1,8 +1,6 @@
 import './setupEnv.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import type { WeatherRestartOperation, WeatherRestartRequest } from '@wx-viewer-poc/shared';
 import { createWeatherRestartController } from '../src/monitoring/weatherRestartController.ts';
 import {
@@ -10,12 +8,6 @@ import {
   parseWeatherRestartReply,
   type WeatherRestartReply,
 } from '../src/api/weatherWorkers.ts';
-import { WeatherWorkerPanel } from '../src/monitoring/WeatherWorkerPanel.tsx';
-import {
-  weatherRestartResult,
-  weatherWorkerLabel,
-} from '../src/monitoring/weatherWorkerPresentation.ts';
-import { normalMonitoringResponseFixture as fixture } from './monitoringFixture.ts';
 
 function timers() {
   let now = 0;
@@ -101,11 +93,10 @@ test('再開POST応答喪失後は同じIDをGETし、二重クリックと遅�
   controller.dispose();
 });
 
-test('1秒間隔で照会し30秒で止め、明示再確認は同IDのGETのみ', async () => {
+test('1秒間隔で照会し30秒で止め、結果確認待ちの間は再送しない', async () => {
   const clock = timers();
   let posts = 0;
   const gets: WeatherRestartRequest[] = [];
-  let done = false;
   const controller = createWeatherRestartController({
     ...clock,
     requestIdFactory: () => 'restart-1',
@@ -125,7 +116,7 @@ test('1秒間隔で照会し30秒で止め、明示再確認は同IDのGETのみ
       },
       find: async (_role, value) => {
         gets.push(value);
-        return done ? { kind: 'operation', operation: completed } : { kind: 'unverifiable' };
+        return { kind: 'unverifiable' };
       },
     },
   });
@@ -146,12 +137,8 @@ test('1秒間隔で照会し30秒で止め、明示再確認は同IDのGETのみ
   assert.equal(clock.size(), 0);
   controller.restart('worker-1');
   assert.equal(posts, 1);
-  done = true;
-  controller.recheck();
-  await flush();
-  assert.equal(posts, 1);
-  assert.deepEqual(gets[29], request);
-  assert.deepEqual(controller.getSnapshot(), { phase: 'completed', request, operation: completed });
+  assert.equal(gets.length, 29);
+  assert.deepEqual(controller.getSnapshot(), { phase: 'unverifiable', request });
   controller.dispose();
 });
 
@@ -218,97 +205,6 @@ test('APIはPOST内容と同ID照会・専用履歴のURLを送信し、未記�
   });
 });
 
-test('Worker状態・成功と準備の区別・履歴未記録を明示する', () => {
-  const runtime = fixture.weatherRuntimes.acquisition;
-  assert.equal(
-    weatherWorkerLabel({ ...runtime, lifecycle: 'failed', reportFreshness: 'fresh' }),
-    'Worker異常',
-  );
-  assert.equal(weatherWorkerLabel({ ...runtime, reportFreshness: 'unknown' }), '報告待ち');
-  assert.equal(
-    weatherWorkerLabel({ ...runtime, reportFreshness: 'stale' }),
-    '応答を確認できません',
-  );
-  assert.equal(weatherRestartResult(completed), '取得Workerを再開しました');
-  assert.equal(
-    weatherRestartResult(completed, {
-      ...fixture,
-      readiness: { ...fixture.readiness, initialFetchPhase: 'failed' },
-    }),
-    '取得Workerを再開しました。気象情報の準備に失敗しています',
-  );
-  assert.equal(
-    weatherRestartResult({ ...completed, historyRecorded: false }),
-    '取得Workerを再開しました（履歴未記録）',
-  );
-  assert.equal(
-    weatherRestartResult(completed, {
-      ...fixture,
-      readiness: { ...fixture.readiness, initialFetchPhase: 'running' },
-    }),
-    '取得Workerを再開しました。気象情報は準備中です',
-  );
-  assert.equal(
-    weatherRestartResult(
-      { ...completed, desiredRunning: false },
-      {
-        ...fixture,
-        operation: { ...fixture.operation, schedulerRunning: false },
-        readiness: { ...fixture.readiness, initialFetchPhase: 'completed' },
-      },
-    ),
-    '取得Workerを再開しました。取得は停止したままです',
-  );
-});
-
-test('専用ボタンは不明・準備中・再開中では無効、freshな異常でもサーバー許可時に有効', () => {
-  const runtime = fixture.weatherRuntimes.acquisition;
-  for (const [lifecycle, freshness, allowed, expectedDisabled] of [
-    ['starting', 'unknown', false, true],
-    ['starting', 'fresh', false, true],
-    ['ready', 'fresh', false, true],
-    ['restarting', 'fresh', false, true],
-    ['failed', 'fresh', true, false],
-    ['failed', 'unknown', true, false],
-    ['stopped', 'stale', true, false],
-    ['ready', 'stale', true, false],
-  ] as const) {
-    const data = {
-      ...fixture,
-      weatherRuntimes: {
-        ...fixture.weatherRuntimes,
-        acquisition: { ...runtime, lifecycle, reportFreshness: freshness, restartAllowed: allowed },
-      },
-    };
-    const html = renderToStaticMarkup(
-      React.createElement(WeatherWorkerPanel, { data, unavailable: false }),
-    );
-    // ラッパーの属性だけを抽出し、他sectionの文言には依存しない。
-    const attributes = html.match(/<md-gb-button([^>]*)>/)?.[1] ?? '';
-    assert.equal(/soft-disabled=""/.test(attributes), expectedDisabled);
-    assert.equal(/\sdisabled=""/.test(attributes), false);
-    assert.equal(
-      html.match(/<p class="monitoring-worker-result"[^>]*>/)?.[0],
-      '<p class="monitoring-worker-result" aria-live="polite" role="status">',
-    );
-    assert.equal(html.match(/<summary>(.*?)<\/summary>/)?.[1], '再開履歴');
-  }
-});
-
-test('旧世代の未完了scopeを実行中へ戻さず結果不明として表示する', () => {
-  const data = {
-    ...fixture,
-    weatherRuntimes: {
-      ...fixture.weatherRuntimes,
-      acquisition: { ...fixture.weatherRuntimes.acquisition, unknownScopes: ['east', 'trc'] },
-    },
-  };
-  const html = renderToStaticMarkup(
-    React.createElement(WeatherWorkerPanel, { data, unavailable: false }),
-  );
-  assert.equal(html.match(/<p>結果不明: (.*?)<\/p>/)?.[1], 'east、trc');
-});
-
 test('提供再開は専用URLと同ID照会を使い、取得停止意図を表示しない', async () => {
   const deliveryOperation: WeatherRestartOperation = {
     status: 'completed',
@@ -339,37 +235,4 @@ test('提供再開は専用URLと同ID照会を使い、取得停止意図を表
     '/api/control/weather-workers/delivery/restart',
     '/api/control/weather-workers/operations/restart-1',
   ]);
-  assert.equal(
-    weatherRestartResult(deliveryOperation, {
-      ...fixture,
-      weatherRuntimes: {
-        ...fixture.weatherRuntimes,
-        delivery: { ...fixture.weatherRuntimes.delivery, lifecycle: 'starting' },
-      },
-    }),
-    '提供Workerの再開を受け付けました。接続は準備中です',
-  );
-});
-
-test('提供欄は専用再開と気象集計の鮮度を表示する', () => {
-  const data = {
-    ...fixture,
-    weatherSampleReceivedAt: '2026-10-09T00:00:00.000Z',
-    generatedAt: '2026-10-09T00:00:16.000Z',
-    weatherRuntimes: {
-      ...fixture.weatherRuntimes,
-      delivery: {
-        ...fixture.weatherRuntimes.delivery,
-        workerGeneration: 'delivery-1',
-        lifecycle: 'failed' as const,
-        restartAllowed: true,
-      },
-    },
-  };
-  const html = renderToStaticMarkup(
-    React.createElement(WeatherWorkerPanel, { data, unavailable: false }),
-  );
-  assert.match(html, /提供Workerを再開/);
-  assert.match(html, /鮮度低下/);
-  assert.equal((html.match(/id="monitoring-worker-[a-z]+-heading"/g) ?? []).length, 2);
 });

@@ -31,6 +31,7 @@ export function unavailableMonitoring(input: {
     serverStartedAt: input.startedAt,
     generatedAt: input.now,
     weatherRuntimes: input.runtimes,
+    warningTelegrams: null,
     operation: buildOperationSection(
       buildStoppedPollingStatus(new Date(input.now), input.schedule),
       false,

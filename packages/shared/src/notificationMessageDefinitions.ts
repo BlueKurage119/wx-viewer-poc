@@ -28,10 +28,12 @@ export type NotificationMessageDefinitionId =
   | 'system-weather-acquisition-exited'
   | 'system-weather-acquisition-report-stale'
   | 'system-weather-acquisition-control-failed'
+  | 'system-weather-acquisition-restart-completed'
   | 'system-weather-delivery-initialization-failed'
   | 'system-weather-delivery-exited'
   | 'system-weather-delivery-report-stale'
   | 'system-weather-delivery-control-failed'
+  | 'system-weather-delivery-restart-completed'
   | 'system-initial-sync-failed'
   | 'system-data-fetch-failed'
   | 'system-data-fetch-recovered'
@@ -87,7 +89,7 @@ type ActionResolution =
 
 interface MessageDefinitionInternal {
   readonly id: NotificationMessageDefinitionId;
-  readonly version: '1';
+  readonly version: '1' | '2';
   readonly origin: NotificationOrigin;
   readonly allowedCategories: readonly NotificationCategory[];
   readonly requiredWeatherChangeType?: WeatherNotificationChangeType;
@@ -312,33 +314,30 @@ const MESSAGE_DEFINITIONS = {
   },
   'system-weather-acquisition-initialization-failed': {
     id: 'system-weather-acquisition-initialization-failed',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['question'],
-    title: '気象取得処理の準備失敗',
-    fixedContent: '気象取得処理の準備に失敗しました。監視画面で状態を確認してください。',
+    title: '気象Worker準備失敗',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
   'system-weather-acquisition-exited': {
     id: 'system-weather-acquisition-exited',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['question'],
-    title: '気象取得処理の停止',
-    fixedContent: '気象取得処理が停止しました。監視画面から再開できます。',
+    title: '気象Worker停止',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
   'system-weather-acquisition-report-stale': {
     id: 'system-weather-acquisition-report-stale',
-    version: '1',
+    version: '2',
     origin: 'system',
-    allowedCategories: ['question'],
-    title: '気象取得処理の応答不明',
-    fixedContent: '気象取得処理の応答を確認できません。監視画面で状態を確認してください。',
+    allowedCategories: ['warning'],
+    title: '気象Worker応答不明',
     targetMode: { kind: 'notificationTargetsOmittable' },
-    actionResolution: { kind: 'acknowledge' },
+    actionResolution: { kind: 'none' },
   },
   'system-weather-acquisition-control-failed': {
     id: 'system-weather-acquisition-control-failed',
@@ -350,35 +349,41 @@ const MESSAGE_DEFINITIONS = {
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
-  'system-weather-delivery-initialization-failed': {
-    id: 'system-weather-delivery-initialization-failed',
+  'system-weather-acquisition-restart-completed': {
+    id: 'system-weather-acquisition-restart-completed',
     version: '1',
     origin: 'system',
+    allowedCategories: ['warning'],
+    title: '気象Worker再起動完了',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'none' },
+  },
+  'system-weather-delivery-initialization-failed': {
+    id: 'system-weather-delivery-initialization-failed',
+    version: '2',
+    origin: 'system',
     allowedCategories: ['question'],
-    title: '気象情報提供の準備失敗',
-    fixedContent: '気象情報提供の準備に失敗しました。監視画面で状態を確認してください。',
+    title: '気象Worker準備失敗',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
   'system-weather-delivery-exited': {
     id: 'system-weather-delivery-exited',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['question'],
-    title: '気象情報提供の停止',
-    fixedContent: '気象情報提供が停止しました。監視画面から再開できます。',
+    title: '気象Worker停止',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
   'system-weather-delivery-report-stale': {
     id: 'system-weather-delivery-report-stale',
-    version: '1',
+    version: '2',
     origin: 'system',
-    allowedCategories: ['question'],
-    title: '気象情報提供の応答不明',
-    fixedContent: '気象情報提供の応答を確認できません。監視画面で状態を確認してください。',
+    allowedCategories: ['warning'],
+    title: '気象Worker応答不明',
     targetMode: { kind: 'notificationTargetsOmittable' },
-    actionResolution: { kind: 'acknowledge' },
+    actionResolution: { kind: 'none' },
   },
   'system-weather-delivery-control-failed': {
     id: 'system-weather-delivery-control-failed',
@@ -390,15 +395,23 @@ const MESSAGE_DEFINITIONS = {
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
-  'system-fetch-operation-unknown': {
-    id: 'system-fetch-operation-unknown',
+  'system-weather-delivery-restart-completed': {
+    id: 'system-weather-delivery-restart-completed',
     version: '1',
     origin: 'system',
-    allowedCategories: ['question'],
-    title: '取得操作の結果不明',
-    fixedContent: '処理結果を確認できません。監視画面で状態を確認してください。',
+    allowedCategories: ['warning'],
+    title: '気象Worker再起動完了',
     targetMode: { kind: 'notificationTargetsOmittable' },
-    actionResolution: { kind: 'acknowledge' },
+    actionResolution: { kind: 'none' },
+  },
+  'system-fetch-operation-unknown': {
+    id: 'system-fetch-operation-unknown',
+    version: '2',
+    origin: 'system',
+    allowedCategories: ['warning'],
+    title: '取得操作の結果不明',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'none' },
   },
   'system-initial-sync-failed': {
     id: 'system-initial-sync-failed',

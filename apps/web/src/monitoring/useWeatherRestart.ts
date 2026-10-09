@@ -11,7 +11,6 @@ export interface WeatherRestartModel {
   readonly state: WeatherRestartState;
   readonly refreshVersion: number;
   restart(generation: string): void;
-  recheck(): void;
 }
 /** 監視画面を離れても要求IDと結果照会を保持する。 */
 export function useWeatherRestart(role: WeatherRole = 'acquisition'): WeatherRestartModel {
@@ -39,6 +38,5 @@ export function useWeatherRestart(role: WeatherRole = 'acquisition'): WeatherRes
     state,
     refreshVersion,
     restart: (generation) => controller.current?.restart(generation),
-    recheck: () => controller.current?.recheck(),
   };
 }

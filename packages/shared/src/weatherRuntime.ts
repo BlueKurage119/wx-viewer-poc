@@ -13,7 +13,12 @@ export interface WeatherRuntimeStatus {
   readonly restartAllowed: boolean;
   readonly pendingRequests: number;
   readonly exitConfirmed: boolean;
+  /** 完了の応答が失われ、結果が分からない範囲。画面の「結果不明」はこれだけを数える。 */
   readonly unknownScopes?: readonly string[];
+  /** いま処理中の更新の対象範囲。読み出しの公開ゲートでは unknownScopes と同様にブロックする。 */
+  readonly pendingScopes?: readonly string[];
+  /** 取得Workerが準備完了（prepared）を報告済みか。提供Workerでは省略される。 */
+  readonly prepared?: boolean;
   readonly failureCode:
     | 'initial_accept_timeout'
     | 'handshake_timeout'
@@ -24,6 +29,23 @@ export interface WeatherRuntimeStatus {
     | 'initialization_failed'
     | null;
 }
+/** 報告の受領からこの時間を超えると応答不明（stale）とする。 */
+export const WEATHER_REPORT_STALE_AFTER_MS = 15_000;
+
+/** 停止・異常の理由の画面・通知用の語。failureCode ?? stopReason で引く。 */
+export const WEATHER_RUNTIME_REASON_LABELS = {
+  requested: '停止要求',
+  unexpected_exit: '予期しない終了',
+  initialization_failed: '初期化失敗',
+  initial_accept_timeout: '初回受付を確認できません',
+  handshake_timeout: '更新応答の期限超過',
+  protocol_error: '通信手順の異常',
+  payload_too_large: '通信容量の上限超過',
+  report_stale: '応答を確認できません',
+  worker_exited: 'Workerの終了',
+} as const;
+export type WeatherRuntimeReasonCode = keyof typeof WEATHER_RUNTIME_REASON_LABELS;
+
 export interface WeatherRestartRequest {
   readonly requestId: string;
   readonly expectedWorkerGeneration: string;
@@ -55,7 +77,7 @@ export function projectWeatherRuntimeStatus(
   const reportFreshness =
     input.receivedAt === null
       ? 'unknown'
-      : Date.parse(now) - Date.parse(input.receivedAt) > 15_000
+      : Date.parse(now) - Date.parse(input.receivedAt) > WEATHER_REPORT_STALE_AFTER_MS
         ? 'stale'
         : 'fresh';
   return {

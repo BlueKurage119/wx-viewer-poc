@@ -474,3 +474,60 @@ test('Issue #253: 監視の準備失敗と部分読取失敗のDTOを検証す�
     });
   }
 });
+
+test('未判定の警報系電文件数: 件数とnull（読取失敗）を受理し、不正な形は拒否する', async () => {
+  const read = (warningTelegrams: unknown) =>
+    createMonitoringStatusClient({
+      fetch: async () =>
+        new Response(JSON.stringify({ ...monitoringResponseFixture, warningTelegrams })),
+      registry: testVenueRegistry,
+    }).fetchMonitoringStatus('kkeagh01');
+  assert.deepEqual((await read({ venueId: 'east', pendingCount: 3 })).warningTelegrams, {
+    venueId: 'east',
+    pendingCount: 3,
+  });
+  assert.equal((await read(null)).warningTelegrams, null);
+  for (const invalid of [
+    { venueId: 'east', pendingCount: -1 },
+    { venueId: 'east', pendingCount: 1.5 },
+    { venueId: 'east', pendingCount: '3' },
+    { venueId: 'unknown-venue', pendingCount: 1 },
+    'text',
+  ]) {
+    await assert.rejects(read(invalid), { message: '監視情報の応答形式が不正です' });
+  }
+});
+
+test('Workerの異常コード7種すべてを受理し、未知のコードは拒否する', async () => {
+  const read = (failureCode: unknown) =>
+    createMonitoringStatusClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            ...monitoringResponseFixture,
+            weatherRuntimes: {
+              ...monitoringResponseFixture.weatherRuntimes,
+              acquisition: {
+                ...monitoringResponseFixture.weatherRuntimes.acquisition,
+                lifecycle: 'failed',
+                failureCode,
+              },
+            },
+          }),
+        ),
+      registry: testVenueRegistry,
+    }).fetchMonitoringStatus('kkeagh01');
+  for (const code of [
+    'initial_accept_timeout',
+    'handshake_timeout',
+    'protocol_error',
+    'payload_too_large',
+    'report_stale',
+    'unexpected_exit',
+    'initialization_failed',
+    null,
+  ]) {
+    assert.equal((await read(code)).weatherRuntimes.acquisition.failureCode, code);
+  }
+  await assert.rejects(read('unknown_code'), { message: '監視情報の応答形式が不正です' });
+});

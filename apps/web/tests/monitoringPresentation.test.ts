@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  buildMonitoringCards,
   buildSourceStatusRows,
   formatDurationMs,
   formatIntervalSeconds,
@@ -11,49 +10,12 @@ import {
   createDefaultSources,
   delayedMonitoringResponseFixture,
   manualStoppedMonitoringResponseFixture,
-  monitoringResponseFixture,
   normalMonitoringResponseFixture,
   scheduledStoppedMonitoringResponseFixture,
   stoppedSchedulerMonitoringResponseFixture,
   suspendedMonitoringResponseFixture,
   unevaluatedMonitoringResponseFixture,
 } from './monitoringFixture.ts';
-
-test('K1: 停止・判定待ち・初回同期失敗と自会場再処理を断定せず表示する', () => {
-  const cards = buildMonitoringCards(monitoringResponseFixture);
-
-  assert.deepEqual(cards, [
-    {
-      id: 'operation',
-      title: '取得運転',
-      value: '自動取得停止',
-      details: ['初回同期失敗'],
-      tone: 'neutral',
-      detailTone: 'error',
-    },
-    {
-      id: 'health',
-      title: '取得健全性',
-      value: '判定待ち',
-      details: ['評価時刻 —'],
-      tone: 'neutral',
-    },
-    {
-      id: 'schedule',
-      title: 'スケジュール',
-      value: '09:00 – 18:00',
-      details: ['次の切替 18:00'],
-      tone: 'neutral',
-    },
-    {
-      id: 'processing',
-      title: '処理待ち',
-      value: '起動時再処理',
-      details: ['再処理完了 0件'],
-      tone: 'normal',
-    },
-  ]);
-});
 
 test('buildSourceStatusRows: data === null のときは全セル — の 6 行を返す', () => {
   const rows = buildSourceStatusRows(null);
@@ -322,116 +284,6 @@ test('formatDurationMs: ミリ秒から文字列表現への変換（nullは—�
   assert.equal(formatDurationMs(1500), '1.5 秒');
 });
 
-test('K7: 処理待ちカードは自端末会場のみを表示し、他会場の文字列が現れない (AC-13)', () => {
-  const cards = buildMonitoringCards(monitoringResponseFixture);
-  const processingCard = cards.find((c) => c.id === 'processing')!;
-  assert.equal(processingCard.value, '起動時再処理');
-  assert.deepEqual(processingCard.details, ['再処理完了 0件']);
-  assert.equal(processingCard.tone, 'normal');
-  // 他会場（TRC）の情報や会場名プレフィックスが含まれない
-  const allDetailsText = processingCard.details.join(' ');
-  assert.equal(allDetailsText.includes('東地区'), false);
-  assert.equal(allDetailsText.includes('TRC'), false);
-  assert.equal(allDetailsText.includes('3 / 8'), false);
-});
-
-test('K7: 処理待ちカードの欠落・進行中（自会場欠落で「—」、自会場runningで「再処理中 n / N」） (AC-14)', () => {
-  // 自会場欠落
-  const missingData: MonitoringStatusResponse = {
-    ...monitoringResponseFixture,
-    requestedVenueId: 'east',
-    venues: monitoringResponseFixture.venues.filter((v) => v.venueId !== 'east'),
-  };
-  const missingCards = buildMonitoringCards(missingData);
-  const missingProcessing = missingCards.find((c) => c.id === 'processing')!;
-  assert.deepEqual(missingProcessing.details, ['—']);
-  assert.equal(missingProcessing.tone, 'neutral');
-
-  // 自会場が running
-  const runningData: MonitoringStatusResponse = {
-    ...monitoringResponseFixture,
-    requestedVenueId: 'east',
-    venues: [
-      {
-        venueId: 'east',
-        startupEvaluated: false,
-        reprocessing: {
-          status: 'running',
-          total: 10,
-          processedCount: 4,
-          startedAt: '2026-09-20T05:00:00.000Z',
-          finishedAt: null,
-          elapsedMs: null,
-        },
-        recentAdoptions: [],
-        adoptionWindowHours: 24,
-      },
-    ],
-  };
-  const runningCards = buildMonitoringCards(runningData);
-  const runningProcessing = runningCards.find((c) => c.id === 'processing')!;
-  assert.deepEqual(runningProcessing.details, ['再処理中 4 / 10']);
-  assert.equal(runningProcessing.tone, 'active');
-});
-
-test('Issue #187: isFailed === true のとき buildMonitoringCards は normal トーンを neutral に抑制し、attention/error は維持する', () => {
-  // normal フィクスチャでは operation, health, processing の tone が normal
-  const normalCards = buildMonitoringCards(normalMonitoringResponseFixture, true);
-  for (const card of normalCards) {
-    assert.notEqual(card.tone, 'normal', `card ${card.id} の tone が normal でないこと`);
-  }
-  const opCard = normalCards.find((c) => c.id === 'operation')!;
-  assert.equal(opCard.tone, 'neutral');
-  assert.equal(
-    opCard.detailTone,
-    'neutral',
-    '操作カードの補足（detailTone）も neutral に抑制されること',
-  );
-  const healthCard = normalCards.find((c) => c.id === 'health')!;
-  assert.equal(healthCard.tone, 'neutral');
-
-  // active (初回同期中・再処理中) の tone / detailTone も neutral に抑制されること
-  const runningResponse: MonitoringStatusResponse = {
-    ...normalMonitoringResponseFixture,
-    readiness: {
-      ...normalMonitoringResponseFixture.readiness,
-      initialFetchPhase: 'running',
-    },
-    venues: [
-      {
-        ...normalMonitoringResponseFixture.venues[0],
-        reprocessing: {
-          ...normalMonitoringResponseFixture.venues[0].reprocessing,
-          status: 'running',
-        },
-      },
-    ],
-  };
-  const runningCards = buildMonitoringCards(runningResponse, true);
-  const runningOpCard = runningCards.find((c) => c.id === 'operation')!;
-  assert.equal(
-    runningOpCard.detailTone,
-    'neutral',
-    '初回同期中の detailTone (active) が neutral に抑制されること',
-  );
-  const runningProcCard = runningCards.find((c) => c.id === 'processing')!;
-  assert.equal(
-    runningProcCard.tone,
-    'neutral',
-    '再処理中の tone (active) が neutral に抑制されること',
-  );
-
-  // delayed フィクスチャ (health.tone === 'attention') では attention が維持されること
-  const delayedCards = buildMonitoringCards(delayedMonitoringResponseFixture, true);
-  const delayedHealth = delayedCards.find((c) => c.id === 'health')!;
-  assert.equal(delayedHealth.tone, 'attention');
-
-  // abnormal フィクスチャ (health.tone === 'error') では error が維持されること
-  const abnormalCards = buildMonitoringCards(abnormalMonitoringResponseFixture, true);
-  const abnormalHealth = abnormalCards.find((c) => c.id === 'health')!;
-  assert.equal(abnormalHealth.tone, 'error');
-});
-
 test('Issue #187: isFailed === true のとき buildSourceStatusRows は normal/active トーンを neutral に抑制し、attention/error は維持する', () => {
   // normal フィクスチャでは全行待機 (tone: normal)
   const normalRows = buildSourceStatusRows(normalMonitoringResponseFixture, true);
@@ -471,71 +323,4 @@ test('Issue #187: isFailed === true のとき buildSourceStatusRows は normal/a
   const abnormalRow = abnormalRows.find((r) => r.sourceId === 'xml_regular')!;
   assert.equal(abnormalRow.state.text, '異常');
   assert.equal(abnormalRow.state.tone, 'error');
-});
-
-test('Issue #253: 初回準備失敗と気象読取失敗を自会場の既存カードに表示する', () => {
-  const data = {
-    ...normalMonitoringResponseFixture,
-    readiness: {
-      ...normalMonitoringResponseFixture.readiness,
-      initialFetchPhase: 'not_started' as const,
-      preparationFailures: [
-        {
-          stage: 'service_setup' as const,
-          venueId: null,
-          failedAt: '2026-09-20T05:25:00.000Z',
-          code: 'weather_preparation_failed' as const,
-        },
-      ],
-    },
-    readErrors: [
-      {
-        section: 'information' as const,
-        venueId: normalMonitoringResponseFixture.requestedVenueId,
-        kind: 'amedas' as const,
-        code: 'weather_data_read_failed' as const,
-      },
-    ],
-  };
-  const cards = buildMonitoringCards(data);
-  assert.deepEqual(
-    cards.find((card) => card.id === 'operation'),
-    {
-      id: 'operation',
-      title: '取得運転',
-      value: '自動取得有効',
-      details: ['初回同期 未開始', '初回準備失敗'],
-      tone: 'normal',
-      detailTone: 'error',
-    },
-  );
-  assert.deepEqual(cards.find((card) => card.id === 'processing')?.details, [
-    ...buildMonitoringCards(normalMonitoringResponseFixture).find(
-      (card) => card.id === 'processing',
-    )!.details,
-    '気象データ読取失敗',
-  ]);
-  assert.equal(cards.find((card) => card.id === 'processing')?.tone, 'error');
-  const otherVenue = {
-    ...data,
-    requestedVenueId: 'trc' as typeof data.requestedVenueId,
-    readiness: {
-      ...data.readiness,
-      preparationFailures: data.readiness.preparationFailures.map((failure) => ({
-        ...failure,
-        venueId: normalMonitoringResponseFixture.requestedVenueId,
-      })),
-    },
-  };
-  assert.deepEqual(
-    buildMonitoringCards(otherVenue).find((card) => card.id === 'operation')?.details,
-    ['初回同期 未開始'],
-  );
-  assert.deepEqual(
-    buildMonitoringCards(otherVenue).find((card) => card.id === 'processing')?.details,
-    buildMonitoringCards({
-      ...normalMonitoringResponseFixture,
-      requestedVenueId: otherVenue.requestedVenueId,
-    }).find((card) => card.id === 'processing')?.details,
-  );
 });

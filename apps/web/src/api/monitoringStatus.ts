@@ -184,12 +184,18 @@ function isWeatherRuntime(value: unknown, role: 'acquisition' | 'delivery'): boo
     (value.unknownScopes === undefined ||
       (Array.isArray(value.unknownScopes) &&
         value.unknownScopes.every((scope: unknown) => typeof scope === 'string'))) &&
+    (value.pendingScopes === undefined ||
+      (Array.isArray(value.pendingScopes) &&
+        value.pendingScopes.every((scope: unknown) => typeof scope === 'string'))) &&
     (value.failureCode === null ||
       [
         'initial_accept_timeout',
         'handshake_timeout',
         'protocol_error',
         'payload_too_large',
+        'report_stale',
+        'unexpected_exit',
+        'initialization_failed',
       ].includes(String(value.failureCode)))
   );
 }
@@ -249,6 +255,16 @@ function isMonitoringResponse(
       isPreparationFailure(failure, registry),
     ) ||
     (value.readiness.errorReason !== null && typeof value.readiness.errorReason !== 'string')
+  )
+    return false;
+  if (
+    value.warningTelegrams !== undefined &&
+    value.warningTelegrams !== null &&
+    !(
+      isRecord(value.warningTelegrams) &&
+      registry.resolveVenueId(value.warningTelegrams.venueId) !== null &&
+      isNonNegativeInteger(value.warningTelegrams.pendingCount)
+    )
   )
     return false;
   if (

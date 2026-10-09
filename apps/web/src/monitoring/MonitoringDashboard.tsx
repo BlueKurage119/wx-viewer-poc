@@ -1,5 +1,10 @@
-import { WeatherWorkerPanel } from './WeatherWorkerPanel';
+import type { WeatherRole } from '@wx-viewer-poc/shared';
 import type { WeatherRestartModel } from './useWeatherRestart';
+import {
+  presentSampleFreshness,
+  workerRestartabilityId,
+  workerRestartableBadgeId,
+} from './weatherWorkerPresentation';
 import { memo, useEffect, useMemo } from 'react';
 import type { VenueForecastTargets } from '@wx-viewer-poc/shared';
 import type { MonitoringLoadState } from './useMonitoringStatus';
@@ -8,6 +13,8 @@ import {
   buildSourceStatusRows,
   formatElapsedTime,
   formatJstDateTime,
+  IDLE_RESTARTS,
+  NO_BASELINES,
   SOURCE_ROW_DEFINITIONS,
   type MonitoringCard,
   type SourceStatusRow,
@@ -51,44 +58,60 @@ const SOURCE_COLUMN_WIDTHS = [11.63, 8.46, 10.15, 14.8, 14.8, 14.8, 12.68, 12.68
 const INFORMATION_COLUMN_WIDTHS = [17.78, 24.44, 12.22, 15.56, 15.56, 14.44] as const;
 
 const CARD_ICON_NAMES: Readonly<Record<MonitoringCard['id'], string>> = {
-  operation: 'settings',
-  schedule: 'schedule',
-  processing: 'article',
-  health: 'remove',
+  acquisitionWorker: 'cloud_download',
+  deliveryWorker: 'dns',
+  autoFetch: 'settings',
+  telegram: 'checklist',
 };
 
-function healthIconName(value: MonitoringCard['value']): string {
-  switch (value) {
-    case '正常':
-      return 'check';
-    case '遅延':
-      return 'check_alert';
-    case '異常':
-      return 'close';
-    default:
-      return 'remove';
-  }
-}
-
 const MonitoringCardView = memo(function MonitoringCardView({ card }: { card: MonitoringCard }) {
+  const role: WeatherRole | null =
+    card.id === 'acquisitionWorker'
+      ? 'acquisition'
+      : card.id === 'deliveryWorker'
+        ? 'delivery'
+        : null;
   return (
-    <article className={`monitoring-card monitoring-tone-${card.tone}`}>
+    <article className={`monitoring-card monitoring-tone-${card.tone}`} data-card={card.id}>
       <span className="monitoring-card-icon" aria-hidden="true">
-        <span className="monitoring-card-icon-symbol">
-          {card.id === 'health' ? healthIconName(card.value) : CARD_ICON_NAMES[card.id]}
-        </span>
+        <span className="monitoring-card-icon-symbol">{CARD_ICON_NAMES[card.id]}</span>
       </span>
       <div className="monitoring-card-content">
-        <h2>{card.title}</h2>
-        <p className="monitoring-card-value">{card.value}</p>
-        {card.details.map((detail) => (
-          <p
-            className={`monitoring-card-detail${card.detailTone ? ` monitoring-detail-${card.detailTone}` : ''}`}
-            key={detail}
+        <div className="monitoring-card-heading">
+          <h2
+            aria-describedby={role && card.canRestart ? workerRestartableBadgeId(role) : undefined}
           >
-            {detail}
-          </p>
-        ))}
+            {card.title}
+          </h2>
+          {role && card.canRestart ? (
+            <span className="monitoring-card-badge" id={workerRestartableBadgeId(role)}>
+              再起動可
+            </span>
+          ) : null}
+        </div>
+        <p className="monitoring-card-value" title={card.value}>
+          {card.value}
+        </p>
+        <div className="monitoring-card-details">
+          {card.details.map((detail) => (
+            <p
+              className={`monitoring-card-detail${detail.tone ? ` monitoring-detail-${detail.tone}` : ''}`}
+              data-detail-kind={detail.kind}
+              key={detail.text}
+              title={detail.text}
+              {...(detail.kind === 'restart-result'
+                ? { role: 'status', 'aria-live': 'polite' as const }
+                : {})}
+            >
+              {detail.text}
+            </p>
+          ))}
+        </div>
+        {role && card.restartability ? (
+          <span hidden id={workerRestartabilityId(role)}>
+            {card.restartability}
+          </span>
+        ) : null}
       </div>
     </article>
   );
@@ -319,10 +342,16 @@ export function MonitoringDashboardView({
   resolveTargets,
   workerModel,
   deliveryModel,
+  restartBaselines = NO_BASELINES,
+  restartCompletions,
 }: {
   state: MonitoringLoadState;
   workerModel?: WeatherRestartModel;
   deliveryModel?: WeatherRestartModel;
+  /** 提供の完了判定に使う、再起動完了受領後に最初に得た監視応答の generatedAt。 */
+  restartBaselines?: Readonly<Record<WeatherRole, string | null>>;
+  /** 再起動が完了に到達した要求の識別子。 */
+  restartCompletions?: Readonly<Record<WeatherRole, string | null>>;
   uptimeSeconds?: number | null;
   resolveTargets?: (venueId: string) => VenueForecastTargets | undefined;
 }) {
@@ -330,12 +359,29 @@ export function MonitoringDashboardView({
   const displayUptime = uptimeSeconds !== undefined ? uptimeSeconds : serverUptime;
   const uptimeText = displayUptime !== null ? formatElapsedTime(displayUptime) : '—';
 
-  // 更新中は既存データを維持し、最終表示更新だけを継続表示する。
+  // 更新中は既存データを維持し、画面更新時刻だけを継続表示する。
   const isFailed = state.phase === 'failed';
+  const acquisitionRestart = workerModel?.state ?? IDLE_RESTARTS.acquisition;
+  const deliveryRestart = deliveryModel?.state ?? IDLE_RESTARTS.delivery;
   const cards = useMemo(
-    () => (state.data ? buildMonitoringCards(state.data, isFailed) : null),
-    [state.data, isFailed],
+    () =>
+      buildMonitoringCards({
+        data: state.data,
+        monitoringFailed: isFailed || state.data === null,
+        restarts: { acquisition: acquisitionRestart, delivery: deliveryRestart },
+        baselines: restartBaselines,
+        completions: restartCompletions,
+      }),
+    [
+      state.data,
+      isFailed,
+      acquisitionRestart,
+      deliveryRestart,
+      restartBaselines,
+      restartCompletions,
+    ],
   );
+  const sampleFreshness = useMemo(() => presentSampleFreshness(state.data), [state.data]);
   const sourceRows = useMemo(
     () => buildSourceStatusRows(state.data, isFailed),
     [state.data, isFailed],
@@ -348,9 +394,17 @@ export function MonitoringDashboardView({
   return (
     <div className="monitoring-dashboard" aria-label="取得監視">
       <div className="monitoring-update-row">
-        <span className="monitoring-uptime">運転時間: {uptimeText}</span>
+        <span className="monitoring-uptime">メイン 運転時間: {uptimeText}</span>
+        {sampleFreshness ? (
+          <span
+            className={`monitoring-sample-freshness monitoring-tone-${sampleFreshness.tone}`}
+            data-monitoring-sample="true"
+          >
+            {sampleFreshness.text}
+          </span>
+        ) : null}
         <span>
-          最終表示更新{' '}
+          画面更新{' '}
           {state.data ? (
             <time dateTime={state.data.generatedAt}>
               {formatJstDateTime(state.data.generatedAt)}
@@ -361,55 +415,10 @@ export function MonitoringDashboardView({
         </span>
       </div>
       <section className="monitoring-cards" aria-label="監視の概要">
-        {cards ? (
-          cards.map((card) => <MonitoringCardView card={card} key={card.id} />)
-        ) : (
-          <>
-            <MonitoringCardView
-              card={{
-                id: 'operation',
-                title: '取得運転',
-                value: '—',
-                details: ['—'],
-                tone: 'neutral',
-              }}
-            />
-            <MonitoringCardView
-              card={{
-                id: 'health',
-                title: '取得健全性',
-                value: '—',
-                details: ['—'],
-                tone: 'neutral',
-              }}
-            />
-            <MonitoringCardView
-              card={{
-                id: 'schedule',
-                title: 'スケジュール',
-                value: '—',
-                details: ['—'],
-                tone: 'neutral',
-              }}
-            />
-            <MonitoringCardView
-              card={{
-                id: 'processing',
-                title: '処理待ち',
-                value: '—',
-                details: ['—'],
-                tone: 'neutral',
-              }}
-            />
-          </>
-        )}
+        {cards.map((card) => (
+          <MonitoringCardView card={card} key={card.id} />
+        ))}
       </section>
-      <WeatherWorkerPanel
-        data={state.data}
-        unavailable={state.phase === 'failed' || state.data === null}
-        model={workerModel}
-        deliveryModel={deliveryModel}
-      />
       <SourceStatusTable rows={sourceRows} />
       {state.data !== null && informationRows !== null ? (
         <InformationTable rows={informationRows} />
@@ -430,6 +439,8 @@ export interface MonitoringDashboardProps {
   terminalId: string;
   workerModel?: WeatherRestartModel;
   deliveryModel?: WeatherRestartModel;
+  restartBaselines?: Readonly<Record<WeatherRole, string | null>>;
+  restartCompletions?: Readonly<Record<WeatherRole, string | null>>;
   onLoadStateChange?: (state: MonitoringLoadState) => void;
 }
 
@@ -438,6 +449,8 @@ export function MonitoringDashboard({
   onLoadStateChange,
   workerModel,
   deliveryModel,
+  restartBaselines,
+  restartCompletions,
 }: MonitoringDashboardProps) {
   const state = useMonitoringStatus(
     terminalId,
@@ -454,6 +467,8 @@ export function MonitoringDashboard({
       state={state}
       workerModel={workerModel}
       deliveryModel={deliveryModel}
+      restartBaselines={restartBaselines}
+      restartCompletions={restartCompletions}
       resolveTargets={(venueId) => {
         const resolved = registry.resolveVenueId(venueId);
         return resolved ? registry.getVenue(resolved) : undefined;

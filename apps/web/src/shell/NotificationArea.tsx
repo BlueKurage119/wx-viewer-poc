@@ -7,11 +7,14 @@ import {
 export function NotificationArea({
   state,
   mode,
+  operationTitle,
   onSelectQuestionConfirmation,
   onConfirm,
 }: {
   state: NotificationUiState;
   mode: TerminalMode;
+  /** 操作行が省略されたときの全文（複数件の操作を併記する）。 */
+  operationTitle?: string;
   onSelectQuestionConfirmation?: (feedKey: string) => void;
   onConfirm?: (feedKey: string) => void;
 }) {
@@ -32,7 +35,13 @@ export function NotificationArea({
         onConfirm={onConfirm}
       />
       <div className="notice-row operation-row">
-        <div className="notice-text" role="status" aria-live="polite" tabIndex={0}>
+        <div
+          className="notice-text"
+          role="status"
+          aria-live="polite"
+          tabIndex={0}
+          title={operationTitle}
+        >
           {state.operationMessage}
         </div>
         <span className="notice-count">

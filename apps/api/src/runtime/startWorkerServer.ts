@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import type { MonitoringStatusResponse, SystemNotification } from '@wx-viewer-poc/shared';
-import { resolveNotificationMessage, toNotificationDeltaCursor } from '@wx-viewer-poc/shared';
+import {
+  resolveNotificationMessage,
+  toNotificationDeltaCursor,
+  WEATHER_RUNTIME_REASON_LABELS,
+} from '@wx-viewer-poc/shared';
 import { createApp, type AppDependencies } from '../app.js';
 import {
   loadVenueConfig,
@@ -195,9 +199,14 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       });
     },
   });
+  /** 読み出しを公開しない範囲。処理中（pending）と結果不明（unknown）の両方をブロックする。 */
+  const blockedScopes = (): string[] => {
+    const status = host.status();
+    return [...new Set([...(status.pendingScopes ?? []), ...(status.unknownScopes ?? [])])];
+  };
   const context = () => ({
     report: host.report,
-    unknownScopes: host.status().unknownScopes ?? [],
+    unknownScopes: blockedScopes(),
     validatedScopes: [...locallyValidatedScopes],
     now: now(),
   });
@@ -221,62 +230,140 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       recordFailure('delivery', code, generation);
     },
   });
-  function recordFailure(role: 'acquisition' | 'delivery', code: string, generation: string) {
+  const workerNotificationTargets = (
+    role: 'acquisition' | 'delivery',
+  ): SystemNotification['targets'] => [
+    {
+      kind: 'equipment',
+      codeType: 'wx-viewer-poc/service',
+      code: role,
+      name: role === 'delivery' ? '提供系' : '取得系',
+    },
+  ];
+  function recordWorkerNotification(
+    role: 'acquisition' | 'delivery',
+    generation: string,
+    changeType: string,
+    category: 'warning' | 'question',
+    definitionId: Parameters<typeof resolveNotificationMessage>[1]['definitionId'],
+    detail?: string,
+  ) {
     const notification: SystemNotification = {
-      notificationId: `weather-worker:${role}:${generation}:${code}`,
+      notificationId: `weather-worker:${role}:${generation}:${changeType}`,
       origin: 'system',
-      category: 'question',
+      category,
       sourceType: 'weather_worker',
       sourceVersion: generation,
-      changeType: code,
-      targets: [
-        {
-          kind: 'equipment',
-          codeType: 'wx-viewer-poc/service',
-          code: 'weather',
-          name: role === 'delivery' ? '気象提供Worker' : '気象取得Worker',
-        },
-      ],
+      changeType,
+      targets: workerNotificationTargets(role),
       occurredAt: now(),
       detectedAt: now(),
       relatedRefs: [{ type: 'worker_generation', ref: generation }],
       detectionContext: 'normal',
       isTraining: false,
     };
-    const definitionId =
-      role === 'delivery'
-        ? code === 'initialization_failed'
-          ? 'system-weather-delivery-initialization-failed'
-          : code === 'unexpected_exit'
-            ? 'system-weather-delivery-exited'
-            : code === 'report_stale'
-              ? 'system-weather-delivery-report-stale'
-              : 'system-weather-delivery-control-failed'
-        : code === 'initialization_failed'
-          ? 'system-weather-acquisition-initialization-failed'
-          : code === 'unexpected_exit'
-            ? 'system-weather-acquisition-exited'
-            : code === 'report_stale'
-              ? 'system-weather-acquisition-report-stale'
-              : 'system-weather-acquisition-control-failed';
     try {
       sink.record([
         toNotificationOutputHistoryInput(
           notification,
-          resolveNotificationMessage(notification, { definitionId }),
+          resolveNotificationMessage(notification, { definitionId, detail }),
           null,
         ),
       ]);
     } catch {
-      console.error(`${role === 'delivery' ? '提供' : '取得'}Worker異常通知の保存に失敗しました。`);
+      console.error(`${role === 'delivery' ? '提供' : '取得'}Worker通知の保存に失敗しました。`);
     }
   }
+  /** 異常・応答不明の通知。準備失敗以外の異常終了・通信異常は停止として停止理由を内容に入れる。 */
+  function recordFailure(role: 'acquisition' | 'delivery', code: string, generation: string) {
+    const prefix = role === 'delivery' ? 'delivery' : 'acquisition';
+    if (code === 'report_stale') {
+      recordWorkerNotification(
+        role,
+        generation,
+        code,
+        'warning',
+        `system-weather-${prefix}-report-stale`,
+      );
+    } else if (code === 'initialization_failed') {
+      recordWorkerNotification(
+        role,
+        generation,
+        code,
+        'question',
+        `system-weather-${prefix}-initialization-failed`,
+      );
+    } else {
+      recordWorkerNotification(
+        role,
+        generation,
+        code,
+        'question',
+        `system-weather-${prefix}-exited`,
+        WEATHER_RUNTIME_REASON_LABELS[code as keyof typeof WEATHER_RUNTIME_REASON_LABELS] ??
+          WEATHER_RUNTIME_REASON_LABELS.protocol_error,
+      );
+    }
+  }
+  // 成功した再起動要求の世代だけを保持し、完了条件を満たした時点で1回だけ通知する。
+  const pendingRestartNotices: {
+    acquisition: { generation: string; desiredRunning: boolean } | null;
+    // application: 接続できた世代の新application。未接続で受け付けた場合は null とし、baseline と異なる新applicationで判定する。
+    delivery: { generation: string; application: object | null; baseline: object | null } | null;
+  } = { acquisition: null, delivery: null };
+  function checkRestartNotices() {
+    const acquisition = pendingRestartNotices.acquisition;
+    if (acquisition) {
+      const status = host.status();
+      if (status.workerGeneration !== acquisition.generation || status.lifecycle === 'failed') {
+        pendingRestartNotices.acquisition = null;
+      } else if (
+        acquisition.desiredRunning
+          ? host.report?.polling?.initialFetch.phase === 'completed'
+          : host.preparationCompleted
+      ) {
+        pendingRestartNotices.acquisition = null;
+        recordWorkerNotification(
+          'acquisition',
+          acquisition.generation,
+          'restart_completed',
+          'warning',
+          'system-weather-acquisition-restart-completed',
+        );
+      }
+    }
+    const deliveryNotice = pendingRestartNotices.delivery;
+    if (deliveryNotice) {
+      const status = delivery.status();
+      if (status.workerGeneration !== deliveryNotice.generation || status.lifecycle === 'failed') {
+        pendingRestartNotices.delivery = null;
+      } else if (
+        status.lifecycle === 'ready' &&
+        application !== null &&
+        (deliveryNotice.application
+          ? application === deliveryNotice.application
+          : application !== deliveryNotice.baseline) &&
+        application.sampleReceivedAt.size > 0
+      ) {
+        pendingRestartNotices.delivery = null;
+        recordWorkerNotification(
+          'delivery',
+          deliveryNotice.generation,
+          'restart_completed',
+          'warning',
+          'system-weather-delivery-restart-completed',
+        );
+      }
+    }
+  }
+  const restartNoticeTimer = setInterval(checkRestartNotices, 1000);
+  restartNoticeTimer.unref();
   const isScopeReadable = (
     venueId: Parameters<typeof weatherReadScope>[0],
     status: Parameters<typeof weatherReadScope>[1],
     kind: WeatherScopeKind,
   ) =>
-    !weatherScopeBlocks(host.status().unknownScopes ?? [], venueId, status, kind) &&
+    !weatherScopeBlocks(blockedScopes(), venueId, status, kind) &&
     (kind === 'nowcast' ||
       kind === 'kikikuru' ||
       locallyValidatedScopes.has(weatherReadScope(venueId, status, kind)));
@@ -294,7 +381,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       !sameWeatherEpoch(delivery.epoch, deliveryEpoch)
     )
       throw new WeatherRequestError('generation_changed');
-    const currentUnknown = host.status().unknownScopes ?? [];
+    const currentUnknown = blockedScopes();
     const currentValidated = new Set(locallyValidatedScopes);
     const scopes: string[] = [];
     if (kind === 'weather.read') {
@@ -438,11 +525,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
           isScopeReadable(input.venueId, status, kind),
         ),
       );
-    if (
-      !validated() ||
-      weatherScopeBlocks(host.decisions.pendingUnit?.scopes ?? [], input.venueId) ||
-      weatherScopeBlocks(host.status().unknownScopes ?? [], input.venueId)
-    )
+    if (!validated() || weatherScopeBlocks(blockedScopes(), input.venueId))
       return {
         status: 'initializing' as const,
         terminalId: input.terminalId,
@@ -484,6 +567,10 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
     restart: async () => {
       try {
         await host.restart();
+        pendingRestartNotices.acquisition = {
+          generation: host.status().workerGeneration ?? host.epoch.workerGeneration,
+          desiredRunning: host.desiredRunning,
+        };
       } catch (error) {
         const code = error instanceof Error ? error.message : 'restart_failed';
         throw new WeatherWorkerRestartError(
@@ -535,6 +622,19 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
                 weatherDatabaseGenerationId: validatedDatabaseGeneration,
                 now,
               });
+              pendingRestartNotices.delivery = {
+                generation: delivery.status().workerGeneration ?? delivery.epoch.workerGeneration,
+                application,
+                baseline: null,
+              };
+            }
+            // reader未接続でも再開受付済みの世代は追跡し、後の再接続で作られた新applicationで完了を検出する。
+            if (!pendingRestartNotices.delivery) {
+              pendingRestartNotices.delivery = {
+                generation: delivery.status().workerGeneration ?? delivery.epoch.workerGeneration,
+                application: null,
+                baseline: application,
+              };
             }
           });
         } catch (error) {
@@ -718,6 +818,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
   const close = (closeOptions?: { reason?: 'signal' | 'programmatic' }) => {
     if (closing) return closing;
     closed = true;
+    clearInterval(restartNoticeTimer);
     application?.close();
     workerControl.stopAccepting();
     const httpClosed = new Promise<void>((resolve, reject) => {

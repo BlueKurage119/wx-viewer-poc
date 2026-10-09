@@ -219,6 +219,12 @@ export interface MonitoringReadError {
   readonly code: 'weather_data_read_failed';
 }
 
+/** 表示対象会場の未判定の警報系電文件数。読取に失敗したときは MonitoringStatusResponse 側で null。 */
+export interface MonitoringWarningTelegramSection {
+  readonly venueId: VenueId;
+  readonly pendingCount: number;
+}
+
 export interface MonitoringStatusResponse {
   /** 気象集計を最後にメインが受領した時刻。旧応答では省略される。 */
   readonly weatherSampleReceivedAt?: UtcIso8601String | null;
@@ -227,6 +233,8 @@ export interface MonitoringStatusResponse {
     readonly delivery: WeatherRuntimeStatus;
   };
   readonly readErrors: readonly MonitoringReadError[];
+  /** 未判定の警報系電文件数。null は読取失敗または標本なし（readErrors は増やさない）。 */
+  readonly warningTelegrams: MonitoringWarningTelegramSection | null;
   readonly status: 'ready';
   readonly terminalId: string;
   readonly requestedVenueId: VenueId;

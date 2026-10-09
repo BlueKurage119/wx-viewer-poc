@@ -89,11 +89,11 @@ export function createWeatherRestartController(deps: {
         : deps.client.find(deps.role ?? 'acquisition', request, abort.signal)
     ).then(receive, () => receive({ kind: 'unverifiable' }));
   };
-  const begin = (request: WeatherRestartRequest, post: boolean) => {
+  const begin = (request: WeatherRestartRequest) => {
     cleanup();
-    publish({ phase: post ? 'sending' : 'checking', request });
+    publish({ phase: 'sending', request });
     deadline = deps.setTimeout(() => finish({ phase: 'unverifiable', request }), 30_000);
-    send(request, post);
+    send(request, true);
   };
   return {
     getSnapshot: () => state,
@@ -112,11 +112,7 @@ export function createWeatherRestartController(deps: {
         return;
       }
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) return;
-      begin({ requestId, expectedWorkerGeneration }, true);
-    },
-    recheck() {
-      if (disposed || state.phase !== 'unverifiable') return;
-      begin(state.request, false);
+      begin({ requestId, expectedWorkerGeneration });
     },
     dispose() {
       disposed = true;
