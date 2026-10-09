@@ -201,3 +201,66 @@ test('D10: 監視UIのソースに <md-*> 生タグ・HEX/RGB直書き・bare im
     );
   }
 });
+
+test('D7: 警報へ区分を変えたWorker通知は警報の行に出て警報の鳴動となり、確認必須にならない', async () => {
+  const { receiveNotifications, createNotificationUiState, noticesForRow, notificationCounts } =
+    await import('../src/notifications/notificationStore.ts');
+  const item = (feedKey: string, category: 'warning' | 'question') => ({
+    feedKey,
+    source: 'delta' as const,
+    sequence: 1,
+    category,
+    origin: 'system' as const,
+    detectionContext: 'normal' as const,
+    changeType: 'report_stale',
+    sourceType: 'weather_worker',
+    sourceVersion: 'g1',
+    targets: [
+      {
+        kind: 'equipment' as const,
+        codeType: 'wx-viewer-poc/service',
+        code: 'weather',
+        name: '気象Worker',
+      },
+    ],
+    occurredAt: '2026-10-09T00:00:00.000Z',
+    detectedAt: '2026-10-09T00:00:00.000Z',
+    relatedRefs: [],
+    isTraining: false,
+    ackRequired: category === 'question',
+    summary: '取得系応答不明\n気象Worker',
+    display: null,
+    messageDefinition: { id: 'system-weather-acquisition-report-stale', version: '1' as const },
+    venueScope: 'global' as const,
+  });
+  // 端末ごとの見え方は変わらない: systemの通知は K 端末だけに出る。
+  const hallView = receiveNotifications(
+    createNotificationUiState(),
+    [item('delta:stale', 'warning')],
+    'H',
+    1791072000000,
+  );
+  assert.equal(noticesForRow(hallView.state, 'H', 'warning').length, 0);
+  assert.equal(hallView.chime, null);
+  for (const mode of ['K'] as const) {
+    const received = receiveNotifications(
+      createNotificationUiState(),
+      [item('delta:stale', 'warning')],
+      mode,
+      1791072000000,
+    );
+    assert.equal(received.chime?.category, 'warning', mode);
+    assert.equal(noticesForRow(received.state, mode, 'warning').length, 1, mode);
+    assert.equal(noticesForRow(received.state, mode, 'question').length, 0, mode);
+    assert.equal(notificationCounts(received.state, mode).pending, 0, mode);
+    // 問いかけだった頃は確認が必要だった
+    const question = receiveNotifications(
+      createNotificationUiState(),
+      [item('delta:old', 'question')],
+      mode,
+      1791072000000,
+    );
+    assert.equal(question.chime?.category, 'question', mode);
+    assert.equal(notificationCounts(question.state, mode).pending, 1, mode);
+  }
+});
