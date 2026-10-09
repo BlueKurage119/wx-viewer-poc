@@ -20,6 +20,7 @@ export const reasonLabels = {
   handshake_timeout: '更新応答の期限超過',
   protocol_error: '通信手順の異常',
   payload_too_large: '通信容量の上限超過',
+  report_stale: '応答を確認できません',
 };
 export function weatherWorkerLabel(runtime: WeatherRuntimeStatus | undefined): string {
   if (!runtime) return '状態不明';
