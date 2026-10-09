@@ -563,11 +563,15 @@ test('実Workerの固定XML同期解析中もhealth/監視/system差分各20要�
 test('提供Workerの同期encode中もhealth/監視/system差分各20要求が応答する', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'wx-delivery-load-'));
   let worker: Worker | undefined;
+  let sampleRequests = 0;
   const server = await startServer({
     ...fixtureOptions(directory),
     deliveryWorkerEntry: new URL('./fixtures/worker/delivery-load.ts', import.meta.url),
     onDeliveryWorkerCreated: (value) => {
       worker = value;
+    },
+    weatherRequestObserver: (request) => {
+      if (request.kind === 'monitoring.sample') sampleRequests++;
     },
   });
   try {
@@ -595,6 +599,7 @@ test('提供Workerの同期encode中もhealth/監視/system差分各20要求が�
     });
     worker!.postMessage({ type: 'test', id: 'fixture-control', test: 'encode-load' });
     const fixture = await started;
+    const samplesBeforeGet = sampleRequests;
     const measurements: Record<string, { count: number; maximumMs: number; p95Ms: number }> = {};
     for (const [name, path, bound] of [
       ['health', '/api/health', 500],
@@ -615,6 +620,8 @@ test('提供Workerの同期encode中もhealth/監視/system差分各20要求が�
       }
       values.sort((a, b) => a - b);
       assert.equal(values.at(-1)! < bound, true, `${name}の最大値${values.at(-1)}ms`);
+      if (name === 'monitoring')
+        assert.equal(sampleRequests, samplesBeforeGet, '監視GETが提供RPCを追加しない');
       measurements[name] = { count: values.length, maximumMs: values.at(-1)!, p95Ms: values[18]! };
     }
     const result = await finished;

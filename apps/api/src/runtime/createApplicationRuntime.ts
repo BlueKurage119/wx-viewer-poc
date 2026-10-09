@@ -381,7 +381,7 @@ export function createDeliveryApplicationRuntime(input: {
           const sample = await read('monitoring.sample', { terminal, requestedAt: now() });
           if (!closed) {
             samples.set(terminal.id, sample);
-            sampleReceivedAt.set(terminal.id, now());
+            sampleReceivedAt.set(terminal.id, new Date().toISOString());
           }
         } catch {
           // 監視GETは最終正常報告を使う。

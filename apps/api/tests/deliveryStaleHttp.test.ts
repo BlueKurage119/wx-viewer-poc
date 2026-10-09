@@ -155,6 +155,14 @@ test(
         5000,
       );
       assert.equal((await fetch(textPath)).status, 200);
+      const firstSample = await waitFor(
+        () =>
+          fetch(`${root}/api/monitoring/status?terminalId=hkeagh01`).then(
+            (response) => response.json() as Promise<{ weatherSampleReceivedAt: string | null }>,
+          ),
+        (value) => value.weatherSampleReceivedAt !== null,
+        10_000,
+      );
       await command(worker!, 'pause-reports', 'reports-paused');
       const stale = await waitFor(
         () => server.deliveryHost.status(),
@@ -169,9 +177,16 @@ test(
       assert.equal(monitoring.status, 200);
       const status = (await monitoring.json()) as {
         weatherRuntimes: { delivery: { reportFreshness: string; lifecycle: string } };
+        weatherSampleReceivedAt: string | null;
       };
       assert.equal(status.weatherRuntimes.delivery.reportFreshness, 'stale');
       assert.equal(status.weatherRuntimes.delivery.lifecycle, 'ready');
+      assert.equal(
+        Date.parse(status.weatherSampleReceivedAt!) >
+          Date.parse(firstSample.weatherSampleReceivedAt!),
+        true,
+        `runtime報告がstaleでも監視sample受領時刻は独立に進む: ${JSON.stringify({ first: firstSample.weatherSampleReceivedAt, current: status.weatherSampleReceivedAt, runtime: stale })}`,
+      );
       const text = await fetch(textPath);
       assert.equal(text.status, 200);
       assert.equal(((await text.json()) as { data: unknown }).data !== null, true);
