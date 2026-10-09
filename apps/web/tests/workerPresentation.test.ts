@@ -451,7 +451,7 @@ test('完了に到達した再起動は、後から同じ世代が失敗して�
     const failed = accepted(role, {
       workerGeneration: `${role}-2`,
       lifecycle: 'failed',
-      failureCode: 'worker_exited',
+      failureCode: 'initialization_failed',
     });
     const baseline = '2000-01-01T00:00:00.000Z';
     const done = composeRestartResult(role, restart, healthy, baseline, null);
@@ -473,6 +473,7 @@ test('完了に到達した再起動は、後から同じ世代が失敗して�
     });
     assert.equal(worker.result.rowText, `${label}再起動が完了しました`);
     assert.equal(worker.tone, 'error');
+    assert.deepEqual(worker.lines, [{ text: '理由 初期化失敗', kind: 'reason' }]);
     assert.notEqual(worker.state, '稼働中');
     // 保持は要求ごと: 新しい要求が出れば置き換わる
     const next = { ...restart, request: { ...restart.request, requestId: 'restart-next' } };

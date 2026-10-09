@@ -240,18 +240,26 @@ export function presentWorker(role: WeatherRole, input: WorkerPresentInput): Wor
   const reason = reasonText(runtime);
   const unknownCount = runtime.unknownScopes?.length ?? 0;
   // 詳細は1行。再起動結果 → 理由 → 結果不明 → 応答不明 → 最終報告の順で最初に当てはまる1つ。
-  const line: WorkerDetailLine = result.cardText
-    ? { text: result.cardText, kind: 'restart-result' }
-    : reason
-      ? { text: reason, kind: 'reason' }
-      : unknownCount > 0
-        ? { text: `結果不明 ${unknownCount}件`, kind: 'unknown' }
-        : decision.stale
-          ? {
-              text: `応答を確認できません（最終報告 ${formatJstClock(runtime.receivedAt)}）`,
-              kind: 'report',
-            }
-          : { text: reportLine(runtime, data.generatedAt), kind: 'report' };
+  // 完了後に同じ世代が failed になったときは、結果行（完了）を詳細行から外して理由を示す。
+  // 最下段の行は完了した事実のまま残す。
+  const failedAfterCompletion =
+    input.restart.phase !== 'idle' &&
+    input.completedRequestId != null &&
+    input.completedRequestId === input.restart.request.requestId &&
+    runtime.lifecycle === 'failed';
+  const line: WorkerDetailLine =
+    result.cardText && !failedAfterCompletion
+      ? { text: result.cardText, kind: 'restart-result' }
+      : reason
+        ? { text: reason, kind: 'reason' }
+        : unknownCount > 0
+          ? { text: `結果不明 ${unknownCount}件`, kind: 'unknown' }
+          : decision.stale
+            ? {
+                text: `応答を確認できません（最終報告 ${formatJstClock(runtime.receivedAt)}）`,
+                kind: 'report',
+              }
+            : { text: reportLine(runtime, data.generatedAt), kind: 'report' };
   lines.push(line);
   return finalize(role, decision, canRestart, restartability, lines, result);
 }
