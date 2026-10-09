@@ -214,7 +214,7 @@ missはメインが取得hostへ依頼し、保存完了後に新しい提供rea
 - [ ] **AC9 / C9 上限:** 64/65要求、8/9起動、16実行、4PNG、48queue、8MiB±1bytes、256KiB±1、ACK2枠、期限直前/直後を実transportと固定時計で検証。capacity予約前frame送信0、超過はbusy/明示過大失敗、完了/取消/ACK途絶後pending・frame・予約0。期限切れ同期処理は実完了まで枠保持、遅いHTTPclientは5秒で解放。受領frameを旧epochで混ぜても部分成功0。転送後元bufferのdetachとbyte一致を確認。
 - [ ] **AC10 / C9 busy・監視:** 外部接続でDB lock、長いreader、checkpoint busyを再現し100ms設定と有限read失敗を確認。監視GETは提供RPC0、最終正常sample保持/受領時刻鮮度、未受領も応答。runtime heartbeatとsample鮮度を別に確認。busy時のsidecar削除0、保持system配信は§8基準で継続。
 - [ ] **AC11 / C10 終了:** 正常/初期化失敗/読取中/再開中/migration中にclose二重呼出し。接続/file/timer/port/queue/所有Worker/自己lease残存0、新要求拒否、終了未確認は失敗。提供だけreaderを開いた状態でresetを拒否し、全停止後plan/apply/resume成功・保持DB不変を確認する。
-- [ ] **AC12 / C11 ブラウザ・操作:** 隔離実HTTPブラウザの360/768/1280pxで提供ready/準備中/stale/異常/再開中/再開受付成功後接続失敗/結果不明/履歴保存失敗を表示。両roleのstaleをfailedと混同せず最終報告時刻・手動再開可を表示し、staleのまま成功した保存済み読取も確認する。専用role操作、二重抑止、同ID再確認、両role履歴、Tab/Enter/Space/フォーカスを確認。取得の停止意図・H/K・確認状態不変、DOM id重複0、MD3違反0。仮UI合格を#259の監修完了としない。
+- [ ] **AC12 / C11 暫定UIの最小機能:** 監視欄に両roleの状態・最終報告時刻と専用再開操作を備え、role別の二重送信抑止・同ID結果再確認・履歴表示をWebテスト等で確認する。取得の停止意図・H/K・確認状態を維持し、DOM id重複とMD3規約違反がないことをコード・テストで確認する。2026-10-09のユーザー判断により、隔離実HTTPブラウザでの360/768/1280px表示、各状態の見た目、staleとfailedの視覚的区別、再開・履歴の実操作、Tab/Enter/Space・フォーカスの実操作検証は本Issueの検収対象外とし、未検証のまま#259へ引き継ぐ。stale中の保存済み読取と手動再開の機能検証はAC6・AC7で行う。
 - [ ] **AC13 / C11 既存回帰:** #253 AC1〜13、#256 AC1〜14、#257 AC1〜16を最終構成へ対応付けて回帰。inline限定の観測は実Workerへ置換。既存HTTP body/status/cache/header/画像準備中503、history generatedAtの注入時計、通知参照理由、取得requestId/合流/30分境界/夜間/DISABLE_POLLING、保存失敗欠落許容を確認する。
 - [ ] **AC14 / C12 品質・範囲:** `npm run lint`、`npm run typecheck`、`npm run format:check`、api/web/shared各workspace test、`npm run build`、本番出力起動成功。新規red/対照証跡を提示。差分が§2範囲内で、通知再送・parser意味変更・監視再設計・依存追加・実環境操作がない。
 
@@ -226,7 +226,7 @@ missはメインが取得hostへ依頼し、保存完了後に新しい提供rea
 
 | 後続 | 引き継ぐ内容 |
 | --- | --- |
-| #259 | 今回と#257の仮UI・異常通知を必ずユーザー監修し、見た目/配置/文言/通知を確定する。2role、通常取得停止とWorker停止、受付/接続/提供ready、結果不明/記録失敗、報告と集計鮮度、両role再開履歴の機能要件を渡す。仮UIを流用するための追加仕上げは行わない。 |
+| #259 | 今回と#257の仮UI・異常通知を必ずユーザー監修し、見た目/配置/文言/通知を全面改定する。2role、通常取得停止とWorker停止、受付/接続/提供ready、結果不明/記録失敗、報告と集計鮮度、両role再開履歴の機能要件を渡す。#258で未検証とした隔離実HTTPブラウザの360/768/1280px表示、準備中・ready・stale・異常・再開中・再開受付成功後接続失敗・結果不明・履歴保存失敗の表示、staleとfailedの視覚的区別、両roleの専用再開・二重操作抑止・同ID再確認・履歴、Tab/Enter/Space・フォーカスを改定後のUIで検証する。仮UIを流用するための追加仕上げは行わない。 |
 | #260 | 最終2 Workerの同条件比較、代表DB/原文/タイルサイズ/要求頻度の合意、RSS/CPU/encode費用/転送buffer/WAL肥大の実測、上限の適正化、終了/reset/rollback・残留lease運用。今回の機能/障害/限定fixture検収を先送りしない。 |
 
 本Issueは同一プロセス内のスレッド分離であり、プロセス全体の障害隔離やDB故障時の常時閲覧保証を追加しない。
