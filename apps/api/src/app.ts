@@ -116,7 +116,7 @@ function sendLeasedBytes(
     res.once('finish', finish);
     res.once('close', finish);
     try {
-      res.end(Buffer.from(bytes));
+      res.end(bytes);
     } catch (error) {
       finish();
       reject(error);

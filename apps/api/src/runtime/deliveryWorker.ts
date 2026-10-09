@@ -118,6 +118,7 @@ const transport = new DeliveryTransport(
       )
         throw new Error('generation_changed');
       if (Date.now() >= Date.parse(input.deadlineAt)) throw new Error('deadline_exceeded');
+      if (method === 'read' && input.kind === 'tile.read') throw new Error('invalid_request');
       const tile = input.kind === 'tile.read';
       const releaseRead = await readLimiter.acquire(
         input.requestId,
@@ -134,15 +135,7 @@ const transport = new DeliveryTransport(
         if (!sameWeatherEpoch(input.epoch, epoch) || Date.now() >= Date.parse(input.deadlineAt))
           throw new Error('generation_changed');
         if (method === 'read') {
-          if (
-            input.kind === 'tile.read' &&
-            output &&
-            typeof output === 'object' &&
-            'kind' in output &&
-            output.kind === 'hit'
-          ) {
-            if (output.bytes.byteLength > 8 * 1024 * 1024) throw new Error('payload_too_large');
-          } else if (new TextEncoder().encode(JSON.stringify(output)).byteLength > 8 * 1024 * 1024)
+          if (new TextEncoder().encode(JSON.stringify(output)).byteLength > 8 * 1024 * 1024)
             throw new Error('payload_too_large');
           return output;
         }

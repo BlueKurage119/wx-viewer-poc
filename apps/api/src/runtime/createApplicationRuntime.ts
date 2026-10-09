@@ -172,7 +172,7 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
       };
     return {
       kind: 'success',
-      buffer: Buffer.from(result.bytes),
+      buffer: result.bytes,
       catalogAvailability: result.catalogAvailability,
       tileResult,
       storedAt: result.storedAt,
@@ -421,7 +421,7 @@ export function createDeliveryApplicationRuntime(input: {
       };
     return {
       kind: 'success',
-      buffer: Buffer.from(result.bytes),
+      buffer: result.bytes,
       catalogAvailability: result.catalogAvailability,
       tileResult,
       storedAt: result.storedAt,
