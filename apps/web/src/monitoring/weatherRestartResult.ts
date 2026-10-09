@@ -189,3 +189,8 @@ export function workerHistoryResult(operation: WeatherRestartOperation): string 
   if (operation.result === 'failure') return '再起動失敗';
   return '起動済み';
 }
+
+/** 再起動要求の識別子。要求がなければ null。 */
+export function restartRequestId(restart: WeatherRestartState): string | null {
+  return restart.phase === 'idle' ? null : restart.request.requestId;
+}

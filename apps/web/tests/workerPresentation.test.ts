@@ -159,20 +159,15 @@ test('C26: 集計の受領状況は正常（15秒以内）では出さず、16�
     );
 });
 
-test('C25: Worker詳細は2行。1行目は最終報告、2行目は 結果→理由→結果不明→再開可否 の優先度で1つ', () => {
+test('C25改訂: Worker詳細は1行。再起動結果→理由→結果不明→応答不明→最終報告 の優先度で1つ', () => {
   const acquisition = view('acquisition', '取得のみ異常停止');
-  assert.deepEqual(
-    acquisition.lines.map((line) => line.kind),
-    ['report', 'reason'],
-  );
-  assert.equal(acquisition.lines[1]!.text, '理由 予期しない終了');
+  assert.deepEqual(acquisition.lines, [{ text: '理由 予期しない終了', kind: 'reason' }]);
   // 結果行は理由より優先される
   const failedRestart = view('acquisition', '再起動失敗');
-  assert.deepEqual(failedRestart.lines[1], {
-    text: '再起動失敗（サーバーが許可していません）',
-    kind: 'restart-result',
-  });
-  // 結果不明 n件（理由がないとき）。再開可否より優先される
+  assert.deepEqual(failedRestart.lines, [
+    { text: '再起動失敗（サーバーが許可していません）', kind: 'restart-result' },
+  ]);
+  // 結果不明 n件（理由がないとき）
   const unknownScopes = presentWorker('acquisition', {
     data: applyWorkerState(base, {
       acquisition: { unknownScopes: ['a', 'b'] },
@@ -182,26 +177,31 @@ test('C25: Worker詳細は2行。1行目は最終報告、2行目は 結果→�
     restart: idle,
     baselineGeneratedAt: null,
   });
-  assert.deepEqual(unknownScopes.lines[1], { text: '結果不明 2件', kind: 'unknown' });
-
-  const delivery = view('delivery', '提供のみ異常停止');
+  assert.deepEqual(unknownScopes.lines, [{ text: '結果不明 2件', kind: 'unknown' }]);
   assert.deepEqual(
-    delivery.lines.map((line) => line.kind),
-    ['report', 'reason'],
+    view('delivery', '提供のみ異常停止').lines.map((line) => line.kind),
+    ['reason'],
   );
-  // 何もなければ再開可否
+  // 何もなければ最終報告。再開可否は詳細に出さない
   for (const role of ['acquisition', 'delivery'] as const) {
     const healthy = view(role, '正常');
     assert.deepEqual(
       healthy.lines.map((line) => line.kind),
-      ['report', 'restartability'],
+      ['report'],
     );
+    assert.equal(healthy.lines[0]!.text.startsWith('最終報告 '), true);
   }
-  const connectFailed = view('delivery', '再起動受付後の接続失敗');
-  assert.equal(connectFailed.lines[1]!.kind, 'restart-result');
+  assert.equal(view('delivery', '再起動受付後の接続失敗').lines[0]!.kind, 'restart-result');
   for (const name of workerStateFixtures.map((item) => item.name)) {
-    for (const role of ['acquisition', 'delivery'] as const)
-      assert.equal(view(role, name).lines.length <= 2, true, `${name}/${role}`);
+    for (const role of ['acquisition', 'delivery'] as const) {
+      const lines = view(role, name).lines;
+      assert.equal(lines.length <= 1, true, `${name}/${role}`);
+      assert.equal(
+        lines.some((line) => line.kind === 'restartability' && line.text.startsWith('再起動')),
+        false,
+        `${name}/${role}`,
+      );
+    }
   }
 });
 
@@ -228,12 +228,9 @@ test('D2: 電文処理カード6状態の主値・トーン・補足行', () => 
   assert.equal(failed.value, '未判定 —');
   assert.deepEqual(
     failed.details.map((detail) => [detail.text, detail.tone]),
-    [
-      ['起動時再処理 完了', undefined],
-      ['気象データを読み取れません', 'error'],
-    ],
+    [['気象データを読み取れません', 'error']],
   );
-  // 読取失敗でも主値（再処理中）は維持され、補足にエラー色の行が加わる
+  // 読取失敗でも主値（再処理中）は維持され、補足1行は読取失敗が優先される
   const running = telegramStateFixtures.find((item) => item.name === '再処理中')!;
   const kept = buildMonitoringCards({
     data: { ...running.apply(base), warningTelegrams: null },
@@ -242,7 +239,10 @@ test('D2: 電文処理カード6状態の主値・トーン・補足行', () => 
     baselines: { acquisition: null, delivery: null },
   }).find((item) => item.id === 'telegram')!;
   assert.equal(kept.value, '再処理中 60/150');
-  assert.equal(kept.details.at(-1)!.text, '気象データを読み取れません');
+  assert.deepEqual(
+    kept.details.map((detail) => detail.text),
+    ['気象データを読み取れません'],
+  );
 });
 
 test('他会場の準備失敗は自会場の電文処理カードに出ない', () => {
@@ -283,7 +283,7 @@ test('カードは常に4枚で、取得健全性・スケジュールの独立�
   const auto = cards.find((card) => card.id === 'autoFetch')!;
   assert.deepEqual(
     [auto.value, auto.tone, auto.details.map((detail) => detail.text)],
-    ['有効', 'normal', ['時間帯 09:00 – 18:00', '次の切替 18:00']],
+    ['有効', 'normal', ['09:00–18:00\u3000次 18:00']],
   );
   const nothing = buildMonitoringCards({
     data: null,
@@ -577,7 +577,7 @@ test('処理中の範囲（pendingScopes）は結果不明に数えず、画面�
     false,
   );
   const both = present({ pendingScopes: ['east', 'trc', 'x'], unknownScopes: ['a'] });
-  assert.deepEqual(both.lines[1], { text: '結果不明 1件', kind: 'unknown' });
+  assert.deepEqual(both.lines, [{ text: '結果不明 1件', kind: 'unknown' }]);
 });
 
 test('取得Workerの準備中に報告が途絶えても「応答を確認できません」を出さず、準備中を示す（再開可否は変えない）', () => {

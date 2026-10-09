@@ -86,8 +86,9 @@ function autoFetchCard(data: MonitoringStatusResponse | null): MonitoringCard {
     activeIntervals.length === 0
       ? [{ text: '定期取得の設定なし' }]
       : [
-          { text: `時間帯 ${data.operation.period.start} – ${data.operation.period.end}` },
-          { text: `次の切替 ${formatJstTime(data.operation.nextPeriodChangeAt)}` },
+          {
+            text: `${data.operation.period.start}–${data.operation.period.end}\u3000次 ${formatJstTime(data.operation.nextPeriodChangeAt)}`,
+          },
         ];
   return {
     id: 'autoFetch',
@@ -162,8 +163,10 @@ function telegramCard(data: MonitoringStatusResponse | null): MonitoringCard {
     tone = 'normal';
     supplement = reprocessLabel;
   }
-  const details: MonitoringCardDetail[] = [{ text: supplement }];
-  if (hasReadError) details.push({ text: '気象データを読み取れません', tone: 'error' });
+  // 詳細は1行。気象データの読取失敗があれば、それを優先する。
+  const details: MonitoringCardDetail[] = [
+    hasReadError ? { text: '気象データを読み取れません', tone: 'error' } : { text: supplement },
+  ];
   return { id: 'telegram', title: '電文処理', value, details, tone };
 }
 

@@ -29,11 +29,16 @@ import type { MapLayerId } from './map/types';
 import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
 import { MonitoringDialogHost } from './monitoring/MonitoringDialogHost';
 import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
-import { fetchOperationText, selectOperationLine } from './monitoring/monitoringOperationMessage';
+import {
+  fetchOperationText,
+  restartChangeToken,
+  selectOperationLine,
+} from './monitoring/monitoringOperationMessage';
 import { presentWorker, workerRestartabilityId } from './monitoring/weatherWorkerPresentation';
 import { useChangeSequence, useRestartBaselines } from './monitoring/useRestartCompletion';
 import { WorkerRestartHistoryContent } from './monitoring/WorkerRestartHistoryDialog';
 import type { WeatherRole } from '@wx-viewer-poc/shared';
+import { restartRequestId } from './monitoring/weatherRestartResult';
 import { useMonitoringToolbar } from './monitoring/useMonitoringToolbar';
 import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
 import { useVenueRegistry } from './venueRegistryContext';
@@ -181,13 +186,31 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   const deliveryRow = workerViews.delivery.result.rowText;
   const changedSeq = useChangeSequence({
     fetch: fetchText,
-    acquisition: acquisitionRow,
-    delivery: deliveryRow,
+    acquisition: restartChangeToken(
+      workerViews.acquisition.result.stage,
+      restartRequestId(workerRestart.state),
+      acquisitionRow,
+    ),
+    delivery: restartChangeToken(
+      workerViews.delivery.result.stage,
+      restartRequestId(deliveryRestart.state),
+      deliveryRow,
+    ),
   });
+  const restartInProgress = (role: WeatherRole) =>
+    ['accepted', 'preparing'].includes(workerViews[role].result.stage);
   const operationLine = selectOperationLine(monitoringToolbar.localState, [
     { text: fetchText, changedSeq: changedSeq('fetch') },
-    { text: acquisitionRow, changedSeq: changedSeq('acquisition') },
-    { text: deliveryRow, changedSeq: changedSeq('delivery') },
+    {
+      text: acquisitionRow,
+      changedSeq: changedSeq('acquisition'),
+      active: restartInProgress('acquisition'),
+    },
+    {
+      text: deliveryRow,
+      changedSeq: changedSeq('delivery'),
+      active: restartInProgress('delivery'),
+    },
   ]);
   const operationMessage = operationLine?.text ?? null;
   const notificationState = {

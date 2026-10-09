@@ -16,6 +16,7 @@ import {
   fetchOperationText,
   monitoringOperationMessage,
   selectOperationLine,
+  restartChangeToken,
 } from '../src/monitoring/monitoringOperationMessage.ts';
 import { nextBaselineEntry } from '../src/monitoring/useRestartCompletion.ts';
 import { workerHistoryResult } from '../src/monitoring/weatherRestartResult.ts';
@@ -296,4 +297,30 @@ test('C27/C28/C30: 画面を離れたらルートへ戻す配線、タイトル�
     /recheck/.test(read('useWeatherRestart.ts') + read('weatherRestartController.ts')),
     false,
   );
+});
+
+test('§6.4 操作行: 進行中の再起動は、後から変わった完了済みの行より優先する', () => {
+  const local = createToolbarLocalState('monitor-root');
+  const line = selectOperationLine(local, [
+    { text: '取得再起動が完了しました', changedSeq: 9, active: false },
+    { text: '提供再起動: 準備中', changedSeq: 5, active: true },
+  ]);
+  assert.equal(line?.text, '提供再起動: 準備中');
+  assert.equal(line?.title, '取得再起動が完了しました／提供再起動: 準備中');
+});
+
+test('§6.4 操作行: 準備中と完了の行き来は同じ要求の間は変化とみなさない', () => {
+  assert.equal(
+    restartChangeToken('preparing', 'r1', '取得再起動: 準備中'),
+    restartChangeToken('completed', 'r1', '取得再起動が完了しました'),
+  );
+  assert.notEqual(
+    restartChangeToken('completed', 'r1', '取得再起動が完了しました'),
+    restartChangeToken('completed', 'r2', '取得再起動が完了しました'),
+  );
+  assert.notEqual(
+    restartChangeToken('accepted', 'r1', '取得再起動: 受付済み'),
+    restartChangeToken('preparing', 'r1', '取得再起動: 準備中'),
+  );
+  assert.equal(restartChangeToken('none', null, null), null);
 });

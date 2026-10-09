@@ -31,6 +31,8 @@ export interface OperationLineEntry {
   readonly text: string | null;
   /** 状態が最後に変わった順序。大きいほど新しい。 */
   readonly changedSeq: number;
+  /** 受付済み・準備中の再起動など、進行中の行。1件でもあれば完了済みの行より優先する。 */
+  readonly active?: boolean;
 }
 
 export interface OperationLine {
@@ -54,10 +56,27 @@ export function selectOperationLine(
     (entry): entry is OperationLineEntry & { text: string } => entry.text !== null,
   );
   if (present.length === 0) return null;
-  const latest = present.reduce((a, b) => (b.changedSeq > a.changedSeq ? b : a));
+  const inProgress = present.filter((entry) => entry.active === true);
+  const candidates = inProgress.length > 0 ? inProgress : present;
+  const latest = candidates.reduce((a, b) => (b.changedSeq > a.changedSeq ? b : a));
   return present.length > 1
     ? { text: latest.text, title: present.map((entry) => entry.text).join('／') }
     : { text: latest.text };
+}
+
+/**
+ * 再起動行の「状態が変わった」判定に使う識別子。
+ * 受付後の準備中と完了は監視データの更新だけで行き来するため、同じ要求の間は同一とみなす。
+ */
+export function restartChangeToken(
+  stage: string,
+  requestId: string | null,
+  rowText: string | null,
+): string | null {
+  if (rowText === null) return null;
+  return (stage === 'preparing' || stage === 'completed') && requestId !== null
+    ? `request:${requestId}`
+    : rowText;
 }
 
 /** 通知ストアを書き換えず、選択・進行・最新結果を共通操作行へ投影する。 */

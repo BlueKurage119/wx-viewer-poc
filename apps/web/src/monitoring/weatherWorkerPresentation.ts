@@ -36,7 +36,7 @@ export interface WorkerView {
   readonly canRestart: boolean;
   /** カードの再開可否の文言（ボタンの説明に使う）。 */
   readonly restartability: string;
-  /** 詳細行（最大2行）。1行目は最終報告、2行目は優先度の高い1つ。 */
+  /** 詳細行（1行）。再起動結果・理由・結果不明・応答不明・最終報告のうち優先度の高い1つ。 */
   readonly lines: readonly WorkerDetailLine[];
   readonly result: RestartResult;
 }
@@ -225,23 +225,22 @@ export function presentWorker(role: WeatherRole, input: WorkerPresentInput): Wor
     return finalize(role, decision, canRestart, restartability, lines, result);
   }
   const data = input.data;
-  const first: WorkerDetailLine = decision.stale
-    ? {
-        text: `応答を確認できません（最終報告 ${formatJstClock(runtime.receivedAt)}）`,
-        kind: 'report',
-      }
-    : { text: reportLine(runtime, data.generatedAt), kind: 'report' };
   const reason = reasonText(runtime);
   const unknownCount = runtime.unknownScopes?.length ?? 0;
-  // 2行目は優先度の高い1つ: 再起動結果 → 理由 → 結果不明 → 再開可否。
-  const second: WorkerDetailLine = result.cardText
+  // 詳細は1行。再起動結果 → 理由 → 結果不明 → 応答不明 → 最終報告の順で最初に当てはまる1つ。
+  const line: WorkerDetailLine = result.cardText
     ? { text: result.cardText, kind: 'restart-result' }
     : reason
       ? { text: reason, kind: 'reason' }
       : unknownCount > 0
         ? { text: `結果不明 ${unknownCount}件`, kind: 'unknown' }
-        : { text: restartability, kind: 'restartability' };
-  lines.push(first, second);
+        : decision.stale
+          ? {
+              text: `応答を確認できません（最終報告 ${formatJstClock(runtime.receivedAt)}）`,
+              kind: 'report',
+            }
+          : { text: reportLine(runtime, data.generatedAt), kind: 'report' };
+  lines.push(line);
   return finalize(role, decision, canRestart, restartability, lines, result);
 }
 
