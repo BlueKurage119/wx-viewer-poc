@@ -16,6 +16,7 @@ test('初回同期失敗は「気象Worker準備失敗」で対象を取得系�
     planned.output.messageDefinition.id,
     'system-weather-acquisition-initialization-failed',
   );
+  assert.equal(planned.output.messageDefinition.version, '2');
   assert.equal(planned.output.display.title, '気象Worker準備失敗');
   assert.equal(planned.output.display.target, '取得系');
   assert.equal(
@@ -53,6 +54,7 @@ test('取得操作の結果不明は警報として出し、内容を持たな�
   assert.ok(planned);
   assert.equal(planned.notification.category, 'warning');
   assert.equal(planned.output.messageDefinition.id, 'system-fetch-operation-unknown');
+  assert.equal(planned.output.messageDefinition.version, '2');
   assert.equal(planned.output.display.title, '取得操作の結果不明');
   assert.equal(planned.output.display.content, null);
 });

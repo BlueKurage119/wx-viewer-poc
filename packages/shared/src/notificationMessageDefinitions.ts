@@ -89,7 +89,7 @@ type ActionResolution =
 
 interface MessageDefinitionInternal {
   readonly id: NotificationMessageDefinitionId;
-  readonly version: '1';
+  readonly version: '1' | '2';
   readonly origin: NotificationOrigin;
   readonly allowedCategories: readonly NotificationCategory[];
   readonly requiredWeatherChangeType?: WeatherNotificationChangeType;
@@ -314,7 +314,7 @@ const MESSAGE_DEFINITIONS = {
   },
   'system-weather-acquisition-initialization-failed': {
     id: 'system-weather-acquisition-initialization-failed',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['question'],
     title: '気象Worker準備失敗',
@@ -323,7 +323,7 @@ const MESSAGE_DEFINITIONS = {
   },
   'system-weather-acquisition-exited': {
     id: 'system-weather-acquisition-exited',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['question'],
     title: '気象Worker停止',
@@ -332,7 +332,7 @@ const MESSAGE_DEFINITIONS = {
   },
   'system-weather-acquisition-report-stale': {
     id: 'system-weather-acquisition-report-stale',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['warning'],
     title: '気象Worker応答不明',
@@ -360,7 +360,7 @@ const MESSAGE_DEFINITIONS = {
   },
   'system-weather-delivery-initialization-failed': {
     id: 'system-weather-delivery-initialization-failed',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['question'],
     title: '気象Worker準備失敗',
@@ -369,7 +369,7 @@ const MESSAGE_DEFINITIONS = {
   },
   'system-weather-delivery-exited': {
     id: 'system-weather-delivery-exited',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['question'],
     title: '気象Worker停止',
@@ -378,7 +378,7 @@ const MESSAGE_DEFINITIONS = {
   },
   'system-weather-delivery-report-stale': {
     id: 'system-weather-delivery-report-stale',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['warning'],
     title: '気象Worker応答不明',
@@ -406,7 +406,7 @@ const MESSAGE_DEFINITIONS = {
   },
   'system-fetch-operation-unknown': {
     id: 'system-fetch-operation-unknown',
-    version: '1',
+    version: '2',
     origin: 'system',
     allowedCategories: ['warning'],
     title: '取得操作の結果不明',

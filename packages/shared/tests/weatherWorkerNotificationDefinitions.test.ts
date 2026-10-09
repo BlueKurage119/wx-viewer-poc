@@ -111,6 +111,10 @@ for (const row of rows) {
       definitionId: row.id,
       detail: row.detail,
     });
+    assert.equal(
+      output.messageDefinition.version,
+      row.id.endsWith('restart-completed') ? '1' : '2',
+    );
     assert.equal(output.summary, row.summary);
     assert.equal(output.ackRequired, row.ackRequired);
     assert.equal(output.summary.includes('してください'), false);
@@ -143,9 +147,10 @@ test('統合で使わなくなった定義は残り、従来の区分・文面�
     ],
   ];
   for (const [id, summary] of legacy) {
-    assert.equal(
-      resolveNotificationMessage(workerNotification('question'), { definitionId: id }).summary,
-      summary,
-    );
+    const output = resolveNotificationMessage(workerNotification('question'), {
+      definitionId: id,
+    });
+    assert.equal(output.summary, summary);
+    assert.equal(output.messageDefinition.version, '1');
   }
 });

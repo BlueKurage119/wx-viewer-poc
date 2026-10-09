@@ -200,12 +200,13 @@ test(
           () =>
             retained
               .prepare(
-                "SELECT change_type, category, message_definition_id FROM notification_output_history WHERE source_type='weather_worker' AND source_version=?",
+                "SELECT change_type, category, message_definition_id, message_definition_version FROM notification_output_history WHERE source_type='weather_worker' AND source_version=?",
               )
               .all(stale.workerGeneration) as {
               change_type: string;
               category: string;
               message_definition_id: string;
+              message_definition_version: string;
             }[],
           (rows) => rows.length === 1,
           3000,
@@ -215,6 +216,7 @@ test(
             change_type: 'report_stale',
             category: 'warning',
             message_definition_id: 'system-weather-delivery-report-stale',
+            message_definition_version: '2',
           },
         ]);
       } finally {
