@@ -71,12 +71,46 @@ export function isRestartCompleted(
   return sample > Date.parse(baselineGeneratedAt) && generated - sample <= SAMPLE_STALE_AFTER_MS;
 }
 
+function completedResult(
+  role: WeatherRole,
+  operation: Extract<WeatherRestartOperation, { status: 'completed' }>,
+  suffix: string,
+): RestartResult {
+  const card =
+    role === 'delivery'
+      ? '起動済み・提供中'
+      : operation.desiredRunning === false
+        ? '起動済み・自動取得は停止のまま'
+        : '起動済み・準備完了';
+  return {
+    stage: 'completed',
+    cardText: `${card}${suffix}`,
+    rowText: `${roleLabel[role]}再起動が完了しました${suffix}`,
+  };
+}
+
+/**
+ * 完了到達の保持を1回分進める。要求ごとに保持し、別の要求（新しい要求・要求なし）になったら置き換える。
+ * 完了に達した後の障害は再起動結果ではなく、カードの現在の状態として示すために使う。
+ */
+export function nextCompletionLatch(
+  latched: string | null,
+  restart: WeatherRestartState,
+  result: RestartResult,
+): string | null {
+  const requestId = restart.phase === 'completed' ? restart.request.requestId : null;
+  if (latched !== null && latched === requestId) return latched;
+  return requestId !== null && result.stage === 'completed' ? requestId : null;
+}
+
 /** 再起動の経過（restart 状態と監視の現在状態の合成）。ボタン押下だけで成功にしない。 */
 export function composeRestartResult(
   role: WeatherRole,
   restart: WeatherRestartState,
   data: MonitoringStatusResponse | null,
   baselineGeneratedAt: string | null,
+  /** 完了に到達済みの要求の識別子。これと一致する要求は、後から起きた障害で結果を書き換えない。 */
+  completedRequestId: string | null = null,
 ): RestartResult {
   const label = roleLabel[role];
   switch (restart.phase) {
@@ -128,6 +162,9 @@ export function composeRestartResult(
       rowText: `${label}再起動が失敗しました${suffix}`,
     };
   }
+  if (completedRequestId !== null && completedRequestId === restart.request.requestId) {
+    return completedResult(role, operation, suffix);
+  }
   const runtime = data?.weatherRuntimes[role];
   const sameGeneration =
     runtime !== undefined &&
@@ -156,17 +193,7 @@ export function composeRestartResult(
     };
   }
   if (isRestartCompleted(role, operation, data, baselineGeneratedAt)) {
-    const card =
-      role === 'delivery'
-        ? '起動済み・提供中'
-        : operation.desiredRunning === false
-          ? '起動済み・自動取得は停止のまま'
-          : '起動済み・準備完了';
-    return {
-      stage: 'completed',
-      cardText: `${card}${suffix}`,
-      rowText: `${label}再起動が完了しました${suffix}`,
-    };
+    return completedResult(role, operation, suffix);
   }
   const preparing =
     role === 'delivery'

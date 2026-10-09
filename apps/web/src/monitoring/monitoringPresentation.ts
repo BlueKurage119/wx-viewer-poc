@@ -43,6 +43,8 @@ export interface MonitoringCardsInput {
   readonly monitoringFailed: boolean;
   readonly restarts: Readonly<Record<WeatherRole, WeatherRestartState>>;
   readonly baselines: Readonly<Record<WeatherRole, string | null>>;
+  /** 再起動が完了に到達した要求の識別子。 */
+  readonly completions?: Readonly<Record<WeatherRole, string | null>>;
 }
 
 const IDLE_RESTARTS: MonitoringCardsInput['restarts'] = {
@@ -57,6 +59,7 @@ function workerCard(role: WeatherRole, input: MonitoringCardsInput): MonitoringC
     monitoringFailed: input.monitoringFailed,
     restart: input.restarts[role],
     baselineGeneratedAt: input.baselines[role],
+    completedRequestId: input.completions?.[role] ?? null,
   });
   return {
     id: role === 'acquisition' ? 'acquisitionWorker' : 'deliveryWorker',

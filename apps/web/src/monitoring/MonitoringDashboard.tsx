@@ -343,12 +343,15 @@ export function MonitoringDashboardView({
   workerModel,
   deliveryModel,
   restartBaselines = NO_BASELINES,
+  restartCompletions,
 }: {
   state: MonitoringLoadState;
   workerModel?: WeatherRestartModel;
   deliveryModel?: WeatherRestartModel;
   /** 提供の完了判定に使う、再起動完了受領後に最初に得た監視応答の generatedAt。 */
   restartBaselines?: Readonly<Record<WeatherRole, string | null>>;
+  /** 再起動が完了に到達した要求の識別子。 */
+  restartCompletions?: Readonly<Record<WeatherRole, string | null>>;
   uptimeSeconds?: number | null;
   resolveTargets?: (venueId: string) => VenueForecastTargets | undefined;
 }) {
@@ -367,8 +370,16 @@ export function MonitoringDashboardView({
         monitoringFailed: isFailed || state.data === null,
         restarts: { acquisition: acquisitionRestart, delivery: deliveryRestart },
         baselines: restartBaselines,
+        completions: restartCompletions,
       }),
-    [state.data, isFailed, acquisitionRestart, deliveryRestart, restartBaselines],
+    [
+      state.data,
+      isFailed,
+      acquisitionRestart,
+      deliveryRestart,
+      restartBaselines,
+      restartCompletions,
+    ],
   );
   const sampleFreshness = useMemo(() => presentSampleFreshness(state.data), [state.data]);
   const sourceRows = useMemo(
@@ -429,6 +440,7 @@ export interface MonitoringDashboardProps {
   workerModel?: WeatherRestartModel;
   deliveryModel?: WeatherRestartModel;
   restartBaselines?: Readonly<Record<WeatherRole, string | null>>;
+  restartCompletions?: Readonly<Record<WeatherRole, string | null>>;
   onLoadStateChange?: (state: MonitoringLoadState) => void;
 }
 
@@ -438,6 +450,7 @@ export function MonitoringDashboard({
   workerModel,
   deliveryModel,
   restartBaselines,
+  restartCompletions,
 }: MonitoringDashboardProps) {
   const state = useMonitoringStatus(
     terminalId,
@@ -455,6 +468,7 @@ export function MonitoringDashboard({
       workerModel={workerModel}
       deliveryModel={deliveryModel}
       restartBaselines={restartBaselines}
+      restartCompletions={restartCompletions}
       resolveTargets={(venueId) => {
         const resolved = registry.resolveVenueId(venueId);
         return resolved ? registry.getVenue(resolved) : undefined;

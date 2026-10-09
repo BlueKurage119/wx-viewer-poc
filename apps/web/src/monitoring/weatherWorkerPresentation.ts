@@ -52,6 +52,8 @@ export interface WorkerPresentInput {
   readonly restart: WeatherRestartState;
   /** 提供の完了判定に使う、再起動完了受領後に最初に得た監視応答の generatedAt。 */
   readonly baselineGeneratedAt: string | null;
+  /** 再起動が完了に到達した要求の識別子。完了後の障害で結果を書き換えないために使う。 */
+  readonly completedRequestId?: string | null;
 }
 
 const roleTitle: Record<WeatherRole, string> = {
@@ -204,7 +206,13 @@ function decide(
 export function presentWorker(role: WeatherRole, input: WorkerPresentInput): WorkerView {
   const runtime = input.data?.weatherRuntimes[role];
   const decision = decide(runtime, input);
-  const result = composeRestartResult(role, input.restart, input.data, input.baselineGeneratedAt);
+  const result = composeRestartResult(
+    role,
+    input.restart,
+    input.data,
+    input.baselineGeneratedAt,
+    input.completedRequestId ?? null,
+  );
   let restartability = decision.restartability;
   let canRestart = false;
   if (decision.serverPermits && runtime) {

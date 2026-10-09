@@ -35,7 +35,11 @@ import {
   selectOperationLine,
 } from './monitoring/monitoringOperationMessage';
 import { presentWorker, workerRestartabilityId } from './monitoring/weatherWorkerPresentation';
-import { useChangeSequence, useRestartBaselines } from './monitoring/useRestartCompletion';
+import {
+  useChangeSequence,
+  useRestartBaselines,
+  useRestartCompletions,
+} from './monitoring/useRestartCompletion';
 import { WorkerRestartHistoryContent } from './monitoring/WorkerRestartHistoryDialog';
 import type { WeatherRole } from '@wx-viewer-poc/shared';
 import { restartRequestId } from './monitoring/weatherRestartResult';
@@ -133,6 +137,11 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     { acquisition: workerRestart.state, delivery: deliveryRestart.state },
     monitoringState?.data ?? null,
   );
+  const restartCompletions = useRestartCompletions(
+    { acquisition: workerRestart.state, delivery: deliveryRestart.state },
+    monitoringState?.data ?? null,
+    restartBaselines,
+  );
   const workerViews = Object.fromEntries(
     (['acquisition', 'delivery'] as const).map((role) => [
       role,
@@ -141,6 +150,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
         monitoringFailed: monitoringState?.phase === 'failed' || !monitoringState?.data,
         restart: restartModels[role].state,
         baselineGeneratedAt: restartBaselines[role],
+        completedRequestId: restartCompletions[role],
       }),
     ]),
   ) as Record<WeatherRole, ReturnType<typeof presentWorker>>;
@@ -332,6 +342,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           workerModel={workerRestart}
           deliveryModel={deliveryRestart}
           restartBaselines={restartBaselines}
+          restartCompletions={restartCompletions}
         />
       ) : (
         <div className="view-placeholder">

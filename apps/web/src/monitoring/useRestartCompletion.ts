@@ -1,6 +1,7 @@
 import { useMemo, useRef } from 'react';
 import type { MonitoringStatusResponse, WeatherRole } from '@wx-viewer-poc/shared';
 import type { WeatherRestartState } from './weatherRestartController';
+import { composeRestartResult, nextCompletionLatch } from './weatherRestartResult';
 
 export interface BaselineEntry {
   requestId: string | null;
@@ -52,6 +53,27 @@ export function useRestartBaselines(
   }
   const acquisition = entries.current.acquisition.baseline;
   const delivery = entries.current.delivery.baseline;
+  return useMemo(() => ({ acquisition, delivery }), [acquisition, delivery]);
+}
+
+/**
+ * 再起動が完了に到達した要求の識別子を、役割ごとに保持する。
+ * 完了後に同じ世代が異常終了しても、再起動結果を接続失敗へ書き換えないために使う。
+ */
+export function useRestartCompletions(
+  restarts: Readonly<Record<WeatherRole, WeatherRestartState>>,
+  data: MonitoringStatusResponse | null,
+  baselines: Readonly<Record<WeatherRole, string | null>>,
+): Readonly<Record<WeatherRole, string | null>> {
+  const latched = useRef<Record<WeatherRole, string | null>>({
+    acquisition: null,
+    delivery: null,
+  });
+  for (const role of ['acquisition', 'delivery'] as const) {
+    const result = composeRestartResult(role, restarts[role], data, baselines[role], null);
+    latched.current[role] = nextCompletionLatch(latched.current[role], restarts[role], result);
+  }
+  const { acquisition, delivery } = latched.current;
   return useMemo(() => ({ acquisition, delivery }), [acquisition, delivery]);
 }
 

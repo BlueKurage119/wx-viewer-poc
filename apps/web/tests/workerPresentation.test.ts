@@ -9,6 +9,7 @@ import { buildMonitoringCards } from '../src/monitoring/monitoringPresentation.t
 import {
   composeRestartResult,
   isRestartCompleted,
+  nextCompletionLatch,
 } from '../src/monitoring/weatherRestartResult.ts';
 import {
   applyWorkerState,
@@ -438,6 +439,51 @@ test('D6: 受付後の接続失敗（同じ世代がfailed）は完了にせず�
     assert.deepEqual(
       [result.stage, result.cardText, result.rowText],
       ['failed', '起動済み・接続に失敗（初期化失敗）', `${label}再起動が失敗しました`],
+    );
+  }
+});
+
+test('完了に到達した再起動は、後から同じ世代が失敗しても結果を完了のまま残し、カードの状態は異常になる', () => {
+  for (const role of ['acquisition', 'delivery'] as const) {
+    const restart = completedRestart(role);
+    const label = role === 'acquisition' ? '取得' : '提供';
+    const healthy = accepted(role, { workerGeneration: `${role}-2` });
+    const failed = accepted(role, {
+      workerGeneration: `${role}-2`,
+      lifecycle: 'failed',
+      failureCode: 'worker_exited',
+    });
+    const baseline = '2000-01-01T00:00:00.000Z';
+    const done = composeRestartResult(role, restart, healthy, baseline, null);
+    assert.equal(done.stage, 'completed');
+    const latched = nextCompletionLatch(null, restart, done);
+    assert.equal(latched, `restart-${role}`);
+    // 完了前に failed になった場合は、これまでどおり接続失敗
+    assert.equal(composeRestartResult(role, restart, failed, baseline, null).stage, 'failed');
+    // 完了到達後の failed は結果を書き換えない
+    const after = composeRestartResult(role, restart, failed, baseline, latched);
+    assert.equal(after.stage, 'completed');
+    assert.equal(after.rowText, `${label}再起動が完了しました`);
+    const worker = presentWorker(role, {
+      data: failed,
+      monitoringFailed: false,
+      restart,
+      baselineGeneratedAt: baseline,
+      completedRequestId: latched,
+    });
+    assert.equal(worker.result.rowText, `${label}再起動が完了しました`);
+    assert.equal(worker.tone, 'error');
+    assert.notEqual(worker.state, '稼働中');
+    // 保持は要求ごと: 新しい要求が出れば置き換わる
+    const next = { ...restart, request: { ...restart.request, requestId: 'restart-next' } };
+    assert.equal(nextCompletionLatch(latched, next, done), 'restart-next');
+    assert.equal(
+      nextCompletionLatch(latched, next, composeRestartResult(role, next, failed, baseline, null)),
+      null,
+    );
+    assert.equal(
+      nextCompletionLatch(latched, idle, { stage: 'none', cardText: null, rowText: null }),
+      null,
     );
   }
 });
