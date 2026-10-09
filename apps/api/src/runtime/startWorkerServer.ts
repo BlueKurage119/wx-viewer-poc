@@ -36,6 +36,7 @@ import {
   WeatherWorkerRestartError,
 } from '../services/weatherWorkerControlService.js';
 import { registerGracefulShutdown } from '../gracefulShutdown.js';
+import { logShutdownComplete, logShutdownStageFailed, logShutdownStart } from '../serverClose.js';
 import { unavailableMonitoring } from './unavailableMonitoring.js';
 import { createRetainedMonitoringHistory } from './retainedMonitoringHistory.js';
 import {
@@ -825,13 +826,26 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       if (!server.listening) resolve();
       else server.close((error) => (error ? reject(error) : resolve()));
     });
+    const shutdownStartedAt = Date.now();
+    logShutdownStart(closeOptions?.reason);
     closing = (async () => {
-      await workerControl.waitForIdle();
-      await host.close();
-      await delivery.close();
-      if (closeOptions?.reason === 'signal') await fetchControlService.recordShutdown();
-      await httpClosed;
-      retained.close();
+      try {
+        await workerControl.waitForIdle();
+        await host.close();
+        await delivery.close();
+        if (closeOptions?.reason === 'signal') await fetchControlService.recordShutdown();
+        await httpClosed;
+      } catch (error) {
+        logShutdownStageFailed('stop', error);
+        throw error;
+      }
+      try {
+        retained.close();
+      } catch (error) {
+        logShutdownStageFailed('close_database', error);
+        throw error;
+      }
+      logShutdownComplete(shutdownStartedAt);
     })();
     return closing;
   };

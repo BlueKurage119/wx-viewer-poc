@@ -19,3 +19,10 @@ products: [Claude, Codex, Antigravity]
 - **`npm run build`はAPIを再起動させる**: `packages/shared/dist`が更新され、`tsx watch`がAPIを再起動する。再起動後は初期化が終わるまで応答しない(起動時再処理が重い間は、最大約15分。Issue #168)。`build`や`apps/api`・`packages/shared`の編集は、APIの応答を待つ前に済ませ、応答した後は避ける。
 - **応答待ちはポーリングで行う**: 数十秒で「応答なし」と判断しない。`until curl -s --max-time 10 -o /dev/null -w "%{http_code}" <URL> | grep -q "^200$"; do sleep 10; done`をバックグラウンドで走らせる。
 - **降水がない日の見え方の確認**: 凡例色とタイルの着色の一致などは、降水域がないと確認できない。無降水なら、降水のある地域(例: 新潟県付近、ズーム10のタイルで`907/395`あたり)へ地図を動かして確認する。保持レイヤーは`moveend`で破棄されるので、再生間隔などの計測は、移動を終えてから始める。
+
+## 一時サーバーのデータフォルダ分離
+
+**出典:** Issue #266。DBのwriterロック(`<DB>.writer-lock`)が残留して次の起動が失敗した事象への対応。
+
+- 製造・検収で一時的にAPIを起動するときは、`WX_VIEWER_WEATHER_DB_PATH`と`WX_VIEWER_RETAINED_DB_PATH`を、オーナーの`apps/api/data/`とは別の一時フォルダ(スクラッチパッド等)に向けるのが望ましい。同じDBのwriterロックを争うと、オーナーのサーバーの起動失敗や、残留ロック引き継ぎ判定の混乱を招く。
+- 引き継がれた残留ロックの退避先`*.writer-lock.stale-*`は、退避から1時間を超えたものが、次のロック取得成功時に自動削除される。
