@@ -1,4 +1,8 @@
-import type { WeatherRestartOperation, WeatherRestartRequest } from '@wx-viewer-poc/shared';
+import type {
+  WeatherRestartOperation,
+  WeatherRestartRequest,
+  WeatherRole,
+} from '@wx-viewer-poc/shared';
 import type { WeatherRestartReply, WeatherWorkerClient } from '../api/weatherWorkers';
 
 export type WeatherRestartState =
@@ -14,6 +18,7 @@ export type WeatherRestartState =
     };
 
 export function createWeatherRestartController(deps: {
+  readonly role?: WeatherRole;
   readonly client: Pick<WeatherWorkerClient, 'restart' | 'find'>;
   readonly requestIdFactory: () => string;
   readonly setTimeout: (callback: () => void, delay: number) => number;
@@ -63,7 +68,9 @@ export function createWeatherRestartController(deps: {
       active = null;
       if (requestTimer !== null) deps.clearTimeout(requestTimer);
       requestTimer = null;
-      if (reply.kind === 'operation' && reply.operation.status === 'completed') {
+      if (reply.kind === 'operation' && reply.operation.role !== (deps.role ?? 'acquisition')) {
+        schedule(request);
+      } else if (reply.kind === 'operation' && reply.operation.status === 'completed') {
         finish({ phase: 'completed', request, operation: reply.operation });
         deps.onRefresh();
       } else if (reply.kind === 'conflict' || reply.kind === 'rejected') {
@@ -77,7 +84,9 @@ export function createWeatherRestartController(deps: {
       receive({ kind: 'unverifiable' });
     }, 5_000);
     void (
-      post ? deps.client.restart(request, abort.signal) : deps.client.find(request, abort.signal)
+      post
+        ? deps.client.restart(deps.role ?? 'acquisition', request, abort.signal)
+        : deps.client.find(deps.role ?? 'acquisition', request, abort.signal)
     ).then(receive, () => receive({ kind: 'unverifiable' }));
   };
   const begin = (request: WeatherRestartRequest, post: boolean) => {

@@ -220,6 +220,8 @@ export interface MonitoringReadError {
 }
 
 export interface MonitoringStatusResponse {
+  /** 気象集計を最後にメインが受領した時刻。旧応答では省略される。 */
+  readonly weatherSampleReceivedAt?: UtcIso8601String | null;
   readonly weatherRuntimes: {
     readonly acquisition: WeatherRuntimeStatus;
     readonly delivery: WeatherRuntimeStatus;

@@ -71,13 +71,13 @@ test('再開POST応答喪失後は同じIDをGETし、二重クリックと遅�
     requestIdFactory: () => 'restart-1',
     onRefresh: () => refreshed++,
     client: {
-      restart: (value) => {
+      restart: (_role, value) => {
         posts.push(value);
         return new Promise((resolve) => {
           resolvePost = resolve;
         });
       },
-      find: async (value) => {
+      find: async (_role, value) => {
         gets.push(value);
         return { kind: 'operation', operation: completed };
       },
@@ -123,7 +123,7 @@ test('1秒間隔で照会し30秒で止め、明示再確認は同IDのGETのみ
           },
         };
       },
-      find: async (value) => {
+      find: async (_role, value) => {
         gets.push(value);
         return done ? { kind: 'operation', operation: completed } : { kind: 'unverifiable' };
       },
@@ -205,8 +205,8 @@ test('APIはPOST内容と同ID照会・専用履歴のURLを送信し、未記�
     }) as typeof fetch,
   });
   const signal = new AbortController().signal;
-  await client.restart(request, signal);
-  await client.find(request, signal);
+  await client.restart('acquisition', request, signal);
+  await client.find('acquisition', request, signal);
   assert.deepEqual(calls, [
     { url: '/api/control/weather-workers/acquisition/restart', body: request },
     { url: '/api/control/weather-workers/operations/restart-1', body: null },
@@ -307,4 +307,69 @@ test('旧世代の未完了scopeを実行中へ戻さず結果不明として表
     React.createElement(WeatherWorkerPanel, { data, unavailable: false }),
   );
   assert.equal(html.match(/<p>結果不明: (.*?)<\/p>/)?.[1], 'east、trc');
+});
+
+test('提供再開は専用URLと同ID照会を使い、取得停止意図を表示しない', async () => {
+  const deliveryOperation: WeatherRestartOperation = {
+    status: 'completed',
+    requestId: 'restart-1',
+    role: 'delivery',
+    result: 'success',
+    workerGeneration: 'worker-2',
+    errorCode: null,
+    historyRecorded: true,
+  };
+  const calls: string[] = [];
+  const client = createWeatherWorkerClient({
+    fetch: (async (url) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify(deliveryOperation), { status: 200 });
+    }) as typeof fetch,
+  });
+  const signal = new AbortController().signal;
+  assert.deepEqual(await client.restart('delivery', request, signal), {
+    kind: 'operation',
+    operation: deliveryOperation,
+  });
+  assert.deepEqual(await client.find('delivery', request, signal), {
+    kind: 'operation',
+    operation: deliveryOperation,
+  });
+  assert.deepEqual(calls, [
+    '/api/control/weather-workers/delivery/restart',
+    '/api/control/weather-workers/operations/restart-1',
+  ]);
+  assert.equal(
+    weatherRestartResult(deliveryOperation, {
+      ...fixture,
+      weatherRuntimes: {
+        ...fixture.weatherRuntimes,
+        delivery: { ...fixture.weatherRuntimes.delivery, lifecycle: 'starting' },
+      },
+    }),
+    '提供Workerの再開を受け付けました。接続は準備中です',
+  );
+});
+
+test('提供欄は専用再開と気象集計の鮮度を表示する', () => {
+  const data = {
+    ...fixture,
+    weatherSampleReceivedAt: '2026-10-09T00:00:00.000Z',
+    generatedAt: '2026-10-09T00:00:16.000Z',
+    weatherRuntimes: {
+      ...fixture.weatherRuntimes,
+      delivery: {
+        ...fixture.weatherRuntimes.delivery,
+        workerGeneration: 'delivery-1',
+        lifecycle: 'failed' as const,
+        restartAllowed: true,
+      },
+    },
+  };
+  const html = renderToStaticMarkup(
+    React.createElement(WeatherWorkerPanel, { data, unavailable: false }),
+  );
+  assert.match(html, /提供Workerを再開/);
+  assert.match(html, /鮮度低下/);
+  assert.equal((html.match(/id="monitoring-worker-[a-z]+-heading"/g) ?? []).length, 2);
 });

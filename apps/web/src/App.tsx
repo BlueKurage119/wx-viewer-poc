@@ -118,6 +118,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     nowMs: now.getTime(),
   });
   const workerRestart = useWeatherRestart();
+  const deliveryRestart = useWeatherRestart('delivery');
   const monitoringToolbar = useMonitoringToolbar({ active: view === 'monitor' });
   const current = views.find((item) => item.id === view)!;
   const selectScenario = (next: PreviewScenario) => {
@@ -255,6 +256,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           terminalId={terminal.id}
           onLoadStateChange={setMonitoringState}
           workerModel={workerRestart}
+          deliveryModel={deliveryRestart}
         />
       ) : (
         <div className="view-placeholder">
