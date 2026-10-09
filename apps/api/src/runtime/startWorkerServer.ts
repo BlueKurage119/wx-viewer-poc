@@ -41,7 +41,7 @@ import {
 } from '../monitoring/monitoringStatusService.js';
 import { buildStoppedPollingStatus } from '../polling/index.js';
 import { logPollingConfig, type StartServerOptions } from '../server.js';
-import type { WeatherOperations } from './weatherContracts.js';
+import { sameWeatherEpoch, type WeatherEpoch, type WeatherOperations } from './weatherContracts.js';
 
 export async function startWorkerServer(options: StartServerOptions = {}) {
   const port = options.port ?? 3001;
@@ -88,6 +88,22 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
   let validatedDatabaseGeneration: string | null = null;
   let validatedSchemaVersion: number | null = null;
   let deliveryStarted: Promise<void> = Promise.resolve();
+  let generationTransition: Promise<void> = Promise.resolve();
+  let readerSuspendedForAcquisition = true;
+  let connectedAcquisitionEpoch: WeatherEpoch | null = null;
+  const withGenerationTransition = async <T>(operation: () => Promise<T>): Promise<T> => {
+    const previous = generationTransition;
+    let release!: () => void;
+    generationTransition = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  };
   const locallyValidatedScopes = new Set<string>();
   const host: AcquisitionWorkerHost = new AcquisitionWorkerHost({
     workerEntry: options.acquisitionWorkerEntry,
@@ -120,46 +136,62 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       recordFailure('acquisition', code, generation);
     },
     async closeReader() {
-      initialization.replaceStatus({
-        initialFetchPhase: 'not_started',
-        evaluatedVenueIds: new Set(),
-        preparationFailures: [],
+      await withGenerationTransition(async () => {
+        readerSuspendedForAcquisition = true;
+        connectedAcquisitionEpoch = null;
+        initialization.replaceStatus({
+          initialFetchPhase: 'not_started',
+          evaluatedVenueIds: new Set(),
+          preparationFailures: [],
+        });
+        for (const [id, sample] of application?.samples ?? []) lastSamples.set(id, sample);
+        for (const [id, at] of application?.sampleReceivedAt ?? [])
+          lastSampleReceivedAt.set(id, at);
+        application?.close();
+        application = null;
+        if (publication)
+          publication.replaceEpochs(
+            { ...host.epoch, workerGeneration: randomUUID() },
+            delivery.epoch,
+          );
+        await delivery.suspendReader();
+        publication = null;
       });
-      for (const [id, sample] of application?.samples ?? []) lastSamples.set(id, sample);
-      for (const [id, at] of application?.sampleReceivedAt ?? []) lastSampleReceivedAt.set(id, at);
-      application?.close();
-      application = null;
-      if (publication)
-        publication.replaceEpochs(
-          { ...host.epoch, workerGeneration: randomUUID() },
-          delivery.epoch,
-        );
-      await delivery.suspendReader();
-      publication = null;
     },
     async databaseReady(generation, schemaVersion, acquisitionEpoch) {
-      if (closed) throw new Error('not_ready');
-      if (validatedDatabaseGeneration !== generation) locallyValidatedScopes.clear();
-      validatedDatabaseGeneration = generation;
-      validatedSchemaVersion = schemaVersion;
-      const readerEpoch = randomUUID();
-      try {
-        await deliveryStarted;
-        await delivery.connectReader({ generation, schemaVersion, acquisitionEpoch, readerEpoch });
-      } catch {
-        return;
-      }
-      publication = new WeatherPublicationGate(acquisitionEpoch, delivery.epoch);
-      application?.close();
-      application = createDeliveryApplicationRuntime({
-        read,
-        // cache miss待機中のHTTP中断を取得要求の予約解除へ伝える。
-        ensureTile: (input, timeoutMs, signal) =>
-          host.call('tile.ensure', input, timeoutMs ?? 30000, signal),
-        retainedConnection: retained.connection,
-        terminalRegistry: terminal.registry,
-        weatherDatabaseGenerationId: generation,
-        now,
+      await withGenerationTransition(async () => {
+        if (closed) throw new Error('not_ready');
+        if (validatedDatabaseGeneration !== generation) locallyValidatedScopes.clear();
+        validatedDatabaseGeneration = generation;
+        validatedSchemaVersion = schemaVersion;
+        const readerEpoch = randomUUID();
+        try {
+          await deliveryStarted;
+          await delivery.connectReader({
+            generation,
+            schemaVersion,
+            acquisitionEpoch,
+            readerEpoch,
+          });
+        } catch {
+          // 取得DBは接続可能なので、提供側の手動再開で接続を再試行できる。
+          readerSuspendedForAcquisition = false;
+          return;
+        }
+        publication = new WeatherPublicationGate(acquisitionEpoch, delivery.epoch);
+        connectedAcquisitionEpoch = acquisitionEpoch;
+        readerSuspendedForAcquisition = false;
+        application?.close();
+        application = createDeliveryApplicationRuntime({
+          read,
+          // cache miss待機中のHTTP中断を取得要求の予約解除へ伝える。
+          ensureTile: (input, timeoutMs, signal) =>
+            host.call('tile.ensure', input, timeoutMs ?? 30000, signal),
+          retainedConnection: retained.connection,
+          terminalRegistry: terminal.registry,
+          weatherDatabaseGenerationId: generation,
+          now,
+        });
       });
     },
   });
@@ -248,6 +280,64 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
     (kind === 'nowcast' ||
       kind === 'kikikuru' ||
       locallyValidatedScopes.has(weatherReadScope(venueId, status, kind)));
+  function assertCurrentRead<K extends keyof WeatherOperations>(
+    kind: K,
+    payload: WeatherOperations[K]['request'],
+    initialContext: ReturnType<typeof context>,
+    acquisitionEpoch: typeof host.epoch,
+    deliveryEpoch: typeof delivery.epoch,
+  ): void {
+    if (
+      closed ||
+      readerSuspendedForAcquisition ||
+      !sameWeatherEpoch(connectedAcquisitionEpoch ?? host.epoch, acquisitionEpoch) ||
+      !sameWeatherEpoch(delivery.epoch, deliveryEpoch)
+    )
+      throw new WeatherRequestError('generation_changed');
+    const currentUnknown = host.status().unknownScopes ?? [];
+    const currentValidated = new Set(locallyValidatedScopes);
+    const scopes: string[] = [];
+    if (kind === 'weather.read') {
+      const request = payload as WeatherOperations['weather.read']['request'];
+      scopes.push(weatherReadScope(request.terminal.venueId, request.controlStatus, request.kind));
+    } else if (kind === 'image.times') {
+      const request = payload as WeatherOperations['image.times']['request'];
+      scopes.push(weatherReadScope(request.terminal.venueId, request.controlStatus, request.layer));
+    } else if (kind === 'monitoring.processing' || kind === 'monitoring.sample') {
+      const request = payload as WeatherOperations['monitoring.sample']['request'];
+      for (const scopeKind of [
+        'warnings',
+        'warning-timeseries',
+        'early-warning',
+        'area-timeseries',
+        'amedas',
+        'bulletins',
+        'nowcast',
+        'kikikuru',
+      ] as const)
+        scopes.push(weatherReadScope(request.terminal.venueId, 'normal', scopeKind));
+    } else if (kind === 'startup.project') {
+      const request = payload as WeatherOperations['startup.project']['request'];
+      for (const status of ['normal', 'training'] as const)
+        for (const scopeKind of ['warnings', 'bulletins'] as const)
+          scopes.push(weatherReadScope(request.venueId, status, scopeKind));
+    }
+    for (const scope of scopes) {
+      const [venueId, status, scopeKind] = scope.split('|') as [
+        Parameters<typeof weatherReadScope>[0],
+        Parameters<typeof weatherReadScope>[1],
+        WeatherScopeKind,
+      ];
+      if (
+        (weatherScopeBlocks(currentUnknown, venueId, status, scopeKind) &&
+          !weatherScopeBlocks(initialContext.unknownScopes, venueId, status, scopeKind)) ||
+        (!['nowcast', 'kikikuru'].includes(scopeKind) &&
+          initialContext.validatedScopes.includes(scope) &&
+          !currentValidated.has(scope))
+      )
+        throw new WeatherRequestError('generation_changed');
+    }
+  }
   async function read<K extends keyof WeatherOperations>(
     kind: K,
     payload: WeatherOperations[K]['request'],
@@ -263,9 +353,20 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       kind,
       payload,
     } as never);
-    return delivery.read(kind, payload, context(), signal, timeoutMs);
+    const acquisitionEpoch = connectedAcquisitionEpoch ?? host.epoch;
+    const deliveryEpoch = delivery.epoch;
+    const initialContext = context();
+    const result = await delivery.read(kind, payload, initialContext, signal, timeoutMs);
+    try {
+      assertCurrentRead(kind, payload, initialContext, acquisitionEpoch, deliveryEpoch);
+    } catch (error) {
+      if (kind === 'tile.read' && result && typeof result === 'object' && 'release' in result)
+        (result.release as (() => void) | undefined)?.();
+      throw error;
+    }
+    return result;
   }
-  function readHttp<K extends Parameters<NonNullable<AppDependencies['weatherHttp']>>[0]>(
+  async function readHttp<K extends Parameters<NonNullable<AppDependencies['weatherHttp']>>[0]>(
     kind: K,
     payload: WeatherOperations[K]['request'],
     signal?: AbortSignal,
@@ -278,7 +379,18 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       kind,
       payload,
     } as never);
-    return delivery.readHttp(kind, payload, context(), signal);
+    if (closed) throw new WeatherRequestError('not_ready');
+    const acquisitionEpoch = connectedAcquisitionEpoch ?? host.epoch;
+    const deliveryEpoch = delivery.epoch;
+    const initialContext = context();
+    const result = await delivery.readHttp(kind, payload, initialContext, signal);
+    try {
+      assertCurrentRead(kind, payload, initialContext, acquisitionEpoch, deliveryEpoch);
+    } catch (error) {
+      result.release?.();
+      throw error;
+    }
+    return result;
   }
   const runtimes = (): MonitoringStatusResponse['weatherRuntimes'] => ({
     acquisition: host.status(),
@@ -384,33 +496,42 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       getRuntimeStatus: () => delivery.status(),
       restart: async () => {
         try {
-          await delivery.restart();
-          if (
-            host.epoch.weatherDatabaseGenerationId &&
-            validatedDatabaseGeneration &&
-            validatedSchemaVersion !== null
-          ) {
-            await delivery.connectReader({
-              generation: validatedDatabaseGeneration,
-              schemaVersion: validatedSchemaVersion,
-              acquisitionEpoch: host.epoch,
-              readerEpoch: randomUUID(),
+          await withGenerationTransition(async () => {
+            if (closed) throw new WeatherRequestError('not_ready');
+            publication?.replaceEpochs(host.epoch, {
+              ...delivery.epoch,
+              workerGeneration: randomUUID(),
             });
-            publication = new WeatherPublicationGate(host.epoch, delivery.epoch);
-            for (const [id, sample] of application?.samples ?? []) lastSamples.set(id, sample);
-            for (const [id, at] of application?.sampleReceivedAt ?? [])
-              lastSampleReceivedAt.set(id, at);
-            application?.close();
-            application = createDeliveryApplicationRuntime({
-              read,
-              ensureTile: (input, timeoutMs, signal) =>
-                host.call('tile.ensure', input, timeoutMs ?? 30000, signal),
-              retainedConnection: retained.connection,
-              terminalRegistry: terminal.registry,
-              weatherDatabaseGenerationId: validatedDatabaseGeneration,
-              now,
-            });
-          }
+            await delivery.restart();
+            if (
+              !readerSuspendedForAcquisition &&
+              host.epoch.weatherDatabaseGenerationId &&
+              validatedDatabaseGeneration === host.epoch.weatherDatabaseGenerationId &&
+              validatedSchemaVersion !== null
+            ) {
+              await delivery.connectReader({
+                generation: validatedDatabaseGeneration,
+                schemaVersion: validatedSchemaVersion,
+                acquisitionEpoch: host.epoch,
+                readerEpoch: randomUUID(),
+              });
+              connectedAcquisitionEpoch = host.epoch;
+              publication = new WeatherPublicationGate(host.epoch, delivery.epoch);
+              for (const [id, sample] of application?.samples ?? []) lastSamples.set(id, sample);
+              for (const [id, at] of application?.sampleReceivedAt ?? [])
+                lastSampleReceivedAt.set(id, at);
+              application?.close();
+              application = createDeliveryApplicationRuntime({
+                read,
+                ensureTile: (input, timeoutMs, signal) =>
+                  host.call('tile.ensure', input, timeoutMs ?? 30000, signal),
+                retainedConnection: retained.connection,
+                terminalRegistry: terminal.registry,
+                weatherDatabaseGenerationId: validatedDatabaseGeneration,
+                now,
+              });
+            }
+          });
         } catch (error) {
           const code = error instanceof Error ? error.message : 'restart_failed';
           throw new WeatherWorkerRestartError(
