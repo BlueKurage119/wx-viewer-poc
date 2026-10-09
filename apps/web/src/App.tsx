@@ -29,7 +29,11 @@ import type { MapLayerId } from './map/types';
 import { MonitoringDashboard } from './monitoring/MonitoringDashboard';
 import { MonitoringDialogHost } from './monitoring/MonitoringDialogHost';
 import { MonitoringToolbar } from './monitoring/MonitoringToolbar';
-import { monitoringOperationMessage } from './monitoring/monitoringOperationMessage';
+import { fetchOperationText, selectOperationLine } from './monitoring/monitoringOperationMessage';
+import { presentWorker, workerRestartabilityId } from './monitoring/weatherWorkerPresentation';
+import { useChangeSequence, useRestartBaselines } from './monitoring/useRestartCompletion';
+import { WorkerRestartHistoryContent } from './monitoring/WorkerRestartHistoryDialog';
+import type { WeatherRole } from '@wx-viewer-poc/shared';
 import { useMonitoringToolbar } from './monitoring/useMonitoringToolbar';
 import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
 import { useVenueRegistry } from './venueRegistryContext';
@@ -119,7 +123,31 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   });
   const workerRestart = useWeatherRestart();
   const deliveryRestart = useWeatherRestart('delivery');
-  const monitoringToolbar = useMonitoringToolbar({ active: view === 'monitor' });
+  const restartModels = { acquisition: workerRestart, delivery: deliveryRestart };
+  const restartBaselines = useRestartBaselines(
+    { acquisition: workerRestart.state, delivery: deliveryRestart.state },
+    monitoringState?.data ?? null,
+  );
+  const workerViews = Object.fromEntries(
+    (['acquisition', 'delivery'] as const).map((role) => [
+      role,
+      presentWorker(role, {
+        data: monitoringState?.data ?? null,
+        monitoringFailed: monitoringState?.phase === 'failed' || !monitoringState?.data,
+        restart: restartModels[role].state,
+        baselineGeneratedAt: restartBaselines[role],
+      }),
+    ]),
+  ) as Record<WeatherRole, ReturnType<typeof presentWorker>>;
+  const monitoringToolbar = useMonitoringToolbar({
+    active: view === 'monitor',
+    submitWorkerRestart: (role) => {
+      // 選択後に状態が変わっていた場合は送らない。世代はサーバー投影値だけを使う。
+      const generation = monitoringState?.data?.weatherRuntimes[role].workerGeneration;
+      if (!workerViews[role].canRestart || !generation) return;
+      restartModels[role].restart(generation);
+    },
+  });
   const current = views.find((item) => item.id === view)!;
   const selectScenario = (next: PreviewScenario) => {
     setScenario(next);
@@ -148,10 +176,20 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       }
     : { failed: preview && scenario === 'connection', lastSuccessAt: null };
   const visibleNotificationState = preview ? previewState : notificationFeed.state;
-  const operationMessage = monitoringOperationMessage(
-    monitoringToolbar.localState,
-    monitoringToolbar.operationState,
-  );
+  const fetchText = fetchOperationText(monitoringToolbar.operationState);
+  const acquisitionRow = workerViews.acquisition.result.rowText;
+  const deliveryRow = workerViews.delivery.result.rowText;
+  const changedSeq = useChangeSequence({
+    fetch: fetchText,
+    acquisition: acquisitionRow,
+    delivery: deliveryRow,
+  });
+  const operationLine = selectOperationLine(monitoringToolbar.localState, [
+    { text: fetchText, changedSeq: changedSeq('fetch') },
+    { text: acquisitionRow, changedSeq: changedSeq('acquisition') },
+    { text: deliveryRow, changedSeq: changedSeq('delivery') },
+  ]);
+  const operationMessage = operationLine?.text ?? null;
   const notificationState = {
     ...visibleNotificationState,
     operationMessage: operationGuideMessage(
@@ -197,13 +235,26 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
         <NotificationArea
           state={notificationState}
           mode={terminal.mode}
+          operationTitle={operationLine?.title}
           onSelectQuestionConfirmation={selectQuestion}
           onConfirm={confirmNotification}
         />
       }
       toolbar={
         view === 'monitor' ? (
-          <MonitoringToolbar model={monitoringToolbar} />
+          <MonitoringToolbar
+            model={monitoringToolbar}
+            workerRestart={{
+              acquisition: {
+                canRestart: workerViews.acquisition.canRestart,
+                describedBy: workerRestartabilityId('acquisition'),
+              },
+              delivery: {
+                canRestart: workerViews.delivery.canRestart,
+                describedBy: workerRestartabilityId('delivery'),
+              },
+            }}
+          />
         ) : preview ? (
           <>
             <span className="preview-label">表示確認用</span>
@@ -257,6 +308,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           onLoadStateChange={setMonitoringState}
           workerModel={workerRestart}
           deliveryModel={deliveryRestart}
+          restartBaselines={restartBaselines}
         />
       ) : (
         <div className="view-placeholder">
@@ -270,6 +322,11 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       <MonitoringDialogHost
         dialogId={monitoringToolbar.localState.openDialog}
         onClose={monitoringToolbar.closeDialog}
+        renderContent={({ dialogId }) =>
+          dialogId === 'workerRestartHistory' ? (
+            <WorkerRestartHistoryContent data={monitoringState?.data ?? null} />
+          ) : undefined
+        }
       />
     </AppShell>
   );

@@ -1,5 +1,21 @@
+import type { WeatherRole } from '@wx-viewer-poc/shared';
 import { GbButton, GbIconButton } from '../components/md';
 import type { MonitoringToolbarModel } from './useMonitoringToolbar';
+import {
+  isSelectionSubmittable,
+  isWorkerRestartSelection,
+  toolbarSelectionLabel,
+} from './monitoringToolbarState';
+
+export interface WorkerRestartButtonState {
+  readonly canRestart: boolean;
+  /** 押せない理由を示すカードの再開可否要素のID。 */
+  readonly describedBy?: string;
+}
+const NO_RESTART: Readonly<Record<WeatherRole, WorkerRestartButtonState>> = {
+  acquisition: { canRestart: false },
+  delivery: { canRestart: false },
+};
 
 type ToolbarButtonProps = React.ComponentProps<typeof GbButton> & {
   readonly selected?: boolean;
@@ -45,10 +61,17 @@ function ToolbarButton({
 }
 
 /** K2の操作表示。送信・照会の実行は親のTerminalAppに保持する。 */
-export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbarModel }) {
+export function MonitoringToolbar({
+  model,
+  workerRestart = NO_RESTART,
+}: {
+  readonly model: MonitoringToolbarModel;
+  readonly workerRestart?: Readonly<Record<WeatherRole, WorkerRestartButtonState>>;
+}) {
   const { localState, currentToolbar, busy } = model;
   const atRoot = localState.history.length <= 1;
-  const sendReady = !busy && localState.selectedOperation !== null;
+  const selection = localState.selectedOperation;
+  const sendReady = isSelectionSubmittable(selection, busy);
   return (
     <div className="monitoring-toolbar">
       <div
@@ -92,10 +115,12 @@ export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbar
         {currentToolbar.groups.map((group) => (
           <div className="monitoring-toolbar-group" key={group.map((item) => item.label).join('-')}>
             {group.map((item) => {
+              const key = `${currentToolbar.id}:${item.label}`;
               if (item.kind === 'operation') {
-                const selected = localState.selectedOperation === item.operation;
+                const selected = selection === item.operation;
                 return (
                   <ToolbarButton
+                    data-toolbar-item={key}
                     color="filled"
                     disabled={busy}
                     size="sm"
@@ -109,9 +134,33 @@ export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbar
                   </ToolbarButton>
                 );
               }
+              if (item.kind === 'workerRestart') {
+                const state = workerRestart[item.role];
+                const selected =
+                  isWorkerRestartSelection(selection) && selection.role === item.role;
+                return (
+                  <ToolbarButton
+                    data-toolbar-item={key}
+                    color="filled"
+                    softDisabled={!state.canRestart}
+                    size="sm"
+                    square
+                    aria-label={selected ? `${item.label}、選択中` : item.label}
+                    aria-describedby={state.describedBy}
+                    onClick={() => {
+                      if (state.canRestart) model.selectWorkerRestart(item.role);
+                    }}
+                    key={item.label}
+                    selected={selected}
+                  >
+                    {item.label}
+                  </ToolbarButton>
+                );
+              }
               if (item.kind === 'dialog') {
                 return (
                   <ToolbarButton
+                    data-toolbar-item={key}
                     color="filled"
                     size="sm"
                     square
@@ -124,6 +173,7 @@ export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbar
               }
               return (
                 <ToolbarButton
+                  data-toolbar-item={key}
                   color="filled"
                   size="sm"
                   square
@@ -140,7 +190,7 @@ export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbar
       <div className="monitoring-toolbar-group monitoring-toolbar-submit">
         <ToolbarButton
           color="filled"
-          disabled={busy || localState.selectedOperation === null}
+          softDisabled={selection === null}
           size="sm"
           square
           onClick={model.clearSelection}
@@ -150,10 +200,12 @@ export function MonitoringToolbar({ model }: { readonly model: MonitoringToolbar
         </ToolbarButton>
         <ToolbarButton
           color="filled"
-          disabled={busy || localState.selectedOperation === null}
+          softDisabled={!sendReady}
           size="sm"
           square
-          aria-label="取得操作を送信"
+          aria-label={
+            selection === null ? '取得操作を送信' : `${toolbarSelectionLabel(selection)}を送信`
+          }
           onClick={model.submit}
           sendReady={sendReady}
         >

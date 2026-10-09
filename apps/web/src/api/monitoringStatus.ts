@@ -252,6 +252,16 @@ function isMonitoringResponse(
   )
     return false;
   if (
+    value.warningTelegrams !== undefined &&
+    value.warningTelegrams !== null &&
+    !(
+      isRecord(value.warningTelegrams) &&
+      registry.resolveVenueId(value.warningTelegrams.venueId) !== null &&
+      isNonNegativeInteger(value.warningTelegrams.pendingCount)
+    )
+  )
+    return false;
+  if (
     !Array.isArray(value.readErrors) ||
     !value.readErrors.every((error) => isReadError(error, registry)) ||
     !Array.isArray(value.venues) ||

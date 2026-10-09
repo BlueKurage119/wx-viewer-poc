@@ -219,16 +219,16 @@ test('取得操作: 通常buttonの形状を維持し、選択時だけ状態ク
     assert.equal((selected.match(/monitoring-toolbar-selected/g) ?? []).length, 1);
     assert.equal((selected.match(/type="toggle"/g) ?? []).length, 0);
     assert.equal(selected.includes('aria-pressed'), false);
-    assert.equal((selected.match(/size="sm"/g) ?? []).length, 11);
-    assert.equal((selected.match(/square=""/g) ?? []).length, 11);
+    assert.equal((selected.match(/size="sm"/g) ?? []).length, 10);
+    assert.equal((selected.match(/square=""/g) ?? []).length, 10);
   }
-  assert.equal((unselected.match(/size="sm"/g) ?? []).length, 11);
-  assert.equal((unselected.match(/square=""/g) ?? []).length, 11);
+  assert.equal((unselected.match(/size="sm"/g) ?? []).length, 10);
+  assert.equal((unselected.match(/square=""/g) ?? []).length, 10);
   assert.ok(unselected.includes('role="group" aria-label="監視メニュー移動"'));
-  assert.equal((unselected.match(/slot="container"/g) ?? []).length, 9);
+  assert.equal((unselected.match(/slot="container"/g) ?? []).length, 8);
   assert.ok(unselected.includes('monitoring-toolbar-button-content'));
   assert.ok(unselected.includes('monitoring-toolbar-button-label'));
-  assert.equal((toolbarMarkup('start', true).match(/slot="container"/g) ?? []).length, 9);
+  assert.equal((toolbarMarkup('start', true).match(/slot="container"/g) ?? []).length, 8);
   assert.equal(unselected.includes('monitoring-send-ready'), false);
   assert.equal(toolbarMarkup('start').includes('monitoring-send-ready'), true);
   assert.equal(toolbarMarkup('start', true).includes('monitoring-send-ready'), false);
@@ -374,24 +374,19 @@ test('固定操作は中央スクロール領域の外に置き、階層ごと�
     assert.deepEqual(
       center.map((group) => group.props.children.map((button) => button.props.children)),
       history.length === 1
-        ? [
-            ['取得開始', '取得停止'],
-            ['強制更新'],
-            ['受信履歴', '電文履歴', '出力履歴'],
-            ['状態診断'],
-          ]
+        ? [['取得開始', '取得停止', '強制更新'], ['Worker', '履歴'], ['状態診断']]
         : [['取得停止']],
     );
     const actions = React.Children.toArray(regions[2]!.props.children) as React.ReactElement<{
       onClick: () => void;
-      disabled: boolean;
+      softDisabled: boolean;
     }>[];
     assert.deepEqual(
       actions.map((action) => action.props.onClick),
       [clearSelection, submit],
     );
     assert.deepEqual(
-      actions.map((action) => action.props.disabled),
+      actions.map((action) => action.props.softDisabled),
       [false, false],
     );
   }

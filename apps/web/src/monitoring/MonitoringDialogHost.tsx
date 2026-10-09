@@ -9,6 +9,7 @@ const dialogTitles: Record<MonitoringDialogId, string> = {
   telegram: '電文履歴',
   output: '出力履歴',
   diagnostics: '状態診断',
+  workerRestartHistory: 'Worker再起動履歴',
 };
 
 export interface MonitoringDialogContentContext {
@@ -77,7 +78,7 @@ export function MonitoringDialogHost({
   return (
     <dialog
       ref={dialogRef}
-      className="monitoring-dialog"
+      className={`monitoring-dialog${activeId === 'workerRestartHistory' ? ' monitoring-dialog-wide' : ''}`}
       aria-labelledby="monitoring-dialog-title"
       aria-describedby={hasDefaultContent ? 'monitoring-dialog-description' : undefined}
       onCancel={(event) => {

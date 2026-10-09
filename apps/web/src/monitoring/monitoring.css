@@ -31,7 +31,7 @@
 }
 
 .monitoring-card {
-  min-height: 112px;
+  min-height: 136px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -69,6 +69,20 @@
 
 .monitoring-card-content {
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+.monitoring-card h2,
+.monitoring-card-value,
+.monitoring-card-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 詳細行は最大3行分の高さを常に確保し、状態によるカード高さの変化を防ぐ。 */
+.monitoring-card-details {
+  min-height: 65px;
 }
 
 .monitoring-card h2,
@@ -350,6 +364,20 @@ md-gb-button[disabled] .monitoring-toolbar-button-content {
   color: hsl(from var(--md-sys-color-on-surface) h s l / 38%);
 }
 
+/* 押せない状態でもフォーカスを保つ softDisabled の見た目は disabled と同じにする。 */
+.monitoring-toolbar md-gb-button[soft-disabled]::part(btn) {
+  --container-color: hsl(from var(--md-sys-color-on-surface) h s l / 10%);
+  --label-text-color: hsl(from var(--md-sys-color-on-surface) h s l / 38%);
+}
+
+md-gb-button[soft-disabled] .monitoring-toolbar-button-container {
+  background-color: hsl(from var(--md-sys-color-on-surface) h s l / 10%);
+}
+
+md-gb-button[soft-disabled] .monitoring-toolbar-button-content {
+  color: hsl(from var(--md-sys-color-on-surface) h s l / 38%);
+}
+
 .monitoring-send-ready .monitoring-toolbar-button-container {
   animation: monitoring-send-ready-background 2s steps(1, end) infinite;
 }
@@ -447,7 +475,7 @@ md-gb-button[disabled] .monitoring-toolbar-button-content {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .view-content-monitor {
     padding: 16px;
   }
@@ -544,4 +572,46 @@ md-gb-button[disabled] .monitoring-toolbar-button-content {
 .monitoring-worker-history li span:last-child {
   color: var(--md-sys-color-on-surface-variant);
   font-size: 0.8rem;
+}
+
+.monitoring-dialog.monitoring-dialog-wide {
+  inline-size: min(880px, calc(100vw - 48px));
+}
+
+.monitoring-worker-history-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.monitoring-worker-history-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 4px;
+}
+
+.monitoring-worker-history-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.monitoring-worker-history-table th,
+.monitoring-worker-history-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.monitoring-worker-history-table thead th {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 600;
+}
+
+.monitoring-worker-history-actions {
+  display: flex;
+  gap: 12px;
 }
