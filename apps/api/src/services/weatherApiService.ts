@@ -1,3 +1,4 @@
+import type { WeatherReadKind } from '../runtime/weatherContracts.js';
 import {
   type AmedasCapabilities,
   type AmedasData,
@@ -64,6 +65,11 @@ export interface WeatherApiServiceDeps {
   readonly venueRegistry: VenueRegistry;
   readonly getPollingStatus?: () => JmaXmlPollingStatus | undefined;
   readonly now?: () => string;
+  readonly isScopeReadable?: (
+    venueId: VenueId,
+    controlStatus: WeatherControlStatus,
+    kind: WeatherReadKind,
+  ) => boolean;
   readonly resolveAmedasTarget?: (venueId: VenueId) => AmedasTarget;
 }
 
@@ -153,6 +159,12 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
     return id;
   };
 
+  const readable = (
+    terminal: TerminalDefinition,
+    controlStatus: WeatherControlStatus,
+    kind: WeatherReadKind,
+  ) => deps.isScopeReadable?.(venueId(terminal), controlStatus, kind) !== false;
+
   return {
     getWarnings(
       terminal: TerminalDefinition,
@@ -170,11 +182,9 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
       const targetArea = resolveWarningCurrentTargetArea(deps.venueRegistry, venueId(terminal));
 
       const tx = connection.transaction(() => {
-        const snapshot = findWarningCurrentSnapshot(
-          connection,
-          targetArea.municipalCode,
-          controlStatus,
-        );
+        const snapshot = readable(terminal, controlStatus, 'warnings')
+          ? findWarningCurrentSnapshot(connection, targetArea.municipalCode, controlStatus)
+          : null;
 
         const context: WeatherContext = {
           terminalId: terminal.id,
@@ -298,11 +308,9 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
       const targetArea = resolveWarningTimeseriesTargetArea(deps.venueRegistry, venueId(terminal));
 
       const tx = connection.transaction(() => {
-        const snapshot = findWarningTimeseriesSnapshot(
-          connection,
-          targetArea.municipalCode,
-          controlStatus,
-        );
+        const snapshot = readable(terminal, controlStatus, 'warning-timeseries')
+          ? findWarningTimeseriesSnapshot(connection, targetArea.municipalCode, controlStatus)
+          : null;
 
         const context: WeatherContext = {
           terminalId: terminal.id,
@@ -437,15 +445,20 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
       const broadTarget = resolveEarlyWarningTargetArea(deps.venueRegistry, venueId(terminal));
 
       const tx = connection.transaction(() => {
-        const nearSnapshot = findEarlyWarningSnapshot(
-          connection,
-          broadTarget.forecastAreaCode,
-          'near',
-          controlStatus,
-        );
+        const nearSnapshot = readable(terminal, controlStatus, 'early-warning')
+          ? findEarlyWarningSnapshot(
+              connection,
+              broadTarget.forecastAreaCode,
+              'near',
+              controlStatus,
+            )
+          : null;
 
         const farSnapshot =
-          resolveEarlyWarningTargetAreas(deps.venueRegistry, venueId(terminal), 'far')
+          (readable(terminal, controlStatus, 'early-warning')
+            ? resolveEarlyWarningTargetAreas(deps.venueRegistry, venueId(terminal), 'far')
+            : []
+          )
             .map((target) =>
               findEarlyWarningSnapshot(connection, target.forecastAreaCode, 'far', controlStatus),
             )
@@ -635,12 +648,14 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
       const target = resolveAreaTimeseriesForecastTarget(deps.venueRegistry, venueId(terminal));
 
       const tx = connection.transaction(() => {
-        const snapshot = findAreaTimeseriesSnapshot(
-          connection,
-          target.forecastAreaCode,
-          target.temperatureStationCode,
-          controlStatus,
-        );
+        const snapshot = readable(terminal, controlStatus, 'area-timeseries')
+          ? findAreaTimeseriesSnapshot(
+              connection,
+              target.forecastAreaCode,
+              target.temperatureStationCode,
+              controlStatus,
+            )
+          : null;
 
         const context: WeatherContext = {
           terminalId: terminal.id,
@@ -771,7 +786,7 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
       };
 
       // 案B: normal 以外（training / test）は DB を読まず常に unavailable
-      if (controlStatus !== 'normal') {
+      if (controlStatus !== 'normal' || !readable(terminal, controlStatus, 'amedas')) {
         return {
           ...context,
           station: {
@@ -912,6 +927,16 @@ export function createWeatherApiService(deps: WeatherApiServiceDeps): WeatherApi
         unsupportedFields: ['editorialOffice', 'publishingOffice'],
         deduplicated: false,
       };
+
+      if (!readable(terminal, controlStatus, 'bulletins')) {
+        return {
+          ...context,
+          area: defaultArea,
+          availability: 'unavailable',
+          bulletins: [],
+          capabilities,
+        };
+      }
 
       const tx = connection.transaction(() => {
         const rows = listBosaiBulletins(connection, {

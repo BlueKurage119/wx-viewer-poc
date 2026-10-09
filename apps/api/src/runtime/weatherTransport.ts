@@ -3,6 +3,9 @@ import type { MessagePort, Worker } from 'node:worker_threads';
 import { WEATHER_LIMITS, assertWeatherData } from './weatherContracts.js';
 import { WeatherRequestError } from './weatherRequestRegistry.js';
 
+type Lane = 'payload' | 'control' | 'stop' | 'lifecycle';
+const requestLimits: Record<Lane, number> = { payload: 64, control: 8, stop: 2, lifecycle: 2 };
+
 type Endpoint = Pick<MessagePort | Worker, 'postMessage' | 'on' | 'off'>;
 type Packet = {
   kind: 'call' | 'reply';
@@ -19,7 +22,7 @@ export class WeatherTransport {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
-      control: boolean;
+      lane: Lane;
     }
   >();
   private readonly frames = new Map<
@@ -28,39 +31,48 @@ export class WeatherTransport {
   >();
   private readonly acknowledgements = new Map<string, () => void>();
   private closed = false;
-  private sendingBytes = 0;
+  private readonly sendingBytes: Record<Lane, number> = {
+    payload: 0,
+    control: 0,
+    stop: 0,
+    lifecycle: 0,
+  };
   private readonly frameLanes = {
     payload: { active: 0, waiters: [] as (() => void)[] },
     control: { active: 0, waiters: [] as (() => void)[] },
+    stop: { active: 0, waiters: [] as (() => void)[] },
+    lifecycle: { active: 0, waiters: [] as (() => void)[] },
   };
-  private controlBytes = 0;
-  private isControl(method: string, value: unknown): boolean {
-    return (
-      [
-        'runtime.close',
-        'runtime.fail',
-        'runtime.accepting',
-        'database.ready',
-        'prepared',
-        'status',
-        'initialization.failed',
-        'update.begin',
-        'update.complete',
-        'publication.pause',
-        'publication.release',
-        'operation.query',
-      ].includes(method) ||
-      (method === 'fetch.execute' && (value as { operation?: string } | null)?.operation === 'stop')
-    );
+  private laneFor(method: string, value: unknown): Lane {
+    if (method === 'runtime.close' || method === 'runtime.fail') return 'lifecycle';
+    if (
+      (method === 'fetch.execute' || method === 'operation.query') &&
+      (value as { operation?: string } | null)?.operation === 'stop'
+    )
+      return 'stop';
+    return [
+      'runtime.accepting',
+      'database.ready',
+      'prepared',
+      'status',
+      'initialization.failed',
+      'update.begin',
+      'update.complete',
+      'publication.pause',
+      'publication.release',
+      'operation.query',
+    ].includes(method)
+      ? 'control'
+      : 'payload';
   }
-  private async acquireFrameSlot(control: boolean) {
-    const lane = this.frameLanes[control ? 'control' : 'payload'];
+  private async acquireFrameSlot(name: Lane) {
+    const lane = this.frameLanes[name];
     if (lane.active >= WEATHER_LIMITS.unackedFrames)
       await new Promise<void>((resolve) => lane.waiters.push(resolve));
     else lane.active++;
   }
-  private releaseFrameSlot(control: boolean) {
-    const lane = this.frameLanes[control ? 'control' : 'payload'];
+  private releaseFrameSlot(name: Lane) {
+    const lane = this.frameLanes[name];
     const next = lane.waiters.shift();
     if (next) next();
     else lane.active--;
@@ -109,7 +121,7 @@ export class WeatherTransport {
       (!control &&
         [...this.frames.values()].reduce((total, item) => total + item.bytes, 0) + m.bytes.length >
           WEATHER_LIMITS.bulkBytes) ||
-      (!this.frames.has(m.id) && this.frames.size >= 64)
+      (!control && !this.frames.has(m.id) && this.frames.size >= 64)
     ) {
       this.failure('payload_too_large');
       return;
@@ -144,33 +156,37 @@ export class WeatherTransport {
       else pending.resolve(packet.value);
       return;
     }
+    // 応答内容にはoperationが残らないため、元要求のレーンで返信する。
+    const lane = this.laneFor(packet.method, packet.value);
     try {
       const value = await this.handle(packet.method, packet.value);
-      await this.send({ ...packet, kind: 'reply', value: value ?? null, error: null });
+      await this.send({ ...packet, kind: 'reply', value: value ?? null, error: null }, lane);
     } catch (error) {
-      await this.send({
-        ...packet,
-        kind: 'reply',
-        value: null,
-        error: error instanceof Error ? error.message : 'protocol_error',
-      });
+      await this.send(
+        {
+          ...packet,
+          kind: 'reply',
+          value: null,
+          error: error instanceof Error ? error.message : 'protocol_error',
+        },
+        lane,
+      );
     }
   }
-  private async send(packet: Packet): Promise<void> {
+  private async send(packet: Packet, lane: Lane): Promise<void> {
     assertWeatherData(packet);
     const bytes = Buffer.from(JSON.stringify(packet));
-    const control = this.isControl(packet.method, packet.value);
+    const control = lane !== 'payload';
     if (
       control
         ? bytes.length > WEATHER_LIMITS.frameBytes ||
-          bytes.length + this.controlBytes > 8 * WEATHER_LIMITS.frameBytes
-        : bytes.length + this.sendingBytes > WEATHER_LIMITS.bulkBytes
+          bytes.length + this.sendingBytes[lane] > requestLimits[lane] * WEATHER_LIMITS.frameBytes
+        : bytes.length + this.sendingBytes[lane] > WEATHER_LIMITS.bulkBytes
     ) {
       this.failure('payload_too_large');
       throw new Error('payload_too_large');
     }
-    if (control) this.controlBytes += bytes.length;
-    else this.sendingBytes += bytes.length;
+    this.sendingBytes[lane] += bytes.length;
     try {
       for (
         let offset = 0, index = 0;
@@ -178,7 +194,7 @@ export class WeatherTransport {
         offset += WEATHER_LIMITS.frameBytes, index++
       ) {
         if (this.closed) throw new WeatherRequestError('not_ready');
-        await this.acquireFrameSlot(control);
+        await this.acquireFrameSlot(lane);
         try {
           if (this.closed) throw new WeatherRequestError('not_ready');
           await new Promise<void>((resolve, reject) => {
@@ -204,20 +220,19 @@ export class WeatherTransport {
             });
           });
         } finally {
-          this.releaseFrameSlot(control);
+          this.releaseFrameSlot(lane);
         }
       }
     } finally {
-      if (control) this.controlBytes -= bytes.length;
-      else this.sendingBytes -= bytes.length;
+      this.sendingBytes[lane] -= bytes.length;
     }
   }
   call<T>(method: string, value: unknown, timeoutMs = 5000): Promise<T> {
     if (this.closed) return Promise.reject(new WeatherRequestError('not_ready'));
-    const control = this.isControl(method, value);
+    const lane = this.laneFor(method, value);
     if (
-      [...this.pending.values()].filter((entry) => entry.control === control).length >=
-      (control ? 8 : 64)
+      [...this.pending.values()].filter((entry) => entry.lane === lane).length >=
+      requestLimits[lane]
     )
       return Promise.reject(new WeatherRequestError('busy'));
     const id = randomUUID();
@@ -228,8 +243,8 @@ export class WeatherTransport {
         if (method !== 'status' && method !== 'fetch.execute' && method !== 'operation.query')
           this.failure('handshake_timeout');
       }, timeoutMs);
-      this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer, control });
-      void this.send({ kind: 'call', id, method, value, error: null }).catch((error) => {
+      this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer, lane });
+      void this.send({ kind: 'call', id, method, value, error: null }, lane).catch((error) => {
         clearTimeout(timer);
         this.pending.delete(id);
         reject(error);

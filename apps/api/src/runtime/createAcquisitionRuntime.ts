@@ -1,3 +1,4 @@
+import { weatherReadScope } from './weatherReadScope.js';
 import {
   createVenueRegistry,
   type VenueId,
@@ -65,7 +66,11 @@ export function createAcquisitionRuntime(
   const initialization = new StartupNotificationInitialization();
   const decisions = createWorkerDecisions(epoch, checkpoint, transport);
   const scopeFor = (venueIds: readonly VenueId[]) => ({
-    scopes: venueIds,
+    scopes: venueIds.flatMap((id) =>
+      (['normal', 'training'] as const).flatMap((status) =>
+        (['warnings', 'bulletins'] as const).map((kind) => weatherReadScope(id, status, kind)),
+      ),
+    ),
     initialWarningKeys: venueIds.flatMap((id) =>
       ['normal', 'training'].map(
         (status) =>
@@ -83,7 +88,9 @@ export function createAcquisitionRuntime(
   const evaluateInitialWarning = (venue: ReturnType<typeof resolveVenueWarningContext>) =>
     decisions.runUpdate(
       {
-        scopes: [venue.venueId],
+        scopes: (['normal', 'training'] as const).map((status) =>
+          weatherReadScope(venue.venueId, status, 'warnings'),
+        ),
         initialWarningKeys: ['normal', 'training'].map(
           (status) => `${venue.targetArea.municipalCode}|${status}`,
         ),

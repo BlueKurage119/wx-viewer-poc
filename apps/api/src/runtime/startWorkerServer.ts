@@ -1,3 +1,4 @@
+import { weatherScopeBlocks, type WeatherScopeKind } from './weatherReadScope.js';
 import { InMemoryStartupProgressTracker } from '../monitoring/startupProgressTracker.js';
 import { InMemoryWarningCurrentRecoveryTracker } from '../monitoring/warningCurrentRecoveryTracker.js';
 import { logPollingConfig } from '../server.js';
@@ -226,6 +227,8 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
           connection,
           venueRegistry: venue.registry,
           getPollingStatus: () => host.report?.polling ?? undefined,
+          isScopeReadable: (venueId, status, kind) =>
+            !weatherScopeBlocks(host.status().unknownScopes ?? [], venueId, status, kind),
           now,
         });
         readerImages = createImageServices({
@@ -384,8 +387,8 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       if (!initialization.isReady(input.venueId) || input.serverGenerationId !== serverGenerationId)
         return service.inquire(input);
       if (
-        host.decisions.pendingUnit?.scopes.includes(input.venueId) ||
-        host.status().unknownScopes?.includes(input.venueId)
+        weatherScopeBlocks(host.decisions.pendingUnit?.scopes ?? [], input.venueId) ||
+        weatherScopeBlocks(host.status().unknownScopes ?? [], input.venueId)
       )
         return {
           status: 'initializing' as const,
@@ -528,21 +531,66 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
           requireApplication().monitoringProcessing!.getProcessing(...args),
       },
       monitoringStatus: {
-        getStatus: (t) =>
-          application
-            ? {
-                ...application.dependencies.monitoringStatus!.getStatus(t),
-                weatherRuntimes: runtimes(),
-              }
-            : unavailableMonitoring({
-                terminal: t,
-                registry: venue.registry,
-                schedule,
-                generation: serverGenerationId,
-                startedAt: serverStartedAt,
-                runtimes: runtimes(),
-                now: now(),
-              }),
+        getStatus: (t) => {
+          if (!application)
+            return unavailableMonitoring({
+              terminal: t,
+              registry: venue.registry,
+              schedule,
+              generation: serverGenerationId,
+              startedAt: serverStartedAt,
+              runtimes: runtimes(),
+              now: now(),
+            });
+          const status = application.dependencies.monitoringStatus!.getStatus(t);
+          const unknown = host.status().unknownScopes ?? [];
+          const kinds: Record<string, WeatherScopeKind> = {
+            warning: 'warnings',
+            warning_timeseries: 'warning-timeseries',
+            early_warning: 'early-warning',
+            area_timeseries: 'area-timeseries',
+            bosai_bulletin: 'bulletins',
+            amedas: 'amedas',
+            nowcast: 'nowcast',
+            kikikuru: 'kikikuru',
+          };
+          const blockedInformation = (item: MonitoringStatusResponse['information'][number]) =>
+            weatherScopeBlocks(unknown, item.venueId, 'normal', kinds[item.kind]);
+          // 未完了unitは最終正常キャッシュより優先し、読取不能を正常0件にしない。
+          const blocked = status.information.filter((item) => blockedInformation(item));
+          return {
+            ...status,
+            weatherRuntimes: runtimes(),
+            information: status.information.map((item) =>
+              blockedInformation(item)
+                ? {
+                    ...item,
+                    availability: 'unavailable' as const,
+                    issuedAt: null,
+                    validAt: null,
+                    fetchedAt: null,
+                    lastSuccessAt: null,
+                    summaryCount: null,
+                  }
+                : item,
+            ),
+            readErrors: [
+              ...status.readErrors.filter(
+                (item) =>
+                  item.section !== 'information' ||
+                  !blocked.some(
+                    (section) => section.venueId === item.venueId && section.kind === item.kind,
+                  ),
+              ),
+              ...blocked.map((item) => ({
+                section: 'information' as const,
+                venueId: item.venueId,
+                kind: item.kind,
+                code: 'weather_data_read_failed' as const,
+              })),
+            ],
+          };
+        },
       },
       monitoringHistory: {
         listReceptions: (query) => requireApplication().monitoringHistory!.listReceptions(query),

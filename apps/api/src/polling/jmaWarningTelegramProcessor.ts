@@ -1,3 +1,4 @@
+import { weatherReadScope } from '../runtime/weatherReadScope.js';
 import type { DecisionScope } from '../runtime/weatherDecisionRuntime.js';
 import { type UtcIso8601String, type VenueId, type VenueRegistry } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
@@ -228,7 +229,17 @@ export async function reprocessPendingWarningTelegramReceptions(
     };
     if (options?.runWeatherUpdate)
       await options.runWeatherUpdate(commitPage, {
-        scopes: [venueId],
+        scopes: [
+          ...new Set(
+            page.receptions.flatMap((reception) =>
+              reception.controlStatus === 'normal' ||
+              reception.controlStatus === 'training' ||
+              reception.controlStatus === 'test'
+                ? [weatherReadScope(venueId, reception.controlStatus, 'warnings')]
+                : [],
+            ),
+          ),
+        ],
         initialWarningKeys: [
           ...new Set(
             page.receptions

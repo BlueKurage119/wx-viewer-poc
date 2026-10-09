@@ -88,16 +88,44 @@ test('後着した古い開始ACKと古い明示拒否は新しい停止意図�
   }
 });
 
-test('制御8枠飽和で未送信の停止は意図を戻しWorker実行0、枠解放後は受付可能', async () => {
+test('公開・通常照会の制御8枠飽和でも停止の受付と結果照会が完了する', async () => {
   const f = setup();
   try {
     await f.host.start();
     await f.host.execute('start', 'start-running');
     const queries = Array.from({ length: 8 }, (_, i) =>
-      f.host.call('operation.query', { operationId: `hold-query-${i}`, operation: 'stop' }),
+      f.host.call('operation.query', { operationId: `hold-query-${i}`, operation: 'start' }),
     );
     await until(
       () => f.events().filter((e) => e.operationId?.startsWith('hold-query')).length === 8,
+    );
+    await f.host.execute('stop', 'reserved-stop');
+    assert.equal(f.host.desiredRunning, false);
+    assert.deepEqual(
+      f
+        .events()
+        .filter((e) => e.operationId === 'reserved-stop')
+        .map((e) => e.event),
+      ['execute-received', 'operation-executed', 'operation-query'],
+    );
+    for (let i = 0; i < 8; i++)
+      await f.host.call('fixture.release-operation', { operationId: `hold-query-${i}` });
+    await Promise.all(queries);
+  } finally {
+    await f.close();
+  }
+});
+
+test('停止専用2枠も有界で、未送信拒否は意図を戻し枠解放後は受付可能', async () => {
+  const f = setup();
+  try {
+    await f.host.start();
+    await f.host.execute('start', 'start-running');
+    const queries = Array.from({ length: 2 }, (_, i) =>
+      f.host.call('operation.query', { operationId: `hold-query-${i}`, operation: 'stop' }),
+    );
+    await until(
+      () => f.events().filter((e) => e.operationId?.startsWith('hold-query')).length === 2,
     );
     await assert.rejects(f.host.execute('stop', 'unsent-stop'), { message: 'busy' });
     assert.equal(f.host.desiredRunning, true);
@@ -105,7 +133,7 @@ test('制御8枠飽和で未送信の停止は意図を戻しWorker実行0、枠
       f.events().some((e) => e.operationId === 'unsent-stop'),
       false,
     );
-    for (let i = 0; i < 8; i++)
+    for (let i = 0; i < 2; i++)
       await f.host.call('fixture.release-operation', { operationId: `hold-query-${i}` });
     await Promise.all(queries);
     await f.host.execute('stop', 'accepted-stop');

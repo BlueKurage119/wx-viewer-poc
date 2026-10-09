@@ -1,3 +1,4 @@
+import { weatherReadScope } from '../runtime/weatherReadScope.js';
 import type { DecisionScope } from '../runtime/weatherDecisionRuntime.js';
 import type { DatabaseConnection } from '../database/index.js';
 import {
@@ -680,7 +681,12 @@ export async function recoverWarningCurrent(
       connection.transaction(() =>
         replaceRecoveryStatus(connection, venue.targetArea, status, selected),
       )();
-    if (options.runWeatherUpdate) await options.runWeatherUpdate(commit);
+    if (options.runWeatherUpdate)
+      await options.runWeatherUpdate(commit, {
+        scopes: [weatherReadScope(venue.venueId, status, 'warnings')],
+        initialWarningKeys: [],
+        initialBosaiKeys: [],
+      });
     else commit();
     results.push({
       controlStatus: status,

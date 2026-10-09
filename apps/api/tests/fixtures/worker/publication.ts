@@ -1,3 +1,5 @@
+import { createVenueRegistry } from '@wx-viewer-poc/shared';
+import { telegramWeatherScopes } from '../../../src/runtime/weatherReadScope.js';
 import { parentPort, threadId, workerData } from 'node:worker_threads';
 import { initializeRoleDatabase } from '../../../src/database/roleDatabase.js';
 import { WeatherTransport } from '../../../src/runtime/weatherTransport.js';
@@ -36,6 +38,40 @@ const transport = new WeatherTransport(
     }
     if (method === 'publication.release')
       return runtime.decisions.release((value as { token: string }).token);
+    if (method === 'fixture.incomplete') {
+      const input = value as {
+        snapshot: Parameters<typeof saveWarningCurrentSnapshot>[1];
+        exit: boolean;
+        granular?: boolean;
+      };
+      await transport.call('update.begin', {
+        unitId: 'incomplete',
+        epoch,
+        beforeRevision: 1,
+        scopes: input.granular
+          ? telegramWeatherScopes(
+              createVenueRegistry(data.settings.venues, data.settings.venueGeneration),
+              {
+                telegramType: 'VPWW55',
+                controlStatus: 'normal',
+                areas: [
+                  {
+                    sequence: 1,
+                    areaCode: '1310800',
+                    areaName: '江東区',
+                    codeType: '気象・地震・火山情報／市町村等',
+                  },
+                ],
+              },
+            )
+          : ['east'],
+        initialWarningKeys: [],
+        initialBosaiKeys: [],
+      });
+      saveWarningCurrentSnapshot(db.connection, input.snapshot);
+      if (input.exit) setTimeout(() => process.exit(1), 100);
+      return null;
+    }
     if (method === 'fixture.update') {
       const input = value as {
         snapshot: Parameters<typeof saveWarningCurrentSnapshot>[1];
