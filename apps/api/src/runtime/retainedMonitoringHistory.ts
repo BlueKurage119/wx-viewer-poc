@@ -2,6 +2,7 @@ import type {
   MonitoringNotificationOutputQuery,
   MonitoringOperationQuery,
   NotificationReceptionReference,
+  NotificationReceptionUnavailableReason,
   UtcIso8601String,
 } from '@wx-viewer-poc/shared';
 import type { DatabaseConnection } from '../database/index.js';
@@ -27,6 +28,17 @@ type Read = <K extends 'history.references' | 'history.reception'>(
   kind: K,
   payload: WeatherOperations[K]['request'],
 ) => Promise<WeatherOperations[K]['response']>;
+export type NotificationReceptionResolution =
+  | { readonly kind: 'not_found' }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: NotificationReceptionUnavailableReason | 'not_applicable';
+    }
+  | {
+      readonly kind: 'reference';
+      readonly receptionId: number;
+      readonly expectedDatabaseGenerationId: string;
+    };
 /** 保持履歴を先に取得し、気象参照の失敗で履歴本体を失わない。 */
 export function createRetainedMonitoringHistory(
   connection: DatabaseConnection,
@@ -63,6 +75,23 @@ export function createRetainedMonitoringHistory(
     let index = 0;
     return requests.map((r) => (r === null ? { status: 'not_applicable' } : results[index++]!));
   }
+  async function resolveNotificationReceptionById(
+    id: number,
+  ): Promise<NotificationReceptionResolution> {
+    const row = findNotificationOutputHistoryById(connection, id);
+    if (!row) return { kind: 'not_found' };
+    const [ref] = await references([row]);
+    if (!ref || ref.status !== 'available')
+      return {
+        kind: 'unavailable',
+        reason: ref?.status === 'unavailable' ? ref.reason : 'not_applicable',
+      };
+    return {
+      kind: 'reference',
+      receptionId: ref.receptionId,
+      expectedDatabaseGenerationId: row.weatherDatabaseGenerationId!,
+    };
+  }
   return {
     async listNotificationOutputs(
       query: MonitoringNotificationOutputQuery,
@@ -79,19 +108,14 @@ export function createRetainedMonitoringHistory(
         items: rows.map((row, index) => ({ ...row, receptionReference: refs[index]! })),
       };
     },
+    resolveNotificationReceptionById,
     async getNotificationReceptionById(id: number): Promise<NotificationReceptionResult> {
-      const row = findNotificationOutputHistoryById(connection, id);
-      if (!row) return { kind: 'not_found' };
-      const [ref] = await references([row]);
-      if (!ref || ref.status !== 'available')
-        return {
-          kind: 'unavailable',
-          reason: ref?.status === 'unavailable' ? ref.reason : 'not_applicable',
-        };
+      const reference = await resolveNotificationReceptionById(id);
+      if (reference.kind !== 'reference') return reference;
       try {
         const response = await read('history.reception', {
-          receptionId: ref.receptionId,
-          expectedDatabaseGenerationId: row.weatherDatabaseGenerationId!,
+          receptionId: reference.receptionId,
+          expectedDatabaseGenerationId: reference.expectedDatabaseGenerationId,
         });
         return response
           ? { kind: 'found', response }

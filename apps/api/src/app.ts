@@ -1,4 +1,8 @@
 import type { WeatherWorkerControlService } from './services/weatherWorkerControlService.js';
+import type { DeliveryHttpResult } from './runtime/deliveryContracts.js';
+import type { NotificationReceptionResolution } from './runtime/retainedMonitoringHistory.js';
+import type { WeatherOperations } from './runtime/weatherContracts.js';
+import { WeatherRequestError } from './runtime/weatherRequestRegistry.js';
 import express, { type Express } from 'express';
 import {
   parseKikikuruTileRequest,
@@ -40,6 +44,19 @@ export type AsyncCompatible<T> = {
 };
 
 export interface AppDependencies {
+  readonly getWeatherDatabaseGenerationId?: () => string | null;
+  readonly weatherHttp?: <
+    K extends
+      | 'weather.read'
+      | 'image.times'
+      | 'history.receptions'
+      | 'history.reception'
+      | 'monitoring.processing',
+  >(
+    kind: K,
+    payload: WeatherOperations[K]['request'],
+    signal?: AbortSignal,
+  ) => Promise<DeliveryHttpResult>;
   readonly weatherWorkerControl?: WeatherWorkerControlService;
   readonly venueConfig?: VenueConfigResponse;
   readonly terminalConfig?: TerminalConfigResponse;
@@ -59,7 +76,9 @@ export interface AppDependencies {
   readonly kikikuruApi?: AsyncCompatible<KikikuruApiService>;
   readonly monitoringStatus?: MonitoringStatusService;
   readonly monitoringProcessing?: AsyncCompatible<MonitoringProcessingService>;
-  readonly monitoringHistory?: AsyncCompatible<MonitoringHistoryService>;
+  readonly monitoringHistory?: AsyncCompatible<MonitoringHistoryService> & {
+    resolveNotificationReceptionById?: (id: number) => Promise<NotificationReceptionResolution>;
+  };
   readonly fetchControl?: FetchControlService;
 }
 
@@ -67,6 +86,75 @@ function sendJsonNoStore(res: express.Response, status: number, body: unknown): 
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.status(status).end(JSON.stringify(body));
+}
+
+function sendLeasedBytes(
+  res: express.Response,
+  bytes: Uint8Array,
+  release?: () => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (res.destroyed) {
+      release?.();
+      resolve();
+      return;
+    }
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      res.off('finish', finish);
+      res.off('close', finish);
+      release?.();
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      res.destroy(new Error('HTTP送信期限を超過しました'));
+      finish();
+    }, 5000);
+    res.once('finish', finish);
+    res.once('close', finish);
+    try {
+      res.end(bytes);
+    } catch (error) {
+      finish();
+      reject(error);
+    }
+  });
+}
+
+function sendWorkerBytes(res: express.Response, result: DeliveryHttpResult): Promise<void> {
+  try {
+    for (const [key, value] of Object.entries(result.headers)) res.setHeader(key, value);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', result.contentType);
+    res.status(result.statusCode);
+    return sendLeasedBytes(res, result.bytes, result.release);
+  } catch (error) {
+    result.release?.();
+    throw error;
+  }
+}
+
+function sendWeatherFailure(res: express.Response, error: unknown, fallbackCode: string): void {
+  const code =
+    error instanceof WeatherRequestError ? error.code : error instanceof Error ? error.message : '';
+  if (code === 'payload_too_large') {
+    sendJsonNoStore(res, 503, { status: 'error', code });
+    return;
+  }
+  const unavailable = [
+    'not_ready',
+    'database_unavailable',
+    'generation_changed',
+    'deadline_exceeded',
+    'busy',
+  ].includes(code);
+  sendJsonNoStore(res, unavailable ? 503 : 500, {
+    status: 'error',
+    code: unavailable ? 'weather_worker_unavailable' : fallbackCode,
+  });
 }
 
 export function createApp(dependencies: AppDependencies = {}): Express {
@@ -81,6 +169,23 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     return venueId;
   };
 
+  async function sendWeatherHttp<
+    K extends Parameters<NonNullable<AppDependencies['weatherHttp']>>[0],
+  >(res: express.Response, kind: K, payload: WeatherOperations[K]['request']) {
+    const controller = new AbortController();
+    const abort = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.once('close', abort);
+    try {
+      const result = await dependencies.weatherHttp!(kind, payload, controller.signal);
+      if (!controller.signal.aborted) await sendWorkerBytes(res, result);
+      else result.release?.();
+    } finally {
+      res.off('close', abort);
+    }
+  }
+
   app.get('/api/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });
@@ -88,11 +193,11 @@ export function createApp(dependencies: AppDependencies = {}): Express {
   if (dependencies.weatherWorkerControl) {
     const control = dependencies.weatherWorkerControl;
     app.post('/api/control/weather-workers/:role/restart', (req, res) => {
-      if (req.params.role !== 'acquisition') {
+      if (req.params.role !== 'acquisition' && req.params.role !== 'delivery') {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
         return;
       }
-      const result = control.request(req.body);
+      const result = control.request(req.body, req.params.role);
       sendJsonNoStore(res, result.statusCode, result.body);
     });
     app.get('/api/control/weather-workers/operations/:requestId', (req, res) => {
@@ -145,11 +250,20 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await weatherApi.getWarnings(terminal, parsed.value.controlStatus);
-        res.setHeader('Cache-Control', 'no-store');
-        res.status(200).json(result);
-      } catch {
-        res.status(500).json({ status: 'error', code: 'weather_read_failed' });
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'weather.read', {
+            kind: 'warnings',
+            terminal,
+            controlStatus: parsed.value.controlStatus,
+            requestedAt: new Date().toISOString(),
+          });
+        } else {
+          const result = await weatherApi.getWarnings(terminal, parsed.value.controlStatus);
+          res.setHeader('Cache-Control', 'no-store');
+          res.status(200).json(result);
+        }
+      } catch (error) {
+        sendWeatherFailure(res, error, 'weather_read_failed');
       }
     });
 
@@ -166,11 +280,23 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await weatherApi.getWarningTimeseries(terminal, parsed.value.controlStatus);
-        res.setHeader('Cache-Control', 'no-store');
-        res.status(200).json(result);
-      } catch {
-        res.status(500).json({ status: 'error', code: 'weather_read_failed' });
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'weather.read', {
+            kind: 'warning-timeseries',
+            terminal,
+            controlStatus: parsed.value.controlStatus,
+            requestedAt: new Date().toISOString(),
+          });
+        } else {
+          const result = await weatherApi.getWarningTimeseries(
+            terminal,
+            parsed.value.controlStatus,
+          );
+          res.setHeader('Cache-Control', 'no-store');
+          res.status(200).json(result);
+        }
+      } catch (error) {
+        sendWeatherFailure(res, error, 'weather_read_failed');
       }
     });
 
@@ -187,11 +313,20 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await weatherApi.getEarlyWarning(terminal, parsed.value.controlStatus);
-        res.setHeader('Cache-Control', 'no-store');
-        res.status(200).json(result);
-      } catch {
-        res.status(500).json({ status: 'error', code: 'weather_read_failed' });
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'weather.read', {
+            kind: 'early-warning',
+            terminal,
+            controlStatus: parsed.value.controlStatus,
+            requestedAt: new Date().toISOString(),
+          });
+        } else {
+          const result = await weatherApi.getEarlyWarning(terminal, parsed.value.controlStatus);
+          res.setHeader('Cache-Control', 'no-store');
+          res.status(200).json(result);
+        }
+      } catch (error) {
+        sendWeatherFailure(res, error, 'weather_read_failed');
       }
     });
 
@@ -208,11 +343,20 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await weatherApi.getAreaTimeseries(terminal, parsed.value.controlStatus);
-        res.setHeader('Cache-Control', 'no-store');
-        res.status(200).json(result);
-      } catch {
-        res.status(500).json({ status: 'error', code: 'weather_read_failed' });
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'weather.read', {
+            kind: 'area-timeseries',
+            terminal,
+            controlStatus: parsed.value.controlStatus,
+            requestedAt: new Date().toISOString(),
+          });
+        } else {
+          const result = await weatherApi.getAreaTimeseries(terminal, parsed.value.controlStatus);
+          res.setHeader('Cache-Control', 'no-store');
+          res.status(200).json(result);
+        }
+      } catch (error) {
+        sendWeatherFailure(res, error, 'weather_read_failed');
       }
     });
 
@@ -229,11 +373,20 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await weatherApi.getAmedas(terminal, parsed.value.controlStatus);
-        res.setHeader('Cache-Control', 'no-store');
-        res.status(200).json(result);
-      } catch {
-        res.status(500).json({ status: 'error', code: 'weather_read_failed' });
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'weather.read', {
+            kind: 'amedas',
+            terminal,
+            controlStatus: parsed.value.controlStatus,
+            requestedAt: new Date().toISOString(),
+          });
+        } else {
+          const result = await weatherApi.getAmedas(terminal, parsed.value.controlStatus);
+          res.setHeader('Cache-Control', 'no-store');
+          res.status(200).json(result);
+        }
+      } catch (error) {
+        sendWeatherFailure(res, error, 'weather_read_failed');
       }
     });
 
@@ -250,11 +403,20 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await weatherApi.getBulletins(terminal, parsed.value.controlStatus);
-        res.setHeader('Cache-Control', 'no-store');
-        res.status(200).json(result);
-      } catch {
-        res.status(500).json({ status: 'error', code: 'weather_read_failed' });
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'weather.read', {
+            kind: 'bulletins',
+            terminal,
+            controlStatus: parsed.value.controlStatus,
+            requestedAt: new Date().toISOString(),
+          });
+        } else {
+          const result = await weatherApi.getBulletins(terminal, parsed.value.controlStatus);
+          res.setHeader('Cache-Control', 'no-store');
+          res.status(200).json(result);
+        }
+      } catch (error) {
+        sendWeatherFailure(res, error, 'weather_read_failed');
       }
     });
   }
@@ -360,14 +522,23 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await nowcastApi.getTimes(terminal, parsed.value.controlStatus);
-        sendJsonNoStore(res, 200, result);
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'image.times', {
+            layer: 'nowcast',
+            terminal,
+            controlStatus: parsed.value.controlStatus,
+            requestedAt: new Date().toISOString(),
+          });
+        } else {
+          const result = await nowcastApi.getTimes(terminal, parsed.value.controlStatus);
+          sendJsonNoStore(res, 200, result);
+        }
       } catch (err) {
         if (err instanceof ImageServicesInitializingError) {
           sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
           return;
         }
-        sendJsonNoStore(res, 500, { status: 'error', code: 'weather_read_failed' });
+        sendWeatherFailure(res, err, 'weather_read_failed');
       }
     });
 
@@ -377,6 +548,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     });
 
     app.get('/api/weather/nowcast/:product/tiles/:z/:x/:y.png', async (req, res) => {
+      const deadlineAt = Date.now() + 30000;
       const parsed = parseNowcastTileRequest(req.params, req.query);
       if (!parsed.ok) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -392,8 +564,18 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 422, { status: 'error', code: 'unsupported_control_status' });
         return;
       }
+      const controller = new AbortController();
+      const abort = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.once('close', abort);
       try {
-        const result = await nowcastApi.getTile(parsed.value.frame, parsed.value.coordinate);
+        const result = await nowcastApi.getTile(
+          parsed.value.frame,
+          parsed.value.coordinate,
+          controller.signal,
+          deadlineAt,
+        );
         if (result.kind === 'success') {
           res.setHeader('Cache-Control', 'no-store');
           res.setHeader('Content-Type', 'image/png');
@@ -401,16 +583,20 @@ export function createApp(dependencies: AppDependencies = {}): Express {
           res.setHeader('X-Wx-Catalog-Availability', result.catalogAvailability);
           res.setHeader('X-Wx-Tile-Result', result.tileResult);
           res.setHeader('X-Wx-Tile-Stored-At', result.storedAt);
-          res.status(200).end(result.buffer);
+          res.status(200);
+          await sendLeasedBytes(res, result.buffer, result.release);
         } else {
           sendJsonNoStore(res, result.httpStatus, result.error);
         }
       } catch (err) {
+        if (res.destroyed) return;
         if (err instanceof ImageServicesInitializingError) {
           sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
           return;
         }
-        sendJsonNoStore(res, 500, { status: 'error', code: 'tile_read_failed' });
+        sendWeatherFailure(res, err, 'tile_read_failed');
+      } finally {
+        res.off('close', abort);
       }
     });
   }
@@ -431,14 +617,23 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await kikikuruApi.getTimes(terminal, parsed.value.controlStatus);
-        sendJsonNoStore(res, 200, result);
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'image.times', {
+            layer: 'kikikuru',
+            terminal,
+            controlStatus: parsed.value.controlStatus,
+            requestedAt: new Date().toISOString(),
+          });
+        } else {
+          const result = await kikikuruApi.getTimes(terminal, parsed.value.controlStatus);
+          sendJsonNoStore(res, 200, result);
+        }
       } catch (err) {
         if (err instanceof ImageServicesInitializingError) {
           sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
           return;
         }
-        sendJsonNoStore(res, 500, { status: 'error', code: 'weather_read_failed' });
+        sendWeatherFailure(res, err, 'weather_read_failed');
       }
     });
 
@@ -448,6 +643,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     });
 
     app.get('/api/weather/kikikuru/:layer/tiles/:z/:x/:y.png', async (req, res) => {
+      const deadlineAt = Date.now() + 30000;
       const parsed = parseKikikuruTileRequest(req.params, req.query);
       if (!parsed.ok) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -463,8 +659,18 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 422, { status: 'error', code: 'unsupported_control_status' });
         return;
       }
+      const controller = new AbortController();
+      const abort = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.once('close', abort);
       try {
-        const result = await kikikuruApi.getTile(parsed.value.frame, parsed.value.coordinate);
+        const result = await kikikuruApi.getTile(
+          parsed.value.frame,
+          parsed.value.coordinate,
+          controller.signal,
+          deadlineAt,
+        );
         if (result.kind === 'success') {
           res.setHeader('Cache-Control', 'no-store');
           res.setHeader('Content-Type', 'image/png');
@@ -472,16 +678,20 @@ export function createApp(dependencies: AppDependencies = {}): Express {
           res.setHeader('X-Wx-Catalog-Availability', result.catalogAvailability);
           res.setHeader('X-Wx-Tile-Result', result.tileResult);
           res.setHeader('X-Wx-Tile-Stored-At', result.storedAt);
-          res.status(200).end(result.buffer);
+          res.status(200);
+          await sendLeasedBytes(res, result.buffer, result.release);
         } else {
           sendJsonNoStore(res, result.httpStatus, result.error);
         }
       } catch (err) {
+        if (res.destroyed) return;
         if (err instanceof ImageServicesInitializingError) {
           sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
           return;
         }
-        sendJsonNoStore(res, 500, { status: 'error', code: 'tile_read_failed' });
+        sendWeatherFailure(res, err, 'tile_read_failed');
+      } finally {
+        res.off('close', abort);
       }
     });
   }
@@ -522,10 +732,14 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await monitoringProcessing.getProcessing(terminal);
-        sendJsonNoStore(res, 200, result);
-      } catch {
-        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_processing_failed' });
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'monitoring.processing', { terminal });
+        } else {
+          const result = await monitoringProcessing.getProcessing(terminal);
+          sendJsonNoStore(res, 200, result);
+        }
+      } catch (error) {
+        sendWeatherFailure(res, error, 'monitoring_processing_failed');
       }
     });
   }
@@ -540,10 +754,14 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await monitoringHistory.listReceptions(parsed);
-        sendJsonNoStore(res, 200, result);
-      } catch {
-        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'history.receptions', parsed);
+        } else {
+          const result = await monitoringHistory.listReceptions(parsed);
+          sendJsonNoStore(res, 200, result);
+        }
+      } catch (error) {
+        sendWeatherFailure(res, error, 'monitoring_history_failed');
       }
     });
 
@@ -558,14 +776,21 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
-        const result = await monitoringHistory.getReceptionById(id);
-        if (result === null) {
-          sendJsonNoStore(res, 404, { status: 'error', code: 'reception_not_found' });
-          return;
+        if (dependencies.weatherHttp) {
+          await sendWeatherHttp(res, 'history.reception', {
+            receptionId: id,
+            expectedDatabaseGenerationId: dependencies.getWeatherDatabaseGenerationId?.() ?? '',
+          });
+        } else {
+          const result = await monitoringHistory.getReceptionById(id);
+          if (result === null) {
+            sendJsonNoStore(res, 404, { status: 'error', code: 'reception_not_found' });
+            return;
+          }
+          sendJsonNoStore(res, 200, result);
         }
-        sendJsonNoStore(res, 200, result);
-      } catch {
-        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+      } catch (error) {
+        sendWeatherFailure(res, error, 'monitoring_history_failed');
       }
     });
 
@@ -578,8 +803,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       try {
         const result = await monitoringHistory.listNotificationOutputs(parsed);
         sendJsonNoStore(res, 200, result);
-      } catch {
-        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+      } catch (error) {
+        sendWeatherFailure(res, error, 'monitoring_history_failed');
       }
     });
 
@@ -590,6 +815,53 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
+        if (dependencies.weatherHttp && monitoringHistory.resolveNotificationReceptionById) {
+          const reference = await monitoringHistory.resolveNotificationReceptionById(id);
+          if (reference.kind === 'not_found') {
+            sendJsonNoStore(res, 404, { status: 'error', code: 'notification_output_not_found' });
+            return;
+          }
+          if (reference.kind === 'unavailable') {
+            sendJsonNoStore(res, 410, {
+              status: 'error',
+              code: 'notification_reception_unavailable',
+              reason: reference.reason,
+            });
+            return;
+          }
+          const controller = new AbortController();
+          const abort = () => {
+            if (!res.writableEnded) controller.abort();
+          };
+          res.once('close', abort);
+          try {
+            const bytes = await dependencies.weatherHttp(
+              'history.reception',
+              {
+                receptionId: reference.receptionId,
+                expectedDatabaseGenerationId: reference.expectedDatabaseGenerationId,
+              },
+              controller.signal,
+            );
+            if (controller.signal.aborted) {
+              bytes.release?.();
+              return;
+            }
+            if (bytes.statusCode === 404) {
+              bytes.release?.();
+              sendJsonNoStore(res, 410, {
+                status: 'error',
+                code: 'notification_reception_unavailable',
+                reason: 'reception_missing',
+              });
+              return;
+            }
+            await sendWorkerBytes(res, bytes);
+          } finally {
+            res.off('close', abort);
+          }
+          return;
+        }
         const result = await monitoringHistory.getNotificationReceptionById(id);
         if (result.kind === 'not_found') {
           sendJsonNoStore(res, 404, { status: 'error', code: 'notification_output_not_found' });
@@ -602,8 +874,20 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         } else {
           sendJsonNoStore(res, 200, result.response);
         }
-      } catch {
-        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+      } catch (error) {
+        if (res.destroyed) return;
+        if (
+          (error instanceof WeatherRequestError && error.code === 'generation_changed') ||
+          (error instanceof Error && error.message === 'generation_changed')
+        ) {
+          sendJsonNoStore(res, 410, {
+            status: 'error',
+            code: 'notification_reception_unavailable',
+            reason: 'weather_generation_changed',
+          });
+          return;
+        }
+        sendWeatherFailure(res, error, 'monitoring_history_failed');
       }
     });
 
@@ -616,8 +900,8 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       try {
         const result = await monitoringHistory.listOperations(parsed);
         sendJsonNoStore(res, 200, result);
-      } catch {
-        sendJsonNoStore(res, 500, { status: 'error', code: 'monitoring_history_failed' });
+      } catch (error) {
+        sendWeatherFailure(res, error, 'monitoring_history_failed');
       }
     });
   }

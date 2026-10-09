@@ -9,10 +9,11 @@ import type { UpstreamAccess } from '../config/pollingSchedule.js';
 export type TileDeliveryResult =
   | {
       readonly kind: 'success';
-      readonly buffer: Buffer;
+      readonly buffer: Uint8Array;
       readonly catalogAvailability: Availability;
       readonly tileResult: 'cached' | 'downloaded';
       readonly storedAt: UtcIso8601String;
+      readonly release?: () => void;
     }
   | {
       readonly kind: 'error';

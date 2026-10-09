@@ -23,13 +23,16 @@ interface Event {
 function assertDatabaseOwners(events: Event[]) {
   const main = events.filter((event) => event.kind === 'db-close' && event.isMainThread);
   const workers = events.filter((event) => event.kind === 'db-close' && !event.isMainThread);
-  assert.deepEqual(main.map((event) => [event.role, event.readonly, event.threadId]).sort(), [
-    ['retained', false, 0],
-    ['weather', true, 0],
+  assert.deepEqual(
+    main.map((event) => [event.role, event.readonly, event.threadId]),
+    [['retained', false, 0]],
+  );
+  assert.equal(workers.length, 2);
+  assert.deepEqual(workers.map((event) => [event.role, event.readonly]).sort(), [
+    ['weather', false],
+    ['weather', true],
   ]);
-  assert.equal(workers.length, 1);
-  assert.deepEqual([workers[0]!.role, workers[0]!.readonly], ['weather', false]);
-  assert.ok(workers[0]!.threadId! > 0);
+  assert.ok(workers.every((event) => event.threadId! > 0));
 }
 function fixture() {
   const directory = fs.mkdtempSync(path.join(tmpdir(), 'wx-dev-lifecycle-'));

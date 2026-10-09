@@ -76,13 +76,14 @@ test('readonly接続も実exclusiveロック競合で100ms後BUSYを返す', () 
   }
 });
 
-test('readerがWAL世代を保持しcheckpointがbusyでもcloseはsidecarを削除しない', () => {
+test('長いreaderがWAL世代を保持しcheckpointがbusyでもcloseはsidecarを削除しない', async () => {
   const { fixture, pair, writer } = setup();
   const reader = openWeatherReader(pair.weather, writer.generation, writer.schemaVersion);
   try {
     reader.exec('BEGIN');
     assert.deepEqual(reader.prepare('SELECT value FROM busy_probe').all(), [{ value: 1 }]);
     writer.connection.exec('UPDATE busy_probe SET value=2');
+    await new Promise((resolve) => setTimeout(resolve, 150));
     const checkpoint = writer.connection.pragma('wal_checkpoint(RESTART)') as { busy: number }[];
     assert.equal(checkpoint[0]!.busy, 1);
     const sidecars = ['-wal', '-shm'].map((suffix) => `${pair.weather.databasePath}${suffix}`);

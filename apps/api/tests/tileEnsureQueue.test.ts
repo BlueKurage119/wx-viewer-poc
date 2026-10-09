@@ -149,3 +149,53 @@ test('上流失敗時にも取得枠と同一キーを解放し、FIFOで後続�
   for (const value of active) value.resolve(stored);
   await Promise.all(requests);
 });
+
+test('未開始tileの最後の待機者が取消したら取得せず枠を戻す', async () => {
+  const queue = new TileEnsureQueue();
+  const active = Array.from({ length: 4 }, gate);
+  const requests = active.map((value, index) => queue.ensure(input(index), () => value.promise));
+  const controller = new AbortController();
+  let started = 0;
+  const waiting = queue.ensure(
+    input(9),
+    async () => {
+      started++;
+      return stored;
+    },
+    controller.signal,
+  );
+  controller.abort();
+  await assert.rejects(waiting, { code: 'deadline_exceeded' });
+  active[0]!.resolve(stored);
+  await flush();
+  assert.equal(started, 0);
+  assert.deepEqual(await queue.ensure(input(9), async () => stored), stored);
+  for (const value of active) value.resolve(stored);
+  await Promise.all(requests);
+});
+
+test('合流した一人の取消では残る待機者の取得を維持する', async () => {
+  const queue = new TileEnsureQueue();
+  const active = Array.from({ length: 4 }, gate);
+  const requests = active.map((value, index) => queue.ensure(input(index), () => value.promise));
+  const controller = new AbortController();
+  let started = 0;
+  const cancelled = queue.ensure(
+    input(9),
+    async () => {
+      started++;
+      return stored;
+    },
+    controller.signal,
+  );
+  const retained = queue.ensure(input(9), async () => {
+    assert.fail('同じtileの二重取得');
+  });
+  controller.abort();
+  await assert.rejects(cancelled, { code: 'deadline_exceeded' });
+  active[0]!.resolve(stored);
+  assert.deepEqual(await retained, stored);
+  assert.equal(started, 1);
+  for (const value of active) value.resolve(stored);
+  await Promise.all(requests);
+});

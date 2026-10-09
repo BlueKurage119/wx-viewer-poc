@@ -376,7 +376,19 @@ export class NowcastService {
     );
     if (!tile) return null;
     const buffer = await this.readVerifiedTile(tile);
-    return buffer === null
+    const currentFrame = findRadarSnapshot(this.connection, frame.product)?.frames.find(
+      (f) => f.baseTime === frame.baseTime && f.validTime === frame.validTime,
+    );
+    const current = currentFrame?.tiles?.find(
+      (t) =>
+        t.zoom === coordinate.zoom && t.tileX === coordinate.tileX && t.tileY === coordinate.tileY,
+    );
+    const unchanged =
+      current?.filePath === tile.filePath &&
+      current?.byteSize === tile.byteSize &&
+      current?.contentHash === tile.contentHash &&
+      current?.storedAt === tile.storedAt;
+    return buffer === null || !unchanged
       ? null
       : {
           kind: 'success' as const,

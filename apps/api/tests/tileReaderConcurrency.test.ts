@@ -169,7 +169,29 @@ function interceptOpen(
 }
 
 for (const layer of ['nowcast', 'kikikuru'] as const) {
-  test(`${layer}: descriptor取得後のrename・unlinkでも完全な旧PNGを返し、次回は新PNGまたは有限miss`, async (t) => {
+  test(`${layer}: 8MiB超のstatをreadFile前に拒否する`, async (t) => {
+    const f = await setup(layer);
+    try {
+      fs.writeFileSync(path.join(f.root, relative), Buffer.alloc(8 * 1024 * 1024 + 1));
+      const originalOpen = fs.promises.open.bind(fs.promises);
+      t.mock.method(fs.promises, 'open', async (...args: Parameters<typeof fs.promises.open>) => {
+        const file = await originalOpen(...args);
+        t.mock.method(file, 'readFile', async () => {
+          assert.fail('過大statの後にreadFileを実行しました');
+        });
+        return file;
+      });
+      const verified = await f.store.verifyTile(
+        relative,
+        8 * 1024 * 1024 + 1,
+        crypto.createHash('sha256').update(png).digest('hex'),
+      );
+      assert.deepEqual(verified, { valid: false, buffer: null });
+    } finally {
+      f.close();
+    }
+  });
+  test(`${layer}: descriptor取得後のrename・unlinkで索引を再照合し、完全な新PNGまたは有限missを返す`, async (t) => {
     const f = await setup(layer);
     try {
       let phase: 'replace' | 'delete' | 'none' = 'replace';
@@ -187,13 +209,13 @@ for (const layer of ['nowcast', 'kikikuru'] as const) {
           await f.store.deleteTile(relative);
         }
       });
-      assert.deepEqual((await f.read())?.buffer, png);
+      assert.deepEqual((await f.read())?.buffer, nextPng);
       assert.deepEqual((await f.read())?.buffer, nextPng);
       phase = 'delete';
       assert.deepEqual((await f.read())?.buffer, nextPng);
       assert.equal(await f.read(), null);
-      assert.equal(io.opened(), 3);
-      assert.equal(io.closed(), 3);
+      assert.equal(io.opened(), 4);
+      assert.equal(io.closed(), 4);
       assert.deepEqual(fs.readFileSync(f.orphan), png, 'readonly起動または読取で清掃しました');
     } finally {
       f.close();
@@ -232,6 +254,78 @@ for (const layer of ['nowcast', 'kikikuru'] as const) {
         crypto.createHash('sha256').update(corrupt).digest('hex'),
         crypto.createHash('sha256').update(nextPng).digest('hex'),
       );
+    } finally {
+      f.close();
+    }
+  });
+
+  test(`${layer}: descriptor読取直後の索引差替え・削除でも旧bytesを公開せず必ずcloseする`, async (t) => {
+    const f = await setup(layer);
+    try {
+      const originalOpen = fs.promises.open.bind(fs.promises);
+      let phase: 'replace' | 'delete' | 'none' = 'replace';
+      let opens = 0;
+      let closes = 0;
+      t.mock.method(fs.promises, 'open', async (...args: Parameters<typeof fs.promises.open>) => {
+        const file = await originalOpen(...args);
+        opens++;
+        const readFile = file.readFile.bind(file);
+        const close = file.close.bind(file);
+        t.mock.method(file, 'readFile', async () => {
+          const bytes = await readFile();
+          if (phase === 'replace') {
+            phase = 'none';
+            await f.write(nextPng);
+          } else if (phase === 'delete') {
+            phase = 'none';
+            await f.write(png);
+            await f.store.deleteTile(relative);
+          }
+          return bytes;
+        });
+        t.mock.method(file, 'close', async () => {
+          await close();
+          closes++;
+        });
+        return file;
+      });
+      assert.deepEqual((await f.read())?.buffer, nextPng);
+      assert.equal(opens, 2);
+      assert.equal(closes, 2);
+      phase = 'delete';
+      assert.equal(await f.read(), null);
+      assert.equal(opens, 3);
+      assert.equal(closes, 3);
+    } finally {
+      f.close();
+    }
+  });
+
+  test(`${layer}: byteSize・SHA-256・PNGの各不一致をsuccessにせずdescriptorを閉じる`, async (t) => {
+    const f = await setup(layer);
+    try {
+      const io = interceptOpen(t, async () => {});
+      const hash = crypto.createHash('sha256').update(png).digest('hex');
+      assert.deepEqual(await f.store.verifyTile(relative, png.byteLength + 1, hash), {
+        valid: false,
+        buffer: null,
+      });
+      assert.deepEqual(await f.store.verifyTile(relative, png.byteLength, '0'.repeat(64)), {
+        valid: false,
+        buffer: null,
+      });
+      const invalid = Buffer.alloc(png.byteLength, 0);
+      fs.writeFileSync(path.join(f.root, relative), invalid);
+      assert.deepEqual(
+        await f.store.verifyTile(
+          relative,
+          invalid.byteLength,
+          crypto.createHash('sha256').update(invalid).digest('hex'),
+        ),
+        { valid: false, buffer: null },
+      );
+      assert.equal(io.opened(), 3);
+      assert.equal(io.closed(), 3);
     } finally {
       f.close();
     }

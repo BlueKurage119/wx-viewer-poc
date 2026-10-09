@@ -251,7 +251,8 @@ export class KikikuruTileStore {
       let buf: Buffer;
       try {
         const stat = await file.stat();
-        if (stat.size !== expectedByteSize) return { valid: false, buffer: null };
+        if (stat.size !== expectedByteSize || stat.size > 8 * 1024 * 1024)
+          return { valid: false, buffer: null };
         buf = await file.readFile();
       } finally {
         await file.close();

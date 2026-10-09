@@ -95,6 +95,15 @@ for (const granular of [false, true]) {
       seed.retained.connection.exec('UPDATE notification_output_history SET id = 100');
       seed.close();
       const options = createTestServerDatabaseOptions(fixture.config);
+      const delaySample = !granular && !exit;
+      let sampleReleased = false;
+      let queuedSample: unknown;
+      let forwardSample: ((message: unknown) => void) | undefined;
+      const releaseSample = () => {
+        sampleReleased = true;
+        if (queuedSample !== undefined) forwardSample?.(queuedSample);
+        queuedSample = undefined;
+      };
       const server = await startServer({
         ...options,
         port: 0,
@@ -104,6 +113,30 @@ for (const granular of [false, true]) {
         nowcastCacheRoot: join(fixture.config.databasePath, '..', 'nowcast'),
         kikikuruCacheRoot: join(fixture.config.databasePath, '..', 'kikikuru'),
         acquisitionWorkerEntry: new URL('./fixtures/worker/publication.ts', import.meta.url),
+        onDeliveryWorkerCreated(worker) {
+          if (!delaySample) return;
+          const post = worker.postMessage.bind(worker);
+          forwardSample = (message) => post(message);
+          worker.postMessage = ((message: unknown, transfer?: readonly ArrayBuffer[]) => {
+            const packet = message as {
+              type?: string;
+              method?: string;
+              value?: { kind?: string; payload?: { terminal?: { id?: string } } };
+            };
+            if (
+              packet.type === 'call' &&
+              packet.method === 'read' &&
+              packet.value?.kind === 'monitoring.sample' &&
+              packet.value.payload?.terminal?.id === 'kkeagh01' &&
+              !sampleReleased &&
+              queuedSample === undefined
+            ) {
+              queuedSample = message;
+              return;
+            }
+            post(message, transfer as ArrayBuffer[]);
+          }) as typeof worker.postMessage;
+        },
       });
       try {
         assert.equal((await server.weatherPrepared).status, 'ready');
@@ -123,6 +156,36 @@ for (const granular of [false, true]) {
           assert.equal(response.status, 200);
           return response.json() as Promise<WeatherResponses[K]>;
         };
+        // 提供Workerの監視sampleは端末ごとに非同期で届く。scope投影の前提を確認する。
+        const monitoringUrl = `${base}/api/monitoring/status?terminalId=kkeagh01`;
+        if (delaySample) {
+          const heldDeadline = performance.now() + 5000;
+          while (queuedSample === undefined) {
+            assert.ok(performance.now() < heldDeadline, '監視sampleの保留を確認できません');
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          const unsampled = (await (await fetch(monitoringUrl)).json()) as MonitoringStatusResponse;
+          assert.equal(unsampled.weatherSampleReceivedAt, null);
+          assert.equal(unsampled.information.filter((item) => item.venueId === 'east').length, 8);
+          assert.equal(
+            unsampled.readErrors.filter(
+              (item) => item.section === 'information' && item.venueId === 'east',
+            ).length,
+            0,
+          );
+          releaseSample();
+        }
+        const sampleDeadline = performance.now() + 10_000;
+        for (;;) {
+          const sampled = (await (await fetch(monitoringUrl)).json()) as MonitoringStatusResponse;
+          if (
+            sampled.weatherSampleReceivedAt &&
+            sampled.information.filter((item) => item.venueId === 'east').length === 8
+          )
+            break;
+          assert.ok(performance.now() < sampleDeadline, '監視sampleが期限内に届きません');
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
         assert.equal((await getWeather('warnings')).metadata.sourceVersion, 'U1');
         const unaffected = await getWeather('warnings', 'htrcph01');
         assert.equal(unaffected.metadata.sourceVersion, 'TRC-U1');
@@ -202,9 +265,7 @@ for (const granular of [false, true]) {
           }),
         });
         assert.equal(((await startup.json()) as { status: string }).status, 'initializing');
-        const monitoring = (await (
-          await fetch(`${base}/api/monitoring/status?terminalId=kkeagh01`)
-        ).json()) as MonitoringStatusResponse;
+        const monitoring = (await (await fetch(monitoringUrl)).json()) as MonitoringStatusResponse;
         const information = monitoring.information.filter(
           (item) => item.venueId === 'east' && (!granular || item.kind === 'warning'),
         );
@@ -223,6 +284,7 @@ for (const granular of [false, true]) {
           granular ? 1 : 8,
         );
       } finally {
+        releaseSample();
         await server.close();
         fixture.cleanup();
       }

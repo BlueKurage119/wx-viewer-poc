@@ -2,6 +2,7 @@ import type {
   WeatherRestartOperation,
   WeatherRestartRequest,
   WeatherWorkerOperationHistoryResponse,
+  WeatherRole,
 } from '@wx-viewer-poc/shared';
 
 export type WeatherRestartReply =
@@ -9,8 +10,16 @@ export type WeatherRestartReply =
   | { readonly kind: 'conflict' | 'rejected' | 'unverifiable' };
 
 export interface WeatherWorkerClient {
-  restart(request: WeatherRestartRequest, signal: AbortSignal): Promise<WeatherRestartReply>;
-  find(request: WeatherRestartRequest, signal: AbortSignal): Promise<WeatherRestartReply>;
+  restart(
+    role: WeatherRole,
+    request: WeatherRestartRequest,
+    signal: AbortSignal,
+  ): Promise<WeatherRestartReply>;
+  find(
+    role: WeatherRole,
+    request: WeatherRestartRequest,
+    signal: AbortSignal,
+  ): Promise<WeatherRestartReply>;
   history(
     beforeId: number | null,
     signal: AbortSignal,
@@ -31,7 +40,7 @@ function operation(value: unknown): value is WeatherRestartOperation {
     record(value) &&
     typeof value.requestId === 'string' &&
     /^[A-Za-z0-9_-]{1,128}$/.test(value.requestId) &&
-    value.role === 'acquisition' &&
+    (value.role === 'acquisition' || value.role === 'delivery') &&
     typeof value.historyRecorded === 'boolean' &&
     (value.status === 'in_progress' ||
       (value.status === 'completed' &&
@@ -45,8 +54,14 @@ export function parseWeatherRestartReply(
   status: number,
   body: unknown,
   requestId: string,
+  role: WeatherRole = 'acquisition',
 ): WeatherRestartReply {
-  if ((status === 200 || status === 202) && operation(body) && body.requestId === requestId) {
+  if (
+    (status === 200 || status === 202) &&
+    operation(body) &&
+    body.requestId === requestId &&
+    body.role === role
+  ) {
     return { kind: 'operation', operation: body };
   }
   if (status === 409) return { kind: 'conflict' };
@@ -57,6 +72,7 @@ export function createWeatherWorkerClient(deps: {
   readonly fetch: typeof fetch;
 }): WeatherWorkerClient {
   async function send(
+    role: WeatherRole,
     request: WeatherRestartRequest,
     signal: AbortSignal,
     method: 'POST' | 'GET',
@@ -64,7 +80,7 @@ export function createWeatherWorkerClient(deps: {
     try {
       const response = await deps.fetch(
         method === 'POST'
-          ? '/api/control/weather-workers/acquisition/restart'
+          ? `/api/control/weather-workers/${role}/restart`
           : `/api/control/weather-workers/operations/${encodeURIComponent(request.requestId)}`,
         {
           method,
@@ -75,14 +91,19 @@ export function createWeatherWorkerClient(deps: {
             : {}),
         },
       );
-      return parseWeatherRestartReply(response.status, await response.json(), request.requestId);
+      return parseWeatherRestartReply(
+        response.status,
+        await response.json(),
+        request.requestId,
+        role,
+      );
     } catch {
       return { kind: 'unverifiable' };
     }
   }
   return {
-    restart: (request, signal) => send(request, signal, 'POST'),
-    find: (request, signal) => send(request, signal, 'GET'),
+    restart: (role, request, signal) => send(role, request, signal, 'POST'),
+    find: (role, request, signal) => send(role, request, signal, 'GET'),
     async history(beforeId, signal) {
       const response = await deps.fetch(
         `/api/monitoring/weather-worker-operations?limit=20${beforeId === null ? '' : `&beforeId=${beforeId}`}`,

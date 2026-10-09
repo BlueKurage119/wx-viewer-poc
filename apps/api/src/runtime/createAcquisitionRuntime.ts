@@ -297,15 +297,16 @@ export function createAcquisitionRuntime(
     pollingService.onInitialFetchCompleted(evaluateVenues);
   };
 
+  let scheduler: TimeBasedPollingScheduler | undefined;
   const imageServices = createImageServices({
     connection,
     schedule: settings.schedule,
     enablePolling: settings.enablePolling,
+    isAcquisitionRunning: () => scheduler?.isRunningNow() ?? false,
     nowcastCacheRoot: settings.nowcastCacheRoot,
     kikikuruCacheRoot: settings.kikikuruCacheRoot,
   });
   let pollingService: JmaXmlPollingService | undefined;
-  let scheduler: TimeBasedPollingScheduler | undefined;
   let healthMonitor: FetchHealthMonitorService | undefined;
   const prepare = async () => {
     if (settings.enablePolling) recoverLegacyVphwBulletinAreas(connection, registry);

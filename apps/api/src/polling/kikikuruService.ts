@@ -391,7 +391,23 @@ export class KikikuruService {
     );
     if (!tile) return null;
     const buffer = await this.readVerifiedTile(tile);
-    return buffer === null
+    const currentFrame = findRiskSnapshot(this.connection, frame.layer)?.frames.find(
+      (f) =>
+        f.baseTime === frame.baseTime &&
+        f.validTime === frame.validTime &&
+        f.imageId === frame.imageId &&
+        f.member === frame.member,
+    );
+    const current = currentFrame?.tiles?.find(
+      (t) =>
+        t.zoom === coordinate.zoom && t.tileX === coordinate.tileX && t.tileY === coordinate.tileY,
+    );
+    const unchanged =
+      current?.filePath === tile.filePath &&
+      current?.byteSize === tile.byteSize &&
+      current?.contentHash === tile.contentHash &&
+      current?.storedAt === tile.storedAt;
+    return buffer === null || !unchanged
       ? null
       : {
           kind: 'success' as const,

@@ -23,6 +23,8 @@ export interface CreateImageServicesOptions {
   readonly connection: DatabaseConnection;
   readonly schedule: PollingScheduleConfig;
   readonly enablePolling?: boolean;
+  /** 取得運転停止中はcache missのオンデマンド取得を開始しない。 */
+  readonly isAcquisitionRunning?: () => boolean;
   readonly now?: () => Date;
   readonly fetchFn?: typeof fetch;
   readonly nowcastCacheRoot?: string;
@@ -105,7 +107,7 @@ export function createImageServices(options: CreateImageServicesOptions): ImageS
   const getImageAccess = (source: OnDemandSource): UpstreamAccess => {
     const now = nowFn();
     const period = resolvePollingPeriod(now, options.schedule);
-    if (isClosed || !enablePolling) {
+    if (isClosed || !enablePolling || options.isAcquisitionRunning?.() === false) {
       return {
         allowed: false,
         period,

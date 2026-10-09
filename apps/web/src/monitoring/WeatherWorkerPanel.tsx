@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import type {
   MonitoringStatusResponse,
   WeatherWorkerOperationHistoryResponse,
+  WeatherRole,
 } from '@wx-viewer-poc/shared';
 import { GbButton, CircularProgress } from '../components/md';
 import { createWeatherWorkerClient } from '../api/weatherWorkers';
@@ -23,21 +24,14 @@ export function WeatherWorkerPanel({
   data,
   unavailable,
   model = idleModel,
+  deliveryModel = idleModel,
 }: {
   readonly data: MonitoringStatusResponse | null;
   readonly unavailable: boolean;
   readonly model?: WeatherRestartModel;
+  readonly deliveryModel?: WeatherRestartModel;
 }) {
-  const runtime = data?.weatherRuntimes.acquisition;
-  const busy = model.state.phase === 'sending' || model.state.phase === 'checking';
-  const canRestart =
-    !unavailable &&
-    !busy &&
-    model.state.phase !== 'unverifiable' &&
-    runtime?.mode === 'worker' &&
-    runtime.workerGeneration !== null &&
-    runtime.restartAllowed &&
-    !['starting', 'stopping', 'restarting'].includes(runtime.lifecycle);
+  const refreshVersion = model.refreshVersion + deliveryModel.refreshVersion;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [beforeId, setBeforeId] = useState<number | null>(null);
   const [history, setHistory] = useState<WeatherWorkerOperationHistoryResponse | null>(null);
@@ -67,7 +61,89 @@ export function WeatherWorkerPanel({
       window.clearTimeout(timer);
       abort.abort();
     };
-  }, [historyOpen, beforeId, model.refreshVersion]);
+  }, [historyOpen, beforeId, refreshVersion]);
+  const sampleAt = data?.weatherSampleReceivedAt ?? null;
+  // 気象集計の鮮度は最終受領時刻で判定する。
+  const sampleStale =
+    sampleAt !== null && Date.parse(data?.generatedAt ?? '') - Date.parse(sampleAt) > 15_000;
+  return (
+    <section className="monitoring-worker-section" aria-labelledby="monitoring-worker-heading">
+      <h2 id="monitoring-worker-heading">Worker</h2>
+      <p>
+        気象集計の最終受領: {sampleAt ? formatJstDateTime(sampleAt) : '未受領'}
+        {sampleStale ? '（鮮度低下）' : ''}
+      </p>
+      <WorkerRoleSection role="acquisition" data={data} unavailable={unavailable} model={model} />
+      <WorkerRoleSection
+        role="delivery"
+        data={data}
+        unavailable={unavailable}
+        model={deliveryModel}
+      />
+      <details onToggle={(event) => setHistoryOpen(event.currentTarget.open)}>
+        <summary>再開履歴</summary>
+        {historyLoading ? (
+          <p role="status">再開履歴を読み込み中</p>
+        ) : historyFailed ? (
+          <p role="status">再開履歴を取得できません</p>
+        ) : history ? (
+          <>
+            {history.items.length === 0 ? (
+              <p>再開履歴はありません</p>
+            ) : (
+              <ul className="monitoring-worker-history">
+                {history.items.map((item) => (
+                  <li key={item.id}>
+                    <time dateTime={item.requestedAt}>{formatJstDateTime(item.requestedAt)}</time>
+                    <span>
+                      {item.operation.role === 'delivery' ? '提供' : '取得'}:{' '}
+                      {weatherRestartResult(item.operation)}
+                    </span>
+                    <span>世代 {item.expectedWorkerGeneration}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="monitoring-worker-actions">
+              {beforeId !== null ? (
+                <GbButton color="tonal" size="sm" onClick={() => setBeforeId(null)}>
+                  最新の履歴
+                </GbButton>
+              ) : null}
+              {history.nextBeforeId !== null ? (
+                <GbButton color="tonal" size="sm" onClick={() => setBeforeId(history.nextBeforeId)}>
+                  以前の履歴
+                </GbButton>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+      </details>
+    </section>
+  );
+}
+function WorkerRoleSection({
+  role,
+  data,
+  unavailable,
+  model,
+}: {
+  readonly role: WeatherRole;
+  readonly data: MonitoringStatusResponse | null;
+  readonly unavailable: boolean;
+  readonly model: WeatherRestartModel;
+}) {
+  const runtime = data?.weatherRuntimes[role];
+  const label = role === 'delivery' ? '提供Worker' : '取得Worker';
+  const busy = model.state.phase === 'sending' || model.state.phase === 'checking';
+  const canRestart =
+    !unavailable &&
+    !busy &&
+    model.state.phase !== 'unverifiable' &&
+    runtime?.mode === 'worker' &&
+    runtime.workerGeneration !== null &&
+    runtime.restartAllowed &&
+    !['starting', 'stopping', 'restarting'].includes(runtime.lifecycle);
   const resultText =
     model.state.phase === 'completed'
       ? weatherRestartResult(model.state.operation, data)
@@ -81,8 +157,8 @@ export function WeatherWorkerPanel({
               ? '再開要求を受け付けられませんでした'
               : '';
   return (
-    <section className="monitoring-worker-section" aria-labelledby="monitoring-worker-heading">
-      <h2 id="monitoring-worker-heading">取得Worker</h2>
+    <section aria-labelledby={`monitoring-worker-${role}-heading`}>
+      <h3 id={`monitoring-worker-${role}-heading`}>{label}</h3>
       <dl className="monitoring-worker-status">
         <div>
           <dt>状態</dt>
@@ -113,9 +189,9 @@ export function WeatherWorkerPanel({
             if (canRestart && runtime?.workerGeneration) model.restart(runtime.workerGeneration);
           }}
         >
-          取得Workerを再開
+          {label}を再開
         </GbButton>
-        {busy ? <CircularProgress indeterminate aria-label="取得Workerを再開中" /> : null}
+        {busy ? <CircularProgress indeterminate aria-label={`${label}を再開中`} /> : null}
         {model.state.phase === 'unverifiable' ? (
           <GbButton color="tonal" size="sm" onClick={model.recheck}>
             結果を再確認
@@ -125,42 +201,6 @@ export function WeatherWorkerPanel({
       <p className="monitoring-worker-result" aria-live="polite" role="status">
         {resultText}
       </p>
-      <details onToggle={(event) => setHistoryOpen(event.currentTarget.open)}>
-        <summary>再開履歴</summary>
-        {historyLoading ? (
-          <p role="status">再開履歴を読み込み中</p>
-        ) : historyFailed ? (
-          <p role="status">再開履歴を取得できません</p>
-        ) : history ? (
-          <>
-            {history.items.length === 0 ? (
-              <p>再開履歴はありません</p>
-            ) : (
-              <ul className="monitoring-worker-history">
-                {history.items.map((item) => (
-                  <li key={item.id}>
-                    <time dateTime={item.requestedAt}>{formatJstDateTime(item.requestedAt)}</time>
-                    <span>{weatherRestartResult(item.operation)}</span>
-                    <span>世代 {item.expectedWorkerGeneration}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="monitoring-worker-actions">
-              {beforeId !== null ? (
-                <GbButton color="tonal" size="sm" onClick={() => setBeforeId(null)}>
-                  最新の履歴
-                </GbButton>
-              ) : null}
-              {history.nextBeforeId !== null ? (
-                <GbButton color="tonal" size="sm" onClick={() => setBeforeId(history.nextBeforeId)}>
-                  以前の履歴
-                </GbButton>
-              ) : null}
-            </div>
-          </>
-        ) : null}
-      </details>
     </section>
   );
 }

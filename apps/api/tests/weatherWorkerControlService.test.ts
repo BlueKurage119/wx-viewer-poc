@@ -83,6 +83,52 @@ const success = {
   },
 };
 
+test('提供再開は取得と別レーンで実行し、同じIDの異role再利用を拒否する', async () => {
+  const fixture = setup();
+  try {
+    let deliveryGeneration = 'delivery-old';
+    let deliveryCalls = 0;
+    const service = createWeatherWorkerControlService({
+      ...fixture.deps,
+      delivery: {
+        getRuntimeStatus: () => ({
+          ...fixture.deps.getRuntimeStatus(),
+          role: 'delivery',
+          workerGeneration: deliveryGeneration,
+        }),
+        restart: async () => {
+          deliveryCalls++;
+          deliveryGeneration = 'delivery-new';
+        },
+      },
+    });
+    assert.equal(service.request(request).statusCode, 202);
+    assert.equal(
+      service.request({ requestId: 'd1', expectedWorkerGeneration: 'delivery-old' }, 'delivery')
+        .statusCode,
+      202,
+    );
+    assert.deepEqual(service.request(request, 'delivery'), {
+      statusCode: 409,
+      body: { status: 'error', code: 'request_conflict' },
+    });
+    await Promise.resolve();
+    assert.equal(deliveryCalls, 1);
+    fixture.resolve();
+    await service.waitForIdle();
+    const delivered = service.get('d1');
+    assert.equal(delivered.statusCode, 200);
+    assert.equal(delivered.body.status, 'completed');
+    if (delivered.body.status === 'completed') {
+      assert.equal(delivered.body.role, 'delivery');
+      assert.equal(delivered.body.workerGeneration, 'delivery-new');
+      assert.equal('desiredRunning' in delivered.body, false);
+    }
+  } finally {
+    fixture.close();
+  }
+});
+
 test('再開は同IDへ合流、別IDと異世代を拒否し、専用履歴へ1回だけ記録する', async () => {
   const fixture = setup();
   try {

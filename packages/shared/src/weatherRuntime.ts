@@ -15,7 +15,14 @@ export interface WeatherRuntimeStatus {
   readonly exitConfirmed: boolean;
   readonly unknownScopes?: readonly string[];
   readonly failureCode:
-    'initial_accept_timeout' | 'handshake_timeout' | 'protocol_error' | 'payload_too_large' | null;
+    | 'initial_accept_timeout'
+    | 'handshake_timeout'
+    | 'protocol_error'
+    | 'payload_too_large'
+    | 'report_stale'
+    | 'unexpected_exit'
+    | 'initialization_failed'
+    | null;
 }
 export interface WeatherRestartRequest {
   readonly requestId: string;

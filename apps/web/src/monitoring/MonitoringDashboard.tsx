@@ -318,9 +318,11 @@ export function MonitoringDashboardView({
   uptimeSeconds,
   resolveTargets,
   workerModel,
+  deliveryModel,
 }: {
   state: MonitoringLoadState;
   workerModel?: WeatherRestartModel;
+  deliveryModel?: WeatherRestartModel;
   uptimeSeconds?: number | null;
   resolveTargets?: (venueId: string) => VenueForecastTargets | undefined;
 }) {
@@ -406,6 +408,7 @@ export function MonitoringDashboardView({
         data={state.data}
         unavailable={state.phase === 'failed' || state.data === null}
         model={workerModel}
+        deliveryModel={deliveryModel}
       />
       <SourceStatusTable rows={sourceRows} />
       {state.data !== null && informationRows !== null ? (
@@ -426,6 +429,7 @@ export function MonitoringDashboardView({
 export interface MonitoringDashboardProps {
   terminalId: string;
   workerModel?: WeatherRestartModel;
+  deliveryModel?: WeatherRestartModel;
   onLoadStateChange?: (state: MonitoringLoadState) => void;
 }
 
@@ -433,8 +437,12 @@ export function MonitoringDashboard({
   terminalId,
   onLoadStateChange,
   workerModel,
+  deliveryModel,
 }: MonitoringDashboardProps) {
-  const state = useMonitoringStatus(terminalId, workerModel?.refreshVersion);
+  const state = useMonitoringStatus(
+    terminalId,
+    (workerModel?.refreshVersion ?? 0) + (deliveryModel?.refreshVersion ?? 0),
+  );
   const registry = useVenueRegistry();
 
   useEffect(() => {
@@ -445,6 +453,7 @@ export function MonitoringDashboard({
     <MonitoringDashboardView
       state={state}
       workerModel={workerModel}
+      deliveryModel={deliveryModel}
       resolveTargets={(venueId) => {
         const resolved = registry.resolveVenueId(venueId);
         return resolved ? registry.getVenue(resolved) : undefined;

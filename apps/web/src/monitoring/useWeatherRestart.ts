@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createWeatherWorkerClient } from '../api/weatherWorkers';
 import { createRequestId } from './createRequestId';
+import type { WeatherRole } from '@wx-viewer-poc/shared';
 import {
   createWeatherRestartController,
   type WeatherRestartState,
@@ -13,12 +14,13 @@ export interface WeatherRestartModel {
   recheck(): void;
 }
 /** 監視画面を離れても要求IDと結果照会を保持する。 */
-export function useWeatherRestart(): WeatherRestartModel {
+export function useWeatherRestart(role: WeatherRole = 'acquisition'): WeatherRestartModel {
   const [state, setState] = useState<WeatherRestartState>({ phase: 'idle' });
   const [refreshVersion, setRefreshVersion] = useState(0);
   const controller = useRef<ReturnType<typeof createWeatherRestartController> | null>(null);
   useEffect(() => {
     const current = createWeatherRestartController({
+      role,
       client: createWeatherWorkerClient({ fetch: window.fetch.bind(window) }),
       requestIdFactory: createRequestId,
       setTimeout: (callback, delay) => window.setTimeout(callback, delay),
@@ -32,7 +34,7 @@ export function useWeatherRestart(): WeatherRestartModel {
       current.dispose();
       controller.current = null;
     };
-  }, []);
+  }, [role]);
   return {
     state,
     refreshVersion,

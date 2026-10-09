@@ -73,6 +73,15 @@ test('実transportは256KiBでframe化し8MiB境界を守る', async () => {
     const overhead = Buffer.byteLength(
       JSON.stringify({ kind: 'call', id: '0'.repeat(36), method: 'echo', value: '', error: null }),
     );
+    const justUnderFrame = 256 * 1024 - overhead - 1;
+    assert.equal(await left.call('echo', 'x'.repeat(justUnderFrame)), justUnderFrame);
+    assert.deepEqual(lengths, [256 * 1024 - 1]);
+    lengths.length = 0;
+    const justUnderMaximum = 8 * 1024 * 1024 - overhead - 1;
+    assert.equal(await left.call('echo', 'x'.repeat(justUnderMaximum)), justUnderMaximum);
+    assert.equal(lengths.length, 32);
+    assert.equal(lengths.at(-1), 256 * 1024 - 1);
+    lengths.length = 0;
     const size = 8 * 1024 * 1024 - overhead;
     assert.equal(await left.call('echo', 'x'.repeat(size)), size);
     assert.equal(lengths.length, 32);
@@ -84,6 +93,97 @@ test('実transportは256KiBでframe化し8MiB境界を守る', async () => {
     left.close();
     await assert.rejects(left.call('echo', ''), { message: 'not_ready' });
   } finally {
+    left.close();
+    right.close();
+    port1.close();
+    port2.close();
+  }
+});
+
+test('HTTP中断は取得依頼の待機枠を解放し、後着結果を採用しない', async () => {
+  const { port1, port2 } = new MessageChannel();
+  let complete!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    complete = resolve;
+  });
+  let started!: () => void;
+  const executing = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const left = new WeatherTransport(
+    port1,
+    'g',
+    () => null,
+    () => {},
+  );
+  const cancelled: string[] = [];
+  const right = new WeatherTransport(
+    port2,
+    'g',
+    async () => {
+      started();
+      await barrier;
+      return 'saved';
+    },
+    () => {},
+    (id) => cancelled.push(id),
+  );
+  try {
+    const controller = new AbortController();
+    const pending = left.call('tile.ensure', { tile: 'a' }, 5000, controller.signal);
+    await executing;
+    controller.abort();
+    await assert.rejects(pending, { message: 'deadline_exceeded' });
+    for (let index = 0; cancelled.length === 0; index++) {
+      assert.ok(index < 100);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    assert.equal(cancelled.length, 1);
+    assert.equal(left.size, 0);
+    complete();
+    assert.equal(await left.call('tile.ensure', { tile: 'b' }, 5000), 'saved');
+    assert.equal(left.size, 0);
+  } finally {
+    complete();
+    left.close();
+    right.close();
+    port1.close();
+    port2.close();
+  }
+});
+
+test('tile.ensure期限は取消frameを送り、取得Worker全体の障害にしない', async () => {
+  const { port1, port2 } = new MessageChannel();
+  let complete!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    complete = resolve;
+  });
+  const failures: string[] = [];
+  const cancelled: string[] = [];
+  const left = new WeatherTransport(
+    port1,
+    'g',
+    () => null,
+    (code) => failures.push(code),
+  );
+  const right = new WeatherTransport(
+    port2,
+    'g',
+    async () => barrier,
+    () => {},
+    (id) => cancelled.push(id),
+  );
+  try {
+    await assert.rejects(left.call('tile.ensure', { tile: 'deadline' }, 20), /handshake_timeout/);
+    for (let index = 0; cancelled.length === 0; index++) {
+      assert.ok(index < 100);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    assert.equal(cancelled.length, 1);
+    assert.deepEqual(failures, []);
+    assert.equal(left.size, 0);
+  } finally {
+    complete();
     left.close();
     right.close();
     port1.close();

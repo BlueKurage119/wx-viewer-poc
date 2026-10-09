@@ -20,6 +20,7 @@ export const reasonLabels = {
   handshake_timeout: '更新応答の期限超過',
   protocol_error: '通信手順の異常',
   payload_too_large: '通信容量の上限超過',
+  report_stale: '応答を確認できません',
 };
 export function weatherWorkerLabel(runtime: WeatherRuntimeStatus | undefined): string {
   if (!runtime) return '状態不明';
@@ -41,6 +42,13 @@ export function weatherRestartResult(
   const suffix = operation.historyRecorded ? '' : '（履歴未記録）';
   if (operation.status === 'in_progress') return `停止を確認中・再開中${suffix}`;
   if (operation.result === 'unknown') return `再開結果は不明です${suffix}`;
+  if (operation.role === 'delivery') {
+    if (operation.result === 'failure') return `提供Workerを再開できませんでした${suffix}`;
+    const runtime = data?.weatherRuntimes.delivery;
+    return runtime?.lifecycle === 'ready'
+      ? `提供Workerを再開しました${suffix}`
+      : `提供Workerの再開を受け付けました。接続は準備中です${suffix}`;
+  }
   if (operation.result === 'failure') return `取得Workerを再開できませんでした${suffix}`;
   if (operation.desiredRunning === false)
     return `取得Workerを再開しました。取得は停止したままです${suffix}`;

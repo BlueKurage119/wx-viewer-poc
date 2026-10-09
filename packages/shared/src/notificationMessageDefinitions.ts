@@ -28,6 +28,10 @@ export type NotificationMessageDefinitionId =
   | 'system-weather-acquisition-exited'
   | 'system-weather-acquisition-report-stale'
   | 'system-weather-acquisition-control-failed'
+  | 'system-weather-delivery-initialization-failed'
+  | 'system-weather-delivery-exited'
+  | 'system-weather-delivery-report-stale'
+  | 'system-weather-delivery-control-failed'
   | 'system-initial-sync-failed'
   | 'system-data-fetch-failed'
   | 'system-data-fetch-recovered'
@@ -343,6 +347,46 @@ const MESSAGE_DEFINITIONS = {
     allowedCategories: ['question'],
     title: '気象取得Workerの処理失敗',
     fixedContent: '気象取得Workerの処理を継続できません。監視画面で状態を確認してください。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
+  },
+  'system-weather-delivery-initialization-failed': {
+    id: 'system-weather-delivery-initialization-failed',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '気象情報提供の準備失敗',
+    fixedContent: '気象情報提供の準備に失敗しました。監視画面で状態を確認してください。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
+  },
+  'system-weather-delivery-exited': {
+    id: 'system-weather-delivery-exited',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '気象情報提供の停止',
+    fixedContent: '気象情報提供が停止しました。監視画面から再開できます。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
+  },
+  'system-weather-delivery-report-stale': {
+    id: 'system-weather-delivery-report-stale',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '気象情報提供の応答不明',
+    fixedContent: '気象情報提供の応答を確認できません。監視画面で状態を確認してください。',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'acknowledge' },
+  },
+  'system-weather-delivery-control-failed': {
+    id: 'system-weather-delivery-control-failed',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['question'],
+    title: '気象情報提供Workerの処理失敗',
+    fixedContent: '気象情報提供Workerの処理を継続できません。監視画面で状態を確認してください。',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },

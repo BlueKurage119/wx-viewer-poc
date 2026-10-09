@@ -15,7 +15,11 @@ const acquisitionWorker =
   !isMainThread &&
   workerData?.owner?.role === 'weather' &&
   typeof workerData?.epoch?.workerGeneration === 'string';
-if (apiProcess || acquisitionWorker) {
+const deliveryWorker =
+  !isMainThread &&
+  Array.isArray(workerData?.settings?.terminals) &&
+  typeof workerData?.epoch?.workerGeneration === 'string';
+if (apiProcess || acquisitionWorker || deliveryWorker) {
   trace(isMainThread ? 'api-process' : 'worker-process');
   const originalClose = Database.prototype.close;
   Database.prototype.close = function () {

@@ -116,6 +116,8 @@ export interface StartServerOptions {
   /** 結合試験専用のWorker入口。HTTPから変更できない。 */
   readonly acquisitionWorkerEntry?: URL;
   readonly onAcquisitionWorkerCreated?: (worker: import('node:worker_threads').Worker) => void;
+  readonly deliveryWorkerEntry?: URL;
+  readonly onDeliveryWorkerCreated?: (worker: import('node:worker_threads').Worker) => void;
   readonly weatherRequestObserver?: (request: WeatherRequest) => void;
   readonly config?: DatabasePairConfig;
   readonly port?: number;

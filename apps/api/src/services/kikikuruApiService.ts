@@ -34,7 +34,12 @@ export interface KikikuruApiService {
     terminal: TerminalDefinition,
     controlStatus: WeatherControlStatus,
   ): KikikuruTimesResponse;
-  getTile(frame: KikikuruApiFrame, coordinate: TileCoordinate): Promise<TileDeliveryResult>;
+  getTile(
+    frame: KikikuruApiFrame,
+    coordinate: TileCoordinate,
+    signal?: AbortSignal,
+    deadlineAt?: number,
+  ): Promise<TileDeliveryResult>;
   readTile?(
     frame: KikikuruApiFrame,
     coordinate: TileCoordinate,

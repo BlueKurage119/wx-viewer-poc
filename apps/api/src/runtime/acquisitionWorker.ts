@@ -35,11 +35,12 @@ let failureCode: string | null = null;
 let reportTimer: ReturnType<typeof setInterval> | undefined;
 let reportPending = false;
 const tiles = new TileEnsureQueue();
+const tileRequests = new Map<string, AbortController>();
 const operations = new Map<string, { status: 'in_progress' | 'completed'; error: string | null }>();
 const transport = new WeatherTransport(
   port,
   epoch.workerGeneration,
-  async (method, value) => {
+  async (method, value, requestId) => {
     if (method === 'runtime.fail') {
       failureCode ??= (value as { code: string }).code;
       void runtime?.suspend();
@@ -105,29 +106,42 @@ const transport = new WeatherTransport(
       return runtime.decisions.release((value as { token: string }).token);
     if (method === 'tile.ensure') {
       const input = value as TileInput;
-      return tiles.ensure(input, async () => {
-        const registry = createVenueRegistry(data.settings.venues, data.settings.venueGeneration);
-        const profile = createStaticTileDeliveryProfileService(
-          data.settings.schedule.tileDeliveryProfile,
+      const controller = new AbortController();
+      tileRequests.set(requestId, controller);
+      try {
+        return await tiles.ensure(
+          input,
+          async () => {
+            const registry = createVenueRegistry(
+              data.settings.venues,
+              data.settings.venueGeneration,
+            );
+            const profile = createStaticTileDeliveryProfileService(
+              data.settings.schedule.tileDeliveryProfile,
+            );
+            const result =
+              input.layer === 'nowcast'
+                ? await createNowcastApiService({
+                    venueRegistry: registry,
+                    getService: () => runtime!.imageServices.nowcast,
+                    enablePolling: data.settings.enablePolling,
+                    tileDeliveryProfileService: profile,
+                  }).getTile(input.frame, input.coordinate)
+                : await createKikikuruApiService({
+                    venueRegistry: registry,
+                    getService: () => runtime!.imageServices.kikikuru,
+                    enablePolling: data.settings.enablePolling,
+                    tileDeliveryProfileService: profile,
+                  }).getTile(input.frame, input.coordinate);
+            return result.kind === 'success'
+              ? { kind: 'stored', tileResult: result.tileResult }
+              : { kind: 'unavailable', httpStatus: result.httpStatus, error: result.error };
+          },
+          controller.signal,
         );
-        const result =
-          input.layer === 'nowcast'
-            ? await createNowcastApiService({
-                venueRegistry: registry,
-                getService: () => runtime!.imageServices.nowcast,
-                enablePolling: data.settings.enablePolling,
-                tileDeliveryProfileService: profile,
-              }).getTile(input.frame, input.coordinate)
-            : await createKikikuruApiService({
-                venueRegistry: registry,
-                getService: () => runtime!.imageServices.kikikuru,
-                enablePolling: data.settings.enablePolling,
-                tileDeliveryProfileService: profile,
-              }).getTile(input.frame, input.coordinate);
-        return result.kind === 'success'
-          ? { kind: 'stored', tileResult: result.tileResult }
-          : { kind: 'unavailable', httpStatus: result.httpStatus, error: result.error };
-      });
+      } finally {
+        tileRequests.delete(requestId);
+      }
     }
     throw new Error('invalid_request');
   },
@@ -136,6 +150,7 @@ const transport = new WeatherTransport(
     void runtime?.suspend();
     void report();
   },
+  (id) => tileRequests.get(id)?.abort(),
 );
 async function report() {
   if (reportPending || closing) return;
