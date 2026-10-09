@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { arch, cpus, platform, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Worker } from 'node:worker_threads';
 import { startServer } from '../src/server.js';
 import { NowcastTileStore } from '../src/polling/nowcastTileStore.js';
@@ -44,6 +45,7 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
     member: 'none' as const,
   };
   let trainingReceptionId = 0;
+  let oldGenerationOutputId = 0;
   const seed = initializeTestDatabases({
     databasePath: options.config.weather.databasePath,
     migrationsDirectory: join(import.meta.dirname, '../migrations'),
@@ -89,6 +91,25 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
       messageDefinitionVersion: null,
       weatherDatabaseGenerationId: seed.weatherDatabaseGenerationId,
     });
+    oldGenerationOutputId = recordNotificationOutputHistory(seed.retained.connection, {
+      notificationId: 'delivery-old-generation',
+      category: 'warning',
+      sourceType: 'weather_warning',
+      sourceVersion: null,
+      targetAreaJson: null,
+      occurredAt: now,
+      detectedAt: now,
+      changeType: 'issued',
+      ackRequired: false,
+      summary: '旧世代原文参照',
+      relatedRefsJson: JSON.stringify([{ type: 'telegram_reception', ref: String(reception.id) }]),
+      origin: 'weather',
+      detectionContext: 'normal',
+      isTraining: false,
+      messageDefinitionId: null,
+      messageDefinitionVersion: null,
+      weatherDatabaseGenerationId: 'previous-weather-generation',
+    }).id;
     const trainingReception = recordTelegramReception(seed.weather.connection, {
       fetchAttemptId: null,
       feedKind: 'regular',
@@ -297,27 +318,29 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
       if (route.includes('/notification-outputs/1/reception'))
         assert.equal(Buffer.from(body).toString().includes('提供Worker原文'), true);
     }
-    for (const controlStatus of ['normal', 'training', 'test'] as const) {
-      for (const endpoint of [
-        'warnings',
-        'warning-timeseries',
-        'early-warning',
-        'area-timeseries',
-        'amedas',
-        'bulletins',
-        'nowcast/times',
-        'kikikuru/times',
-      ]) {
-        const response = await fetch(
-          `${root}/api/weather/${endpoint}?terminalId=hkeagh01&controlStatus=${controlStatus}`,
-        );
-        assert.equal(response.status, 200, `${endpoint}:${controlStatus}`);
-        const body = (await response.json()) as {
-          controlStatus: string;
-          isTraining: boolean;
-        };
-        assert.equal(body.controlStatus, controlStatus, endpoint);
-        assert.equal(body.isTraining, controlStatus === 'training', endpoint);
+    for (const terminalId of ['hkeagh01', 'htrcph01']) {
+      for (const controlStatus of ['normal', 'training', 'test'] as const) {
+        for (const endpoint of [
+          'warnings',
+          'warning-timeseries',
+          'early-warning',
+          'area-timeseries',
+          'amedas',
+          'bulletins',
+          'nowcast/times',
+          'kikikuru/times',
+        ]) {
+          const response = await fetch(
+            `${root}/api/weather/${endpoint}?terminalId=${terminalId}&controlStatus=${controlStatus}`,
+          );
+          assert.equal(response.status, 200, `${terminalId}:${endpoint}:${controlStatus}`);
+          const body = (await response.json()) as {
+            controlStatus: string;
+            isTraining: boolean;
+          };
+          assert.equal(body.controlStatus, controlStatus, endpoint);
+          assert.equal(body.isTraining, controlStatus === 'training', endpoint);
+        }
       }
     }
     const trainingHistory = (await (
@@ -340,6 +363,15 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
     );
     assert.equal(trainingReference.status, 200);
     assert.equal((await trainingReference.text()).includes('訓練提供Worker原文'), true);
+    const oldGenerationReference = await fetch(
+      `${root}/api/monitoring/notification-outputs/${oldGenerationOutputId}/reception`,
+    );
+    assert.equal(oldGenerationReference.status, 410);
+    assert.deepEqual(await oldGenerationReference.json(), {
+      status: 'error',
+      code: 'notification_reception_unavailable',
+      reason: 'weather_generation_changed',
+    });
     const startup = await fetch(`${root}/api/notifications/startup`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -628,6 +660,65 @@ test('夜間相当の取得停止中は保存済みhitを返し、未保存miss�
     assert.equal(missing.status, 503);
     assert.equal(performance.now() - started < 30_000, true);
     assert.equal(tileFetches, 0);
+  } finally {
+    await server.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('単一会場構成でも提供Workerの読取と通知起動が成立し、未登録会場端末を拒否する', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wx-single-venue-'));
+  const venuePath = join(directory, 'venues.yaml');
+  const terminalPath = join(directory, 'terminals.yaml');
+  writeFileSync(
+    venuePath,
+    readFileSync(new URL('../../../config/venues.yaml', import.meta.url), 'utf8').split(
+      '  - id: trc',
+    )[0]!,
+  );
+  writeFileSync(
+    terminalPath,
+    readFileSync(new URL('../../../config/terminals.yaml', import.meta.url), 'utf8').split(
+      '  - id: htrcph01',
+    )[0]!,
+  );
+  const options = createTestServerDatabaseOptions({
+    databasePath: join(directory, 'weather.sqlite3'),
+    migrationsDirectory: join(import.meta.dirname, '../migrations'),
+  });
+  const server = await startServer({
+    ...options,
+    port: 0,
+    enablePolling: false,
+    pollingSchedule: createTestPollingSchedule(),
+    venueConfigUrl: pathToFileURL(venuePath),
+    terminalConfigUrl: pathToFileURL(terminalPath),
+  });
+  try {
+    assert.equal((await server.weatherPrepared).status, 'ready');
+    const root = `http://127.0.0.1:${server.port}`;
+    const weather = await fetch(
+      `${root}/api/weather/warnings?terminalId=hkeagh01&controlStatus=training`,
+    );
+    assert.equal(weather.status, 200);
+    const body = (await weather.json()) as { controlStatus: string; isTraining: boolean };
+    assert.equal(body.controlStatus, 'training');
+    assert.equal(body.isTraining, true);
+    assert.equal(
+      (await fetch(`${root}/api/weather/warnings?terminalId=htrcph01&controlStatus=normal`)).status,
+      404,
+    );
+    const startup = await fetch(`${root}/api/notifications/startup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        terminalId: 'hkeagh01',
+        sessionId: randomUUID(),
+        serverGenerationId: server.acquisitionHost.epoch.serverGenerationId,
+      }),
+    });
+    assert.equal([200, 202].includes(startup.status), true);
+    await startup.arrayBuffer();
   } finally {
     await server.close();
     rmSync(directory, { recursive: true, force: true });

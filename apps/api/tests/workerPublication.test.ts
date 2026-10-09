@@ -249,6 +249,8 @@ for (const restartOrder of ['before-startup', 'after-startup'] as const)
       assert.equal((await server.weatherPrepared).status, 'ready');
       const acquisitionGeneration = server.acquisitionHost.epoch.workerGeneration;
       const initialHealth = structuredClone(server.acquisitionHost.report?.health);
+      const initialCheckpoint = structuredClone(server.acquisitionHost.decisions.snapshot());
+      const initialInitialization = structuredClone(server.acquisitionHost.report?.initialization);
       const desiredRunning = server.acquisitionHost.desiredRunning;
       const restart = async () => {
         const oldGeneration = server.deliveryHost.epoch.workerGeneration;
@@ -281,6 +283,8 @@ for (const restartOrder of ['before-startup', 'after-startup'] as const)
         assert.equal(server.acquisitionHost.epoch.workerGeneration, acquisitionGeneration);
         assert.equal(server.acquisitionHost.desiredRunning, desiredRunning);
         assert.deepEqual(server.acquisitionHost.report?.health, initialHealth);
+        assert.deepEqual(server.acquisitionHost.decisions.snapshot(), initialCheckpoint);
+        assert.deepEqual(server.acquisitionHost.report?.initialization, initialInitialization);
       };
       if (restartOrder === 'before-startup') await restart();
       const [first, second] = await Promise.all([
@@ -297,6 +301,8 @@ for (const restartOrder of ['before-startup', 'after-startup'] as const)
       assert.deepEqual(counts(), [2, 1, 2]);
       if (restartOrder === 'after-startup') await restart();
       assert.deepEqual(counts(), [2, 1, 2]);
+      assert.deepEqual(server.acquisitionHost.decisions.snapshot(), initialCheckpoint);
+      assert.deepEqual(server.acquisitionHost.report?.initialization, initialInitialization);
       assert.equal((await request('00000000-0000-4000-8000-000000000258')).status, 200);
       assert.deepEqual(counts(), [2, 1, 3]);
       const failures = retained
