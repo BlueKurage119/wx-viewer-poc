@@ -53,7 +53,7 @@ export function planInitialSyncNotification(input: {
   return {
     notification,
     output: resolveNotificationMessage(notification, {
-      definitionId: 'system-initial-sync-failed',
+      definitionId: 'system-weather-acquisition-initialization-failed',
     }),
   };
 }

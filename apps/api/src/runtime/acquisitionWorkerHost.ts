@@ -120,6 +120,7 @@ export class AcquisitionWorkerHost {
           ]),
         ],
         pendingRequests: this.transport?.size ?? 0,
+        prepared: this.preparationCompleted && this.stopReason !== 'initialization_failed',
       },
       new Date().toISOString(),
     );

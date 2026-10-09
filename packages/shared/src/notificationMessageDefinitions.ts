@@ -28,10 +28,12 @@ export type NotificationMessageDefinitionId =
   | 'system-weather-acquisition-exited'
   | 'system-weather-acquisition-report-stale'
   | 'system-weather-acquisition-control-failed'
+  | 'system-weather-acquisition-restart-completed'
   | 'system-weather-delivery-initialization-failed'
   | 'system-weather-delivery-exited'
   | 'system-weather-delivery-report-stale'
   | 'system-weather-delivery-control-failed'
+  | 'system-weather-delivery-restart-completed'
   | 'system-initial-sync-failed'
   | 'system-data-fetch-failed'
   | 'system-data-fetch-recovered'
@@ -315,8 +317,7 @@ const MESSAGE_DEFINITIONS = {
     version: '1',
     origin: 'system',
     allowedCategories: ['question'],
-    title: '気象取得処理の準備失敗',
-    fixedContent: '気象取得処理の準備に失敗しました。監視画面で状態を確認してください。',
+    title: '取得系準備失敗',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
@@ -325,8 +326,7 @@ const MESSAGE_DEFINITIONS = {
     version: '1',
     origin: 'system',
     allowedCategories: ['question'],
-    title: '気象取得処理の停止',
-    fixedContent: '気象取得処理が停止しました。監視画面から再開できます。',
+    title: '取得系停止',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
@@ -334,11 +334,10 @@ const MESSAGE_DEFINITIONS = {
     id: 'system-weather-acquisition-report-stale',
     version: '1',
     origin: 'system',
-    allowedCategories: ['question'],
-    title: '気象取得処理の応答不明',
-    fixedContent: '気象取得処理の応答を確認できません。監視画面で状態を確認してください。',
+    allowedCategories: ['warning'],
+    title: '取得系応答不明',
     targetMode: { kind: 'notificationTargetsOmittable' },
-    actionResolution: { kind: 'acknowledge' },
+    actionResolution: { kind: 'byCategory' },
   },
   'system-weather-acquisition-control-failed': {
     id: 'system-weather-acquisition-control-failed',
@@ -350,13 +349,21 @@ const MESSAGE_DEFINITIONS = {
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
+  'system-weather-acquisition-restart-completed': {
+    id: 'system-weather-acquisition-restart-completed',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['warning'],
+    title: '取得系再起動完了',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'byCategory' },
+  },
   'system-weather-delivery-initialization-failed': {
     id: 'system-weather-delivery-initialization-failed',
     version: '1',
     origin: 'system',
     allowedCategories: ['question'],
-    title: '気象情報提供の準備失敗',
-    fixedContent: '気象情報提供の準備に失敗しました。監視画面で状態を確認してください。',
+    title: '提供系準備失敗',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
@@ -365,8 +372,7 @@ const MESSAGE_DEFINITIONS = {
     version: '1',
     origin: 'system',
     allowedCategories: ['question'],
-    title: '気象情報提供の停止',
-    fixedContent: '気象情報提供が停止しました。監視画面から再開できます。',
+    title: '提供系停止',
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
@@ -374,11 +380,10 @@ const MESSAGE_DEFINITIONS = {
     id: 'system-weather-delivery-report-stale',
     version: '1',
     origin: 'system',
-    allowedCategories: ['question'],
-    title: '気象情報提供の応答不明',
-    fixedContent: '気象情報提供の応答を確認できません。監視画面で状態を確認してください。',
+    allowedCategories: ['warning'],
+    title: '提供系応答不明',
     targetMode: { kind: 'notificationTargetsOmittable' },
-    actionResolution: { kind: 'acknowledge' },
+    actionResolution: { kind: 'byCategory' },
   },
   'system-weather-delivery-control-failed': {
     id: 'system-weather-delivery-control-failed',
@@ -390,15 +395,23 @@ const MESSAGE_DEFINITIONS = {
     targetMode: { kind: 'notificationTargetsOmittable' },
     actionResolution: { kind: 'acknowledge' },
   },
+  'system-weather-delivery-restart-completed': {
+    id: 'system-weather-delivery-restart-completed',
+    version: '1',
+    origin: 'system',
+    allowedCategories: ['warning'],
+    title: '提供系再起動完了',
+    targetMode: { kind: 'notificationTargetsOmittable' },
+    actionResolution: { kind: 'byCategory' },
+  },
   'system-fetch-operation-unknown': {
     id: 'system-fetch-operation-unknown',
     version: '1',
     origin: 'system',
-    allowedCategories: ['question'],
+    allowedCategories: ['warning'],
     title: '取得操作の結果不明',
-    fixedContent: '処理結果を確認できません。監視画面で状態を確認してください。',
     targetMode: { kind: 'notificationTargetsOmittable' },
-    actionResolution: { kind: 'acknowledge' },
+    actionResolution: { kind: 'byCategory' },
   },
   'system-initial-sync-failed': {
     id: 'system-initial-sync-failed',

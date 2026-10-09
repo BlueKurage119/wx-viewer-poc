@@ -16,6 +16,25 @@ import {
 } from '../src/repositories/index.js';
 import { NowcastTileStore } from '../src/polling/nowcastTileStore.js';
 
+function workerNotifications(databasePath: string, sourceVersion?: string) {
+  const retained = new BetterSqlite3(databasePath, { readonly: true });
+  try {
+    return retained
+      .prepare(
+        `SELECT change_type, category, message_definition_id, summary FROM notification_output_history
+         WHERE source_type='weather_worker' ${sourceVersion ? 'AND source_version = ?' : ''} ORDER BY id`,
+      )
+      .all(...(sourceVersion ? [sourceVersion] : [])) as {
+      change_type: string;
+      category: string;
+      message_definition_id: string;
+      summary: string;
+    }[];
+  } finally {
+    retained.close();
+  }
+}
+
 test('実取得WorkerとHTTPを起動し、気象準備と停止を個別に観測する', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'wx-worker-'));
   const server = await startServer({
@@ -115,6 +134,34 @@ test('提供Worker異常終了後は閲覧を503に閉じ、専用再開だけ�
     assert.equal('desiredRunning' in outcome, false);
     assert.equal((await post()).status, 200);
     assert.equal(deliverySpawns, 2);
+    // 異常終了は「提供系停止」（問いかけ、内容=停止理由）、再起動完了は新しい世代で1回だけ警報として出る。
+    const stopped = workerNotifications(options.config.retained.databasePath, generation);
+    assert.deepEqual(stopped, [
+      {
+        change_type: 'unexpected_exit',
+        category: 'question',
+        message_definition_id: 'system-weather-delivery-exited',
+        summary: '提供系停止\n気象Worker\n予期しない終了',
+      },
+    ]);
+    const newGeneration = server.deliveryHost.epoch.workerGeneration;
+    const completed = await eventually(
+      () => workerNotifications(options.config.retained.databasePath, newGeneration),
+      (rows) => rows.length >= 1,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.deepEqual(
+      workerNotifications(options.config.retained.databasePath, newGeneration),
+      completed,
+    );
+    assert.deepEqual(completed, [
+      {
+        change_type: 'restart_completed',
+        category: 'warning',
+        message_definition_id: 'system-weather-delivery-restart-completed',
+        summary: '提供系再起動完了\n気象Worker',
+      },
+    ]);
     assert.equal(acquisitionSpawns, 1);
     assert.equal(server.acquisitionHost.epoch.workerGeneration, acquisitionGeneration);
     await eventually(weather, (response) => response.status === 200);
@@ -326,19 +373,20 @@ test('実Worker異常終了後も保存済み気象を提供し、同IDの専用
       (await fetch(`${root}/api/weather/warnings?terminalId=hkeagh01&controlStatus=normal`)).status,
       200,
     );
-    const retained = new BetterSqlite3(options.config.retained.databasePath, { readonly: true });
-    try {
-      assert.deepEqual(
-        retained
-          .prepare(
-            "SELECT change_type FROM notification_output_history WHERE source_type='weather_worker'",
-          )
-          .all(),
-        [{ change_type: 'unexpected_exit' }],
-      );
-    } finally {
-      retained.close();
-    }
+    assert.deepEqual(
+      workerNotifications(options.config.retained.databasePath).map((row) => ({
+        change_type: row.change_type,
+        category: row.category,
+        summary: row.summary,
+      })),
+      [
+        {
+          change_type: 'unexpected_exit',
+          category: 'question',
+          summary: '取得系停止\n気象Worker\n予期しない終了',
+        },
+      ],
+    );
     const body = { requestId: 'restart-once', expectedWorkerGeneration: oldGeneration };
     const post = () =>
       fetch(`${root}/api/control/weather-workers/acquisition/restart`, {
@@ -359,6 +407,31 @@ test('実Worker異常終了後も保存済み気象を提供し、同IDの専用
     assert.equal(spawns, 2);
     assert.equal((await post()).status, 200);
     assert.equal(spawns, 2);
+    // 自動取得が停止のままの再起動は、準備完了の時点で再起動完了を1回だけ警報として出す。
+    const restarted = await eventually(
+      () =>
+        workerNotifications(
+          options.config.retained.databasePath,
+          server.acquisitionHost.epoch.workerGeneration,
+        ),
+      (rows) => rows.length >= 1,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.deepEqual(
+      workerNotifications(
+        options.config.retained.databasePath,
+        server.acquisitionHost.epoch.workerGeneration,
+      ),
+      restarted,
+    );
+    assert.deepEqual(restarted, [
+      {
+        change_type: 'restart_completed',
+        category: 'warning',
+        message_definition_id: 'system-weather-acquisition-restart-completed',
+        summary: '取得系再起動完了\n気象Worker',
+      },
+    ]);
     await eventually(
       async () => fetch(`${root}/api/weather/warnings?terminalId=hkeagh01&controlStatus=normal`),
       (response) => response.status === 200,
