@@ -69,6 +69,7 @@ const sourceTypeLabels: Readonly<Record<string, string>> = {
   fetch_control: '取得操作',
   database_recovery: 'データベース復旧',
   weather_worker: '気象Worker',
+  initial_sync: '初回同期',
 };
 
 export function warningSourceTypeLabel(sourceType: string): string {
