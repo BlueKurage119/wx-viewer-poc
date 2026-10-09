@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createServer } from 'node:http';
+import { createServer, get } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -129,5 +129,64 @@ test('cache missの取得待機中も別タイルと保存済みテキスト各2
     runtime.close();
     pair.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('遅いHTTPクライアントは5秒でsocketを閉じ送信予約を解放する', async () => {
+  let released = 0;
+  let releasedAt = 0;
+  const registry = {
+    resolveTerminal: (id: string) =>
+      id === 'hkeagh01' ? { id, name: '試験端末', mode: 'H', venueId: 'east' } : null,
+  };
+  const http = createServer(
+    createApp({
+      terminalRegistry: registry as never,
+      weatherApi: { getWarnings: () => null } as never,
+      weatherHttp: async () => ({
+        statusCode: 200,
+        contentType: 'application/json; charset=utf-8',
+        bytes: new Uint8Array(8 * 1024 * 1024),
+        headers: {},
+        release: () => {
+          released++;
+          releasedAt = performance.now();
+        },
+      }),
+    }),
+  );
+  await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+  const address = http.address();
+  assert.ok(address && typeof address !== 'string');
+  const started = performance.now();
+  const serverSocketClosed = new Promise<void>((resolve) => {
+    http.once('connection', (socket) => socket.once('close', resolve));
+  });
+  try {
+    const request = get(
+      `http://127.0.0.1:${address.port}/api/weather/warnings?terminalId=hkeagh01&controlStatus=normal`,
+      (response) => response.pause(),
+    );
+    request.on('error', () => {});
+    await Promise.race([
+      serverSocketClosed,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `送信期限内にserver socketが閉じません: released=${released}, after=${releasedAt - started}ms`,
+              ),
+            ),
+          7000,
+        ),
+      ),
+    ]);
+    const elapsed = performance.now() - started;
+    assert.equal(elapsed >= 4500 && elapsed < 7000, true, `${elapsed}ms`);
+    assert.equal(released, 1);
+  } finally {
+    http.closeAllConnections();
+    await new Promise<void>((resolve) => http.close(() => resolve()));
   }
 });

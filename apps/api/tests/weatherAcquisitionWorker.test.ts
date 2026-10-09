@@ -124,6 +124,68 @@ test('提供Worker異常終了後は閲覧を503に閉じ、専用再開だけ�
   }
 });
 
+test('提供Worker異常通知の保存失敗は再開後に補完されない', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wx-delivery-notification-failure-'));
+  const options = fixtureOptions(directory);
+  let worker: Worker | undefined;
+  const server = await startServer({
+    ...options,
+    onDeliveryWorkerCreated: (value) => {
+      worker = value;
+    },
+  });
+  const root = `http://127.0.0.1:${server.port}`;
+  const originalPrepare = BetterSqlite3.prototype.prepare;
+  try {
+    assert.equal((await server.weatherPrepared).status, 'ready');
+    const oldGeneration = server.deliveryHost.epoch.workerGeneration;
+    BetterSqlite3.prototype.prepare = function (this: InstanceType<typeof BetterSqlite3>, ...args) {
+      if (String(args[0]).includes('INSERT INTO notification_output_history'))
+        throw new Error('保持通知書込の固定障害');
+      return originalPrepare.apply(this, args);
+    } as typeof BetterSqlite3.prototype.prepare;
+    await worker!.terminate();
+    await eventually(
+      () => server.deliveryHost.status(),
+      (status) => status.exitConfirmed,
+    );
+    BetterSqlite3.prototype.prepare = originalPrepare;
+    assert.equal((await fetch(`${root}/api/health`)).status, 200);
+    assert.equal(
+      (await fetch(`${root}/api/weather/warnings?terminalId=hkeagh01&controlStatus=normal`)).status,
+      503,
+    );
+    const post = await fetch(`${root}/api/control/weather-workers/delivery/restart`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        requestId: 'notification-failure-restart',
+        expectedWorkerGeneration: oldGeneration,
+      }),
+    });
+    assert.equal(post.status, 202);
+    await eventually(
+      () => server.deliveryHost.status(),
+      (status) => status.lifecycle === 'ready' && status.workerGeneration !== oldGeneration,
+    );
+    const retained = new BetterSqlite3(options.config.retained.databasePath, { readonly: true });
+    try {
+      const rows = retained
+        .prepare(
+          "SELECT change_type FROM notification_output_history WHERE source_type='weather_worker' AND source_version=?",
+        )
+        .all(oldGeneration);
+      assert.deepEqual(rows, []);
+    } finally {
+      retained.close();
+    }
+  } finally {
+    BetterSqlite3.prototype.prepare = originalPrepare;
+    await server.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { Worker } from 'node:worker_threads';
 import BetterSqlite3 from 'better-sqlite3';
@@ -490,6 +552,82 @@ test('実Workerの固定XML同期解析中もhealth/監視/system差分各20要�
             { count: values.length, maximumMs: values.at(-1), p95Ms: values[18] },
           ]),
         ),
+      }),
+    );
+  } finally {
+    await server.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('提供Workerの同期encode中もhealth/監視/system差分各20要求が応答する', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'wx-delivery-load-'));
+  let worker: Worker | undefined;
+  const server = await startServer({
+    ...fixtureOptions(directory),
+    deliveryWorkerEntry: new URL('./fixtures/worker/delivery-load.ts', import.meta.url),
+    onDeliveryWorkerCreated: (value) => {
+      worker = value;
+    },
+  });
+  try {
+    assert.equal((await server.weatherPrepared).status, 'ready');
+    const sampleBefore = await eventually(
+      async () =>
+        (await (
+          await fetch(`http://127.0.0.1:${server.port}/api/monitoring/status?terminalId=hkeagh01`)
+        ).json()) as { weatherSampleReceivedAt: string | null },
+      (value) => value.weatherSampleReceivedAt !== null,
+    );
+    const started = new Promise<{ bytes: number }>((resolve) => {
+      worker!.on('message', (message) => {
+        if (message.test === 'encode-load-started') resolve(message);
+      });
+    });
+    let ended = false;
+    const finished = new Promise<{ iterations: number }>((resolve) => {
+      worker!.on('message', (message) => {
+        if (message.test === 'encode-load-ended') {
+          ended = true;
+          resolve(message);
+        }
+      });
+    });
+    worker!.postMessage({ test: 'encode-load' });
+    const fixture = await started;
+    const measurements: Record<string, { count: number; maximumMs: number; p95Ms: number }> = {};
+    for (const [name, path, bound] of [
+      ['health', '/api/health', 500],
+      ['monitoring', '/api/monitoring/status?terminalId=hkeagh01', 1000],
+      ['system', '/api/notifications/delta?origin=system&terminalId=hkeagh01', 2000],
+    ] as const) {
+      const values: number[] = [];
+      for (let index = 0; index < 20; index++) {
+        assert.equal(ended, false, '提供Workerが同期encode中の区間だけを計測する');
+        const start = performance.now();
+        const response = await fetch(`http://127.0.0.1:${server.port}${path}`);
+        assert.equal(response.status, 200);
+        if (name === 'monitoring') {
+          const body = (await response.json()) as { weatherSampleReceivedAt: string | null };
+          assert.equal(body.weatherSampleReceivedAt, sampleBefore.weatherSampleReceivedAt);
+        } else await response.arrayBuffer();
+        values.push(performance.now() - start);
+      }
+      values.sort((a, b) => a - b);
+      assert.equal(values.at(-1)! < bound, true, `${name}の最大値${values.at(-1)}ms`);
+      measurements[name] = { count: values.length, maximumMs: values.at(-1)!, p95Ms: values[18]! };
+    }
+    const result = await finished;
+    assert.equal(result.iterations > 0, true);
+    t.diagnostic(
+      JSON.stringify({
+        platform: platform(),
+        arch: arch(),
+        cpu: cpus()[0]?.model,
+        cpuCount: cpus().length,
+        bytes: fixture.bytes,
+        iterations: result.iterations,
+        measurements,
       }),
     );
   } finally {

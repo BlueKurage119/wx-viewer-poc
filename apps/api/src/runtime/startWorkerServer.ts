@@ -153,7 +153,9 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       application?.close();
       application = createDeliveryApplicationRuntime({
         read,
-        ensureTile: (input, timeoutMs) => host.call('tile.ensure', input, timeoutMs ?? 30000),
+        // cache miss待機中のHTTP中断を取得要求の予約解除へ伝える。
+        ensureTile: (input, timeoutMs, signal) =>
+          host.call('tile.ensure', input, timeoutMs ?? 30000, signal),
         retainedConnection: retained.connection,
         terminalRegistry: terminal.registry,
         weatherDatabaseGenerationId: generation,
@@ -250,6 +252,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
     kind: K,
     payload: WeatherOperations[K]['request'],
     timeoutMs = 5000,
+    signal?: AbortSignal,
   ): Promise<WeatherOperations[K]['response']> {
     if (closed) throw new WeatherRequestError('not_ready');
     options.weatherRequestObserver?.({
@@ -260,7 +263,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       kind,
       payload,
     } as never);
-    return delivery.read(kind, payload, context(), undefined, timeoutMs);
+    return delivery.read(kind, payload, context(), signal, timeoutMs);
   }
   function readHttp<K extends Parameters<NonNullable<AppDependencies['weatherHttp']>>[0]>(
     kind: K,
@@ -311,6 +314,9 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       serverGenerationId,
       now,
       getFetchHealth: () => host.report?.health ?? null,
+      projector: () => {
+        throw new WeatherRequestError('not_ready');
+      },
     });
     if (!initialization.isReady(input.venueId) || input.serverGenerationId !== serverGenerationId)
       return service.inquire(input);
@@ -397,7 +403,8 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
             application?.close();
             application = createDeliveryApplicationRuntime({
               read,
-              ensureTile: (input, timeoutMs) => host.call('tile.ensure', input, timeoutMs ?? 30000),
+              ensureTile: (input, timeoutMs, signal) =>
+                host.call('tile.ensure', input, timeoutMs ?? 30000, signal),
               retainedConnection: retained.connection,
               terminalRegistry: terminal.registry,
               weatherDatabaseGenerationId: validatedDatabaseGeneration,
@@ -458,6 +465,8 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
         requireApplication().monitoringHistory!.getReceptionById(...args),
       listNotificationOutputs: (query) => retainedHistory.listNotificationOutputs(query),
       getNotificationReceptionById: (id) => retainedHistory.getNotificationReceptionById(id),
+      resolveNotificationReceptionById: (id) =>
+        retainedHistory.resolveNotificationReceptionById(id),
       listOperations: (query) => retainedHistory.listOperations(query),
     },
     monitoringStatus: {

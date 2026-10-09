@@ -1,5 +1,6 @@
 import type { WeatherWorkerControlService } from './services/weatherWorkerControlService.js';
 import type { DeliveryHttpResult } from './runtime/deliveryContracts.js';
+import type { NotificationReceptionResolution } from './runtime/retainedMonitoringHistory.js';
 import type { WeatherOperations } from './runtime/weatherContracts.js';
 import { WeatherRequestError } from './runtime/weatherRequestRegistry.js';
 import express, { type Express } from 'express';
@@ -75,7 +76,9 @@ export interface AppDependencies {
   readonly kikikuruApi?: AsyncCompatible<KikikuruApiService>;
   readonly monitoringStatus?: MonitoringStatusService;
   readonly monitoringProcessing?: AsyncCompatible<MonitoringProcessingService>;
-  readonly monitoringHistory?: AsyncCompatible<MonitoringHistoryService>;
+  readonly monitoringHistory?: AsyncCompatible<MonitoringHistoryService> & {
+    resolveNotificationReceptionById?: (id: number) => Promise<NotificationReceptionResolution>;
+  };
   readonly fetchControl?: FetchControlService;
 }
 
@@ -545,6 +548,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     });
 
     app.get('/api/weather/nowcast/:product/tiles/:z/:x/:y.png', async (req, res) => {
+      const deadlineAt = Date.now() + 30000;
       const parsed = parseNowcastTileRequest(req.params, req.query);
       if (!parsed.ok) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -560,8 +564,18 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 422, { status: 'error', code: 'unsupported_control_status' });
         return;
       }
+      const controller = new AbortController();
+      const abort = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.once('close', abort);
       try {
-        const result = await nowcastApi.getTile(parsed.value.frame, parsed.value.coordinate);
+        const result = await nowcastApi.getTile(
+          parsed.value.frame,
+          parsed.value.coordinate,
+          controller.signal,
+          deadlineAt,
+        );
         if (result.kind === 'success') {
           res.setHeader('Cache-Control', 'no-store');
           res.setHeader('Content-Type', 'image/png');
@@ -575,11 +589,14 @@ export function createApp(dependencies: AppDependencies = {}): Express {
           sendJsonNoStore(res, result.httpStatus, result.error);
         }
       } catch (err) {
+        if (res.destroyed) return;
         if (err instanceof ImageServicesInitializingError) {
           sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
           return;
         }
         sendWeatherFailure(res, err, 'tile_read_failed');
+      } finally {
+        res.off('close', abort);
       }
     });
   }
@@ -626,6 +643,7 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     });
 
     app.get('/api/weather/kikikuru/:layer/tiles/:z/:x/:y.png', async (req, res) => {
+      const deadlineAt = Date.now() + 30000;
       const parsed = parseKikikuruTileRequest(req.params, req.query);
       if (!parsed.ok) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
@@ -641,8 +659,18 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         sendJsonNoStore(res, 422, { status: 'error', code: 'unsupported_control_status' });
         return;
       }
+      const controller = new AbortController();
+      const abort = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.once('close', abort);
       try {
-        const result = await kikikuruApi.getTile(parsed.value.frame, parsed.value.coordinate);
+        const result = await kikikuruApi.getTile(
+          parsed.value.frame,
+          parsed.value.coordinate,
+          controller.signal,
+          deadlineAt,
+        );
         if (result.kind === 'success') {
           res.setHeader('Cache-Control', 'no-store');
           res.setHeader('Content-Type', 'image/png');
@@ -656,11 +684,14 @@ export function createApp(dependencies: AppDependencies = {}): Express {
           sendJsonNoStore(res, result.httpStatus, result.error);
         }
       } catch (err) {
+        if (res.destroyed) return;
         if (err instanceof ImageServicesInitializingError) {
           sendJsonNoStore(res, 503, { status: 'error', code: 'image_services_initializing' });
           return;
         }
         sendWeatherFailure(res, err, 'tile_read_failed');
+      } finally {
+        res.off('close', abort);
       }
     });
   }
@@ -784,6 +815,53 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         return;
       }
       try {
+        if (dependencies.weatherHttp && monitoringHistory.resolveNotificationReceptionById) {
+          const reference = await monitoringHistory.resolveNotificationReceptionById(id);
+          if (reference.kind === 'not_found') {
+            sendJsonNoStore(res, 404, { status: 'error', code: 'notification_output_not_found' });
+            return;
+          }
+          if (reference.kind === 'unavailable') {
+            sendJsonNoStore(res, 410, {
+              status: 'error',
+              code: 'notification_reception_unavailable',
+              reason: reference.reason,
+            });
+            return;
+          }
+          const controller = new AbortController();
+          const abort = () => {
+            if (!res.writableEnded) controller.abort();
+          };
+          res.once('close', abort);
+          try {
+            const bytes = await dependencies.weatherHttp(
+              'history.reception',
+              {
+                receptionId: reference.receptionId,
+                expectedDatabaseGenerationId: reference.expectedDatabaseGenerationId,
+              },
+              controller.signal,
+            );
+            if (controller.signal.aborted) {
+              bytes.release?.();
+              return;
+            }
+            if (bytes.statusCode === 404) {
+              bytes.release?.();
+              sendJsonNoStore(res, 410, {
+                status: 'error',
+                code: 'notification_reception_unavailable',
+                reason: 'reception_missing',
+              });
+              return;
+            }
+            await sendWorkerBytes(res, bytes);
+          } finally {
+            res.off('close', abort);
+          }
+          return;
+        }
         const result = await monitoringHistory.getNotificationReceptionById(id);
         if (result.kind === 'not_found') {
           sendJsonNoStore(res, 404, { status: 'error', code: 'notification_output_not_found' });
@@ -797,6 +875,18 @@ export function createApp(dependencies: AppDependencies = {}): Express {
           sendJsonNoStore(res, 200, result.response);
         }
       } catch (error) {
+        if (res.destroyed) return;
+        if (
+          (error instanceof WeatherRequestError && error.code === 'generation_changed') ||
+          (error instanceof Error && error.message === 'generation_changed')
+        ) {
+          sendJsonNoStore(res, 410, {
+            status: 'error',
+            code: 'notification_reception_unavailable',
+            reason: 'weather_generation_changed',
+          });
+          return;
+        }
         sendWeatherFailure(res, error, 'monitoring_history_failed');
       }
     });

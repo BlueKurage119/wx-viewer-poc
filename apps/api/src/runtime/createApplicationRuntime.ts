@@ -355,10 +355,12 @@ export function createDeliveryApplicationRuntime(input: {
     kind: K,
     payload: WeatherOperations[K]['request'],
     timeoutMs?: number,
+    signal?: AbortSignal,
   ) => Promise<WeatherOperations[K]['response']>;
   readonly ensureTile: (
     input: TileInput & { readonly explicit: boolean },
     timeoutMs?: number,
+    signal?: AbortSignal,
   ) => Promise<WeatherOperations['tile.ensure']['response']>;
   readonly retainedConnection: DatabaseConnection;
   readonly terminalRegistry: NonNullable<AppDependencies['terminalRegistry']>;
@@ -392,21 +394,24 @@ export function createDeliveryApplicationRuntime(input: {
   const timer = setInterval(() => void sampleMonitoring(), 5000);
   timer.unref();
   void sampleMonitoring();
-  async function tile(payload: TileInput): Promise<TileDeliveryResult> {
-    const deadline = Date.now() + 30000;
+  async function tile(
+    payload: TileInput,
+    signal?: AbortSignal,
+    deadline = Date.now() + 30000,
+  ): Promise<TileDeliveryResult> {
     const remaining = () => {
       const value = deadline - Date.now();
       if (value <= 0) throw new WeatherRequestError('deadline_exceeded');
       return value;
     };
-    let result = await read('tile.read', payload, Math.min(5000, remaining()));
+    let result = await read('tile.read', payload, Math.min(5000, remaining()), signal);
     let tileResult: 'cached' | 'downloaded' = 'cached';
     if (result.kind === 'miss') {
-      const ensured = await ensureTile({ ...payload, explicit: false }, remaining());
+      const ensured = await ensureTile({ ...payload, explicit: false }, remaining(), signal);
       if (ensured.kind === 'unavailable')
         return { kind: 'error', httpStatus: ensured.httpStatus, error: ensured.error };
       tileResult = ensured.tileResult;
-      result = await read('tile.read', payload, Math.min(5000, remaining()));
+      result = await read('tile.read', payload, Math.min(5000, remaining()), signal);
     }
     if (result.kind === 'miss')
       return {
@@ -477,7 +482,8 @@ export function createDeliveryApplicationRuntime(input: {
           controlStatus,
           requestedAt: now(),
         }) as Promise<ReturnType<NowcastApiService['getTimes']>>,
-      getTile: (frame, coordinate) => tile({ layer: 'nowcast', frame, coordinate }),
+      getTile: (frame, coordinate, signal, deadlineAt) =>
+        tile({ layer: 'nowcast', frame, coordinate }, signal, deadlineAt),
     },
     kikikuruApi: {
       getTimes: (terminal, controlStatus) =>
@@ -487,7 +493,8 @@ export function createDeliveryApplicationRuntime(input: {
           controlStatus,
           requestedAt: now(),
         }) as Promise<ReturnType<KikikuruApiService['getTimes']>>,
-      getTile: (frame, coordinate) => tile({ layer: 'kikikuru', frame, coordinate }),
+      getTile: (frame, coordinate, signal, deadlineAt) =>
+        tile({ layer: 'kikikuru', frame, coordinate }, signal, deadlineAt),
     },
     monitoringProcessing: {
       getProcessing: (terminal) => read('monitoring.processing', { terminal }),

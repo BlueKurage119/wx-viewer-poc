@@ -30,7 +30,12 @@ export interface NowcastApiServiceDependencies {
 
 export interface NowcastApiService {
   getTimes(terminal: TerminalDefinition, controlStatus: WeatherControlStatus): NowcastTimesResponse;
-  getTile(frame: NowcastApiFrame, coordinate: TileCoordinate): Promise<TileDeliveryResult>;
+  getTile(
+    frame: NowcastApiFrame,
+    coordinate: TileCoordinate,
+    signal?: AbortSignal,
+    deadlineAt?: number,
+  ): Promise<TileDeliveryResult>;
   readTile?(frame: NowcastApiFrame, coordinate: TileCoordinate): Promise<TileDeliveryResult | null>;
 }
 
