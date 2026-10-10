@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { initializeRole } from './pair.js';
@@ -9,6 +9,7 @@ import {
   type DatabasePairConfig,
   type RoleDatabaseConfig,
 } from './pairConfig.js';
+import { acquireWriterLock, logReleaseFailed } from './writerLock.js';
 import { inspectDatabaseCopy, SCHEMA_FAMILY } from './pairSafety.js';
 import { verifyExistingMigrations } from './migrations.js';
 import type { DatabaseConnection } from './connection.js';
@@ -29,15 +30,25 @@ export function releaseOwnedRoleLease(config: RoleDatabaseConfig, owner: WriterL
   try {
     actual = JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8')) as WriterLeaseOwner;
   } catch {
+    logReleaseFailed(lock, owner, 'lease_owner_unverified');
     throw new Error('lease_owner_unverified');
   }
   if (
+    typeof actual !== 'object' ||
+    actual === null ||
     Object.keys(owner).some(
       (key) => actual[key as keyof WriterLeaseOwner] !== owner[key as keyof WriterLeaseOwner],
     )
-  )
+  ) {
+    logReleaseFailed(lock, owner, 'lease_owner_unverified');
     throw new Error('lease_owner_unverified');
-  rmSync(lock, { recursive: true });
+  }
+  try {
+    rmSync(lock, { recursive: true });
+  } catch (error) {
+    logReleaseFailed(lock, owner, (error as NodeJS.ErrnoException).code ?? 'unknown');
+    throw error;
+  }
 }
 export function initializeRoleDatabase(pair: DatabasePairConfig, owner: WriterLeaseOwner) {
   const config = pair[owner.role];
@@ -51,10 +62,9 @@ export function initializeRoleDatabase(pair: DatabasePairConfig, owner: WriterLe
   validate();
   const lock = `${config.databasePath}.writer-lock`;
   mkdirSync(dirname(lock), { recursive: true });
-  mkdirSync(lock);
+  acquireWriterLock(lock, owner);
   let connection: DatabaseConnection | undefined;
   try {
-    writeFileSync(join(lock, 'owner.json'), JSON.stringify(owner), { flag: 'wx' });
     validate();
     inspectDatabaseCopy(config);
     validate();
