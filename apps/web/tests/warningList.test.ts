@@ -499,7 +499,7 @@ test('#68 新着・失効を適用条件で再評価し、検索は通知store�
     'K',
     receivedAt + 1000,
   );
-  assert.deepEqual(result.chime, { category: 'emergency', feedKey: 'delta:excluded' });
+  assert.deepEqual(result.chime, { category: 'emergency', feedKey: 'delta:excluded', level: 5 });
   assert.deepEqual(
     keys(
       filterWarningListItems(

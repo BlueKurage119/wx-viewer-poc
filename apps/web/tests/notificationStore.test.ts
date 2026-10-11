@@ -128,11 +128,13 @@ test('H1 AC4: 確認後は残る未確認通知の最高区分・最新通知を
   ).state;
   assert.deepEqual(nextUnconfirmedChime(received, 'K'), {
     category: 'question',
+    level: 4,
     feedKey: 'delta:newer',
   });
   const confirmed = confirmNotification(received, 'delta:newer', 'K');
   assert.deepEqual(nextUnconfirmedChime(confirmed, 'K'), {
     category: 'question',
+    level: 4,
     feedKey: 'delta:older',
   });
 });
@@ -149,7 +151,7 @@ test('H2 AC3/AC4: 問いかけ行の新着は選択状態を解除し、同一�
     'K',
     1791072000000,
   );
-  assert.deepEqual(result.chime, { category: 'emergency', feedKey: 'delta:emergency' });
+  assert.deepEqual(result.chime, { category: 'emergency', level: 5, feedKey: 'delta:emergency' });
   assert.equal(result.state.selectedQuestionFeedKey, null);
   assert.equal(result.state.selectedQuestionChoice, null);
 });
@@ -223,7 +225,11 @@ for (const category of ['warning', 'question', 'emergency'] as const) {
     assert.equal(displayedNoticeForRow(added.state, 'K', row)?.feedKey, 'delta:new');
     assert.deepEqual(added.state.items, [incoming, original]);
     assert.deepEqual(added.state.confirmedFeedKeys, new Set(['delta:original']));
-    assert.deepEqual(added.chime, { category, feedKey: 'delta:new' });
+    assert.deepEqual(added.chime, {
+      category,
+      level: category === 'warning' ? 3 : category === 'question' ? 4 : 5,
+      feedKey: 'delta:new',
+    });
   });
 }
 
@@ -244,6 +250,7 @@ for (const row of ['warning', 'question'] as const) {
     assert.deepEqual(notificationCounts(state, 'K'), { unread: 1, pending: 1 });
     assert.deepEqual(nextUnconfirmedChime(state, 'K'), {
       category: olderCategory,
+      level: row === 'warning' ? 3 : 5,
       feedKey: row === 'warning' ? 'delta:newer' : 'delta:older',
     });
     state = confirmNotification(state, 'delta:newer', 'K');
@@ -252,6 +259,7 @@ for (const row of ['warning', 'question'] as const) {
     assert.deepEqual(notificationCounts(state, 'K'), { unread: 0, pending: 0 });
     assert.deepEqual(nextUnconfirmedChime(state, 'K'), {
       category: olderCategory,
+      level: row === 'warning' ? 3 : 5,
       feedKey: 'delta:older',
     });
     state = confirmNotification(state, 'delta:older', 'K');
@@ -288,7 +296,11 @@ for (const row of ['warning', 'question'] as const) {
     ).state;
     assert.equal(displayedNoticeForRow(state, 'H', row)?.feedKey, 'delta:weather');
     assert.deepEqual(notificationCounts(state, 'H'), { unread: 0, pending: 1 });
-    assert.deepEqual(nextUnconfirmedChime(state, 'H'), { category, feedKey: 'delta:weather' });
+    assert.deepEqual(nextUnconfirmedChime(state, 'H'), {
+      category,
+      level: category === 'warning' ? 3 : category === 'question' ? 4 : 5,
+      feedKey: 'delta:weather',
+    });
     state = confirmNotification(state, 'delta:weather', 'H');
     assert.equal(displayedNoticeForRow(state, 'H', row), undefined);
     assert.deepEqual(notificationCounts(state, 'H'), { unread: 0, pending: 0 });
@@ -297,6 +309,10 @@ for (const row of ['warning', 'question'] as const) {
     assert.deepEqual(state.confirmedFeedKeys, new Set(['delta:weather']));
     assert.equal(displayedNoticeForRow(state, 'K', row)?.feedKey, 'delta:system');
     assert.deepEqual(notificationCounts(state, 'K'), { unread: 1, pending: 1 });
-    assert.deepEqual(nextUnconfirmedChime(state, 'K'), { category, feedKey: 'delta:system' });
+    assert.deepEqual(nextUnconfirmedChime(state, 'K'), {
+      category,
+      level: category === 'warning' ? 3 : category === 'question' ? 4 : 5,
+      feedKey: 'delta:system',
+    });
   });
 }
