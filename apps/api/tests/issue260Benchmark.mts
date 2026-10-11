@@ -10,6 +10,7 @@ import {
   createTestServerDatabaseOptions,
 } from './helpers/databasePair.js';
 import { mergeRadarSnapshot, upsertRadarTile } from '../src/repositories/index.js';
+import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const seed = 260;
 const count = 50_000;
@@ -20,6 +21,7 @@ const requests = Number(process.env.BENCH_REQUESTS ?? 100);
 const concurrency = Number(process.env.BENCH_CONCURRENCY ?? 1);
 const rate = Number(process.env.BENCH_RATE ?? 10);
 const seriesName = process.env.BENCH_SERIES ?? 'health';
+const effectiveRequests = Math.max(requests, Math.ceil(rate * durationSeconds));
 const output = process.env.BENCH_OUTPUT;
 if (
   !output ||
@@ -86,7 +88,14 @@ const results: Record<string, unknown> = {
     totalmem: totalmem(),
     node: process.version,
   },
-  config: { requests, concurrency, rate, seriesName, durationSeconds },
+  config: {
+    requestedMinimum: requests,
+    requests: effectiveRequests,
+    concurrency,
+    rate,
+    seriesName,
+    durationSeconds,
+  },
   fixture: {
     receptionCount: count,
     rawBytesEach: 1_024,
@@ -173,16 +182,38 @@ try {
   server = await startServer({
     ...options,
     port: 0,
-    enablePolling: false,
+    enablePolling: true,
+    pollingSchedule: (() => {
+      const schedule = createTestPollingSchedule();
+      return {
+        ...schedule,
+        periods: schedule.periods.map((period) => ({
+          ...period,
+          xmlSeconds: null,
+          imageCatalogSeconds: null,
+          amedasSeconds: null,
+          nowcastEnabled: false,
+          kikikuruEnabled: false,
+        })),
+      };
+    })(),
+    pollingServiceOptions: { clock: () => time },
     acquisitionWorkerEntry: new URL('./fixtures/worker/load.ts', import.meta.url),
     onAcquisitionWorkerCreated: (worker) => {
       acquisitionWorker = worker;
     },
   });
+  const preparation = await server.weatherPrepared;
+  if (preparation.status !== 'ready')
+    throw new Error(`気象 Worker の準備失敗: ${preparation.status}`);
   if (!acquisitionWorker) throw new Error('取得 Worker が作成されませんでした。');
   const activeWorker: Worker = acquisitionWorker;
   const loadStarted = performance.now();
   let measurementCompleted = false;
+  let firstStartedResolve!: () => void;
+  const firstStarted = new Promise<void>((resolve) => {
+    firstStartedResolve = resolve;
+  });
   const parserLoad = (async () => {
     let iterations = 0;
     let runs = 0;
@@ -190,6 +221,7 @@ try {
       const result = await new Promise<number>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('XML 負荷の終了待機が期限切れ')), 10_000);
         const onMessage = (message: { test?: string; iterations?: number }) => {
+          if (message.test === 'load-started' && runs === 0) firstStartedResolve();
           if (message.test !== 'load-ended') return;
           clearTimeout(timer);
           activeWorker.off('message', onMessage);
@@ -214,6 +246,12 @@ try {
       error: error instanceof Error ? error.message : String(error),
     }),
   );
+  await Promise.race([
+    firstStarted,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('XML 負荷の開始待機が期限切れ')), 10_000),
+    ),
+  ]);
   const root = `http://127.0.0.1:${server.port}`;
   const paths: Record<string, string> = {
     health: '/api/health',
@@ -234,12 +272,12 @@ try {
   > = {};
   for (const [name, path] of Object.entries(paths).filter(([name]) => name === seriesName)) {
     const series: (typeof samples)[string] = [];
-    for (let offset = 0; offset < requests; offset += concurrency) {
+    for (let offset = 0; offset < effectiveRequests; offset += concurrency) {
       const scheduled = loadStarted + (offset / rate) * 1000;
       const wait = scheduled - performance.now();
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       await Promise.all(
-        Array.from({ length: Math.min(concurrency, requests - offset) }, async () => {
+        Array.from({ length: Math.min(concurrency, effectiveRequests - offset) }, async () => {
           const started = performance.now();
           try {
             const response = await fetch(root + path, { signal: AbortSignal.timeout(30_000) });
@@ -269,6 +307,11 @@ try {
   results.series = Object.fromEntries(
     Object.entries(samples).map(([name, entries]) => {
       const latencies = entries.map((entry) => entry.latencyMs);
+      const offsets = entries.map((entry) => entry.offsetMs);
+      const firstOffsetMs = Math.min(...offsets);
+      const lastOffsetMs = Math.max(...offsets);
+      const observedWindowSeconds =
+        (lastOffsetMs - firstOffsetMs + (concurrency / rate) * 1000) / 1000;
       return [
         name,
         {
@@ -278,15 +321,54 @@ try {
           p99: quantile(latencies, 0.99),
           max: Math.max(...latencies),
           failures: entries.filter((entry) => entry.status !== 200).length,
+          firstOffsetMs,
+          lastOffsetMs,
+          observedRate: entries.length / observedWindowSeconds,
         },
       ];
     }),
   );
   const loadResult = await parserLoad;
   results.parserLoad = loadResult;
-  results.stage = loadResult.ok ? 'measurement_completed' : 'load_failed';
+  const entries = samples[seriesName] ?? [];
+  const firstOffsetMs = Math.min(...entries.map((entry) => entry.offsetMs));
+  const lastOffsetMs = Math.max(...entries.map((entry) => entry.offsetMs));
+  const observedWindowSeconds = (lastOffsetMs - firstOffsetMs + (concurrency / rate) * 1000) / 1000;
+  const observedRate = entries.length / observedWindowSeconds;
+  const targetMs = {
+    health: 500,
+    monitoring: 1000,
+    systemDelta: 2000,
+    weather: 2000,
+    tileHit: 2000,
+  }[seriesName]!;
+  const reasons: string[] = [];
+  if (
+    !('elapsedMs' in loadResult) ||
+    loadResult.elapsedMs < durationSeconds * 1000 ||
+    loadResult.runs * 5000 < durationSeconds * 1000 ||
+    loadResult.iterations < 1
+  )
+    reasons.push('xml_load_failed');
+  if (entries.length !== effectiveRequests) reasons.push('request_count_mismatch');
+  if (entries.some((entry) => entry.status !== 200 || entry.bytes < 1))
+    reasons.push('http_failure');
+  if (entries.some((entry) => entry.latencyMs > targetMs)) reasons.push('latency_target_exceeded');
+  if (observedRate < rate * 0.95) reasons.push('rate_target_not_met');
+  if (lastOffsetMs - firstOffsetMs < durationSeconds * 1000 - 2000)
+    reasons.push('load_window_not_covered');
+  results.judgment = { passed: reasons.length === 0, reasons, targetMs, observedRate };
+  results.stage = reasons.length === 0 ? 'measurement_completed' : 'measurement_failed';
   results.finishedAt = new Date().toISOString();
   writeFileSync(output, JSON.stringify(results, null, 2));
+  if (reasons.length > 0) process.exitCode = 1;
+} catch (error) {
+  results.stage = 'measurement_failed';
+  results.error = error instanceof Error ? error.message : String(error);
+  results.finishedAt = new Date().toISOString();
+  writeFileSync(output, JSON.stringify(results, null, 2));
+  console.error(results.error);
+  process.exitCode = 1;
 } finally {
   await server?.close();
   rmSync(directory, { recursive: true, force: true });

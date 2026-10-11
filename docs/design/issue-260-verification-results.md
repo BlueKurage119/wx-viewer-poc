@@ -75,7 +75,7 @@
 
 ## 固定 fixture と計測ハーネスの実行
 
-`apps/api/tests/issue260Benchmark.mts` を追加した。seed 260 から 5 万件の 1,024 bytes 原文（normal 16,667、training 16,667、test 16,666）と、1,024 枚の 65,536 bytes PNG を一時 DB/cache に生成する。PNG は同一内容を別ファイル名で保存するため、実運用の画像分布は再現しない。実取得・提供 Worker と HTTP を起動し、取得 Worker で同期 XML 解析を最低 60 秒反復する。1 回につき health、監視、system 差分、保存済み警報 API、保存済み tile hit のうち指定した 1 系列を 100 要求以上実行し、要求単位の送信相対時刻・latency・status・bytes と分位点を JSON へ記録する。`BENCH_CONCURRENCY=1|8`、`BENCH_RATE=1|10` を選べる。
+`apps/api/tests/issue260Benchmark.mts` を追加した。seed 260 から 5 万件の 1,024 bytes 原文（normal 16,667、training 16,667、test 16,666）と、1,024 枚の 65,536 bytes PNG を一時 DB/cache に生成する。PNG は同一内容を別ファイル名で保存するため、実運用の画像分布は再現しない。実取得・提供 Worker と HTTP を起動し、取得 Worker で同期 XML 解析を最低 60 秒反復する。1 回につき health、監視、system 差分、保存済み警報 API、保存済み tile hit のうち指定した 1 系列を 100 要求以上、負荷の全区間に分散して実行し、要求単位の送信相対時刻・latency・status・bytes と分位点を JSON へ記録する。毎秒 10 件・60 秒なら 600 件、毎秒 1 件なら最低 100 件を送る。`BENCH_CONCURRENCY=1|8`、`BENCH_RATE=1|10` を選べる。
 
 再現コマンド（`apps/api` で実行、出力先は任意の書込可能な一時ファイルに変更する）:
 
@@ -85,6 +85,10 @@ NODE_ENV=production BENCH_OUTPUT=./issue260-benchmark.json BENCH_SERIES=health B
 
 サンドボックス内の試行では fixture の生成まで完了し、`listen EPERM 0.0.0.0` で実 Worker の HTTP 待受が拒否された。生成段階の機械可読値は [fixture manifest](issue-260-fixture-manifest.json) に保存した。2026-10-11 02:20:34 UTC 開始の試行で気象 DB 本体 81,928,192 bytes、保持 DB 本体 114,688 bytes、SQLite 3.53.4、seed 段階の journal mode は両 DB とも `delete`。原文 SHA-256 は `892676a0ab68480f87d735e11756624653cbfb5c5a386955ddb0a1f7c3bd3962`、PNG SHA-256 は `e36ebe4782b232411ca8b2d8e2e3eb32bd41e18a5691b7b720992897d8a9c0d5`。実 Worker 稼働時の WAL とファイル量は未計測である。
 
-権限外実行の要求は待機中に作業が中断されたため、HTTP の latency/status/bytes と解析反復回数は得られていない。このハーネスは現時点で XML 解析負荷のみを発生させ、大量保存・復旧・tile miss・旧版比較、CPU/RSS/キュー/DB busy/WAL/報告遅延の系列は実装していない。cold/warm の 3 回反復と全セルの実行も未実施であり、E1/E2 の合格証拠にはしない。
+本担当の権限外実行要求は待機中に作業が中断された。最初の統括担当による実行は次段落の負荷失敗となり、生計測値は本記録へ取り込んでいない。このハーネスは現時点で XML 解析負荷のみを発生させ、大量保存・復旧・tile miss・旧版比較、CPU/RSS/キュー/DB busy/WAL/報告遅延の系列は実装していない。cold/warm の 3 回反復と全セルの実行も未実施であり、E1/E2 の合格証拠にはしない。
+
+統括担当による最初の権限外実行（health・同時 1・毎秒 10 件）は 100 要求の後に XML 負荷終了待ちが期限切れとなり、`stage=load_failed`、`parserLoad.ok=false` だった。ハーネスが Worker 準備完了を待たずに負荷メッセージを送っていたこと、要求が約 10 秒で終わり 60 秒全区間を測っていなかったことを修正した。修正版は Worker 準備と負荷開始を確認してから要求を送り、負荷失敗・HTTP 失敗・時間上限超過・投入率不足・60 秒範囲不足を JSON の `judgment` と非 0 終了で示す。修正版の権限外実測は未取得。
+
+修正版のサンドボックス試行は `listen EPERM` で exit 1、出力 JSON は `stage=measurement_failed` と同じエラーを記録した。測定開始前の環境失敗を成功として扱わない経路は確認した。
 
 ハーネス追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` を再実行し、すべて exit 0。API/Web の全試験通過報告はハーネス追加前であり、計測コード自体の HTTP 完走は未確認である。
