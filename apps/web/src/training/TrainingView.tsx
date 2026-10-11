@@ -1,25 +1,40 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   TRAINING_GROUP_LABELS,
   type TrainingItem,
   type TrainingItemId,
 } from '@wx-viewer-poc/shared';
 import { CircularProgress, GbButton } from '../components/md';
-import {
-  INITIAL_TRAINING_STATE,
-  TRAINING_HISTORY_LIMIT,
-  createTrainingController,
-  type TrainingController,
-  type TrainingHistoryEntry,
-  type TrainingState,
-} from './trainingController';
+import { TRAINING_STOCK_LIMIT, type TrainingStockEntry } from './trainingStock';
+import { TRAINING_SAVE_FAILED_MESSAGE, type TrainingState } from './trainingController';
+import type { TrainingActions } from './useTrainingScreen';
 import { formatTrainingJstTime } from './trainingFormat';
 import { TrainingXmlDialog } from './TrainingXmlDialog';
 
+interface CategoryGroup {
+  readonly group: string;
+  readonly items: readonly TrainingItem[];
+}
+interface CategoryRow {
+  readonly key: string;
+  readonly name: string;
+  readonly groups: readonly CategoryGroup[];
+}
 interface Section {
   readonly title: string;
-  readonly groups: readonly { readonly group: string; readonly items: readonly TrainingItem[] }[];
+  readonly rows: readonly CategoryRow[];
 }
+
+/** 画面側の対応表: VPWW61系のgroupを「その他」1行へ寄せる（APIの項目・groupは変えない）。 */
+const OTHER_ROW_GROUPS: ReadonlySet<string> = new Set([
+  'thunder',
+  'fog',
+  'dry',
+  'cold',
+  'frost',
+  'icing',
+  'snow-accretion',
+]);
 
 function buildSections(items: readonly TrainingItem[]): Section[] {
   const sections: Section[] = [];
@@ -34,69 +49,86 @@ function buildSections(items: readonly TrainingItem[]): Section[] {
       if (existing) existing.items.push(item);
       else groups.push({ group: item.group, items: [item] });
     }
-    if (groups.length > 0) sections.push({ title, groups });
+    const rows: CategoryRow[] = [];
+    const others = groups.filter(({ group }) => OTHER_ROW_GROUPS.has(group));
+    for (const entry of groups) {
+      if (OTHER_ROW_GROUPS.has(entry.group)) {
+        if (entry === others[0]) rows.push({ key: 'other', name: 'その他', groups: others });
+        continue;
+      }
+      rows.push({
+        key: entry.group,
+        name: TRAINING_GROUP_LABELS[entry.group] ?? entry.group,
+        groups: [entry],
+      });
+    }
+    if (rows.length > 0) sections.push({ title, rows });
   }
   return sections;
 }
 
-interface GroupFieldsetProps {
-  readonly group: string;
-  readonly items: readonly TrainingItem[];
+interface CategoryRowProps {
+  readonly row: CategoryRow;
   readonly selected: readonly TrainingItemId[];
   readonly disabled: boolean;
   readonly onSelect: (group: string, itemId: TrainingItemId | null) => void;
 }
 
-function GroupRow({ group, items, selected, disabled, onSelect }: GroupFieldsetProps) {
-  const legend = TRAINING_GROUP_LABELS[group] ?? group;
-  const noneSelected = !items.some((item) => selected.includes(item.id));
-  const name = `training-${group}`;
-  const labelId = `${name}-label`;
+function CategoryRowView({ row, selected, disabled, onSelect }: CategoryRowProps) {
+  const labelId = `training-${row.key}-label`;
   return (
     <div className="training-category" role="group" aria-labelledby={labelId}>
       <span id={labelId} className="training-category-name">
-        {legend}
+        {row.name}
       </span>
       <div className="training-choices">
-        {items.length === 1 ? (
-          <label className="training-option">
-            <input
-              type="checkbox"
-              name={name}
-              checked={selected.includes(items[0]!.id)}
-              disabled={disabled}
-              onChange={(event) =>
-                onSelect(group, event.currentTarget.checked ? items[0]!.id : null)
-              }
-            />
-            <span>{items[0]!.label}</span>
-          </label>
-        ) : (
-          <>
-            <label className="training-option">
-              <input
-                type="radio"
-                name={name}
-                checked={noneSelected}
-                disabled={disabled}
-                onChange={() => onSelect(group, null)}
-              />
-              <span>なし</span>
-            </label>
-            {items.map((item) => (
-              <label key={item.id} className="training-option">
+        {row.groups.map(({ group, items }) => {
+          const name = `training-${group}`;
+          if (items.length === 1) {
+            const item = items[0]!;
+            return (
+              <label key={group} className="training-option">
                 <input
-                  type="radio"
+                  type="checkbox"
                   name={name}
                   checked={selected.includes(item.id)}
                   disabled={disabled}
-                  onChange={() => onSelect(group, item.id)}
+                  onChange={(event) =>
+                    onSelect(group, event.currentTarget.checked ? item.id : null)
+                  }
                 />
                 <span>{item.label}</span>
               </label>
-            ))}
-          </>
-        )}
+            );
+          }
+          const noneSelected = !items.some((item) => selected.includes(item.id));
+          return (
+            <div key={group} className="training-choices-group">
+              <label className="training-option">
+                <input
+                  type="radio"
+                  name={name}
+                  checked={noneSelected}
+                  disabled={disabled}
+                  onChange={() => onSelect(group, null)}
+                />
+                <span>なし</span>
+              </label>
+              {items.map((item) => (
+                <label key={item.id} className="training-option">
+                  <input
+                    type="radio"
+                    name={name}
+                    checked={selected.includes(item.id)}
+                    disabled={disabled}
+                    onChange={() => onSelect(group, item.id)}
+                  />
+                  <span>{item.label}</span>
+                </label>
+              ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -104,42 +136,40 @@ function GroupRow({ group, items, selected, disabled, onSelect }: GroupFieldsetP
 
 export interface TrainingContentProps {
   readonly state: TrainingState;
-  readonly onSelect: (group: string, itemId: TrainingItemId | null) => void;
+  readonly onSelect: TrainingActions['select'];
   readonly onGenerate: () => void;
   readonly onReset: () => void;
   readonly onReload: () => void;
-  readonly onOpenEntry: (entry: TrainingHistoryEntry) => void;
+  readonly onSetChecked: TrainingActions['setChecked'];
+  readonly onOpenEntry: (entry: TrainingStockEntry) => void;
 }
 
-function HistoryRow({
+function StockRow({
   entry,
-  selected,
+  checked,
+  onSetChecked,
   onOpen,
 }: {
-  readonly entry: TrainingHistoryEntry;
-  readonly selected: boolean;
-  readonly onOpen: (entry: TrainingHistoryEntry) => void;
+  readonly entry: TrainingStockEntry;
+  readonly checked: boolean;
+  readonly onSetChecked: TrainingActions['setChecked'];
+  readonly onOpen: (entry: TrainingStockEntry) => void;
 }) {
+  const time = formatTrainingJstTime(entry.generatedAt);
   return (
-    <li
-      role="option"
-      aria-selected={selected}
-      tabIndex={0}
-      className="training-row"
-      data-entry-id={entry.id}
-      onClick={(event) => {
-        event.currentTarget.focus();
-        onOpen(entry);
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        onOpen(entry);
-      }}
-    >
-      <span className="training-row-time">{formatTrainingJstTime(entry.generatedAt)}</span>
-      <span className="training-row-items">{entry.itemLabels.join('、')}</span>
-      <span className="training-row-type">{entry.telegram.telegramType}</span>
+    <li className="training-row" data-entry-id={entry.id}>
+      <input
+        type="checkbox"
+        className="training-row-check"
+        aria-label={`${time} ${entry.telegram.telegramType} を選択`}
+        checked={checked}
+        onChange={(event) => onSetChecked(entry.id, event.currentTarget.checked)}
+      />
+      <button type="button" className="training-row-open" onClick={() => onOpen(entry)}>
+        <span className="training-row-time">{time}</span>
+        <span className="training-row-items">{entry.itemLabels.join('、')}</span>
+        <span className="training-row-type">{entry.telegram.telegramType}</span>
+      </button>
     </li>
   );
 }
@@ -151,6 +181,7 @@ export function TrainingContent({
   onGenerate,
   onReset,
   onReload,
+  onSetChecked,
   onOpenEntry,
 }: TrainingContentProps) {
   const sending = state.generation.phase === 'sending';
@@ -179,11 +210,10 @@ export function TrainingContent({
             <section key={section.title} className="training-section">
               <h2>{section.title}</h2>
               <div className="training-groups">
-                {section.groups.map(({ group, items }) => (
-                  <GroupRow
-                    key={group}
-                    group={group}
-                    items={items}
+                {section.rows.map((row) => (
+                  <CategoryRowView
+                    key={row.key}
+                    row={row}
                     selected={state.selected}
                     disabled={sending}
                     onSelect={onSelect}
@@ -223,26 +253,30 @@ export function TrainingContent({
       <section className="training-right" aria-label="生成した電文">
         <div className="training-statusbar">
           <span className="training-count">
-            {state.history.length}／{TRAINING_HISTORY_LIMIT}件
+            {state.history.length}／{TRAINING_STOCK_LIMIT}件
           </span>
           {sending ? (
             <span className="training-progress" role="status">
               <CircularProgress indeterminate aria-hidden="true" />
               生成中
             </span>
-          ) : null}
-          {state.generation.phase === 'failed' ? (
+          ) : state.generation.phase === 'failed' ? (
             <span className="training-error" role="alert">
               {state.generation.message}
             </span>
+          ) : state.saveFailed ? (
+            <span className="training-error" role="alert">
+              {TRAINING_SAVE_FAILED_MESSAGE}
+            </span>
           ) : null}
         </div>
-        <ul className="training-list" role="listbox" aria-label="生成した電文の一覧">
+        <ul className="training-list" aria-label="生成した電文の一覧">
           {state.history.map((entry) => (
-            <HistoryRow
+            <StockRow
               key={entry.id}
               entry={entry}
-              selected={entry.id === state.selectedEntryId}
+              checked={state.checked.includes(entry.id)}
+              onSetChecked={onSetChecked}
               onOpen={onOpenEntry}
             />
           ))}
@@ -252,31 +286,24 @@ export function TrainingContent({
   );
 }
 
-export function TrainingView({ terminalId }: { readonly terminalId: string }) {
-  const [state, setState] = useState<TrainingState>(INITIAL_TRAINING_STATE);
-  const [openEntry, setOpenEntry] = useState<TrainingHistoryEntry | null>(null);
-  const controllerRef = useRef<TrainingController | null>(null);
-  useEffect(() => {
-    const controller = createTrainingController(terminalId, setState);
-    controllerRef.current = controller;
-    controller.start();
-    return () => {
-      controller.dispose();
-      controllerRef.current = null;
-    };
-  }, [terminalId]);
+export function TrainingView({
+  state,
+  actions,
+}: {
+  readonly state: TrainingState;
+  readonly actions: TrainingActions;
+}) {
+  const [openEntry, setOpenEntry] = useState<TrainingStockEntry | null>(null);
   return (
     <>
       <TrainingContent
         state={state}
-        onSelect={(group, itemId) => controllerRef.current?.selectInGroup(group, itemId)}
-        onGenerate={() => controllerRef.current?.generate()}
-        onReset={() => controllerRef.current?.reset()}
-        onReload={() => controllerRef.current?.start()}
-        onOpenEntry={(entry) => {
-          controllerRef.current?.selectEntry(entry.id);
-          setOpenEntry(entry);
-        }}
+        onSelect={actions.select}
+        onGenerate={actions.generate}
+        onReset={actions.reset}
+        onReload={actions.reload}
+        onSetChecked={actions.setChecked}
+        onOpenEntry={setOpenEntry}
       />
       <TrainingXmlDialog entry={openEntry} onClose={() => setOpenEntry(null)} />
     </>

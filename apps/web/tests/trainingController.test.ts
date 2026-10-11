@@ -8,12 +8,16 @@ import {
   type TrainingTelegramPreview,
 } from '@wx-viewer-poc/shared';
 import {
-  TRAINING_HISTORY_LIMIT,
   createTrainingController,
   prependHistory,
-  type TrainingHistoryEntry,
   type TrainingState,
 } from '../src/training/trainingController.ts';
+import {
+  TRAINING_STOCK_LIMIT,
+  createTrainingStockRepository,
+  trainingStockKey,
+  type TrainingStockEntry,
+} from '../src/training/trainingStock.ts';
 
 const itemsBody = { items: TRAINING_ITEMS, targetLabel: '東京ビッグサイト周辺' };
 
@@ -65,18 +69,44 @@ function createFetch() {
   return { fetcher, pending };
 }
 
+/** 差し替え可能なlocalStorage代用。 */
+function memoryStorage(initial: Record<string, string> = {}) {
+  const data = new Map(Object.entries(initial));
+  const failures = { get: false, set: false, remove: false };
+  const storage = {
+    getItem(key: string) {
+      if (failures.get) throw new Error('getItem failed');
+      return data.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      if (failures.set) throw new Error('setItem failed');
+      data.set(key, value);
+    },
+    removeItem(key: string) {
+      if (failures.remove) throw new Error('removeItem failed');
+      data.delete(key);
+    },
+  };
+  return { storage, data, failures };
+}
+
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-async function ready() {
+async function ready(memory = memoryStorage(), terminalId = 'kkeagh01') {
   const { fetcher, pending } = createFetch();
   const states: TrainingState[] = [];
-  const controller = createTrainingController('kkeagh01', (state) => states.push(state), fetcher);
+  const controller = createTrainingController(
+    terminalId,
+    (state) => states.push(state),
+    fetcher,
+    createTrainingStockRepository(() => memory.storage),
+  );
   controller.start();
   pending[0]!.resolve(Response.json(itemsBody));
   await tick();
   assert.equal(states.at(-1)!.load, 'ready');
   const last = () => states.at(-1)!;
-  return { controller, pending, states, last };
+  return { controller, pending, states, last, memory };
 }
 
 test('項目の読込: terminalIdを付けて取得し、失敗時はfailedから再読込できる', async () => {
@@ -134,7 +164,8 @@ test('生成: 押下即実行で送信中を描画し、成功で一覧の先頭
   assert.equal(entry.id, 'g1:0');
   assert.equal(entry.generatedAt, '2026-10-11T05:10:30.000Z');
   assert.deepEqual(entry.itemLabels, ['レベル４大雨危険警報']);
-  assert.equal(last().selectedEntryId, 'g1:0');
+  assert.deepEqual(last().checked, [], '生成後もチェックは付けない');
+  assert.equal(last().saveFailed, false);
   // 選択は維持され、選択変更で一覧は消えない
   assert.deepEqual(last().selected, ['warning-43']);
   controller.selectInGroup('thunder', 'warning-14');
@@ -158,11 +189,11 @@ test('1回の生成の複数通は先頭にAPI順で入り、新しい生成は�
     last().history.map((e) => e.id),
     ['b:0', 'b:1', 'b:2', 'a:0', 'a:1'],
   );
-  assert.equal(last().selectedEntryId, 'b:0');
+  assert.deepEqual(last().checked, []);
 });
 
 test('一覧は最大20件: 20件・21件・複数通同時投入の境界で最古から消える', async () => {
-  const mk = (id: string): TrainingHistoryEntry => ({
+  const mk = (id: string): TrainingStockEntry => ({
     id,
     generatedAt: '2026-10-11T05:10:30.000Z',
     itemLabels: [],
@@ -171,7 +202,7 @@ test('一覧は最大20件: 20件・21件・複数通同時投入の境界で最
   const twenty = Array.from({ length: 20 }, (_, i) => mk(`o${i}`));
   assert.equal(prependHistory(twenty.slice(0, 19), [mk('n0')]).length, 20);
   const afterOne = prependHistory(twenty, [mk('n0')]);
-  assert.equal(afterOne.length, TRAINING_HISTORY_LIMIT);
+  assert.equal(afterOne.length, TRAINING_STOCK_LIMIT);
   assert.equal(afterOne[0]!.id, 'n0');
   assert.equal(afterOne.at(-1)!.id, 'o18', '最古のo19だけが消える');
   const afterThree = prependHistory(twenty, [mk('n0'), mk('n1'), mk('n2')]);
@@ -208,21 +239,117 @@ test('一覧は最大20件: 20件・21件・複数通同時投入の境界で最
   assert.equal(last().history.at(-1)!.id, 'r0:5');
 });
 
-test('行の選択: 単一選択で、存在しない行は無視、リセット・選択変更では変わらない', async () => {
+test('チェック: 複数チェックでき、存在しない行は無視、リセット・選択変更では変わらない', async () => {
   const { controller, pending, last } = await ready();
+  controller.selectInGroup('rain', 'warning-43');
+  controller.generate();
+  pending[1]!.resolve(Response.json(generation('g', 'warning-43', 3)));
+  await tick();
+  controller.setChecked('g:1', true);
+  controller.setChecked('g:2', true);
+  controller.setChecked('nope', true);
+  assert.deepEqual([...last().checked].sort(), ['g:1', 'g:2']);
+  controller.reset();
+  controller.selectInGroup('thunder', 'warning-14');
+  assert.deepEqual([...last().checked].sort(), ['g:1', 'g:2']);
+  controller.setChecked('g:1', false);
+  assert.deepEqual(last().checked, ['g:2']);
+});
+
+test('削除: 確認なしでチェック行を除き、直後に保存へ反映。0件では何もしない。生成中でも実行できる', async () => {
+  const { controller, pending, last, memory, states } = await ready();
+  const key = trainingStockKey('kkeagh01');
+  const before = states.length;
+  controller.deleteChecked();
+  assert.equal(states.length, before, 'チェック0件では何もしない');
+  controller.selectInGroup('rain', 'warning-43');
+  controller.generate();
+  pending[1]!.resolve(Response.json(generation('a', 'warning-43', 3)));
+  await tick();
+  controller.setChecked('a:0', true);
+  controller.setChecked('a:2', true);
+  controller.deleteChecked();
+  assert.deepEqual(
+    last().history.map((e) => e.id),
+    ['a:1'],
+  );
+  assert.deepEqual(last().checked, []);
+  assert.deepEqual(
+    JSON.parse(memory.data.get(key)!).entries.map((e: { id: string }) => e.id),
+    ['a:1'],
+    '保存内容と画面が一致',
+  );
+  // 生成中の削除: 生成結果は削除後の一覧の先頭に入る
+  controller.generate();
+  assert.equal(last().generation.phase, 'sending');
+  controller.setChecked('a:1', true);
+  controller.deleteChecked();
+  assert.deepEqual(last().history, []);
+  assert.equal(last().generation.phase, 'sending');
+  pending[2]!.resolve(Response.json(generation('b', 'warning-43', 2)));
+  await tick();
+  assert.deepEqual(
+    last().history.map((e) => e.id),
+    ['b:0', 'b:1'],
+  );
+  assert.deepEqual(JSON.parse(memory.data.get(key)!).entries.length, 2);
+  // 全件削除で空配列を保存する（キーは消さない）
+  controller.setChecked('b:0', true);
+  controller.setChecked('b:1', true);
+  controller.deleteChecked();
+  assert.deepEqual(JSON.parse(memory.data.get(key)!), { version: 1, entries: [] });
+});
+
+test('保存: 生成・自動削除(21通目)で20件を保存し、再生成した画面で同じ一覧が復元されチェックは外れる', async () => {
+  const memory = memoryStorage();
+  const first = await ready(memory);
+  first.controller.selectInGroup('rain', 'warning-43');
+  for (let round = 0; round < 3; round += 1) {
+    first.controller.generate();
+    first.pending.at(-1)!.resolve(Response.json(generation(`r${round}`, 'warning-43', 7)));
+    await tick();
+  }
+  assert.equal(first.last().history.length, 20);
+  const saved = JSON.parse(memory.data.get(trainingStockKey('kkeagh01'))!);
+  assert.equal(saved.version, 1);
+  assert.equal(saved.entries.length, 20);
+  assert.deepEqual(
+    saved.entries.map((e: { id: string }) => e.id),
+    first.last().history.map((e) => e.id),
+  );
+  first.controller.setChecked('r2:0', true);
+  first.controller.dispose();
+  // 再読込（新しいコントローラ）
+  const second = await ready(memory);
+  assert.deepEqual(second.last().history, first.last().history);
+  assert.deepEqual(second.last().checked, []);
+  // 別の端末キーには混ざらない
+  const other = await ready(memory, 'ktrcph01');
+  assert.equal(other.last().history.length, 0);
+  assert.equal(memory.data.has(trainingStockKey('kkeagh01')), true);
+});
+
+test('保存失敗: 一覧はメモリで保持し、saveFailedを立て、次の保存成功で消える。読込失敗でも動作する', async () => {
+  const memory = memoryStorage();
+  memory.failures.get = true;
+  memory.failures.set = true;
+  memory.failures.remove = true;
+  const { controller, pending, last } = await ready(memory);
+  assert.equal(last().history.length, 0, 'getItem例外でも空から始める');
   controller.selectInGroup('rain', 'warning-43');
   controller.generate();
   pending[1]!.resolve(Response.json(generation('g', 'warning-43', 2)));
   await tick();
-  controller.selectEntry('g:1');
-  assert.equal(last().selectedEntryId, 'g:1');
-  controller.selectEntry('nope');
-  assert.equal(last().selectedEntryId, 'g:1');
-  controller.reset();
-  assert.equal(last().selectedEntryId, 'g:1');
   assert.equal(last().history.length, 2);
-  controller.selectEntry(null);
-  assert.equal(last().selectedEntryId, null);
+  assert.equal(last().saveFailed, true);
+  controller.setChecked('g:0', true);
+  controller.deleteChecked();
+  assert.equal(last().history.length, 1);
+  assert.equal(last().saveFailed, true);
+  memory.failures.set = false;
+  controller.setChecked('g:1', true);
+  controller.deleteChecked();
+  assert.equal(last().saveFailed, false);
 });
 
 test('リセット: 選択を全解除し一覧は変えない。未選択では何もしない', async () => {

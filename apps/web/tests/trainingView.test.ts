@@ -11,11 +11,8 @@ import { TrainingContent } from '../src/training/TrainingView.tsx';
 import { TrainingToolbar } from '../src/training/TrainingToolbar.tsx';
 import { TrainingXmlDialog } from '../src/training/TrainingXmlDialog.tsx';
 import { formatTrainingJst, formatTrainingJstTime } from '../src/training/trainingFormat.ts';
-import {
-  INITIAL_TRAINING_STATE,
-  type TrainingHistoryEntry,
-  type TrainingState,
-} from '../src/training/trainingController.ts';
+import { INITIAL_TRAINING_STATE, type TrainingState } from '../src/training/trainingController.ts';
+import type { TrainingStockEntry } from '../src/training/trainingStock.ts';
 import { testTerminals } from './venueConfigPreload.ts';
 (globalThis as unknown as { React: typeof React }).React = React;
 
@@ -25,7 +22,8 @@ const ready: TrainingState = {
   selected: [],
   generation: { phase: 'idle' },
   history: [],
-  selectedEntryId: null,
+  checked: [],
+  saveFailed: false,
 };
 
 const preview: TrainingTelegramPreview = {
@@ -42,7 +40,7 @@ const preview: TrainingTelegramPreview = {
   isTraining: true,
 };
 
-const entry = (id: string, labels: string[], type = 'VPHW50'): TrainingHistoryEntry => ({
+const entry = (id: string, labels: string[], type = 'VPHW50'): TrainingStockEntry => ({
   id,
   generatedAt: '2026-10-11T06:12:04.000Z',
   itemLabels: labels,
@@ -57,6 +55,7 @@ const render = (state: TrainingState) =>
       onGenerate: () => {},
       onReset: () => {},
       onReload: () => {},
+      onSetChecked: () => {},
       onOpenEntry: () => {},
     }),
   );
@@ -79,19 +78,37 @@ test('読込中・読込失敗は左ペイン内に出し、右ペインは描�
   assert.match(failed, /0／20件/);
 });
 
-test('項目: 1行1カテゴリ(16行)、同一現象はradio(なし付き)、単独項目はcheckbox。枠や説明文は付けない', () => {
+test('項目: 1行1カテゴリ(10行)、「その他」は7checkbox1行、同一現象はradio(なし付き)。枠や説明文は付けない', () => {
   const html = render(ready);
   assert.ok(!html.includes('東京ビッグサイト周辺'));
-  assert.equal((html.match(/role="group"/g) ?? []).length, 16);
+  assert.equal((html.match(/role="group"/g) ?? []).length, 10);
   assert.ok(!html.includes('<fieldset') && !html.includes('<legend'));
   const row = (label: string) =>
-    html.match(new RegExp(`training-category-name">${label}</span>(.*?)</div></div>`))![1]!;
+    html
+      .split('<div class="training-category"')
+      .find((chunk) => chunk.includes(`training-category-name">${label}</span>`))!;
+  // 「その他」: 雷・濃霧・乾燥・低温・霜・着氷・着雪の7checkboxが1行に並ぶ（別行にしない）
+  const other = row('その他');
+  assert.equal((other.match(/type="checkbox"/g) ?? []).length, 7);
+  assert.ok(!other.includes('type="radio"'));
+  for (const label of [
+    '雷注意報',
+    '濃霧注意報',
+    '乾燥注意報',
+    '低温注意報',
+    '霜注意報',
+    '着氷注意報',
+    '着雪注意報',
+  ]) {
+    assert.ok(other.includes(`<span>${label}</span>`), label);
+  }
+  for (const separate of ['雷', '濃霧', '乾燥', '低温', '霜', '着氷', '着雪']) {
+    assert.ok(!html.includes(`training-category-name">${separate}</span>`), separate);
+  }
   const rain = row('大雨');
   assert.equal((rain.match(/type="radio"/g) ?? []).length, 5);
   assert.match(rain, /<span>なし<\/span>/);
   assert.ok(!html.includes('選択なし'));
-  const thunder = row('雷');
-  assert.match(thunder, /type="checkbox"/);
   // 土砂災害はL2だけなのでcheckbox
   const landslide = row('土砂災害');
   assert.match(landslide, /type="checkbox"/);
@@ -132,13 +149,15 @@ test('生成中: 状態行に「生成中」、全input・生成・リセット�
     selected: ['warning-43'],
     generation: { phase: 'sending' },
     history: [entry('a', ['雷注意報'], 'VPWW61')],
-    selectedEntryId: 'a',
   });
   const status = html.match(/class="training-statusbar">(.*?)<\/div>/)![1]!;
   assert.match(status, /1／20件/);
   assert.match(status, /生成中/);
   assert.ok((html.match(/<input[^>]*disabled=""/g) ?? []).length > 30);
-  assert.ok(!/<input(?![^>]*disabled)/.test(html), '全inputが操作不可');
+  const left = html.slice(0, html.indexOf('training-right'));
+  assert.ok(!/<input(?![^>]*disabled)/.test(left), '左ペインの全inputが操作不可');
+  const right = html.slice(html.indexOf('training-right'));
+  assert.ok(!/<input[^>]*disabled/.test(right), '一覧のチェックは生成中も操作できる（削除のため）');
   assert.match(generateButton(html), /soft-disabled=""/);
   assert.match(resetButton(html), /soft-disabled=""/);
   assert.match(html, /雷注意報/);
@@ -158,27 +177,46 @@ test('失敗: 状態行に日本語エラー(alert)、ラベルは「生成」�
   assert.match(html, /checked=""/);
 });
 
-test('一覧: 空は「0／20件」だけ、行は時刻(JST)・項目名・電文種別コード、選択行はaria-selected', () => {
+test('一覧: 空は「0／20件」だけ、行はチェック欄＋行ボタン(時刻JST・項目名・種別)で、強調属性を付けない', () => {
   const empty = render(ready);
   assert.match(empty, /0／20件/);
-  assert.match(empty, /<ul[^>]*role="listbox"[^>]*><\/ul>/);
+  assert.match(empty, /<ul[^>]*aria-label="生成した電文の一覧"[^>]*><\/ul>/);
   const html = render({
     ...ready,
     history: [
       entry('a', ['雷注意報', '乾燥注意報'], 'VPWW61'),
       entry('b', ['レベル３大雨警報'], 'VPWW55'),
     ],
-    selectedEntryId: 'a',
+    checked: ['b'],
   });
   assert.match(html, /2／20件/);
   assert.match(
     html,
-    /<li[^>]*aria-selected="true"[^>]*><span class="training-row-time">15:12:04<\/span><span class="training-row-items">雷注意報、乾燥注意報<\/span><span class="training-row-type">VPWW61<\/span><\/li>/,
+    /<li class="training-row" data-entry-id="a"><input type="checkbox" class="training-row-check" aria-label="15:12:04 VPWW61 を選択"\/><button type="button" class="training-row-open"><span class="training-row-time">15:12:04<\/span><span class="training-row-items">雷注意報、乾燥注意報<\/span><span class="training-row-type">VPWW61<\/span><\/button><\/li>/,
   );
-  assert.match(html, /<li[^>]*aria-selected="false"[^>]*>.*?レベル３大雨警報.*?VPWW55/);
-  assert.equal((html.match(/role="option"/g) ?? []).length, 2);
+  // チェック欄とボタンは入れ子にせず、チェック状態だけが反映される
+  assert.match(
+    html,
+    /data-entry-id="b"><input[^>]*aria-label="15:12:04 VPWW55 を選択"[^>]*checked=""/,
+  );
+  assert.equal((html.match(/<li[^>]*><input[^>]*checked=""/g) ?? []).length, 1);
+  assert.ok(!html.includes('aria-current'), '生成直後の強調はしない');
+  assert.ok(!/<button[^>]*>(?:(?!<\/button>).)*<input/.test(html));
   assert.ok(html.indexOf('VPWW61') < html.indexOf('VPWW55'), '渡された順（新しい順）に描画する');
   assert.ok(!html.includes('<details'), '一覧にXMLは展開しない');
+});
+
+test('保存失敗: 状態行に「一覧を保存できませんでした」。生成失敗があればそちらを優先', () => {
+  const saveFailed = render({ ...ready, saveFailed: true });
+  assert.match(saveFailed, /role="alert"[^>]*>一覧を保存できませんでした/);
+  const both = render({
+    ...ready,
+    saveFailed: true,
+    generation: { phase: 'failed', message: '訓練電文を生成できませんでした。' },
+  });
+  assert.match(both, /訓練電文を生成できませんでした。/);
+  assert.ok(!both.includes('一覧を保存できませんでした'));
+  assert.ok(!render(ready).includes('保存できませんでした'));
 });
 
 test('XMLダイアログ: 見出し・訓練用合成・区域・発表/失効(JST)・項目名・XML全文(エスケープ)、閉じるボタン', () => {
@@ -208,11 +246,22 @@ test('XMLダイアログ: 見出し・訓練用合成・区域・発表/失効(J
   assert.ok(!closed.includes('<h2'));
 });
 
-test('ツールバーは空の .monitoring-toolbar だけ。training画面は監視と同じ外枠classを持つ', () => {
-  assert.equal(
-    renderToStaticMarkup(React.createElement(TrainingToolbar)),
-    '<div class="monitoring-toolbar"></div>',
+test('ツールバーの操作は「削除」だけ(監視と同じ部品class)。チェック0件ではsoftDisabled、1件以上で押せる', () => {
+  const render0 = (canDelete: boolean) =>
+    renderToStaticMarkup(React.createElement(TrainingToolbar, { canDelete, onDelete: () => {} }));
+  const off = render0(false);
+  assert.match(
+    off,
+    /^<div class="monitoring-toolbar"><div class="monitoring-toolbar-scroll"><div class="monitoring-toolbar-group">/,
   );
+  assert.equal((off.match(/<md-gb-button/g) ?? []).length, 1);
+  assert.match(off, /soft-disabled=""/);
+  assert.match(off, /slot="container"/);
+  assert.match(off, /monitoring-toolbar-icon[^>]*>delete</);
+  assert.match(off, /monitoring-toolbar-button-label">削除</);
+  const on = render0(true);
+  assert.ok(!/soft-disabled/.test(on));
+  assert.ok(!/(送信|クリア|投入|取消)/.test(on));
   const terminal = testTerminals.find((t) => t.mode === 'K')!;
   const shell = (view: 'training' | 'monitor' | 'warnings') =>
     renderToStaticMarkup(
@@ -227,7 +276,7 @@ test('ツールバーは空の .monitoring-toolbar だけ。training画面は監
           now: new Date('2026-10-12T00:00:00.000Z'),
           connection: { failed: false, lastSuccessAt: null },
           notifications: React.createElement('div'),
-          toolbar: React.createElement(TrainingToolbar),
+          toolbar: React.createElement(TrainingToolbar, { canDelete: false, onDelete: () => {} }),
         },
         React.createElement('div'),
       ),

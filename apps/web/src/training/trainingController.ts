@@ -1,20 +1,16 @@
-import type { TrainingItem, TrainingItemId, TrainingTelegramPreview } from '@wx-viewer-poc/shared';
+import type { TrainingItem, TrainingItemId } from '@wx-viewer-poc/shared';
+import {
+  TRAINING_STOCK_LIMIT,
+  createTrainingStockRepository,
+  type TrainingStockEntry,
+  type TrainingStockRepository,
+} from './trainingStock';
 import { fetchTrainingItems, requestTrainingPreview } from '../api/training';
 
-/** 一覧に保持する最大件数。超過は最古から自動削除する。 */
-export const TRAINING_HISTORY_LIMIT = 20;
+export type { TrainingStockEntry } from './trainingStock';
 
 export const TRAINING_GENERATE_FAILED_MESSAGE = '訓練電文を生成できませんでした。';
-
-/** 一覧の1行＝生成した電文1通。画面のメモリ上だけに保持する。 */
-export interface TrainingHistoryEntry {
-  readonly id: string;
-  /** 生成時刻（UTC ISO）。 */
-  readonly generatedAt: string;
-  /** その電文に含まれる選択項目のラベル。 */
-  readonly itemLabels: readonly string[];
-  readonly telegram: TrainingTelegramPreview;
-}
+export const TRAINING_SAVE_FAILED_MESSAGE = '一覧を保存できませんでした';
 
 export type TrainingGenerationState =
   | { readonly phase: 'idle' }
@@ -26,9 +22,12 @@ export interface TrainingState {
   readonly items: readonly TrainingItem[];
   readonly selected: readonly TrainingItemId[];
   readonly generation: TrainingGenerationState;
-  /** 新しい順。最大 TRAINING_HISTORY_LIMIT 件。 */
-  readonly history: readonly TrainingHistoryEntry[];
-  readonly selectedEntryId: string | null;
+  /** 一覧（ストック）。新しい順。最大 TRAINING_STOCK_LIMIT 件。localStorageに保存される。 */
+  readonly history: readonly TrainingStockEntry[];
+  /** 一覧でチェックされた行のID。保存しない。 */
+  readonly checked: readonly string[];
+  /** 直近の保存が失敗した。次に保存が成功すると false に戻る。 */
+  readonly saveFailed: boolean;
 }
 
 export interface TrainingController {
@@ -39,8 +38,10 @@ export interface TrainingController {
   generate(): void;
   /** 項目選択をすべて解除する。一覧は変えない。 */
   reset(): void;
-  /** 一覧の行を選択する（null で解除）。 */
-  selectEntry(entryId: string | null): void;
+  /** 一覧の行のチェックを切り替える（複数可）。 */
+  setChecked(entryId: string, checked: boolean): void;
+  /** チェックされた行を確認なしで一覧から除き、直後に保存する。生成中でも実行できる。 */
+  deleteChecked(): void;
   dispose(): void;
 }
 
@@ -50,15 +51,16 @@ export const INITIAL_TRAINING_STATE: TrainingState = {
   selected: [],
   generation: { phase: 'idle' },
   history: [],
-  selectedEntryId: null,
+  checked: [],
+  saveFailed: false,
 };
 
 /** 1回の生成結果を一覧の先頭へAPI順で挿入し、最大件数を超えた分を最古から捨てる。 */
 export function prependHistory(
-  history: readonly TrainingHistoryEntry[],
-  added: readonly TrainingHistoryEntry[],
-): TrainingHistoryEntry[] {
-  return [...added, ...history].slice(0, TRAINING_HISTORY_LIMIT);
+  history: readonly TrainingStockEntry[],
+  added: readonly TrainingStockEntry[],
+): TrainingStockEntry[] {
+  return [...added, ...history].slice(0, TRAINING_STOCK_LIMIT);
 }
 
 /**
@@ -69,8 +71,10 @@ export function createTrainingController(
   terminalId: string,
   publish: (state: TrainingState) => void,
   fetcher: typeof fetch = fetch,
+  stock: TrainingStockRepository = createTrainingStockRepository(),
 ): TrainingController {
-  let state = INITIAL_TRAINING_STATE;
+  // 保存済みの一覧は項目取得と独立に、同期で読み込む（端末ごとのキー）。
+  let state: TrainingState = { ...INITIAL_TRAINING_STATE, history: stock.load(terminalId) };
   let active = true;
   let sequence = 0;
   let loadRequest: AbortController | null = null;
@@ -125,7 +129,7 @@ export function createTrainingController(
       requestTrainingPreview(terminalId, itemIds, request.signal, fetcher).then(
         (result) => {
           if (current !== sequence || request.signal.aborted || !active) return;
-          const added = result.telegrams.map<TrainingHistoryEntry>((telegram) => ({
+          const added = result.telegrams.map<TrainingStockEntry>((telegram) => ({
             id: telegram.id,
             generatedAt: result.generatedAt,
             itemLabels: telegram.itemIds.map(
@@ -133,12 +137,14 @@ export function createTrainingController(
             ),
             telegram,
           }));
+          // 削除済みの行の上に積み、先頭行にチェックは付けない。押し出された行のチェックは消える。
           const history = prependHistory(state.history, added);
-          // 新しい先頭行を自動選択する（ダイアログは開かない）。
+          const ids = new Set(history.map((entry) => entry.id));
           update({
             generation: { phase: 'idle' },
             history,
-            selectedEntryId: history[0]?.id ?? null,
+            checked: state.checked.filter((id) => ids.has(id)),
+            saveFailed: !stock.save(terminalId, history).saved,
           });
         },
         () => {
@@ -155,10 +161,16 @@ export function createTrainingController(
         generation: state.generation.phase === 'failed' ? { phase: 'idle' } : state.generation,
       });
     },
-    selectEntry(entryId) {
-      if (!active) return;
-      if (entryId !== null && !state.history.some((entry) => entry.id === entryId)) return;
-      update({ selectedEntryId: entryId });
+    setChecked(entryId, checked) {
+      if (!active || !state.history.some((entry) => entry.id === entryId)) return;
+      const others = state.checked.filter((id) => id !== entryId);
+      update({ checked: checked ? [...others, entryId] : others });
+    },
+    deleteChecked() {
+      if (!active || state.checked.length === 0) return;
+      const removed = new Set(state.checked);
+      const history = state.history.filter((entry) => !removed.has(entry.id));
+      update({ history, checked: [], saveFailed: !stock.save(terminalId, history).saved });
     },
     dispose() {
       active = false;

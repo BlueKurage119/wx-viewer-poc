@@ -57,6 +57,7 @@ import { useTerminalRegistry } from './terminalRegistryContext';
 import { WarningListView } from './warnings/WarningListView';
 import { TrainingView } from './training/TrainingView';
 import { TrainingToolbar } from './training/TrainingToolbar';
+import { useTrainingScreen } from './training/useTrainingScreen';
 import { createWarningListSearchState } from './warnings/warningListFilterModel';
 import './warnings/warningList.css';
 import './training/training.css';
@@ -113,6 +114,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       : dangerPreview && /^[1-5]$/.test(dangerPreview)
         ? (Number(dangerPreview) as WeatherDangerLevel)
         : weatherDanger.level;
+  const training = useTrainingScreen(terminal.id, view === 'training' && terminal.mode === 'K');
   const buzzer = useHeaderBuzzer();
   const { confirmLevel } = buzzer;
   const onConfirmed = useCallback(
@@ -312,7 +314,10 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
             }}
           />
         ) : view === 'training' ? (
-          <TrainingToolbar />
+          <TrainingToolbar
+            canDelete={training.state.checked.length > 0}
+            onDelete={training.actions.deleteChecked}
+          />
         ) : preview ? (
           <>
             <span className="preview-label">表示確認用</span>
@@ -376,7 +381,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           restartCompletions={restartCompletions}
         />
       ) : (
-        <TrainingView terminalId={terminal.id} />
+        <TrainingView state={training.state} actions={training.actions} />
       )}
       <MonitoringDialogHost
         dialogId={monitoringToolbar.localState.openDialog}

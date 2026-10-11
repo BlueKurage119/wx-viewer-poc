@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { GbButton } from '../components/md';
 import { nextDialogFocusTarget } from '../monitoring/monitoringDialogFocus';
-import type { TrainingHistoryEntry } from './trainingController';
+import type { TrainingStockEntry } from './trainingStock';
 import { formatTrainingJst } from './trainingFormat';
 
 function dialogFocusableElements(dialog: HTMLDialogElement): HTMLElement[] {
@@ -14,7 +14,7 @@ function dialogFocusableElements(dialog: HTMLDialogElement): HTMLElement[] {
 
 export interface TrainingXmlDialogProps {
   /** 開いている電文。一覧から押し出されても、閉じるまで同じ内容を保持する。 */
-  readonly entry: TrainingHistoryEntry | null;
+  readonly entry: TrainingStockEntry | null;
   readonly onClose: () => void;
 }
 
