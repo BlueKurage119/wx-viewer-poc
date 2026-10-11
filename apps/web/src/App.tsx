@@ -55,31 +55,10 @@ import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
 import { useVenueRegistry } from './venueRegistryContext';
 import { useTerminalRegistry } from './terminalRegistryContext';
 import { WarningListView } from './warnings/WarningListView';
+import { TrainingView } from './training/TrainingView';
 import { createWarningListSearchState } from './warnings/warningListFilterModel';
 import './warnings/warningList.css';
-
-const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
-  weather: {
-    symbol: '☁',
-    heading: '気象情報の表示領域',
-    description: '地図・情報パネルは今後実装します。',
-  },
-  warnings: {
-    symbol: '≡',
-    heading: '警報一覧の表示領域',
-    description: '一覧・フィルターは今後実装します。',
-  },
-  monitor: {
-    symbol: '▤',
-    heading: '取得監視の表示領域',
-    description: '取得状況・履歴・取得操作は今後実装します。',
-  },
-  training: {
-    symbol: '◎',
-    heading: '訓練通知の表示領域',
-    description: 'サンプル電文の注入・抹消操作は今後実装します。',
-  },
-};
+import './training/training.css';
 
 export function App() {
   const terminals = createTerminals(useVenueRegistry(), useTerminalRegistry());
@@ -394,13 +373,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           restartCompletions={restartCompletions}
         />
       ) : (
-        <div className="view-placeholder">
-          <span className="placeholder-symbol" aria-hidden="true">
-            {VIEW_PLACEHOLDER[view].symbol}
-          </span>
-          <h3>{VIEW_PLACEHOLDER[view].heading}</h3>
-          <p>{VIEW_PLACEHOLDER[view].description}</p>
-        </div>
+        <TrainingView terminalId={terminal.id} />
       )}
       <MonitoringDialogHost
         dialogId={monitoringToolbar.localState.openDialog}
