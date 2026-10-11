@@ -2,7 +2,7 @@
 
 ## 記録の範囲
 
-2026-10-11 JST 時点の製造段階の記録。設計条件は [Issue #260 設計](issue-260-two-worker-integrated-verification.md) に従う。この記録は E1〜E12 の完了報告ではない。試験環境のローカル HTTP 接続が `EPERM` で拒否され、実 HTTP・ブラウザ・性能・rollback の実測値を取得できていない。失敗した試行を性能判定から除外していない。
+2026-10-11 JST 時点の製造段階の記録。設計条件は [Issue #260 設計](issue-260-two-worker-integrated-verification.md) に従う。この記録は E1〜E12 の完了報告ではない。サンドボックス内のローカル HTTP は `EPERM` で拒否されたため、実 Worker/HTTP の 3 試行は統括担当が権限外の隔離環境で実行した。実ブラウザ・rollback は未実施。失敗した試行も経緯を残す。
 
 ## 固定した条件と未取得の入力
 
@@ -13,12 +13,12 @@
 | rollback 対象 | `261913362c09db585cb3263e6abbd6e86904fe88` |
 | 設計後の作業基点 | `30a889e0d3f9aea7c4cfdb718c4b151a6a939f1b`、開始時 clean |
 | OS・CPU・メモリ | Darwin 25.6.0、x64、論理 12 コア、34,359,738,368 bytes |
-| Node・driver | Node v24.20.0、better-sqlite3 13.0.3。Node の SQLite 表示は 3.53.4。driver が使用する SQLite 版は未取得 |
-| DB/WAL 設定・会場/端末 | 未記録。負荷 fixture 未作成のため対象構成として固定できていない |
-| fixture と量 | 5万電文・1 KiB 原文・1,024 枚の 64 KiB タイルという設計条件のみ。seed、ハッシュ、DB/原文/タイル実 bytes は未取得 |
-| 計測開始・終了 | 性能計測を開始していないため該当なし |
+| Node・driver | Node v24.20.0、better-sqlite3 13.0.3、`SELECT sqlite_version()` は 3.53.4 |
+| DB/WAL 設定・会場/端末 | seed 生成時の両 DB は `journal_mode=delete`。実 Worker 稼働時の WAL 設定・サイズは未記録。`NODE_ENV=production` でローカル会場上書きを無効化し、`hkeagh01` で要求 |
+| fixture と量 | seed 260、5万電文×1,024 bytes、1,024 PNG×65,536 bytes。ハッシュ・status 配分・DB 本体実 bytes は [manifest](issue-260-fixture-manifest.json) に記録 |
+| 計測開始・終了 | 3 試行それぞれの UTC 時刻は下記生 JSON に記録 |
 
-設計の API 上限値（health 500 ms、監視 1,000 ms、system 差分・保存済み API・tile hit 各 2,000 ms、tile miss 30 秒）は目標である。health の 1 系列のみ実測報告がある。cold/warm、同時 1/8、毎秒 1/10、各セル 100 件以上・3 回以上の行列と大量保存・復旧各 60 秒以上は未実施。要求別 latency/status/bytes と p50/p99 の生値、CPU/RSS/heap、イベントループ、キュー、busy/WAL、報告遅延、外乱、空運転も本記録には未取得。
+設計の API 上限値（health 500 ms、監視 1,000 ms、system 差分・保存済み API・tile hit 各 2,000 ms、tile miss 30 秒）は目標である。health の同時 1・毎秒 10 件を 3 負荷で各 1 回実測した。cold/warm、同時 8、毎秒 1、各セル 3 回以上、残る 4 系列は未実施。要求別 latency/status/bytes と p50/p95/p99/最大、取得 Worker スレッド CPU 時間は生 JSON にある。main/提供 Worker の CPU/RSS/heap、キュー、busy/WAL、報告遅延、外乱、空運転は未取得。
 
 ## 試験の実行
 
@@ -31,18 +31,18 @@
 | `npm run format:check` | exit 0 | 通過 |
 | `npm run build` | exit 0。Vite の 500 kB chunk 警告あり | 通過 |
 | サンドボックス外での API 試験再実行 | 本担当の権限要求は中断。後続の統括担当による全件実行結果は末尾に記録 | 報告済み・生ログ未取込 |
-| 実 Worker・実 HTTP の負荷と障害注入 | 専用 fixture・隔離ポート・生ログなし | 未実施 |
+| 実 Worker・実 HTTP の負荷と障害注入 | 同期 XML 解析・実書込・復旧の health 3 試行を隔離ポートで実測。障害注入は未実施 | 一部実施 |
 | 実ブラウザ操作 | スクリーンショット・操作ログなし | 未実施 |
 | 旧版比較・rollback・reset | 隔離 DB の複製と互換検証なし | 未実施 |
 
-既存試験には Worker 起動、異常 exit、再開、世代、reader、タイル競合、通知の個別試験がある。しかし、この試行では全件合格を確認できず、設計 §4 の横断検証の代用にはしない。追加のテストコードは作成していないため、red 確認と対照実験の対象もない。
+既存試験には Worker 起動、異常 exit、再開、世代、reader、タイル競合、通知の個別試験がある。後続の全試験成功は下記に記録するが、設計 §4 の横断検証の代用にはしない。追加した計測ハーネスは `.test.ts` ではない。負荷失敗・サンドボックスでの `EPERM` を非 0 終了と JSON に記録する経路を確認した。
 
 ## 受け入れ条件
 
 | 条件 | 状態 | 不足する証拠 |
 | --- | --- | --- |
-| E1 条件固定 | 未達 | fixture の seed/hash/実 bytes、全設定、実コマンド列、同一入力の再生成 |
-| E2 応答 | 未検証 | 実負荷 3 系列、全セルの生値と資源系列、旧版比較 |
+| E1 条件固定 | 一部実施 | seed/hash/生成量/3 負荷の入力は記録。全設定、旧版との同一入力比較、端末・外乱条件が不足 |
+| E2 応答 | 一部実施 | health の 3 負荷×各 1 セルは実測。残る API・並行/投入率・cold/warm 反復と資源系列、旧版比較が不足 |
 | E3 起動隔離 | 未検証 | open/migration と保持側障害の実注入ログ |
 | E4 role 別障害 | 未検証 | 両 role の停止・exit・応答途絶を別々に観測したログ |
 | E5 世代 | 未検証 | 旧 exit、DB 世代、tracker/健全性の横断照合 |
@@ -52,7 +52,7 @@
 | E9 ブラウザ | 未検証 | 実操作・画面・API/履歴の照合 |
 | E10 停止/reset/rollback | 未検証 | 資源残 0、reset、旧版 DB 互換または復元 |
 | E11 手順 | 一部作成、未検証 | [運用手順](../operations/weather-workers.md) の分岐ごとの実行記録 |
-| E12 品質 | 未達 | lint・typecheck・format:check・build は通過。API/Web 全試験は接続制限のない環境で再実行が必要 |
+| E12 品質 | 一部実施 | lint・typecheck・format:check・build は通過。API/Web 全試験は統括担当から成功報告あり。生ログと追加ハーネスの red/対照実験が不足 |
 
 現段階では受け入れ条件を 1 件も合格としない。後続の検収担当は、サンドボックス外の隔離試験環境で再実行し、結果の生ログ・時刻・終了確認を追記する必要がある。
 
@@ -87,14 +87,22 @@ NODE_ENV=production BENCH_OUTPUT=./issue260-benchmark.json BENCH_SERIES=health B
 
 サンドボックス内の試行では fixture の生成まで完了し、`listen EPERM 0.0.0.0` で実 Worker の HTTP 待受が拒否された。生成段階の機械可読値は [fixture manifest](issue-260-fixture-manifest.json) に保存した。2026-10-11 02:20:34 UTC 開始の試行で気象 DB 本体 81,928,192 bytes、保持 DB 本体 114,688 bytes、SQLite 3.53.4、seed 段階の journal mode は両 DB とも `delete`。原文 SHA-256 は `892676a0ab68480f87d735e11756624653cbfb5c5a386955ddb0a1f7c3bd3962`、PNG SHA-256 は `e36ebe4782b232411ca8b2d8e2e3eb32bd41e18a5691b7b720992897d8a9c0d5`。実 Worker 稼働時の WAL とファイル量は未計測である。
 
-本担当の権限外実行要求は待機中に作業が中断された。最初の統括担当による実行は次段落の負荷失敗となり、生計測値は本記録へ取り込んでいない。tile miss・旧版比較、RSS/キュー/DB busy/WAL/報告遅延の系列はハーネスに実装していない。cold/warm の 3 回反復と全セルの実行も未実施であり、E1/E2 の合格証拠にはしない。
+本担当の権限外実行要求は待機中に作業が中断された。最初の統括担当による実行は次段落の負荷失敗となった。tile miss・旧版比較、RSS/キュー/DB busy/WAL/報告遅延の系列はハーネスに実装していない。cold/warm の 3 回反復と全セルの実行も未実施であり、E1/E2 の合格証拠にはしない。
 
 統括担当による最初の権限外実行（health・同時 1・毎秒 10 件）は 100 要求の後に XML 負荷終了待ちが期限切れとなり、`stage=load_failed`、`parserLoad.ok=false` だった。ハーネスが Worker 準備完了を待たずに負荷メッセージを送っていたこと、要求が約 10 秒で終わり 60 秒全区間を測っていなかったことを修正した。修正版は Worker 準備と負荷開始を確認してから要求を送り、負荷失敗・HTTP 失敗・時間上限超過・投入率不足・60 秒範囲不足を JSON の `judgment` と非 0 終了で示す。
 
 修正版のサンドボックス試行は `listen EPERM` で exit 1、出力 JSON は `stage=measurement_failed` と同じエラーを記録した。測定開始前の環境失敗を成功として扱わない経路は確認した。
 
-統括担当が権限外で再実行した health・同時 1・毎秒 10 件・同期 XML 解析の系列は `stage=measurement_completed`、600 要求、解析負荷 60.07 秒、p95 2.51 ms、最大 36.94 ms、HTTP 失敗 0 件だった。これは health の 500 ms 目標を満たす 1 試行である。生 JSON、p50/p99、投入率、CPU/RSS などは本記録へ取り込めておらず、cold/warm 3 回も未実施のため E2 全体の合格とはしない。
+統括担当が権限外で実行した health・同時 1・毎秒 10 件の 3 試行は、いずれも `stage=measurement_completed`、`judgment.passed=true`、600 要求・HTTP 失敗 0 件だった。送信直前から本文受信完了までの実値は次のとおり。各セルの要求別生値・時刻・投入率・fixture はリンク先 JSON にある。
 
-続いて `BENCH_LOAD=write|recovery` を追加した。write は取得 Worker 内の SQLite 接続で既存の受信 1,000 件ずつの `title` を繰り返し更新し、実書込件数・Worker スレッド CPU 時間を計る。recovery は同 Worker で未処理受信を追加し、既存の `reprocessPendingWarningTelegramReceptions` と `recoverWarningCurrent` を実行して処理件数・CPU 時間を計る。両者とも XML 解析と同様に最低 60 秒の負荷時間と全期間の HTTP 要求を必要とし、個別の失敗は `workerLoad`、`judgment`、exit 1 に記録する。これらの権限外実測はまだない。
+| 取得 Worker 負荷 | 期間・処理量・スレッド CPU | p50 / p95 / p99 / 最大 (ms) | 生値 |
+| --- | --- | --- | --- |
+| 同期 XML 解析 | 60,072 ms、9,703 回解析。旧ハーネスは CPU ms 未収集 | 2.057 / 2.506 / 3.005 / 36.935 | [parser](issue-260-health-parser-c1-r10.json) |
+| 実 SQLite 更新 | 処理 60,000 ms、50,151,000 行更新、CPU 59,618 ms | 2.140 / 2.527 / 3.043 / 35.719 | [write](issue-260-health-write-c1-r10.json) |
+| 再処理・現況復旧 | 処理 61,009 ms、7,600 件、CPU 59,877 ms | 2.067 / 2.561 / 3.004 / 66.948 | [recovery](issue-260-health-recovery-c1-r10.json) |
 
-ハーネス追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` を再実行し、すべて exit 0。API/Web の全試験通過報告はハーネス追加前であり、計測コード自体の HTTP 完走は未確認である。
+3 試行の health 最大値は 500 ms の目標内で、投入率は各約 10 件/秒だった。これは 3 負荷に対する health の同時 1・毎秒 10 件セル各 1 回の結果である。ファイルキャッシュの状態は制御しておらず、cold/warm の分類や 3 回反復はしていない。
+
+`BENCH_LOAD=write|recovery` の write は取得 Worker 内の SQLite 接続で既存の受信 1,000 件ずつの `title` を繰り返し更新する。recovery は同 Worker で未処理受信を追加し、既存の `reprocessPendingWarningTelegramReceptions` と `recoverWarningCurrent` を実行する。処理件数は更新行数、または再処理件数と復旧時解析件数の合計であり、異なる仕事量を同一単位として比較しない。両者の負荷時間・スレッド CPU 時間は上表のとおり。
+
+ハーネス追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` を再実行し、すべて exit 0。API/Web の全試験通過報告はハーネス追加前であり、追加 fixture を含む全試験の再実行結果は未取得。
