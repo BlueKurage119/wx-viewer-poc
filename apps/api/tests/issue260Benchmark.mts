@@ -16,6 +16,8 @@ const seed = 260;
 const count = 50_000;
 const tileCount = 1_024;
 const time = '2026-10-11T00:00:00.000Z';
+// 提供 Worker は実時刻を使うため、タイル時刻を表示窓内に置く。
+const tileTime = new Date().toISOString();
 const durationSeconds = Number(process.env.BENCH_DURATION_SECONDS ?? 60);
 const requests = Number(process.env.BENCH_REQUESTS ?? 100);
 const concurrency = Number(process.env.BENCH_CONCURRENCY ?? 1);
@@ -106,6 +108,7 @@ const results: Record<string, unknown> = {
     tileCount,
     tileBytesEach: png.length,
     pngHash,
+    tileTime,
   },
 };
 let server: Awaited<ReturnType<typeof startServer>> | undefined;
@@ -130,16 +133,18 @@ try {
       product: 'N1',
       metadata: {
         source: 'test',
-        issuedAt: time,
-        validAt: time,
-        validFrom: time,
-        validTo: time,
-        fetchedAt: time,
-        lastSuccessAt: time,
+        issuedAt: tileTime,
+        validAt: tileTime,
+        validFrom: tileTime,
+        validTo: tileTime,
+        fetchedAt: tileTime,
+        lastSuccessAt: tileTime,
         availability: 'available',
         sourceVersion: String(seed),
       },
-      frames: [{ baseTime: time, validTime: time, element: 'hrpns', member: 'none', sequence: 0 }],
+      frames: [
+        { baseTime: tileTime, validTime: tileTime, element: 'hrpns', member: 'none', sequence: 0 },
+      ],
     });
     for (let i = 0; i < tileCount; i++) {
       const x = i % 32;
@@ -150,7 +155,13 @@ try {
       writeFileSync(fullPath, png);
       upsertRadarTile(
         pair.weather.connection,
-        { product: 'N1', baseTime: time, validTime: time, element: 'hrpns', member: 'none' },
+        {
+          product: 'N1',
+          baseTime: tileTime,
+          validTime: tileTime,
+          element: 'hrpns',
+          member: 'none',
+        },
         {
           zoom: 10,
           tileX: x,
@@ -158,7 +169,7 @@ try {
           filePath,
           byteSize: png.length,
           contentHash: pngHash,
-          storedAt: time,
+          storedAt: tileTime,
         },
       );
     }
@@ -285,7 +296,7 @@ try {
     monitoring: '/api/monitoring/status?terminalId=hkeagh01',
     systemDelta: '/api/notifications/delta?origin=system&terminalId=hkeagh01',
     weather: '/api/weather/warnings?terminalId=hkeagh01&controlStatus=normal',
-    tileHit: `/api/weather/nowcast/N1/tiles/10/0/0.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${time}&validTime=${time}`,
+    tileHit: `/api/weather/nowcast/N1/tiles/10/0/0.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${tileTime}&validTime=${tileTime}`,
   };
   const samples: Record<
     string,
@@ -294,6 +305,8 @@ try {
       latencyMs: number;
       status: number | null;
       bytes: number;
+      tileResult: string | null;
+      responseBody: string | null;
       error: string | null;
     }[]
   > = {};
@@ -309,11 +322,15 @@ try {
           try {
             const response = await fetch(root + path, { signal: AbortSignal.timeout(30_000) });
             const body = await response.arrayBuffer();
+            const tileResult = response.headers.get('x-wx-tile-result');
             series.push({
               offsetMs: started - loadStarted,
               latencyMs: performance.now() - started,
               status: response.status,
               bytes: body.byteLength,
+              tileResult,
+              responseBody:
+                response.status !== 200 ? Buffer.from(body).toString('utf8').slice(0, 500) : null,
               error: null,
             });
           } catch (error) {
@@ -322,6 +339,8 @@ try {
               latencyMs: performance.now() - started,
               status: null,
               bytes: 0,
+              tileResult: null,
+              responseBody: null,
               error: error instanceof Error ? error.message : String(error),
             });
           }
@@ -381,6 +400,8 @@ try {
   if (entries.length !== effectiveRequests) reasons.push('request_count_mismatch');
   if (entries.some((entry) => entry.status !== 200 || entry.bytes < 1))
     reasons.push('http_failure');
+  if (seriesName === 'tileHit' && entries.some((entry) => entry.tileResult !== 'cached'))
+    reasons.push('tile_cache_hit_not_confirmed');
   if (entries.some((entry) => entry.latencyMs > targetMs)) reasons.push('latency_target_exceeded');
   if (observedRate < rate * 0.95) reasons.push('rate_target_not_met');
   if (lastOffsetMs - firstOffsetMs < durationSeconds * 1000 - 2000)

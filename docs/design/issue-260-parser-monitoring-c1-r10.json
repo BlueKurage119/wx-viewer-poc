@@ -1,0 +1,4291 @@
+{
+  "startedAt": "2026-10-11T04:39:19.751Z",
+  "seed": 260,
+  "environment": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "arch": "x64",
+    "cpuCount": 12,
+    "totalmem": 34359738368,
+    "node": "v24.20.0"
+  },
+  "config": {
+    "requestedMinimum": 100,
+    "requests": 600,
+    "concurrency": 1,
+    "rate": 10,
+    "seriesName": "monitoring",
+    "loadKind": "parser",
+    "durationSeconds": 60
+  },
+  "fixture": {
+    "receptionCount": 50000,
+    "rawBytesEach": 1024,
+    "rawHash": "892676a0ab68480f87d735e11756624653cbfb5c5a386955ddb0a1f7c3bd3962",
+    "tileCount": 1024,
+    "tileBytesEach": 65536,
+    "pngHash": "e36ebe4782b232411ca8b2d8e2e3eb32bd41e18a5691b7b720992897d8a9c0d5",
+    "weatherDbBytes": 81928192,
+    "retainedDbBytes": 114688
+  },
+  "database": {
+    "sqliteVersion": {
+      "version": "3.53.4"
+    },
+    "weatherJournalMode": {
+      "journal_mode": "delete"
+    },
+    "retainedJournalMode": {
+      "journal_mode": "delete"
+    },
+    "controlStatusCounts": [
+      {
+        "control_status": "normal",
+        "count": 16667
+      },
+      {
+        "control_status": "test",
+        "count": 16666
+      },
+      {
+        "control_status": "training",
+        "count": 16667
+      }
+    ]
+  },
+  "stage": "measurement_completed",
+  "series": {
+    "monitoring": {
+      "entries": [
+        {
+          "offsetMs": 0.4661549999946146,
+          "latencyMs": 38.289607999999134,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 101.70208699999785,
+          "latencyMs": 3.996718000002147,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 202.33704699999362,
+          "latencyMs": 3.370167000000947,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 301.6657789999954,
+          "latencyMs": 3.651028000000224,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 399.77376399999775,
+          "latencyMs": 3.3178199999965727,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 499.2907799999957,
+          "latencyMs": 2.812170999997761,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 600.5882159999965,
+          "latencyMs": 2.89929100000154,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 699.6586339999994,
+          "latencyMs": 2.6559649999981048,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 799.187162999995,
+          "latencyMs": 3.422165000003588,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 901.9802509999936,
+          "latencyMs": 2.0732260000004317,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1001.1252399999939,
+          "latencyMs": 3.2260300000052666,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1100.510875999993,
+          "latencyMs": 2.534700000003795,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1201.1813589999947,
+          "latencyMs": 2.6233859999993,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1301.637569999999,
+          "latencyMs": 2.389882999996189,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1399.5415199999989,
+          "latencyMs": 2.4343189999999595,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1501.001350999999,
+          "latencyMs": 2.8313129999951343,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1601.1337369999965,
+          "latencyMs": 2.620240999996895,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1701.9013589999959,
+          "latencyMs": 2.3921420000042417,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1800.7482369999998,
+          "latencyMs": 2.3722149999957765,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 1899.826568999997,
+          "latencyMs": 2.6629479999974137,
+          "status": 200,
+          "bytes": 7973,
+          "error": null
+        },
+        {
+          "offsetMs": 2002.2558409999983,
+          "latencyMs": 1.3328550000005635,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 2101.0839149999956,
+          "latencyMs": 2.9074190000028466,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 2202.151475999999,
+          "latencyMs": 2.5527119999969727,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 2302.264479999998,
+          "latencyMs": 2.7036880000014207,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 2402.2479909999965,
+          "latencyMs": 1.8720549999998184,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 2501.3539549999987,
+          "latencyMs": 2.723898999996891,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 2601.247740999999,
+          "latencyMs": 2.8825979999965057,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 2700.6920889999965,
+          "latencyMs": 2.6339589999988675,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 2801.525508999999,
+          "latencyMs": 2.7280419999951846,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 2901.081357999996,
+          "latencyMs": 3.037400000001071,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3000.9642019999956,
+          "latencyMs": 2.728334999999788,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3101.9151339999953,
+          "latencyMs": 2.3935940000010305,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3200.8306669999947,
+          "latencyMs": 2.46093600000313,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3299.8694049999976,
+          "latencyMs": 2.2895599999974365,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3400.978508,
+          "latencyMs": 2.45196799999394,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3498.9120179999954,
+          "latencyMs": 2.406351999998151,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3601.4752279999957,
+          "latencyMs": 2.4209810000029393,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3702.023642999993,
+          "latencyMs": 2.3935920000003534,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3800.5766769999973,
+          "latencyMs": 2.429902999996557,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 3901.1697799999965,
+          "latencyMs": 2.970240000002377,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4001.2742939999953,
+          "latencyMs": 1.2482430000018212,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4101.653124999997,
+          "latencyMs": 2.481594999997469,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4199.930201999996,
+          "latencyMs": 2.6625980000026175,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4300.598191999998,
+          "latencyMs": 2.675774999996065,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4400.723481999994,
+          "latencyMs": 2.3492150000020047,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4501.200019999997,
+          "latencyMs": 1.2235490000020945,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4598.819400999993,
+          "latencyMs": 2.4987940000064555,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4699.787948999998,
+          "latencyMs": 2.9243050000004587,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4801.774194999998,
+          "latencyMs": 3.1289659999965806,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 4901.8386089999985,
+          "latencyMs": 2.37657699999545,
+          "status": 200,
+          "bytes": 7967,
+          "error": null
+        },
+        {
+          "offsetMs": 5001.33887,
+          "latencyMs": 4.123440999996092,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 5101.562544999993,
+          "latencyMs": 2.4696380000023055,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 5200.204509999996,
+          "latencyMs": 2.4018169999981183,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 5302.278360999997,
+          "latencyMs": 1.2133709999980056,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 5401.622961999994,
+          "latencyMs": 2.3450620000003255,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 5502.093424999999,
+          "latencyMs": 2.494713000000047,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 5601.563448999994,
+          "latencyMs": 2.3205510000043432,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 5700.220838999994,
+          "latencyMs": 2.453633000004629,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 5801.965958999994,
+          "latencyMs": 2.7357910000064294,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 5900.717762,
+          "latencyMs": 2.4003109999976004,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6001.270915999994,
+          "latencyMs": 1.2374039999995148,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6101.761198,
+          "latencyMs": 2.3286519999965094,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6201.240982999996,
+          "latencyMs": 2.349631999997655,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6301.280042999999,
+          "latencyMs": 1.6580729999986943,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6400.427899999995,
+          "latencyMs": 2.2904150000031223,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6501.023849999998,
+          "latencyMs": 2.4991119999976945,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6600.908416999999,
+          "latencyMs": 2.170278999998118,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6701.202187999996,
+          "latencyMs": 2.4551199999987148,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6801.784532999998,
+          "latencyMs": 2.345912999997381,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 6901.1231569999945,
+          "latencyMs": 2.5865130000020145,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7001.796469999994,
+          "latencyMs": 2.8924499999993714,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7101.821849,
+          "latencyMs": 2.555607999995118,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7201.500699999997,
+          "latencyMs": 2.569103999994695,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7299.862822000003,
+          "latencyMs": 2.599510999993072,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7401.974832,
+          "latencyMs": 2.5159120000025723,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7500.595337999992,
+          "latencyMs": 2.426379000011366,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7601.180870999997,
+          "latencyMs": 2.5107330000028014,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7700.169955999991,
+          "latencyMs": 3.521660000013071,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7801.779868999998,
+          "latencyMs": 2.5142679999989923,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 7901.446483999993,
+          "latencyMs": 2.1811040000029607,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8001.785996999992,
+          "latencyMs": 2.3721840000071097,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8101.284724999998,
+          "latencyMs": 1.162622999996529,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8200.26333699999,
+          "latencyMs": 1.064819000006537,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8300.456450999998,
+          "latencyMs": 2.5344550000008894,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8401.892677000003,
+          "latencyMs": 2.305752999993274,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8499.477324999993,
+          "latencyMs": 2.8990540000086185,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8600.555759999996,
+          "latencyMs": 2.4527859999943757,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8701.249973999998,
+          "latencyMs": 2.339716000002227,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8801.561576,
+          "latencyMs": 2.370411999989301,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 8900.251236999997,
+          "latencyMs": 2.513302000006661,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9001.63758599999,
+          "latencyMs": 2.3571610000071814,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9100.761733,
+          "latencyMs": 2.3260860000009416,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9201.21051299999,
+          "latencyMs": 3.056765000001178,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9299.729062999999,
+          "latencyMs": 2.3819229999935487,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9399.21645,
+          "latencyMs": 2.3737699999910546,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9501.717910999992,
+          "latencyMs": 2.339512000005925,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9601.229944999992,
+          "latencyMs": 2.4742019999976037,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9701.82946999999,
+          "latencyMs": 2.345271000012872,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9800.710507999996,
+          "latencyMs": 2.3694740000064485,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 9901.200414999992,
+          "latencyMs": 2.397414999999455,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 10001.813231,
+          "latencyMs": 2.509020999990753,
+          "status": 200,
+          "bytes": 7982,
+          "error": null
+        },
+        {
+          "offsetMs": 10099.246278999992,
+          "latencyMs": 1.2302360000030603,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 10200.264424999994,
+          "latencyMs": 1.175574000008055,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 10302.310531000003,
+          "latencyMs": 2.352618999997503,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 10401.853748000001,
+          "latencyMs": 2.3547770000004675,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 10501.330339999993,
+          "latencyMs": 2.434179000003496,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 10601.057481999997,
+          "latencyMs": 2.506403000006685,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 10700.450412999991,
+          "latencyMs": 2.9302850000094622,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 10800.849284999997,
+          "latencyMs": 2.325683000002755,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 10901.411673000002,
+          "latencyMs": 2.3522349999984726,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11001.885745999993,
+          "latencyMs": 2.3149800000101095,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11101.322141999997,
+          "latencyMs": 2.3464830000011716,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11200.260384999994,
+          "latencyMs": 1.0815920000022743,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11300.809795999994,
+          "latencyMs": 2.490038000003551,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11401.422635000003,
+          "latencyMs": 2.525902999987011,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11500.702849000001,
+          "latencyMs": 2.6901050000014948,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11599.047119999996,
+          "latencyMs": 2.2748200000060024,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11699.800819999997,
+          "latencyMs": 2.298926000003121,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11801.279333999999,
+          "latencyMs": 1.0890309999958845,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 11900.733419000004,
+          "latencyMs": 2.529082999986713,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12000.614192999994,
+          "latencyMs": 2.558913000000757,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12099.664631,
+          "latencyMs": 1.6428539999906207,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12201.068502000002,
+          "latencyMs": 2.619104999990668,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12299.885942,
+          "latencyMs": 2.712772999992012,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12401.574881,
+          "latencyMs": 2.3471279999939725,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12502.042672000003,
+          "latencyMs": 2.4770019999996293,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12599.907348,
+          "latencyMs": 2.3198189999966417,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12699.757594999995,
+          "latencyMs": 2.5461919999943348,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12801.488940999996,
+          "latencyMs": 2.6769990000029793,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 12901.317449999995,
+          "latencyMs": 2.482331000006525,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13001.918453999991,
+          "latencyMs": 2.3010510000021895,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13099.512305999997,
+          "latencyMs": 2.366347000002861,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13202.02715799999,
+          "latencyMs": 2.5394760000053793,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13301.790398999998,
+          "latencyMs": 2.3616889999975683,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13401.451164999999,
+          "latencyMs": 3.217489000002388,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13501.819018999995,
+          "latencyMs": 2.3843920000072103,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13601.35689399999,
+          "latencyMs": 2.5421840000053635,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13700.062448999997,
+          "latencyMs": 2.3582809999934398,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13800.57362599999,
+          "latencyMs": 2.547742000009748,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 13900.953501999997,
+          "latencyMs": 2.4900849999976344,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14001.572496999994,
+          "latencyMs": 2.324248999997508,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14102.115710999999,
+          "latencyMs": 1.135586999997031,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14201.399740999994,
+          "latencyMs": 2.8127170000079786,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14301.475010999995,
+          "latencyMs": 2.2573260000062874,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14401.854027000001,
+          "latencyMs": 2.4050829999905545,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14501.380142999995,
+          "latencyMs": 2.3278529999952298,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14600.294732000002,
+          "latencyMs": 2.302566999991541,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14699.744518999993,
+          "latencyMs": 2.276895000002696,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14801.188545999998,
+          "latencyMs": 2.4695970000029774,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 14901.810028,
+          "latencyMs": 2.9264100000000326,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15001.859153999998,
+          "latencyMs": 2.3147080000053393,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15098.602816999999,
+          "latencyMs": 2.2671659999905387,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15201.422054999995,
+          "latencyMs": 2.682925000000978,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15299.67094199999,
+          "latencyMs": 2.4190720000042347,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15400.624623999996,
+          "latencyMs": 2.4299409999948693,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15500.487707,
+          "latencyMs": 2.4547289999900386,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15602.064944999998,
+          "latencyMs": 2.379503999996814,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15701.564926,
+          "latencyMs": 2.278712999992422,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15802.212536,
+          "latencyMs": 2.487271999998484,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 15901.545374999994,
+          "latencyMs": 2.2549910000088857,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16001.920210000004,
+          "latencyMs": 2.4053729999868665,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16101.442965000002,
+          "latencyMs": 2.2755679999972926,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16200.185642999997,
+          "latencyMs": 1.1012690000061411,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16299.854365999992,
+          "latencyMs": 2.628446000002441,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16402.283764999993,
+          "latencyMs": 0.9915860000037355,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16500.717935,
+          "latencyMs": 2.4953129999921657,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16599.757342999997,
+          "latencyMs": 2.3563390000053914,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16701.28702699999,
+          "latencyMs": 2.3734980000008363,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16801.778360000004,
+          "latencyMs": 2.609043999997084,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 16901.509289999995,
+          "latencyMs": 2.5940490000066347,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17001.31182899999,
+          "latencyMs": 2.782550000003539,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17101.327236999998,
+          "latencyMs": 2.332087999995565,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17199.691608999994,
+          "latencyMs": 3.1566149999998743,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17300.372935,
+          "latencyMs": 2.6419440000026952,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17399.200174999998,
+          "latencyMs": 2.3182439999945927,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17501.668530999996,
+          "latencyMs": 2.357837000003201,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17601.147663999996,
+          "latencyMs": 2.342453999997815,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17701.63971899999,
+          "latencyMs": 2.6010510000051,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17801.423359,
+          "latencyMs": 2.45977899999707,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 17902.026357000002,
+          "latencyMs": 2.431879999989178,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18001.64325999999,
+          "latencyMs": 2.5783980000123847,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18101.396665999993,
+          "latencyMs": 2.219555000003311,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18201.409162999997,
+          "latencyMs": 2.2986499999969965,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18300.37804799999,
+          "latencyMs": 2.1576070000010077,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18401.605489,
+          "latencyMs": 2.272882999997819,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18501.705257999995,
+          "latencyMs": 2.3428989999956684,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18599.257076999995,
+          "latencyMs": 2.369451000005938,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18700.841968,
+          "latencyMs": 2.2549119999894174,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18799.27866799999,
+          "latencyMs": 2.359420000007958,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 18901.542091999996,
+          "latencyMs": 2.3172880000056466,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19000.298497999996,
+          "latencyMs": 1.0229050000052666,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19100.745996999998,
+          "latencyMs": 2.287674999999581,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19201.19044099999,
+          "latencyMs": 2.0147020000003977,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19299.788666,
+          "latencyMs": 2.289623999997275,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19401.198868,
+          "latencyMs": 2.3531629999924917,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19501.69775,
+          "latencyMs": 2.4308489999966696,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19599.362478000003,
+          "latencyMs": 2.39140999999654,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19701.903025999993,
+          "latencyMs": 2.341484999997192,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19801.086042999996,
+          "latencyMs": 2.3448700000008103,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 19900.580800000003,
+          "latencyMs": 2.3893609999940963,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20001.460807000003,
+          "latencyMs": 2.271173999994062,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20102.296796000002,
+          "latencyMs": 1.070358999990276,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20201.481890999996,
+          "latencyMs": 2.4300709999952232,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20300.605705,
+          "latencyMs": 2.3551210000005085,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20402.081046999992,
+          "latencyMs": 2.463159999999334,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20501.700296000003,
+          "latencyMs": 2.567825999998604,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20601.466431,
+          "latencyMs": 2.255360999988625,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20701.840355999993,
+          "latencyMs": 2.247099000000162,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20800.61770499999,
+          "latencyMs": 2.46392600001127,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 20900.51991899999,
+          "latencyMs": 2.448563000012655,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21001.65322,
+          "latencyMs": 2.2763269999995828,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21102.041938000002,
+          "latencyMs": 2.3204189999960363,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21200.363718,
+          "latencyMs": 2.426748999991105,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21302.086783999992,
+          "latencyMs": 2.339105000006384,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21400.54014399999,
+          "latencyMs": 2.3114040000073146,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21501.272479999992,
+          "latencyMs": 2.533084000009694,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21602.01121599999,
+          "latencyMs": 2.3710790000041015,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21699.816870000002,
+          "latencyMs": 2.610938999991049,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21800.542009999997,
+          "latencyMs": 2.557853000005707,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 21900.902423999993,
+          "latencyMs": 2.278942000004463,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22000.544881,
+          "latencyMs": 2.684968999994453,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22101.361222,
+          "latencyMs": 2.871251000004122,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22199.068794,
+          "latencyMs": 2.4570700000040233,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22301.91410999999,
+          "latencyMs": 2.4672470000077737,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22401.069631,
+          "latencyMs": 2.3144690000044648,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22500.702958,
+          "latencyMs": 2.3426409999956377,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22601.16176499999,
+          "latencyMs": 2.30988200000138,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22701.617420000002,
+          "latencyMs": 2.352783999987878,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22802.087332000003,
+          "latencyMs": 2.2246420000010403,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 22901.457470999994,
+          "latencyMs": 2.3539980000059586,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23001.174588999995,
+          "latencyMs": 2.3252040000079433,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23100.653549999995,
+          "latencyMs": 2.4121410000079777,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23199.346717,
+          "latencyMs": 2.334739999991143,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23302.195375000003,
+          "latencyMs": 2.3372679999883985,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23400.716827999997,
+          "latencyMs": 2.5436230000050273,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23500.66490299999,
+          "latencyMs": 2.3088800000114134,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23602.086229,
+          "latencyMs": 2.3468730000022333,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23700.079644999998,
+          "latencyMs": 2.400892000005115,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23800.209217999996,
+          "latencyMs": 2.363459000000148,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 23902.003051999993,
+          "latencyMs": 2.3194640000001527,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24001.437153,
+          "latencyMs": 2.264945999995689,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24100.373864999994,
+          "latencyMs": 2.337001000007149,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24201.823285,
+          "latencyMs": 2.239686000000802,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24299.709639999994,
+          "latencyMs": 2.639124000008451,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24401.49203,
+          "latencyMs": 2.383892999991076,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24502.033214999996,
+          "latencyMs": 2.6121019999991404,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24600.475486999996,
+          "latencyMs": 2.31563900000765,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24701.90450099999,
+          "latencyMs": 2.3579160000081174,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24800.842423000002,
+          "latencyMs": 2.693530999997165,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 24901.811588999997,
+          "latencyMs": 1.892521999994642,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25001.149150999998,
+          "latencyMs": 2.4837919999990845,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25100.570109999993,
+          "latencyMs": 2.6455750000022817,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25201.379047999995,
+          "latencyMs": 2.3949870000069495,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25301.581375,
+          "latencyMs": 2.072037999998429,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25401.819591,
+          "latencyMs": 2.363670999999158,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25501.124546999992,
+          "latencyMs": 3.0663580000109505,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25601.477907999993,
+          "latencyMs": 2.333018000004813,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25702.018512999995,
+          "latencyMs": 2.262512000001152,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25798.942166,
+          "latencyMs": 2.1945249999989755,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 25900.341991999994,
+          "latencyMs": 2.284872999996878,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26001.085673,
+          "latencyMs": 2.4409099999902537,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26100.971641999997,
+          "latencyMs": 2.1142839999956777,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26199.692978,
+          "latencyMs": 2.232747999994899,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26302.2719,
+          "latencyMs": 0.9639849999948638,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26401.365620999997,
+          "latencyMs": 2.3180869999923743,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26501.866369000003,
+          "latencyMs": 2.3531919999950333,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26601.380207000002,
+          "latencyMs": 2.460372000001371,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26700.513071999994,
+          "latencyMs": 2.6163590000069235,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26800.947374000003,
+          "latencyMs": 2.193883999992977,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26900.948815000003,
+          "latencyMs": 2.2244579999969574,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 26999.636947,
+          "latencyMs": 2.4527109999908134,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 27100.238135999993,
+          "latencyMs": 2.4012760000041453,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 27201.663563000002,
+          "latencyMs": 2.4224469999899156,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 27299.83787699999,
+          "latencyMs": 2.4868730000016512,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 27401.093373000003,
+          "latencyMs": 2.357622999988962,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 27500.209972999997,
+          "latencyMs": 2.2665450000058627,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 27599.896929999995,
+          "latencyMs": 2.2976420000049984,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 27701.399119999995,
+          "latencyMs": 2.500834999998915,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 27800.257829999995,
+          "latencyMs": 2.3502390000066953,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 27899.885806,
+          "latencyMs": 2.2145949999976438,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28001.265435,
+          "latencyMs": 2.857357000000775,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28101.249705000002,
+          "latencyMs": 2.2568610000016633,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28199.884092,
+          "latencyMs": 2.2183789999980945,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28299.646145,
+          "latencyMs": 2.277092000003904,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28402.049156,
+          "latencyMs": 2.281182999999146,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28501.272699,
+          "latencyMs": 2.3900399999984074,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28601.820688,
+          "latencyMs": 2.231434999994235,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28700.618257999995,
+          "latencyMs": 2.49079100000381,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28801.231383,
+          "latencyMs": 2.4366310000041267,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28900.198595999995,
+          "latencyMs": 2.311855000007199,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 28999.878594,
+          "latencyMs": 2.204831999988528,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 29099.721511999996,
+          "latencyMs": 2.1181329999963054,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 29201.317501999998,
+          "latencyMs": 2.3577619999996386,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 29300.422146999997,
+          "latencyMs": 2.2984049999940908,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 29401.416487999995,
+          "latencyMs": 2.471747999996296,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 29500.281286999998,
+          "latencyMs": 0.9490760000044247,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 29601.35541499999,
+          "latencyMs": 2.4025540000002366,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 29701.916372,
+          "latencyMs": 2.2290829999983544,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 29801.27176899999,
+          "latencyMs": 1.2909619999991264,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 29900.604054000003,
+          "latencyMs": 2.5608809999976074,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30000.171698,
+          "latencyMs": 2.312831000002916,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30101.623428,
+          "latencyMs": 2.3942059999972116,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30199.611461999993,
+          "latencyMs": 2.2570160000032047,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30302.226403,
+          "latencyMs": 2.242035000002943,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30401.622433999997,
+          "latencyMs": 2.374091000005137,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30501.152236,
+          "latencyMs": 2.074362999992445,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30601.350717,
+          "latencyMs": 2.332299999994575,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30701.853414999998,
+          "latencyMs": 2.302106000002823,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30799.874223,
+          "latencyMs": 2.256766999998945,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 30901.15456799999,
+          "latencyMs": 2.339665999999852,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31000.570054000003,
+          "latencyMs": 2.5087169999897014,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31101.28985899999,
+          "latencyMs": 1.0442710000061197,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31200.566633999995,
+          "latencyMs": 2.3251410000084434,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31302.243886000004,
+          "latencyMs": 2.2529559999966295,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31401.545424999997,
+          "latencyMs": 2.494934000002104,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31499.716381,
+          "latencyMs": 2.526956000001519,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31600.014743999993,
+          "latencyMs": 2.573857000010321,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31702.29429299999,
+          "latencyMs": 0.9357030000101076,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31799.59842999999,
+          "latencyMs": 2.3291319999989355,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 31902.267809999998,
+          "latencyMs": 1.16847200000484,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32000.528398000002,
+          "latencyMs": 2.513928999993368,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32101.046335999992,
+          "latencyMs": 2.331612000009045,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32201.13878,
+          "latencyMs": 2.507526000001235,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32301.95597799999,
+          "latencyMs": 2.4389999999984866,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32399.950277000004,
+          "latencyMs": 2.211271999985911,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32499.764281999996,
+          "latencyMs": 2.4915080000064336,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32601.403602,
+          "latencyMs": 2.338653999991948,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32700.762368999996,
+          "latencyMs": 2.331592999995337,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32801.220484,
+          "latencyMs": 2.6521150000044145,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 32901.663773,
+          "latencyMs": 2.521288000003551,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33001.337913,
+          "latencyMs": 2.310210999989067,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33100.60999999999,
+          "latencyMs": 2.635747000007541,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33199.73301999999,
+          "latencyMs": 1.9655750000092667,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33302.26495199999,
+          "latencyMs": 2.044487000006484,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33399.62839599999,
+          "latencyMs": 2.3619960000069113,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33502.268489,
+          "latencyMs": 1.1382079999893904,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33600.480661,
+          "latencyMs": 2.02713999999105,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33699.91157999999,
+          "latencyMs": 2.352074000009452,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33799.656943999995,
+          "latencyMs": 2.292671999995946,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 33900.394840999994,
+          "latencyMs": 2.305097000004025,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34000.877766,
+          "latencyMs": 2.1994350000022678,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34100.03549,
+          "latencyMs": 2.3112069999915548,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34200.160876999995,
+          "latencyMs": 2.2115500000072643,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34298.705517,
+          "latencyMs": 2.1901169999910053,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34399.828353,
+          "latencyMs": 2.03747999999905,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34500.399484999994,
+          "latencyMs": 2.2425250000087544,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34599.932574,
+          "latencyMs": 2.3113759999978356,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34701.011787999996,
+          "latencyMs": 2.2550300000002608,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34799.51095199999,
+          "latencyMs": 2.4164900000032503,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34900.212689,
+          "latencyMs": 1.0753310000000056,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 34998.870749999995,
+          "latencyMs": 2.309720000004745,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35100.725522,
+          "latencyMs": 2.3199820000008913,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35199.180537,
+          "latencyMs": 2.1700160000036703,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35300.539291,
+          "latencyMs": 2.4740979999915,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35399.320241999994,
+          "latencyMs": 2.162333000000217,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35499.92187499999,
+          "latencyMs": 2.509174000006169,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35598.61167399999,
+          "latencyMs": 2.2372810000088066,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35702.332581999995,
+          "latencyMs": 2.3716109999950277,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35800.740306,
+          "latencyMs": 2.2952339999901596,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35901.293904,
+          "latencyMs": 1.0529410000017378,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 35999.52772199999,
+          "latencyMs": 2.249228000000585,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 36100.01751899999,
+          "latencyMs": 2.405824000001303,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 36200.187839,
+          "latencyMs": 2.42576499999268,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 36301.01894799999,
+          "latencyMs": 2.504564000002574,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 36401.42184399999,
+          "latencyMs": 2.3619680000119843,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 36500.839636,
+          "latencyMs": 2.2505180000007385,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 36600.659842,
+          "latencyMs": 2.3190209999884246,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 36700.255811999996,
+          "latencyMs": 3.1147190000046976,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 36800.592564,
+          "latencyMs": 2.3701250000012806,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 36902.07646199999,
+          "latencyMs": 2.4507880000019213,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37000.372253999994,
+          "latencyMs": 2.380700000008801,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37100.237845,
+          "latencyMs": 2.374476999990293,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37201.16955299999,
+          "latencyMs": 2.2269300000043586,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37299.497538999996,
+          "latencyMs": 2.5479950000008103,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37398.943613,
+          "latencyMs": 2.3979099999996834,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37499.04967099999,
+          "latencyMs": 2.45373500000278,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37601.65201,
+          "latencyMs": 2.2994610000023386,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37702.12688399999,
+          "latencyMs": 2.3402360000036424,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37800.320029,
+          "latencyMs": 2.251187999994727,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 37901.791192,
+          "latencyMs": 2.3106600000028266,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38001.274765999995,
+          "latencyMs": 2.3304539999953704,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38101.801436,
+          "latencyMs": 2.2390119999909075,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38199.657782,
+          "latencyMs": 2.2970189999905415,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38301.06881199999,
+          "latencyMs": 2.267829000003985,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38401.459901999995,
+          "latencyMs": 2.3264950000011595,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38501.82187199999,
+          "latencyMs": 1.981738000002224,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38601.95402,
+          "latencyMs": 2.4331099999981234,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38700.508138,
+          "latencyMs": 2.3297679999959655,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38800.30173,
+          "latencyMs": 0.9516440000006696,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 38900.561362,
+          "latencyMs": 2.3008909999916796,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39001.983843999995,
+          "latencyMs": 2.250381000005291,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39100.41030699999,
+          "latencyMs": 2.446484000000055,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39201.534334,
+          "latencyMs": 2.2273459999996703,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39300.95227,
+          "latencyMs": 2.0906319999921834,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39399.248227,
+          "latencyMs": 2.1969019999960437,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39500.70905699999,
+          "latencyMs": 2.3588420000014594,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39601.271531,
+          "latencyMs": 1.2564989999955287,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39701.711531,
+          "latencyMs": 3.0346669999998994,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39801.927626,
+          "latencyMs": 2.5577420000045095,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 39901.660482,
+          "latencyMs": 2.4490070000028936,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40001.24281,
+          "latencyMs": 2.335654999988037,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40100.60322499999,
+          "latencyMs": 2.299068000007537,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40202.175505,
+          "latencyMs": 2.5214359999954468,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40300.552521,
+          "latencyMs": 2.091675000003306,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40401.787781,
+          "latencyMs": 2.26264600000286,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40499.550757,
+          "latencyMs": 2.2065239999938058,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40602.32302799999,
+          "latencyMs": 2.2408379999978933,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40701.677659,
+          "latencyMs": 2.4392339999903925,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40800.517780999995,
+          "latencyMs": 2.2998720000032336,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 40901.98362399999,
+          "latencyMs": 2.261494999998831,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41001.084813999994,
+          "latencyMs": 3.0037779999984195,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41100.919462,
+          "latencyMs": 2.0758760000026086,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41202.203017,
+          "latencyMs": 2.2674109999934444,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41299.730449,
+          "latencyMs": 2.281708999988041,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41401.130329,
+          "latencyMs": 2.273434000002453,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41500.54796,
+          "latencyMs": 2.533691999997245,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41600.550713,
+          "latencyMs": 2.2301799999986542,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41700.11405699999,
+          "latencyMs": 2.1808529999980237,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41801.444681,
+          "latencyMs": 2.2689830000017537,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 41902.104994999994,
+          "latencyMs": 2.438131999995676,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42002.163024999994,
+          "latencyMs": 1.202780999999959,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42101.49134099999,
+          "latencyMs": 2.4198529999994207,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42202.047453,
+          "latencyMs": 2.517666999992798,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42300.418532,
+          "latencyMs": 2.6774459999869578,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42399.049177999994,
+          "latencyMs": 2.0821339999965858,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42501.04523899999,
+          "latencyMs": 2.441621000005398,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42600.013487,
+          "latencyMs": 2.184773999993922,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42700.654208,
+          "latencyMs": 3.2592529999965336,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42802.040541,
+          "latencyMs": 2.6120850000006612,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 42901.845691999995,
+          "latencyMs": 2.3493929999967804,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43001.11392499999,
+          "latencyMs": 2.5218080000049667,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43101.128993,
+          "latencyMs": 2.279291999991983,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43198.588169,
+          "latencyMs": 2.0163509999983944,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43301.79117599999,
+          "latencyMs": 2.387937999999849,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43399.41228299999,
+          "latencyMs": 2.4238230000046315,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43501.57489299999,
+          "latencyMs": 2.3629710000095656,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43601.256139,
+          "latencyMs": 1.0838499999954365,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43699.851275999994,
+          "latencyMs": 2.249812000009115,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43799.260908000004,
+          "latencyMs": 1.0179989999887766,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 43899.785478,
+          "latencyMs": 2.0992689999984577,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44001.55451899999,
+          "latencyMs": 2.4976390000083484,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44101.215414,
+          "latencyMs": 2.332169999994221,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44199.69220099999,
+          "latencyMs": 1.9395330000115791,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44302.269234,
+          "latencyMs": 2.2651199999963865,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44399.915606,
+          "latencyMs": 2.2361609999934444,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44500.18239699999,
+          "latencyMs": 2.4079490000003716,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44601.75569699999,
+          "latencyMs": 2.1940509999985807,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44700.50384099999,
+          "latencyMs": 2.3495010000042384,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44801.973418999994,
+          "latencyMs": 2.6704509999981383,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 44901.76573199999,
+          "latencyMs": 2.500655000010738,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45001.3835,
+          "latencyMs": 2.362013999998453,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45101.423296,
+          "latencyMs": 2.2590979999949923,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45201.83415,
+          "latencyMs": 1.9724409999907948,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45302.322611999996,
+          "latencyMs": 2.279307000004337,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45401.71874999999,
+          "latencyMs": 2.3752150000073016,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45499.539902,
+          "latencyMs": 2.243056000006618,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45601.442863,
+          "latencyMs": 2.527931999997236,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45702.11706299999,
+          "latencyMs": 1.3010970000032103,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45801.446894,
+          "latencyMs": 3.2706820000021253,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 45901.94252999999,
+          "latencyMs": 2.490774000005331,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46000.578243,
+          "latencyMs": 2.45589199999813,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46101.163427,
+          "latencyMs": 2.2694590000028256,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46199.69819399999,
+          "latencyMs": 2.627922000014223,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46298.782338,
+          "latencyMs": 2.2753150000062305,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46400.73084899999,
+          "latencyMs": 2.3219289999979082,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46501.237055,
+          "latencyMs": 1.0160270000051241,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46601.389791,
+          "latencyMs": 2.3120789999957196,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46700.41546099999,
+          "latencyMs": 2.3043020000040997,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46801.896438,
+          "latencyMs": 2.3150879999884637,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 46900.601642,
+          "latencyMs": 2.2006079999991925,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47002.31021599999,
+          "latencyMs": 2.3782940000091912,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47101.906748,
+          "latencyMs": 2.2903910000022734,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47199.125387,
+          "latencyMs": 2.164497999998275,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47299.869361,
+          "latencyMs": 2.737544000003254,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47401.286443,
+          "latencyMs": 2.348197999992408,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47500.97484999999,
+          "latencyMs": 2.5019549999997253,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47601.602846999995,
+          "latencyMs": 2.271577999999863,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47700.045563,
+          "latencyMs": 2.353782999998657,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47798.829013999995,
+          "latencyMs": 2.1877689999964787,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 47901.131581,
+          "latencyMs": 2.470936999990954,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48001.713931,
+          "latencyMs": 2.245609000005061,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48102.072521,
+          "latencyMs": 2.324425999991945,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48200.04498,
+          "latencyMs": 2.7523589999909746,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48302.32557899999,
+          "latencyMs": 0.9021170000050915,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48400.70419299999,
+          "latencyMs": 2.2980570000072476,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48500.057146,
+          "latencyMs": 2.363813999996637,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48600.617229,
+          "latencyMs": 2.2444809999869904,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48701.977959,
+          "latencyMs": 2.291081999996095,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48799.52864899999,
+          "latencyMs": 2.5410640000045532,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 48901.303697,
+          "latencyMs": 1.6145469999901252,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49001.762207,
+          "latencyMs": 2.126180999999633,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49100.497635,
+          "latencyMs": 2.434704999992391,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49201.431055999994,
+          "latencyMs": 2.797527999995509,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49299.835738999995,
+          "latencyMs": 2.5449250000092434,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49399.54233399999,
+          "latencyMs": 2.2457330000033835,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49501.52508,
+          "latencyMs": 2.3651799999934155,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49600.112566,
+          "latencyMs": 2.3273109999863664,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49700.21968799999,
+          "latencyMs": 2.294848000005004,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49800.03541399999,
+          "latencyMs": 2.378059000009671,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 49900.309533,
+          "latencyMs": 1.0117219999956433,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50001.435103,
+          "latencyMs": 2.2766179999889573,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50101.596535,
+          "latencyMs": 2.7182409999950323,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50201.471079,
+          "latencyMs": 2.880593999987468,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50300.647653,
+          "latencyMs": 2.4149539999925764,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50399.600556,
+          "latencyMs": 2.2899969999998575,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50500.836571,
+          "latencyMs": 2.3339449999912176,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50601.064479,
+          "latencyMs": 2.462589000002481,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50700.308291,
+          "latencyMs": 0.924113999994006,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50799.963966,
+          "latencyMs": 2.530399999988731,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 50900.178773,
+          "latencyMs": 2.508069000003161,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51001.84478199999,
+          "latencyMs": 2.9964679999975488,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51101.13204199999,
+          "latencyMs": 2.504041000007419,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51200.286587999995,
+          "latencyMs": 2.2274619999952847,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51300.41854399999,
+          "latencyMs": 2.184043000001111,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51401.82018999999,
+          "latencyMs": 2.257935000001453,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51501.220809,
+          "latencyMs": 2.209885000003851,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51598.615073999994,
+          "latencyMs": 2.4628979999979492,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51700.211516999996,
+          "latencyMs": 2.24863099999493,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51800.042234,
+          "latencyMs": 2.2078049999981886,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 51898.88599999999,
+          "latencyMs": 3.987529000005452,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52002.292924999994,
+          "latencyMs": 3.027606999996351,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52100.061152999995,
+          "latencyMs": 2.4168510000017704,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52202.321783,
+          "latencyMs": 2.3619670000043698,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52300.41990999999,
+          "latencyMs": 2.574043000000529,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52401.51993999999,
+          "latencyMs": 2.3301849999988917,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52502.270142,
+          "latencyMs": 2.2048109999886947,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52600.04319999999,
+          "latencyMs": 2.351215000002412,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52700.565312,
+          "latencyMs": 2.2322739999945043,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52801.07757,
+          "latencyMs": 2.4254280000022845,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 52901.624888,
+          "latencyMs": 2.1606009999959497,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53001.903140999995,
+          "latencyMs": 2.2009459999972023,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53100.65989599999,
+          "latencyMs": 2.2818020000122488,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53200.64519799999,
+          "latencyMs": 2.269207000004826,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53302.285501,
+          "latencyMs": 2.2568969999992987,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53400.70552499999,
+          "latencyMs": 2.1891750000067987,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53502.078162,
+          "latencyMs": 2.414967999997316,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53600.936687999994,
+          "latencyMs": 2.191732999999658,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53700.53096499999,
+          "latencyMs": 2.3847740000055637,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53802.034416999995,
+          "latencyMs": 1.9993950000061886,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 53900.31686499999,
+          "latencyMs": 2.227719000002253,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54001.599075,
+          "latencyMs": 2.3025550000020303,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54100.158279999996,
+          "latencyMs": 2.3225059999967925,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54201.426206,
+          "latencyMs": 2.3563580000045476,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54302.323826,
+          "latencyMs": 1.2101519999996526,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54401.00863399999,
+          "latencyMs": 2.062747000003583,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54501.25343999999,
+          "latencyMs": 2.3140990000101738,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54600.471826999994,
+          "latencyMs": 2.2789580000098795,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54701.042687,
+          "latencyMs": 2.157611000002362,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54799.97423,
+          "latencyMs": 2.160671999998158,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 54901.31705199999,
+          "latencyMs": 3.121712000007392,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55001.974912,
+          "latencyMs": 2.242499999993015,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55101.42302699999,
+          "latencyMs": 2.3674080000055255,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55201.83170999999,
+          "latencyMs": 2.3439480000088224,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55300.163874,
+          "latencyMs": 2.2457830000057584,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55399.419479,
+          "latencyMs": 2.1733709999971325,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55501.134438999994,
+          "latencyMs": 2.295891000001575,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55600.573843,
+          "latencyMs": 2.245416000005207,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55699.96675299999,
+          "latencyMs": 2.266396999999415,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55799.100147,
+          "latencyMs": 2.093336999998428,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 55900.703835,
+          "latencyMs": 2.3420159999950556,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56001.16002799999,
+          "latencyMs": 2.4227240000036545,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56099.719252,
+          "latencyMs": 2.14740499999607,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56202.038905999994,
+          "latencyMs": 2.310527000008733,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56299.634314,
+          "latencyMs": 2.3005129999946803,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56400.63303999999,
+          "latencyMs": 2.3289570000051754,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56500.872788,
+          "latencyMs": 2.425779999990482,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56601.02316999999,
+          "latencyMs": 2.331088999999338,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56698.644507,
+          "latencyMs": 2.2279279999929713,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56801.81121199999,
+          "latencyMs": 2.2874470000097062,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 56899.99478,
+          "latencyMs": 2.473050999993575,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57001.269259999994,
+          "latencyMs": 2.392111000008299,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57101.198083,
+          "latencyMs": 2.4428989999869373,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57199.666026,
+          "latencyMs": 2.2609379999921657,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57302.090437,
+          "latencyMs": 2.534557999999379,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57400.56960699999,
+          "latencyMs": 2.4321770000096876,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57499.936866,
+          "latencyMs": 2.3233089999994263,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57600.689353,
+          "latencyMs": 2.372561999989557,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57701.092948,
+          "latencyMs": 2.438635999991675,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57801.738684,
+          "latencyMs": 2.435907999999472,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 57901.29476499999,
+          "latencyMs": 1.2045300000027055,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58000.174238,
+          "latencyMs": 2.3709390000003623,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58101.65989599999,
+          "latencyMs": 2.4070250000077067,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58201.181766999995,
+          "latencyMs": 2.4672169999976177,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58301.874691,
+          "latencyMs": 2.42411799999536,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58399.14309799999,
+          "latencyMs": 2.3238390000042273,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58501.705882,
+          "latencyMs": 1.9110680000012508,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58601.394586,
+          "latencyMs": 2.3029899999964982,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58700.68165199999,
+          "latencyMs": 2.3933650000108173,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58801.18068499999,
+          "latencyMs": 2.576825000011013,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 58901.121542999994,
+          "latencyMs": 2.2471559999976307,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59001.060525999994,
+          "latencyMs": 2.4149230000039097,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59100.920578,
+          "latencyMs": 2.011937000002945,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59202.041601,
+          "latencyMs": 2.296965999994427,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59299.675752,
+          "latencyMs": 2.3978319999878295,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59399.53067,
+          "latencyMs": 2.1374740000028396,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59502.14624899999,
+          "latencyMs": 2.247387000010349,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59600.27229,
+          "latencyMs": 2.4555160000018077,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59700.389409,
+          "latencyMs": 2.2072429999971064,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59800.717673,
+          "latencyMs": 2.206667999998899,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        },
+        {
+          "offsetMs": 59902.114188,
+          "latencyMs": 2.228539000003366,
+          "status": 200,
+          "bytes": 8036,
+          "error": null
+        }
+      ],
+      "p50": 2.3495010000042384,
+      "p95": 2.8990540000086185,
+      "p99": 3.422165000003588,
+      "max": 38.289607999999134,
+      "failures": 0,
+      "firstOffsetMs": 0.4661549999946146,
+      "lastOffsetMs": 59902.114188,
+      "observedRate": 9.999725335377606
+    }
+  },
+  "workerLoad": {
+    "ok": true,
+    "runs": 12,
+    "items": 9625,
+    "cpuMs": 59829.246999999996,
+    "busyMs": 60027,
+    "elapsedMs": 60037.629014,
+    "eventLoopUtilization": {
+      "idle": 187.137773,
+      "active": 114597.65887204529,
+      "utilization": 0.9983696641151991
+    }
+  },
+  "judgment": {
+    "passed": true,
+    "reasons": [],
+    "targetMs": 1000,
+    "observedRate": 9.999725335377606
+  },
+  "finishedAt": "2026-10-11T04:41:17.790Z"
+}
