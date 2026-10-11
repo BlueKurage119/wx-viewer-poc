@@ -13,6 +13,7 @@ export * from './fetchControl.js';
 export * from './startupNotification.js';
 export * from './terminalConfig.js';
 export * from './terminalSession.js';
+export * from './trainingTelegram.js';
 export * from './types.js';
 export * from './venueForecastTargets.js';
 export * from './weatherApi.js';
