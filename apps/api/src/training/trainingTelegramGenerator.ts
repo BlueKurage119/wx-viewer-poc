@@ -539,6 +539,80 @@ function warningHeadTitle(
   return `東京都${names.join('・')}注意報`;
 }
 
+const SPECIAL_LABEL: Readonly<Record<string, string>> = {
+  rain: '大雨',
+  surge: '高潮',
+  wind: '暴風',
+  wave: '波浪',
+  snow: '大雪',
+};
+const SPECIAL_ACTION: Readonly<Record<string, string>> = {
+  rain: '土砂災害や低い土地の浸水、河川の増水に最大級の警戒をしてください。',
+  surge: '高潮に最大級の警戒をしてください。',
+  wind: '暴風に最大級の警戒をしてください。',
+  wave: '高波に最大級の警戒をしてください。',
+  snow: '大雪に最大級の警戒をしてください。',
+};
+const WARNING_HAZARD: Readonly<Record<string, string>> = {
+  rain: '低い土地の浸水や河川の増水',
+  landslide: '土砂災害',
+  surge: '高潮',
+  wind: '暴風',
+  wave: '高波',
+  snow: '大雪',
+};
+const OTHER_ADVISORY_HAZARD: Readonly<Record<string, string>> = {
+  thunder: '急な強い雨や落雷',
+  fog: '濃い霧',
+  dry: '空気の乾燥',
+  cold: '低温',
+  frost: '霜',
+  icing: '着氷',
+  'snow-accretion': '着雪',
+};
+
+/**
+ * Headline/Text の本文（訓練行を除く）。文型は公式サンプル 15_16_01〜08・15_17_01 に合わせる。
+ * 警戒レベル4・特別警報は「〜を発表しています。」型、それ以外は「〜では、〜に警戒/注意してください。」型。
+ */
+function warningHeadlineBody(kinds: readonly WarningDefinition[], ctx: TimeContext): string {
+  const first = kinds[0]!;
+  const phenomenon = first.phenomenon;
+  if (PHENOMENA[phenomenon].telegramType === 'VPWW61') {
+    const hazards = kinds.map((kind) => OTHER_ADVISORY_HAZARD[kind.phenomenon]!);
+    return `東京都では、${hazards.join('、')}に注意してください。`;
+  }
+  if (first.severity === 'special') {
+    const label = first.snowWind ? '暴風雪' : SPECIAL_LABEL[phenomenon]!;
+    const action = first.snowWind
+      ? '暴風雪に最大級の警戒をしてください。'
+      : SPECIAL_ACTION[phenomenon]!;
+    return `【特別警報（${label}）】東京都に特別警報を発表しています。${action}`;
+  }
+  const hazard = first.snowWind ? '風雪' : WARNING_HAZARD[phenomenon]!;
+  if (first.level === 4) {
+    if (phenomenon === 'surge') {
+      const reached = jstParts(ctx.t + 6 * HOUR_MS);
+      return (
+        `東京都に${first.name}を発表しています。` +
+        `${toFullWidth(reached.day)}日${clockText(reached)}以降に、水位が堤防を超えるおそれがあります。`
+      );
+    }
+    return phenomenon === 'rain'
+      ? `東京都に${first.name}を発表しています。低い土地の浸水や川の増水に厳重に警戒をしてください。`
+      : `東京都に${first.name}を発表しています。${hazard}に厳重に警戒をしてください。`;
+  }
+  const verb = first.severity === 'advisory' ? '注意' : '警戒';
+  const subject = first.snowWind
+    ? first.severity === 'warning'
+      ? '暴風雪'
+      : '風雪'
+    : phenomenon === 'wind' && first.severity === 'advisory'
+      ? '強風'
+      : hazard;
+  return `東京都では、${subject}に${verb}してください。`;
+}
+
 function generateWarningTelegram(
   telegramType: WarningTelegramType,
   definitions: readonly WarningDefinition[],
@@ -563,10 +637,7 @@ function generateWarningTelegram(
   const headline = el(
     'Headline',
     null,
-    simple(
-      'Text',
-      `【訓練】江東区に${kinds.map((kind) => kind.name).join('、')}を発表する想定です。`,
-    ),
+    simple('Text', withBanner(warningHeadlineBody(kinds, ctx))),
     ...headlineInformation,
   );
   const bodyWarnings = WARNING_INFORMATION_TIERS.map((tier) =>
@@ -624,25 +695,34 @@ function observationTimeMs(ctx: TimeContext): number {
   return Math.floor((ctx.t - tenMinutes) / tenMinutes) * tenMinutes;
 }
 
+/** 先頭に訓練の注意行を付け、以降は実際の電文と同じ文型の本文を続ける。 */
+const TRAINING_BANNER = '＊＊＊これは訓練です＊＊＊';
+
+function withBanner(body: string): string {
+  return `${TRAINING_BANNER}\n${body}`;
+}
+
+/** 文型は公式サンプル 82_01_01（発生）・82_03_01（直前）・82_01_02（記録雨）に合わせる。 */
 function bulletinHeadlineText(definition: BulletinDefinition, observedMs: number): string {
-  const clock = clockText(jstParts(observedMs));
+  const parts = jstParts(observedMs);
+  const clock = `${toFullWidth(parts.hour)}時${toFullWidth(String(parts.minute).padStart(2, '0'))}分`;
   switch (definition.kind) {
     case 'linear-occurrence':
-      return (
-        `【訓練】${clock}頃、東京地方で線状降水帯が発生した想定です。` +
-        '線状降水帯による非常に激しい雨が同じ場所で降り続いている想定で、' +
-        '命に危険が及ぶ災害発生の危険度が急激に高まっています。'
+      return withBanner(
+        '東京都東京地方では、線状降水帯による非常に激しい雨が同じ場所で降り続いています。' +
+          '命に危険が及ぶ災害発生の危険度が急激に高まっています。',
       );
     case 'linear-imminent':
-      return (
-        '【訓練】東京地方では、今後３時間以内に線状降水帯が発生する可能性がある想定です。' +
-        '大雨による災害発生の危険度が急激に高まるおそれがあります。'
+      return withBanner(
+        '東京都東京地方では、今後３時間以内に線状降水帯が発生し、' +
+          '非常に激しい雨が同じ場所で降り続く可能性が高まっています。' +
+          '命に危険が及ぶ災害発生の危険度が急激に高まるおそれがあります。',
       );
     case 'record-rain':
-      return (
-        `【訓練】${clock}、東京都江東区で記録的短時間大雨の想定です。\n` +
-        '江東区付近で１時間に約１２０ミリ。\n' +
-        '猛烈な雨が降っている想定で、災害発生の危険度が急激に高まっています。'
+      return withBanner(
+        `${clock}、東京都江東区で記録的短時間大雨。\n` +
+          '江東区付近で１時間に約１２０ミリ。\n' +
+          '猛烈な雨が降っており、災害発生の危険度が急激に高まっています。',
       );
   }
 }
@@ -801,20 +881,21 @@ function tornadoKind(withStatus: 'Condition' | 'Status'): XmlNode {
   );
 }
 
+/** 文型は公式サンプル 19_08_03（VPHW50）・19_04_01（VPHW51）に合わせる。 */
 function tornadoText(definition: TornadoDefinition): string {
   const caution =
     '空の様子に注意してください。雷や急な風の変化など積乱雲が近づく兆しがある場合には、' +
-    '頑丈な建物内に移動するなど、安全確保に努めてください。';
+    '頑丈な建物内に移動するなど、安全確保に努めてください。' +
+    '落雷、ひょう、急な強い雨にも注意してください。';
   if (definition.sighting) {
-    return (
-      '【訓練】江東区で竜巻などの激しい突風が発生したとみられる想定です。' +
-      '東京地方は、竜巻などの激しい突風が発生するおそれが非常に高まっています。' +
-      caution
+    return withBanner(
+      '【目撃情報あり】東京都東京地方で竜巻などの激しい突風が発生したとみられます。' +
+        '東京地方は、竜巻などの激しい突風が発生するおそれが非常に高まっています。' +
+        caution,
     );
   }
-  return (
-    '【訓練】東京地方（江東区付近）は、竜巻などの激しい突風が発生しやすい気象状況になっている想定です。' +
-    caution
+  return withBanner(
+    '東京都東京地方は、竜巻などの激しい突風が発生しやすい気象状況になっています。' + caution,
   );
 }
 

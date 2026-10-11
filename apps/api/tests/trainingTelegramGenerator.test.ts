@@ -229,6 +229,47 @@ const WARNING_EXPECTATIONS: readonly WarningExpectation[] = [
   w('warning-26', '着雪注意報', 'VPWW61', 'その他注意報', '東京都着雪注意報', '着雪危険度', ADV),
 ];
 
+const BANNER = '＊＊＊これは訓練です＊＊＊\n';
+/** 公式サンプル（15_16_01〜08・15_17_01）の文型に合わせた Headline/Text 本文の独立した期待表。 */
+const WARNING_HEADLINES: Readonly<Record<string, string>> = {
+  'warning-10': '東京都では、低い土地の浸水や河川の増水に注意してください。',
+  'warning-03': '東京都では、低い土地の浸水や河川の増水に警戒してください。',
+  'warning-43':
+    '東京都にレベル４大雨危険警報を発表しています。低い土地の浸水や川の増水に厳重に警戒をしてください。',
+  'warning-33':
+    '【特別警報（大雨）】東京都に特別警報を発表しています。土砂災害や低い土地の浸水、河川の増水に最大級の警戒をしてください。',
+  'warning-29': '東京都では、土砂災害に注意してください。',
+  'warning-19': '東京都では、高潮に注意してください。',
+  'warning-08': '東京都では、高潮に警戒してください。',
+  'warning-48':
+    '東京都にレベル４高潮危険警報を発表しています。１２日５時５９分以降に、水位が堤防を超えるおそれがあります。',
+  'warning-38':
+    '【特別警報（高潮）】東京都に特別警報を発表しています。高潮に最大級の警戒をしてください。',
+  'warning-15': '東京都では、強風に注意してください。',
+  'warning-05': '東京都では、暴風に警戒してください。',
+  'warning-35':
+    '【特別警報（暴風）】東京都に特別警報を発表しています。暴風に最大級の警戒をしてください。',
+  'warning-13': '東京都では、風雪に注意してください。',
+  'warning-02': '東京都では、暴風雪に警戒してください。',
+  'warning-32':
+    '【特別警報（暴風雪）】東京都に特別警報を発表しています。暴風雪に最大級の警戒をしてください。',
+  'warning-16': '東京都では、高波に注意してください。',
+  'warning-07': '東京都では、高波に警戒してください。',
+  'warning-37':
+    '【特別警報（波浪）】東京都に特別警報を発表しています。高波に最大級の警戒をしてください。',
+  'warning-12': '東京都では、大雪に注意してください。',
+  'warning-06': '東京都では、大雪に警戒してください。',
+  'warning-36':
+    '【特別警報（大雪）】東京都に特別警報を発表しています。大雪に最大級の警戒をしてください。',
+  'warning-14': '東京都では、急な強い雨や落雷に注意してください。',
+  'warning-20': '東京都では、濃い霧に注意してください。',
+  'warning-21': '東京都では、空気の乾燥に注意してください。',
+  'warning-23': '東京都では、低温に注意してください。',
+  'warning-24': '東京都では、霜に注意してください。',
+  'warning-25': '東京都では、着氷に注意してください。',
+  'warning-26': '東京都では、着雪に注意してください。',
+};
+
 const TIERS = [
   ['気象警報・注意報（府県予報区等）', '東京都', '130000', '気象情報／府県予報区・細分区域等'],
   ['気象警報・注意報（一次細分区域等）', '東京地方', '130010', '気象情報／府県予報区・細分区域等'],
@@ -289,7 +330,7 @@ for (const expected of WARNING_EXPECTATIONS) {
     assert.equal(path(root, 'Head', 'ValidDateTime').length, 0);
     assert.equal(
       textAt(root, 'Head', 'Headline', 'Text'),
-      `【訓練】江東区に${expected.name}を発表する想定です。`,
+      BANNER + WARNING_HEADLINES[expected.itemId],
     );
     // Headline/Information の4層
     const informations = path(root, 'Head', 'Headline', 'Information');
@@ -627,6 +668,13 @@ test('VPBS50: 線状降水帯発生/直前予測/記録的短時間大雨の構�
       '線状降水帯予想',
     ],
   ];
+  // 公式サンプル 82_01_01（発生）・82_03_01（直前）の文型
+  const LINEAR_TEXT: Record<string, string> = {
+    'bulletin-linear-occurrence':
+      '東京都東京地方では、線状降水帯による非常に激しい雨が同じ場所で降り続いています。命に危険が及ぶ災害発生の危険度が急激に高まっています。',
+    'bulletin-linear-imminent':
+      '東京都東京地方では、今後３時間以内に線状降水帯が発生し、非常に激しい雨が同じ場所で降り続く可能性が高まっています。命に危険が及ぶ災害発生の危険度が急激に高まるおそれがあります。',
+  };
   for (const [itemId, condition, title, suffix, eventName] of rows) {
     const telegram = single(itemId);
     assert.equal(telegram.telegramType, 'VPBS50');
@@ -660,10 +708,8 @@ test('VPBS50: 線状降水帯発生/直前予測/記録的短時間大雨の構�
     assert.equal(textAt(event, 'Time'), '2026-10-11T23:40:00+09:00');
     assert.equal(textAt(mInfo, 'Item', 'Area', 'Code'), '130010');
     assert.equal(path(mInfo, 'Item', 'Station').length, 0);
-    assert.match(textAt(root, 'Head', 'Headline', 'Text'), /^【訓練】/);
+    assert.equal(textAt(root, 'Head', 'Headline', 'Text'), BANNER + LINEAR_TEXT[itemId]);
   }
-  const imminent = parseXml(single('bulletin-linear-imminent').xml);
-  assert.match(textAt(imminent, 'Head', 'Headline', 'Text'), /今後３時間以内/);
 
   const rain = single('bulletin-record-rain');
   assert.equal(rain.title, '東京都気象防災速報（記録的短時間大雨）');
@@ -694,9 +740,11 @@ test('VPBS50: 線状降水帯発生/直前予測/記録的短時間大雨の構�
   assert.equal(textAt(item, 'Area', 'Name'), '江東区');
   assert.equal(textAt(item, 'Area', 'Status'), '付近');
   assert.equal(path(item, 'Station').length, 0);
-  const headlineText = textAt(root, 'Head', 'Headline', 'Text');
-  assert.match(headlineText, /^【訓練】２３時４０分、東京都江東区で記録的短時間大雨/);
-  assert.match(headlineText, /約１２０ミリ/);
+  assert.equal(
+    textAt(root, 'Head', 'Headline', 'Text'),
+    BANNER +
+      '２３時４０分、東京都江東区で記録的短時間大雨。\n江東区付近で１時間に約１２０ミリ。\n猛烈な雨が降っており、災害発生の危険度が急激に高まっています。',
+  );
 });
 
 test('VPBS50: 設計書例の発表14:10 JSTで解析時刻は14:00', () => {
@@ -719,7 +767,7 @@ test('VPBS50: 設計書例の発表14:10 JSTで解析時刻は14:00', () => {
   );
   assert.match(
     textAt(root, 'Head', 'Headline', 'Text'),
-    /^【訓練】１４時、東京都江東区で記録的短時間大雨/,
+    /^＊＊＊これは訓練です＊＊＊\n１４時００分、東京都江東区で記録的短時間大雨。\n/,
   );
 });
 
@@ -792,14 +840,17 @@ test('VPHW50/51: 4階層Information・Body Warning・ValidDateTime・EventID空'
       assert.equal(textAt(warning, 'Item', 'Kind', 'Status'), '発表');
       assert.equal(textAt(warning, 'Item', 'Area', 'Code'), codes[index]);
     });
-    const headlineText = textAt(root, 'Head', 'Headline', 'Text');
-    assert.match(headlineText, /^【訓練】/);
-    if (sighting) {
-      assert.match(
-        headlineText,
-        /【訓練】江東区で竜巻などの激しい突風が発生したとみられる想定です。/,
-      );
-    }
+    // 公式サンプル 19_04_01（VPHW51）・19_08_03（VPHW50）の文型
+    const caution =
+      '空の様子に注意してください。雷や急な風の変化など積乱雲が近づく兆しがある場合には、頑丈な建物内に移動するなど、安全確保に努めてください。落雷、ひょう、急な強い雨にも注意してください。';
+    assert.equal(
+      textAt(root, 'Head', 'Headline', 'Text'),
+      BANNER +
+        (sighting
+          ? '【目撃情報あり】東京都東京地方で竜巻などの激しい突風が発生したとみられます。東京地方は、竜巻などの激しい突風が発生するおそれが非常に高まっています。'
+          : '東京都東京地方は、竜巻などの激しい突風が発生しやすい気象状況になっています。') +
+        caution,
+    );
   }
 });
 
@@ -956,6 +1007,10 @@ test('最大セット（16 group）: 異系列は別XML、VPWW61は1XMLにコー
   for (const information of path(root, 'Head', 'Headline', 'Information')) {
     const kindList = path(information, 'Item', 'Kind');
     assert.deepEqual(
+      kindList.map((kind) => textAt(kind, 'Name')),
+      expectedNames,
+    );
+    assert.deepEqual(
       kindList.map((kind) => textAt(kind, 'Code')),
       expectedCodes,
     );
@@ -970,7 +1025,8 @@ test('最大セット（16 group）: 異系列は別XML、VPWW61は1XMLにコー
   }
   assert.equal(
     textAt(root, 'Head', 'Headline', 'Text'),
-    `【訓練】江東区に${expectedNames.join('、')}を発表する想定です。`,
+    BANNER +
+      '東京都では、急な強い雨や落雷、濃い霧、空気の乾燥、低温、霜、着氷、着雪に注意してください。',
   );
   // 各電文は自分の選択項目だけを含む
   assert.deepEqual(
