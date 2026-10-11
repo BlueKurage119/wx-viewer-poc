@@ -56,6 +56,7 @@ import { useVenueRegistry } from './venueRegistryContext';
 import { useTerminalRegistry } from './terminalRegistryContext';
 import { WarningListView } from './warnings/WarningListView';
 import { TrainingView } from './training/TrainingView';
+import { TrainingToolbar } from './training/TrainingToolbar';
 import { createWarningListSearchState } from './warnings/warningListFilterModel';
 import './warnings/warningList.css';
 import './training/training.css';
@@ -310,6 +311,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
               },
             }}
           />
+        ) : view === 'training' ? (
+          <TrainingToolbar />
         ) : preview ? (
           <>
             <span className="preview-label">表示確認用</span>

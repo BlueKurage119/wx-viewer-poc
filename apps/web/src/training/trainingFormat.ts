@@ -8,3 +8,12 @@ export function formatTrainingJst(iso: string): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}/${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
+
+/** UTC ISO を JST の「HH:mm:ss」に整形する。不正値はそのまま返す。 */
+export function formatTrainingJstTime(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  const d = new Date(ms + JST_OFFSET_MS);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
