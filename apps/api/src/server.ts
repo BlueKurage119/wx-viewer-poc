@@ -119,6 +119,12 @@ export interface StartServerOptions {
   readonly deliveryWorkerEntry?: URL;
   readonly onDeliveryWorkerCreated?: (worker: import('node:worker_threads').Worker) => void;
   readonly weatherRequestObserver?: (request: WeatherRequest) => void;
+  /** 結合試験用。読取後照合で拒否された理由を観測する。 */
+  readonly weatherReadRejectionObserver?: (event: {
+    readonly at: string;
+    readonly kind: string;
+    readonly code: string;
+  }) => void;
   readonly config?: DatabasePairConfig;
   readonly port?: number;
   readonly enablePolling?: boolean;

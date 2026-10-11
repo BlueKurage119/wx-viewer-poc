@@ -235,7 +235,7 @@ BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/da
 
 ## 実警報取得20,000件中の残る4系列（各3ペア）
 
-health と同じ Atom 20,000件、同一警報XML、初期 DB、旧 shared、新→旧のペア順、外部クライアント600要求・100 ms間隔・30秒期限で、監視、system 差分、保存済み警報 API、保存済み tile hit を各3回測った。全24試行で20,000件を保存し、取得処理は60秒以上続いた。各試行の要求別status/body/hash/latency、CPU/RSS、fixture/DB初期値、時刻と強制更新操作の結果は[25試行の生値](issue-260-real-poll-other-apis.ndjson)に保存した。25本目は下記503原因の診断試行である。`stage=completed` は計測完了を表し、HTTP成功や強制更新成功の合否ではない。
+health と同じ Atom 20,000件、同一警報XML、初期 DB、旧 shared、新→旧のペア順、外部クライアント600要求・100 ms間隔・30秒期限で、監視、system 差分、保存済み警報 API、保存済み tile hit を各3回測った。全24試行で20,000件を保存し、取得処理は60秒以上続いた。各試行の要求別status/body/hash/latency、CPU/RSS、fixture/DB初期値、時刻と強制更新操作の結果は[26試行の生値](issue-260-real-poll-other-apis.ndjson)に保存した。25・26本目は下記503原因の診断試行である。`stage=completed` は計測完了を表し、HTTP成功や強制更新成功の合否ではない。
 
 各セルは反復1/2/3の順。CPUはプロセス全体の実使用時間、RSSは取得・HTTP期間に100 msで測ったピーク。p95と最大には失敗要求も含む。応答単位はms、処理・CPUは秒、RSSはMiB。
 
@@ -262,7 +262,9 @@ health と同じ Atom 20,000件、同一警報XML、初期 DB、旧 shared、新
 
 この診断に限って `BENCH_DIAG_DELIVERY=1` を加え、[計測専用の提供読取プローブ](../../apps/api/tests/issue260DeliveryProbe.mjs)を有効化した。プローブは成功・失敗とその時点の `lifecycle`・`reportFreshness`・`exitConfirmed` を保存する。元の3ペアには追加していないため、上の601件の観測は診断1回の値である。
 
-[取得後の照合処理](../../apps/api/src/runtime/startWorkerServer.ts) は提供Workerの読取結果を受けた後、DB世代・取得scopeの状態を `assertCurrentRead` で再検査する。そこで発生する `generation_changed` は[HTTPエラー変換](../../apps/api/src/app.ts)により同じ503 bodyへ変換される。すべての提供Worker読取が成功したこと、提供Workerが ready/fresh だったこと、取得中に更新scopeが変わることから、今回の503はこの照合段階が最有力と推論する。ただし元の `WeatherRequestError.code` を直接記録するフックはなく、断定は保留する。#258の提供・公開境界の責務へ、再現条件とともに差し戻す候補である。比較計測器では機能コードを変更していない。設計のE2は失敗0の条件を満たさず、受け入れ不可である。
+[取得後の照合処理](../../apps/api/src/runtime/startWorkerServer.ts) は提供Workerの読取結果を受けた後、DB世代・取得scopeの状態を `assertCurrentRead` で再検査する。そこで発生する `generation_changed` は[HTTPエラー変換](../../apps/api/src/app.ts)により同じ503 bodyへ変換される。26本目は `BENCH_DIAG_DELIVERY=1 BENCH_DIAG_READ_REJECTION=1` で同じ20,000件・600要求を実施し、照合処理の例外コードをテスト専用フックで直接記録した。取得は71,503 ms、警報XMLの保存は20,000件、HTTPは200が478件・503が122件で、503のbodyは全件 `weather_worker_unavailable`。提供Workerの `weather.read` は事前確認を含む601件すべて成功し、状態は全件 `ready`・`fresh`・`exitConfirmed=false`・`failureCode=null` だった。一方、`assertCurrentRead` は `weather.read` を125回拒否し、コードは125件すべて `generation_changed` だった。最初の拒否は08:49:06.846 UTC、最後は08:50:05.447 UTC。HTTP 503との件数差3件は、このフックと外部クライアント間に要求IDの対応付けがないため個別には確定できない。503の直接原因として取得後の世代照合拒否が実測で確認されたが、どのepoch・scope条件が変化したかは未採取である。#258の提供・公開境界の責務へ再現条件とともに差し戻す候補である。フックは省略時に動作せず、診断以外の応答処理は変更していない。設計のE2は失敗0の条件を満たさず、受け入れ不可である。
+
+26本目の実行条件は `NODE_ENV=production BENCH_MODE=new BENCH_SERIES=weather BENCH_FIXED_ITEMS=20000 BENCH_REAL_POLL=1 BENCH_DIAG_DELIVERY=1 BENCH_DIAG_READ_REJECTION=1`。計測器は `node --import tsx apps/api/tests/issue260Compare.mts`、`BENCH_ROOT=.`、`BENCH_OUTPUT=<一時出力先>`、`BENCH_COMMIT=2c447dc6d7f2b2b025c72a53fc70b6cb6a314c50` とした。結果は生値ファイルの最終行に保存した。診断フック追加後の `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` はすべて exit 0、`NODE_ENV=production npm run test -w apps/api` は1,074/1,074件成功した。
 
 全試行で強制更新操作全体は `result=failure`。テスト用 `fetch` が警報Atom/XML以外のURLには空本文を返すため、画像・アメダス等の取得解析は失敗する。警報XMLの20,000件保存成功と、強制更新全体の失敗を別々に扱う。これら別種の正常fixtureを用意しなければ製品の全取得サイクルの成功は測れず、今回のCPU/RSSには他取得元の失敗処理も含まれる。今回の比較は単一の警報XMLをURLだけ変えた負荷、warm、1会場、同時数上限なし、OSキャッシュ/外乱/DB busy未計測に限定する。監視/system差分/tileでは新構成の応答と資源が旧版より良好だったが、製品全体の軽量化やE1/E2の合格は主張しない。
 

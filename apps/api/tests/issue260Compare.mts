@@ -31,6 +31,9 @@ const deliveryProbeEvents =
   realPoll && mode === 'new' && process.env.BENCH_DIAG_DELIVERY === '1'
     ? await (await import('./issue260DeliveryProbe.mjs')).installDeliveryProbe(root)
     : undefined;
+const readRejectionEvents: Array<{ at: string; kind: string; code: string }> = [];
+const diagnoseReadRejection =
+  realPoll && mode === 'new' && process.env.BENCH_DIAG_READ_REJECTION === '1';
 const { initializeTestDatabases, createTestServerDatabaseOptions } = await imp(
   'apps/api/tests/helpers/databasePair.ts',
 );
@@ -232,6 +235,12 @@ try {
   };
   server = await startServer({
     ...options,
+    ...(diagnoseReadRejection
+      ? {
+          weatherReadRejectionObserver: (event: (typeof readRejectionEvents)[number]) =>
+            readRejectionEvents.push(event),
+        }
+      : {}),
     port: 0,
     enablePolling: true,
     pollingSchedule: disabledSchedule,
@@ -430,6 +439,7 @@ try {
     failures: clientData.samples.filter((sample) => sample.status !== 200).length,
     clientSamples: clientData.samples,
     deliveryProbeEvents,
+    ...(diagnoseReadRejection ? { readRejectionEvents } : {}),
   };
   results.judgment = {
     validDuration: loadEndedMs >= 60_000,
