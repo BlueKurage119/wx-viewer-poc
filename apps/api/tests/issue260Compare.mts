@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, statSync, rmSync } from 'node:fs';
 import { tmpdir, cpus, totalmem, platform, release, arch } from 'node:os';
@@ -6,12 +6,15 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { DOMParser } from '@xmldom/xmldom';
+import Database from 'better-sqlite3';
 import type { Worker } from 'node:worker_threads';
+import { createRealPollFixture } from './issue260RealPollFixture.mjs';
 
 const root = resolve(process.env.BENCH_ROOT ?? '.');
 const mode = process.env.BENCH_MODE!;
 const output = process.env.BENCH_OUTPUT!;
 const fixedItems = Number(process.env.BENCH_FIXED_ITEMS ?? 0);
+const realPoll = process.env.BENCH_REAL_POLL === '1';
 const series = process.env.BENCH_SERIES ?? 'health';
 if (
   !root ||
@@ -66,10 +69,12 @@ function png64KiB() {
 }
 const png = png64KiB();
 const pngHash = createHash('sha256').update(png).digest('hex');
+const pollFixture = realPoll && mode === 'old' ? createRealPollFixture(fixedItems) : undefined;
 const results: Record<string, unknown> = {
   startedAt: new Date().toISOString(),
   mode,
   series,
+  workload: realPoll ? 'real_poll' : 'synthetic_parser',
   rootCommit: process.env.BENCH_COMMIT ?? '未指定',
   requestPlan: { count: 600, intervalMs: 100, timeoutMs: 30_000, oldYieldEvery: 25, fixedItems },
   environment: {
@@ -226,11 +231,19 @@ try {
     port: 0,
     enablePolling: true,
     pollingSchedule: disabledSchedule,
-    pollingServiceOptions: { clock: () => tileTime },
+    pollingServiceOptions: {
+      clock: () => tileTime,
+      ...(pollFixture ? { fetchFn: pollFixture.fetchFn } : {}),
+    },
     ...(mode === 'new'
       ? {
           acquisitionWorkerEntry: pathToFileURL(
-            join(process.cwd(), 'apps/api/tests/fixtures/worker/issue260-compare-load.ts'),
+            join(
+              process.cwd(),
+              realPoll
+                ? 'apps/api/tests/fixtures/worker/issue260-real-poll.ts'
+                : 'apps/api/tests/fixtures/worker/issue260-compare-load.ts',
+            ),
           ),
           onAcquisitionWorkerCreated: (worker: Worker) => {
             acquisitionWorker = worker;
@@ -292,7 +305,61 @@ try {
   });
   let items = 0;
   let loadCpuMs = 0;
-  if (mode === 'old') {
+  let pollOperation: Record<string, unknown> | undefined;
+  if (realPoll) {
+    if (mode === 'old') pollFixture!.activate();
+    else {
+      await new Promise<void>((resolve, reject) => {
+        const worker = acquisitionWorker!;
+        const timeout = setTimeout(
+          () => reject(new Error('実取得fixture有効化の期限切れ')),
+          10_000,
+        );
+        const onMessage = (message: { test?: string }) => {
+          if (message.test !== 'issue260-real-poll-active') return;
+          clearTimeout(timeout);
+          worker.off('message', onMessage);
+          resolve();
+        };
+        worker.on('message', onMessage);
+        worker.postMessage({ test: 'issue260-real-poll-activate' });
+      });
+    }
+    const requestId = randomUUID();
+    const operation = await fetch(
+      `http://127.0.0.1:${server.port}/api/control/fetch/force-refresh`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requestId }),
+      },
+    );
+    pollOperation = { status: operation.status, body: await operation.json() };
+    if (operation.status === 202) {
+      const limit = Date.now() + 60_000;
+      while (Date.now() < limit) {
+        const query = await fetch(
+          `http://127.0.0.1:${server.port}/api/control/operations/${requestId}`,
+        );
+        const body = await query.json();
+        pollOperation = { status: query.status, body };
+        if (query.status !== 202) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    const read = new Database(config.databasePath, { readonly: true });
+    try {
+      items = (
+        read
+          .prepare(
+            "SELECT COUNT(*) AS count FROM telegram_reception WHERE telegram_type = 'VPWW55'",
+          )
+          .get() as { count: number }
+      ).count;
+    } finally {
+      read.close();
+    }
+  } else if (mode === 'old') {
     const telegram = `<Report><Body>${'<Item><Area>固定負荷資料</Area><Value>123</Value></Item>'.repeat(500)}</Body></Report>`;
     while (items < fixedItems) {
       for (let i = 0; i < Math.min(25, fixedItems - items); i++)
@@ -339,8 +406,9 @@ try {
   const quantile = (fraction: number) => latency[Math.ceil(latency.length * fraction) - 1];
   results.measurement = {
     loadItems: items,
+    pollOperation,
     loadEndedMs,
-    loadCpuMs: mode === 'new' ? loadCpuMs : null,
+    loadCpuMs: realPoll ? null : mode === 'new' ? loadCpuMs : null,
     processCpuMs: (cpu.user + cpu.system) / 1000,
     processCpuUserMs: cpu.user / 1000,
     processCpuSystemMs: cpu.system / 1000,
@@ -365,7 +433,11 @@ try {
   };
   results.finishedAt = new Date().toISOString();
   results.stage =
-    loadEndedMs >= 60_000 && latency.length === 600 && clientExit === 0 ? 'completed' : 'invalid';
+    (realPoll ? items === fixedItems : loadEndedMs >= 60_000) &&
+    latency.length === 600 &&
+    clientExit === 0
+      ? 'completed'
+      : 'invalid';
   if (results.stage !== 'completed') process.exitCode = 1;
 } catch (error) {
   results.stage = 'failed';

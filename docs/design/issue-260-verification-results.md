@@ -182,3 +182,53 @@ BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/da
 最後のコマンドの `health` を `monitoring`、`systemDelta`、`weather`、`tileHit` に替えて各系列を実行する。固定コミットの取得にはローカル Git 履歴が必要で、旧版を展開したディレクトリは Git 管理外である。生成 JSON は出力先から検証して NDJSON に集約した。
 
 比較計測器・結果文書の追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` はすべて exit 0。`NODE_ENV=production npm run test -w apps/api` は 1,074/1,074 件成功、exit 0。今回の合成負荷を通常のテストファイルとして自動実行はしない。5系列×3ペアの計30実行で、`stage=completed`、固定解析11,000回、各600要求、解析60秒以上を検証した。
+
+## 実取得経路の小規模試行（探索的・比較判定には使わない）
+
+旧版と新構成に同じAtomフィードと警報XMLを返すテスト用 `fetch` を注入し、製品の `POST /api/control/fetch/force-refresh` から通常のフィード解析、電文取得、警報解析、`telegram_reception` 保存まで動かした。新構成ではテスト用取得Worker入口で `fetch` を差し替え、旧版では既存の `pollingServiceOptions.fetchFn` を使った。初回取得時は空フィードとし、両版が待受・準備完了してからフィードを有効化した。対象は1会場の `VPWW55` を100件、各版の保存行数100件を読み取って確認した。初期DBは上節と同じ5万行・気象DB 81,928,192 bytesで、保持DBは旧102,400 bytes・新114,688 bytesだった。各版の実行順は新→旧、外部クライアントの health 600要求を100 ms間隔で投入した。[2試行の要求別・資源生値](issue-260-real-poll-pilot.ndjson) に実時刻・DB条件・強制更新操作結果も保存した。
+
+| 指標 | 新構成 | 旧版 |
+| --- | ---: | ---: |
+| 保存済み `VPWW55` | 100件 | 100件 |
+| 電文投入から保存件数確認まで | 591.4 ms | 1,067.8 ms |
+| 60秒のHTTP要求区間を含むプロセスCPU | 1,743.3 ms | 1,551.1 ms |
+| 同区間のピークRSS | 566,992,896 bytes | 498,483,200 bytes |
+| health p50 / p95 / p99 / 最大 | 2.752 / 3.767 / 4.400 / 54.598 ms | 2.905 / 3.885 / 34.239 / 633.417 ms |
+| HTTP失敗 | 0 / 600 | 0 / 600 |
+
+両版の強制更新操作自体は `result=failure` だった。XMLは100件保存できたが、同じ操作が並行実行する画像など他取得元へのテスト用 `fetch` は有効な形式を返していない。旧版の `errorMessage` は `nowcast,kikikuru`、新版は `Error: force_refresh_failed` と記録された。このため成功した製品全体の取得サイクルとは扱わない。電文処理が約0.6～1.1秒で終わるのに対しHTTP計測は60秒で、応答分布・CPU/RSSは主に負荷終了後の時間も含む。1ペア、warm、同時上限未設定、保持DBサイズ差があり、「軽くなったか」の判定には使わない。下節で電文件数を増やし、両版のXML処理が60秒以上続く条件を反復した。
+
+再現コマンドは前節の旧版展開・旧 shared ビルド後、同じリポジトリルートから次を実行する。
+
+```bash
+BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-real-pilot BENCH_CURRENT_COMMIT=eb85585a1c5303ae7d7f1c181396059a8de5ee1f BENCH_FIXED_ITEMS=100 BENCH_REAL_POLL=1 node apps/api/tests/issue260CompareRunner.mjs health 1 1
+```
+
+## 実警報取得を60秒以上続けたhealth比較（範囲限定）
+
+前節と同じ実際のAtom取得→XML取得・解析→警報保存を、フィード内の電文件数を増やして測った。12,000件の1ペアでは新構成の処理が42.5秒、旧版が69.7秒となり、新構成が60秒条件に届かなかったため本比較から除外した。この試行も[生値](issue-260-real-poll-load.ndjson)に残した。20,000件に増やした3ペアは両版とも電文20,000件を保存し、処理時間が60秒以上になった。各ペアで初期気象DBは81,928,192 bytes・5万行、原文 seed SHA-256 は上節と一致した。保持DBは旧版102,400 bytes、新構成114,688 bytes。投入したAtomフィードは5,437,845 bytes、SHA-256 `2e3bf83e37a0ca040c44b57ab5a19b31b7aefabfb67b3fc3028a856adc5438f5`。各警報XMLは769 bytes、SHA-256 `6f26ee0ffb2bd1ae881ac01c513470027c4d0d5f6aefe9e4cb6289b813f8f60a`。URLだけを変えた同じXMLを20,000件送った。実運用の電文分布を表すものではない。OS/Node/SQLite、1会場の要求、外部クライアント600件・100 ms間隔・30秒期限は前節と同じ。`BENCH_FIXED_ITEMS` はこの系列では解析回数ではなくAtom内の電文件数を意味する。
+
+各セルは反復1/2/3の順。処理時間は強制更新要求を開始してから20,000件の保存確認まで、CPUはHTTP要求を開始した直後から保存確認・要求終了までのプロセス全体、ピークRSSは同区間を100 msで採取した最大値。HTTP要求は最初の60秒で全600件を投入したため、旧版では処理終了までに要求投入が終わっている。個々の送信時刻・latency・status・エラー・CPU/RSSの生値は[実取得9試行](issue-260-real-poll-load.ndjson)に保存した。9試行には12,000件2本、20,000件の3ペア6本、旧版の失敗原因診断1本を含む。
+
+| 指標 | 新構成 1 / 2 / 3 | 旧版 1 / 2 / 3 |
+| --- | --- | --- |
+| 警報電文保存件数 | 20,000 / 20,000 / 20,000 | 20,000 / 20,000 / 20,000 |
+| 処理時間 (秒) | 86.0 / 78.5 / 82.6 | 160.3 / 148.2 / 156.7 |
+| プロセスCPU (秒) | 80.6 / 79.4 / 82.0 | 123.5 / 117.3 / 120.6 |
+| ピークRSS (MiB) | 786.9 / 872.7 / 882.5 | 2,018.8 / 1,956.8 / 2,020.5 |
+| health p50 (ms) | 2.2 / 2.1 / 2.3 | 7,775.2 / 7,775.1 / 7,775.4 |
+| health p95 (ms) | 3.9 / 2.7 / 2.9 | 30,001.5 / 30,001.4 / 30,001.4 |
+| health 最大 (ms) | 72.6 / 60.3 / 65.8 | 30,036.3 / 30,003.9 / 30,004.3 |
+| health失敗 | 0 / 0 / 0 | 600 / 600 / 600 |
+
+旧版の各600失敗は、記録上いずれも30秒タイムアウト128件と `TypeError: fetch failed` 472件に分かれた。最初の3ペアでは `fetch failed` の内部 `cause` を保存していなかったため、その3回の472件を原因別に確定できない。同じ20,000件条件で旧版だけを追加診断した結果も128件の30秒タイムアウト、472件の `fetch failed` で、後者の `cause.code` は472件すべて `ETIMEDOUT`、`cause` は `connect ETIMEDOUT 127.0.0.1:<隔離ポート>` だった。接続待ちが期限切れになったことを示す。旧版サーバーは各試行で20,000件保存と正常終了まで進んでおり、計測途中のプロセス終了は確認されていない。診断試行のエラー内訳を最初の3ペアへ遡及して同一原因と断定はしない。計測器はこの診断以降、HTTP失敗の `cause`、`causeCode`、集約エラーの内訳も保存する。
+
+**判定範囲:** この固定警報XMLの実取得経路に限れば、新構成は同じ20,000件を短い時間・少ないプロセスCPU・低いピークRSSで保存し、同時のhealth要求も全件成功した。前節の合成解析では新構成のRSSが大きかったが、入力と処理経路が違うため、相反する測定結果として両方残す。今回も両版の強制更新操作全体は `result=failure` である。XML保存は成功した一方、同じ操作に含まれる画像等は空のテスト応答で失敗した。新構成のエラーは `force_refresh_failed`、旧版は `nowcast,kikikuru` または `nowcast,kikikuru,amedas` と記録された。これは画像等の正常取得性能を測った試行ではない。旧版と新構成の保持DBサイズ差、OSキャッシュ未制御、warmのみ、並行数の上限なし、healthのみ、1つのXMLをURLだけ変えて反復、外乱・swap未計測、Worker別CPU/RSS未採取も残る。製品全体の資源削減やE1/E2合格は主張できない。次はXMLだけを対象にできる操作入口または他取得元の有効fixtureを用意し、監視/system差分/保存済みAPI/tile hitとcold/warm・同時数別の比較を行う。
+
+再現時は前節の旧版展開・旧 shared ビルドに続き、リポジトリルートで次を実行する。
+
+```bash
+BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-real-load BENCH_CURRENT_COMMIT=eb85585a1c5303ae7d7f1c181396059a8de5ee1f BENCH_FIXED_ITEMS=20000 BENCH_REAL_POLL=1 node apps/api/tests/issue260CompareRunner.mjs health 1 3
+```
+
+実取得用fixture・失敗原因記録・結果文書の追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` はすべて exit 0。`NODE_ENV=production npm run test -w apps/api` は 1,074/1,074 件成功、exit 0。実取得の比較計測は独立の手動ハーネスで、通常のテスト群には含めていない。

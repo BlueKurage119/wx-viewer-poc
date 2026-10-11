@@ -36,6 +36,7 @@ const requests = Array.from(
               response.status === 200 ? null : Buffer.from(body).toString('utf8').slice(0, 200),
           });
         } catch (error) {
+          const cause = error instanceof Error ? error.cause : null;
           samples.push({
             index: i,
             offsetMs: at - started,
@@ -43,6 +44,12 @@ const requests = Array.from(
             status: null,
             bytes: 0,
             error: String(error),
+            cause: cause ? String(cause) : null,
+            causeCode: cause && typeof cause === 'object' && 'code' in cause ? cause.code : null,
+            causeErrors:
+              cause instanceof AggregateError
+                ? cause.errors.slice(0, 5).map((item) => String(item))
+                : null,
           });
         }
         resolve();
