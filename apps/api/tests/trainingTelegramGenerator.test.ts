@@ -295,11 +295,10 @@ test('項目表の選択可能項目は期待表と1対1に一致する', () => 
     'bulletin-tornado-observed',
   ];
   assert.deepEqual([...selectable].sort(), [...expected].sort());
-  const unavailable = TRAINING_ITEMS.filter((item) => !item.selectable).map((item) => item.id);
-  assert.deepEqual(
-    [...unavailable].sort(),
-    ['warning-09', 'warning-49', 'warning-39', 'warning-17', 'warning-22'].sort(),
-  );
+  // 削除した項目（土砂L3以上・融雪・なだれ）は項目表に存在しない
+  for (const removed of ['09', '49', '39', '17', '22']) {
+    assert.ok(!TRAINING_ITEMS.some((item) => item.id === `warning-${removed}`), removed);
+  }
 });
 
 for (const expected of WARNING_EXPECTATIONS) {
@@ -1194,7 +1193,9 @@ test('VPWW61の複数注意報もparserが全Kindをコード昇順で抽出す�
 
 test('未知IDと不正な時刻は例外', () => {
   assert.throws(() => generate(['warning-99']));
-  assert.throws(() => generate(['warning-09']));
+  for (const removed of ['09', '49', '39', '17', '22']) {
+    assert.throws(() => generate([`warning-${removed}`]));
+  }
   assert.throws(() => generate(['warning-10'], 'not-a-date'));
 });
 

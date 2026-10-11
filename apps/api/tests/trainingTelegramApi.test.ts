@@ -107,12 +107,12 @@ test('GET /api/training/items: K端末は項目表と対象ラベル、no-store'
     const body = response.json as TrainingItemsResponse;
     assert.equal(body.targetLabel, '東京ビッグサイト周辺');
     assert.deepEqual(body.items, JSON.parse(JSON.stringify(TRAINING_ITEMS)));
-    assert.equal(body.items.filter((item) => item.selectable).length, 33);
-    const unavailable = body.items.filter((item) => !item.selectable);
-    assert.equal(unavailable.length, 5);
-    assert.ok(
-      unavailable.every((item) => item.unavailableReason !== null && item.unavailableReason !== ''),
-    );
+    assert.equal(body.items.length, 33);
+    assert.equal(new Set(body.items.map((item) => item.group)).size, 16);
+    assert.ok(body.items.every((item) => item.selectable && item.unavailableReason === null));
+    for (const removed of ['09', '49', '39', '17', '22']) {
+      assert.ok(!body.items.some((item) => item.id === `warning-${removed}`), removed);
+    }
   });
 });
 
@@ -186,11 +186,11 @@ test('POST: 選択可能な全項目を個別に生成できる', async () => {
   });
 });
 
-test('POST: 無効項目（選択不可）はすべて400', async () => {
+test('POST: 削除した項目（土砂L3以上・融雪・なだれ）は未知IDとして400', async () => {
   await withServer(deps(), async (call) => {
-    for (const item of TRAINING_ITEMS.filter((entry) => !entry.selectable)) {
-      const response = await post(call, { terminalId: K_EAST, itemIds: [item.id] });
-      assert.equal(response.status, 400, item.id);
+    for (const removed of ['09', '49', '39', '17', '22']) {
+      const response = await post(call, { terminalId: K_EAST, itemIds: [`warning-${removed}`] });
+      assert.equal(response.status, 400, removed);
       assert.deepEqual(response.json, { status: 'error', code: 'invalid_request' });
       assert.equal(response.cacheControl, 'no-store');
     }

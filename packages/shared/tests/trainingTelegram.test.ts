@@ -11,18 +11,21 @@ import {
 
 const valid = { terminalId: 'kkeagh01', itemIds: ['warning-10', 'bulletin-record-rain'] };
 
-test('項目表: group数は警報注意報13+速報3の16、最大選択数と一致する', () => {
+test('項目表: 33項目・16group、全項目が選択可能で、削除した項目を含まない', () => {
+  assert.equal(TRAINING_ITEMS.length, 33);
+  assert.equal(TRAINING_ITEMS.filter((item) => item.id.startsWith('warning-')).length, 28);
+  assert.equal(TRAINING_ITEMS.filter((item) => item.id.startsWith('bulletin-')).length, 5);
   const groups = new Set(TRAINING_ITEMS.map((item) => item.group));
-  assert.equal(groups.size - 2, 16, 'snowmelt/avalanche は選択不可のみのgroup');
-  const selectableGroups = new Set(
-    TRAINING_ITEMS.filter((item) => item.selectable).map((item) => item.group),
-  );
-  assert.equal(selectableGroups.size, TRAINING_MAX_ITEMS);
+  assert.equal(groups.size, TRAINING_MAX_ITEMS);
   assert.equal(new Set(TRAINING_ITEMS.map((item) => item.id)).size, TRAINING_ITEMS.length);
   for (const item of TRAINING_ITEMS) {
-    assert.equal(item.selectable, item.unavailableReason === null, item.id);
+    assert.equal(item.selectable, true, item.id);
+    assert.equal(item.unavailableReason, null, item.id);
   }
-  assert.equal(findTrainingItem('warning-09')?.selectable, false);
+  for (const removed of ['09', '49', '39', '17', '22']) {
+    assert.equal(findTrainingItem(`warning-${removed}`), null, removed);
+    assert.equal(parseTrainingItemIds([`warning-${removed}`]), null, removed);
+  }
   assert.equal(findTrainingItem('warning-04'), null, '洪水警報は項目化しない');
   assert.equal(findTrainingItem('warning-18'), null, '洪水注意報は項目化しない');
   assert.equal(findTrainingItem('warning-27'), null, 'その他注意報は項目化しない');
@@ -43,7 +46,7 @@ test('parseTrainingGenerateRequest: 正常系と厳密な拒否', () => {
     { ...valid, itemIds: 'warning-10' },
     { ...valid, itemIds: ['warning-10', 'warning-10'] },
     { ...valid, itemIds: ['warning-10', 'warning-03'] },
-    { ...valid, itemIds: ['warning-09'] },
+    { ...valid, itemIds: ['warning-09'] }, // 削除済み（土砂L3）
     { ...valid, itemIds: ['warning-99'] },
     { ...valid, itemIds: ['x'.repeat(65)] },
     { ...valid, itemIds: [1] },

@@ -58,32 +58,20 @@ export const TRAINING_MAX_ITEM_ID_LENGTH = 64;
 /** trainingルートの本文上限（UTF-8でJSON.stringifyした長さ）。 */
 export const TRAINING_MAX_BODY_BYTES = 16 * 1024;
 
-const NOT_SELECTABLE_LANDSLIDE = '江東区の該当基準設定がないため選択できません';
-const NOT_SELECTABLE_NO_CRITERIA = '江東区の具体的基準が設定されていないため選択できません';
-
 function item(id: TrainingItemId, label: string, group: string): TrainingItem {
   return { id, label, group, selectable: true, unavailableReason: null };
 }
 
-function unavailable(
-  id: TrainingItemId,
-  label: string,
-  group: string,
-  reason: string,
-): TrainingItem {
-  return { id, label, group, selectable: false, unavailableReason: reason };
-}
-
-/** 項目表（表示順）。生成可否はここを正本とし、API・画面の双方が参照する。 */
+/**
+ * 項目表（表示順）。2026年10月12日のUI監修で、江東区に基準のない項目（土砂災害L3以上・融雪・なだれ）は
+ * 項目ごと削除した。全項目が選択可能で、selectable/unavailableReason は型として残すが値は常に true/null。
+ */
 export const TRAINING_ITEMS: readonly TrainingItem[] = Object.freeze([
   item('warning-10', 'レベル２大雨注意報', 'rain'),
   item('warning-03', 'レベル３大雨警報', 'rain'),
   item('warning-43', 'レベル４大雨危険警報', 'rain'),
   item('warning-33', 'レベル５大雨特別警報', 'rain'),
   item('warning-29', 'レベル２土砂災害注意報', 'landslide'),
-  unavailable('warning-09', 'レベル３土砂災害警報', 'landslide', NOT_SELECTABLE_LANDSLIDE),
-  unavailable('warning-49', 'レベル４土砂災害危険警報', 'landslide', NOT_SELECTABLE_LANDSLIDE),
-  unavailable('warning-39', 'レベル５土砂災害特別警報', 'landslide', NOT_SELECTABLE_LANDSLIDE),
   item('warning-19', 'レベル２高潮注意報', 'surge'),
   item('warning-08', 'レベル３高潮警報', 'surge'),
   item('warning-48', 'レベル４高潮危険警報', 'surge'),
@@ -107,8 +95,6 @@ export const TRAINING_ITEMS: readonly TrainingItem[] = Object.freeze([
   item('warning-24', '霜注意報', 'frost'),
   item('warning-25', '着氷注意報', 'icing'),
   item('warning-26', '着雪注意報', 'snow-accretion'),
-  unavailable('warning-17', '融雪注意報', 'snowmelt', NOT_SELECTABLE_NO_CRITERIA),
-  unavailable('warning-22', 'なだれ注意報', 'avalanche', NOT_SELECTABLE_NO_CRITERIA),
   item('bulletin-linear-occurrence', '線状降水帯発生', 'linear'),
   item('bulletin-linear-imminent', '線状降水帯直前予測', 'linear'),
   item('bulletin-record-rain', '記録的短時間大雨', 'record-rain'),
@@ -131,8 +117,6 @@ export const TRAINING_GROUP_LABELS: Readonly<Record<string, string>> = Object.fr
   frost: '霜',
   icing: '着氷',
   'snow-accretion': '着雪',
-  snowmelt: '融雪',
-  avalanche: 'なだれ',
   linear: '線状降水帯',
   'record-rain': '記録的短時間大雨',
   tornado: '竜巻',
