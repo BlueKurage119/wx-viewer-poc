@@ -1,3 +1,10 @@
+import { useRef, useState } from 'react';
+import { GbButton } from '../components/md';
+import { NotificationPreferencesDialog } from '../notifications/NotificationPreferencesDialog';
+import {
+  EMPTY_NOTIFICATION_PREFERENCES,
+  type NotificationPreferences,
+} from '../notifications/notificationPreferences';
 import type { TerminalMode } from '@wx-viewer-poc/shared';
 import type { NotificationPhase } from '../notifications/notificationStore';
 import { WarningListFilters } from './WarningListFilters';
@@ -10,6 +17,8 @@ import {
 } from './warningListModel';
 
 interface WarningListViewProps {
+  readonly notificationPreferences?: NotificationPreferences;
+  readonly onSaveNotificationPreferences?: (preferences: NotificationPreferences) => boolean;
   readonly entries: readonly WarningHistoryEntry[];
   readonly mode: TerminalMode;
   readonly nowMs: number;
@@ -27,12 +36,39 @@ export function WarningListView({
   phase,
   search,
   onSearchChange,
+  notificationPreferences = EMPTY_NOTIFICATION_PREFERENCES,
+  onSaveNotificationPreferences,
 }: WarningListViewProps) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLElement>(null);
+  const closeSettings = () => {
+    setSettingsOpen(false);
+    queueMicrotask(() => settingsButtonRef.current?.focus());
+  };
   const visibleItems = selectWarningHistory(entries, mode, nowMs);
   const items = filterWarningListItems(visibleItems, search.applied);
   return (
     <section className="warning-list" aria-label="警報一覧">
-      <WarningListFilters items={visibleItems} search={search} onSearchChange={onSearchChange} />
+      <div className="warning-list-filter-toolbar">
+        <WarningListFilters items={visibleItems} search={search} onSearchChange={onSearchChange} />
+        <GbButton
+          ref={settingsButtonRef}
+          color="filled"
+          size="sm"
+          square
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+        >
+          通知設定
+        </GbButton>
+      </div>
+      {settingsOpen && (
+        <NotificationPreferencesDialog
+          preferences={notificationPreferences}
+          onSave={onSaveNotificationPreferences ?? (() => false)}
+          onClose={closeSettings}
+        />
+      )}
       <div className="warning-list-scroll" tabIndex={0} aria-label="通知履歴">
         <table className="warning-list-table">
           <thead>

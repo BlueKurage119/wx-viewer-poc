@@ -1,61 +1,70 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChimeRequest } from './notificationStore';
+import { confirmationSoundDecision, type ChimeLevel, type ChimeRequest } from './notificationStore';
 
 export interface HeaderBuzzerState {
   readonly category: ChimeRequest['category'] | null;
   readonly feedKey: string | null;
+  readonly level: ChimeLevel | null;
 }
 
-const AUDIO_BY_CATEGORY: Record<NonNullable<HeaderBuzzerState['category']>, string> = {
-  warning: '/audio/2.wav',
-  question: '/audio/4.wav',
-  emergency: '/audio/5.wav',
+const AUDIO_BY_LEVEL: Record<ChimeLevel, string> = {
+  2: '/audio/2.wav',
+  3: '/audio/3.wav',
+  4: '/audio/4.wav',
+  5: '/audio/5.wav',
 };
-const priority = { warning: 1, question: 2, emergency: 3 } as const;
 
 export function useHeaderBuzzer(): {
   readonly state: HeaderBuzzerState;
   readonly request: (request: ChimeRequest) => void;
   readonly stop: () => void;
+  readonly confirmLevel: (level: ChimeLevel) => void;
 } {
-  const [state, setState] = useState<HeaderBuzzerState>({ category: null, feedKey: null });
+  const [state, setState] = useState<HeaderBuzzerState>({
+    category: null,
+    feedKey: null,
+    level: null,
+  });
   const stateRef = useRef(state);
-  stateRef.current = state;
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const generationRef = useRef(0);
   const playbackBlockedRef = useRef(false);
   const play = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    const generation = generationRef.current;
     void audio.play().then(
       () => {
-        playbackBlockedRef.current = false;
+        if (generation === generationRef.current) playbackBlockedRef.current = false;
       },
       () => {
-        playbackBlockedRef.current = true;
+        if (generation === generationRef.current) playbackBlockedRef.current = true;
       },
     );
   }, []);
   const stop = useCallback(() => {
+    generationRef.current++;
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
       audio.currentTime = 0;
     }
+    audioRef.current = null;
     playbackBlockedRef.current = false;
-    const stopped = { category: null, feedKey: null } as const;
+    const stopped = { category: null, feedKey: null, level: null } as const;
     stateRef.current = stopped;
     setState(stopped);
   }, []);
   const request = useCallback(
-    ({ category, feedKey }: ChimeRequest) => {
-      const current = stateRef.current.category;
-      if (current && priority[current] >= priority[category]) return;
+    ({ category, feedKey, level }: ChimeRequest) => {
+      const current = stateRef.current.level;
+      if (current !== null && current >= level) return;
       stop();
-      const audio = new Audio(AUDIO_BY_CATEGORY[category]);
+      const audio = new Audio(AUDIO_BY_LEVEL[level]);
       audio.loop = true;
       audioRef.current = audio;
       play();
-      const next = { category, feedKey };
+      const next = { category, feedKey, level };
       stateRef.current = next;
       setState(next);
     },
@@ -73,5 +82,11 @@ export function useHeaderBuzzer(): {
     };
   }, [play]);
   useEffect(() => stop, [stop]);
-  return { state, request, stop };
+  const confirmLevel = useCallback(
+    (level: ChimeLevel) => {
+      if (confirmationSoundDecision(stateRef.current.level, level) === 'stop') stop();
+    },
+    [stop],
+  );
+  return { state, request, stop, confirmLevel };
 }

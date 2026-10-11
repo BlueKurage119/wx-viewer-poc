@@ -155,7 +155,7 @@ for (const via of ['header', 'F8'] as const) {
     try {
       withHooks((flush, unmount) => {
         const buzzer = useHeaderBuzzer();
-        buzzer.request({ category: 'question', feedKey: selected.feedKey });
+        buzzer.request({ category: 'question', level: 4, feedKey: selected.feedKey });
         assert.equal(plays, 1);
         assert.equal(pauses, 0);
         const shell = AppShell({

@@ -100,18 +100,16 @@ test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを選択肢�
     1791072000000,
   ).state;
   const html = renderToStaticMarkup(el(NotificationArea, { state, mode: 'K' }));
+  // ラッパーの内部spanがあるため、操作ボタンのホストと文字を別々に照合する。
+  assert.equal((html.match(/<md-gb-button /g) ?? []).length, 5);
+  assert.equal((html.match(/class="notification-action-content">詳細<\/span>/g) ?? []).length, 2);
+  assert.equal((html.match(/class="notification-action-content">確認<\/span>/g) ?? []).length, 2);
+  assert.equal((html.match(/class="notification-action-content">送信<\/span>/g) ?? []).length, 1);
   assert.ok(
     html.includes(
-      '<button type="button" disabled="">詳細</button><button type="button" disabled="">確認</button>',
+      '<div class="notice-question-choices"><md-gb-button type="button" aria-pressed="false"',
     ),
   );
-  assert.ok(
-    html.includes(
-      '<div class="notice-question-choices"><button type="button" aria-pressed="false"',
-    ),
-  );
-  assert.ok(html.includes('disabled="">確認</button>'));
-  assert.ok(html.includes('disabled="">送信</button>'));
   assert.equal((html.match(/disabled=""/g) ?? []).length, 5);
 });
 test('Issue #63: 問いかけは確認を選択してから送信を有効化する', () => {
@@ -129,7 +127,12 @@ test('Issue #63: 問いかけは確認を選択してから送信を有効化す
     el(NotificationArea, { state: received, mode: 'K', ...callbacks }),
   );
   assert.ok(initialHtml.includes('aria-pressed="false"'));
-  assert.ok(initialHtml.includes('disabled="">送信</button>'));
+  assert.equal(
+    /<md-gb-button[^>]*disabled=""[^>]*><span[^>]*><\/span><span[^>]*>送信<\/span><\/md-gb-button>/.test(
+      initialHtml,
+    ),
+    true,
+  );
 
   const questionFeedKey = displayedNoticeForRow(received, 'K', 'question')!.feedKey;
   const selected = selectQuestionConfirmation(received, questionFeedKey);
@@ -137,7 +140,12 @@ test('Issue #63: 問いかけは確認を選択してから送信を有効化す
     el(NotificationArea, { state: selected, mode: 'K', ...callbacks }),
   );
   assert.ok(selectedHtml.includes('aria-pressed="true"'));
-  assert.ok(selectedHtml.includes('<button type="button">送信</button>'));
+  assert.equal(
+    /<md-gb-button(?![^>]*disabled)[^>]*><span[^>]*><\/span><span[^>]*>送信<\/span><\/md-gb-button>/.test(
+      selectedHtml,
+    ),
+    true,
+  );
 });
 test('H1: ブザー中は専用ボタンや説明文を増やさずヘッダー全体を停止操作にする', () => {
   const terminal = terminals[0]!;
@@ -372,7 +380,14 @@ test('Issue #200 AC7: 全件確認後はコールバックがあっても初期�
     renderToStaticMarkup(el(NotificationArea, { state: value, mode: 'K', ...callbacks }));
   const html = render(state);
   assert.equal(html, render(initial));
-  assert.equal((html.match(/<button type="button" disabled=""><\/button>/g) ?? []).length, 4);
+  assert.equal(
+    (
+      html.match(
+        /<md-gb-button[^>]*disabled=""[^>]*><span[^>]*><\/span><span[^>]*><\/span><\/md-gb-button>/g,
+      ) ?? []
+    ).length,
+    4,
+  );
   assert.equal((html.match(/tabindex="0"/g) ?? []).length, 1);
   assert.equal((html.match(/notice-question-choices/g) ?? []).length, 0);
 });

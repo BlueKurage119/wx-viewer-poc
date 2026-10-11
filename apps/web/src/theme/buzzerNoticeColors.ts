@@ -8,7 +8,14 @@ type BuzzerHeaderColorToken =
   | '--wx-buzzer-header-emergency-on-container'
   | '--wx-buzzer-header-emergency-container-dark'
   | '--wx-buzzer-header-emergency-on-container-dark';
-export type BuzzerColorToken = BuzzerNoticeColorToken | BuzzerHeaderColorToken;
+type NotificationPresentationColorToken =
+  | '--wx-buzzer-notice-warning-auto-foreground'
+  | '--wx-buzzer-notice-warning-manual-foreground'
+  | '--wx-buzzer-notice-question-foreground'
+  | '--wx-buzzer-notice-emergency-foreground'
+  | '--wx-buzzer-notice-emergency-background';
+export type BuzzerColorToken =
+  NotificationPresentationColorToken | BuzzerNoticeColorToken | BuzzerHeaderColorToken;
 
 const SEED_BUZZER_WARNING = '#FFEB3B'; // Material Yellow 500
 const SEED_BUZZER_RED = '#B3261E'; // Material 3 baseline error
@@ -23,6 +30,11 @@ export function createBuzzerNoticeColors(dark: boolean): Record<BuzzerColorToken
     : { container: 90, onContainer: 10, outline: 50 };
 
   return {
+    '--wx-buzzer-notice-warning-auto-foreground': hexFromArgb(warning.tone(100)),
+    '--wx-buzzer-notice-warning-manual-foreground': hexFromArgb(warning.tone(90)),
+    '--wx-buzzer-notice-question-foreground': hexFromArgb(red.tone(80)),
+    '--wx-buzzer-notice-emergency-foreground': hexFromArgb(red.tone(80)),
+    '--wx-buzzer-notice-emergency-background': hexFromArgb(red.tone(20)),
     '--wx-buzzer-notice-warning-container': hexFromArgb(warning.tone(warningTones.container)),
     '--wx-buzzer-notice-warning-on-container': hexFromArgb(warning.tone(warningTones.onContainer)),
     '--wx-buzzer-notice-warning-outline': hexFromArgb(warning.tone(warningTones.outline)),

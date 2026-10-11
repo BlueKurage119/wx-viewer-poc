@@ -497,6 +497,31 @@ const MESSAGE_DEFINITIONS = {
   },
 } as const satisfies Record<NotificationMessageDefinitionId, MessageDefinitionInternal>;
 
+export interface WarningMessagePreferenceOption {
+  readonly id: NotificationMessageDefinitionId;
+  readonly title: string;
+  readonly qualifier: string | null;
+  readonly origin: NotificationOrigin;
+}
+
+/** 設定画面には警報で使用できる定義の表示用情報だけを公開する。 */
+export function listWarningMessagePreferenceOptions(): readonly WarningMessagePreferenceOption[] {
+  return Object.values(MESSAGE_DEFINITIONS)
+    .filter((definition) =>
+      (definition.allowedCategories as readonly NotificationCategory[]).includes('warning'),
+    )
+    .map(({ id, title, origin }) => ({
+      id,
+      title,
+      origin,
+      qualifier: id.startsWith('system-weather-acquisition-')
+        ? '気象取得Worker'
+        : id.startsWith('system-weather-delivery-')
+          ? '気象情報提供Worker'
+          : null,
+    }));
+}
+
 export function resolveNotificationMessage(
   notification: Notification,
   input: ResolveNotificationMessageInput,

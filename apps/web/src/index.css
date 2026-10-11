@@ -353,36 +353,55 @@ select {
   color: var(--md-sys-color-on-surface-variant);
 }
 
-.has-notice.warning-row {
-  background: var(--wx-buzzer-notice-warning-container);
-  color: var(--wx-buzzer-notice-warning-on-container);
-  border-top-color: var(--wx-buzzer-notice-warning-outline);
+.has-notice.warning-auto-row .notice-text {
+  color: var(--wx-buzzer-notice-warning-auto-foreground);
 }
-
-.has-notice.warning-row .notice-actions button {
-  border-color: var(--wx-buzzer-notice-warning-outline);
+.has-notice.warning-manual-row .notice-text {
+  color: var(--wx-buzzer-notice-warning-manual-foreground);
 }
-
-.has-notice.question-row {
-  background: var(--wx-buzzer-notice-question-container);
-  color: var(--wx-buzzer-notice-question-on-container);
-  border-top-color: var(--wx-buzzer-notice-question-outline);
+.has-notice.question-row .notice-text {
+  color: var(--wx-buzzer-notice-question-foreground);
 }
-
-.has-notice.question-row .notice-actions button,
-.has-notice.question-row .notice-question-choices button {
-  border-color: var(--wx-buzzer-notice-question-outline);
-}
-
 .has-notice.emergency-row {
-  background: var(--wx-buzzer-notice-emergency-container);
-  color: var(--wx-buzzer-notice-emergency-on-container);
-  border-top-color: var(--wx-buzzer-notice-emergency-outline);
+  background: var(--wx-buzzer-notice-emergency-background);
+}
+.has-notice.emergency-row .notice-text {
+  color: var(--wx-buzzer-notice-emergency-foreground);
 }
 
-.has-notice.emergency-row .notice-actions button,
-.has-notice.emergency-row .notice-question-choices button {
-  border-color: var(--wx-buzzer-notice-emergency-outline);
+.notification-action-button {
+  flex: 0 0 auto;
+  min-inline-size: 56px;
+}
+/* 32pxの通知行へ収め、ツールバーと同じ塗りと形を保つ。 */
+.notification-action-button::part(btn) {
+  --container-height: 28px;
+  --leading-space: 12px;
+  --trailing-space: 12px;
+}
+.notification-action-container {
+  display: block;
+  background-color: var(--md-sys-color-primary-container);
+  border-radius: var(--md-sys-shape-corner-md);
+}
+.notification-action-content {
+  color: var(--md-sys-color-on-primary-container);
+}
+.notification-action-button[aria-pressed='true'] .notification-action-container {
+  background-color: var(--md-sys-color-tertiary-container);
+}
+.notification-action-button[aria-pressed='true'] .notification-action-content {
+  color: var(--md-sys-color-on-tertiary-container);
+}
+.notification-action-button:focus-within {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: -3px;
+}
+.notification-action-button[disabled] .notification-action-container {
+  background-color: hsl(from var(--md-sys-color-on-surface) h s l / 10%);
+}
+.notification-action-button[disabled] .notification-action-content {
+  color: hsl(from var(--md-sys-color-on-surface) h s l / 38%);
 }
 
 .notice-actions {
@@ -403,25 +422,12 @@ select {
   gap: 6px;
 }
 
-.notice-question-choices button[aria-pressed='true'] {
-  box-shadow: inset 0 0 0 2px currentColor;
-  font-weight: 700;
-}
-
 .notice-question-choices + .notice-actions {
   margin-left: 1em;
 }
 
-.notice-actions button,
-.notice-question-choices button,
 .notice-count {
-  height: 28px;
-  min-width: 56px;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 4px;
   padding: 0 12px;
-  background: transparent;
-  color: inherit;
   font-size: 12px;
 }
 
@@ -531,8 +537,7 @@ select {
     gap: 2px;
   }
 
-  .notice-actions button,
-  .notice-question-choices button {
+  .notification-action-button {
     min-width: 44px;
     padding: 0 4px;
   }

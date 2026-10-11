@@ -1,3 +1,9 @@
+import {
+  EMPTY_NOTIFICATION_PREFERENCES,
+  resolveWarningPresentationPolicy,
+  type NotificationPreferences,
+  type WarningPresentationPolicy,
+} from './notificationPreferences';
 import type { NotificationTransportState } from './notificationFeedController';
 import type {
   NotificationDeltaCursor,
@@ -13,12 +19,21 @@ import {
 export type NotificationPhase = 'starting' | 'ready' | 'retrying';
 export type ChimeCategory = 'warning' | 'question' | 'emergency';
 
+export type ChimeLevel = 2 | 3 | 4 | 5;
+export type ConfirmationCause = 'manual' | 'automatic';
+export interface WarningPresentationState {
+  readonly policy: WarningPresentationPolicy;
+  readonly autoConfirmDeadlineMs: number | null;
+}
+
 export interface ChimeRequest {
   readonly category: ChimeCategory;
+  readonly level: ChimeLevel;
   readonly feedKey: string;
 }
 
 export interface NotificationUiState {
+  readonly warningPresentationByFeedKey: Readonly<Record<string, WarningPresentationState>>;
   readonly items: readonly NotificationFeedItem[];
   readonly warningHistory: readonly WarningHistoryEntry[];
   readonly cursors: Readonly<Record<'system' | 'weather', NotificationDeltaCursor | null>>;
@@ -37,6 +52,7 @@ export const RETRY_OPERATION_MESSAGE = '通知を受信できません。再試�
 export function createNotificationUiState(): NotificationUiState {
   return {
     items: [],
+    warningPresentationByFeedKey: {},
     warningHistory: [],
     cursors: { system: null, weather: null },
     transport: { system: 'starting', weather: 'starting' },
@@ -89,14 +105,46 @@ export function nextUnconfirmedChime(
   state: NotificationUiState,
   mode: TerminalMode,
 ): ChimeRequest | null {
-  const candidates = state.items.filter(
-    (item) => isVisibleForTerminal(item, mode) && !state.confirmedFeedKeys.has(item.feedKey),
+  return selectNewArrivalChime(
+    state.items.filter((item) => !state.confirmedFeedKeys.has(item.feedKey)),
+    state,
+    mode,
   );
-  const item =
-    candidates.find((candidate) => candidate.category === 'emergency') ??
-    candidates.find((candidate) => candidate.category === 'question') ??
-    candidates.find((candidate) => candidate.category === 'warning');
-  return item ? { category: item.category, feedKey: item.feedKey } : null;
+}
+
+export function notificationChimeLevel(
+  state: NotificationUiState,
+  item: NotificationFeedItem,
+): ChimeLevel {
+  return item.category === 'emergency'
+    ? 5
+    : item.category === 'question'
+      ? 4
+      : state.warningPresentationByFeedKey[item.feedKey]?.policy.tone === 'level2'
+        ? 2
+        : 3;
+}
+
+export function selectNewArrivalChime(
+  newItems: readonly NotificationFeedItem[],
+  state: NotificationUiState,
+  mode: TerminalMode,
+): ChimeRequest | null {
+  const candidates = newItems.filter((item) => isVisibleForTerminal(item, mode)).sort(compareItems);
+  let request: ChimeRequest | null = null;
+  for (const item of candidates) {
+    const level = notificationChimeLevel(state, item);
+    if (request === null || level > request.level)
+      request = { category: item.category, feedKey: item.feedKey, level };
+  }
+  return request;
+}
+
+export function confirmationSoundDecision(
+  currentLevel: ChimeLevel | null,
+  confirmedLevel: ChimeLevel,
+): 'stop' | 'keep' {
+  return currentLevel === confirmedLevel ? 'stop' : 'keep';
 }
 
 function markDisplayedRowsRead(
@@ -116,9 +164,24 @@ export function receiveNotifications(
   incoming: readonly NotificationFeedItem[],
   mode: TerminalMode,
   receivedAtMs: number,
+  preferences: NotificationPreferences = EMPTY_NOTIFICATION_PREFERENCES,
 ): { readonly state: NotificationUiState; readonly chime: ChimeRequest | null } {
   const existing = new Map(state.items.map((item) => [item.feedKey, item]));
-  const newItems = incoming.filter((item) => !existing.has(item.feedKey));
+  const newItems = [
+    ...new Map(
+      incoming.filter((item) => !existing.has(item.feedKey)).map((item) => [item.feedKey, item]),
+    ).values(),
+  ];
+  const warningPresentationByFeedKey = { ...state.warningPresentationByFeedKey };
+  for (const item of newItems) {
+    const policy = resolveWarningPresentationPolicy(item, preferences);
+    if (policy)
+      warningPresentationByFeedKey[item.feedKey] = {
+        policy,
+        autoConfirmDeadlineMs:
+          policy.autoConfirmAfterMs === null ? null : receivedAtMs + policy.autoConfirmAfterMs,
+      };
+  }
   const newFeedKeys = new Set(newItems.map((item) => item.feedKey));
   for (const item of incoming) existing.set(item.feedKey, item);
   const items = Array.from(existing.values()).sort(compareItems);
@@ -131,6 +194,7 @@ export function receiveNotifications(
   const next: NotificationUiState = {
     ...state,
     items,
+    warningPresentationByFeedKey,
     // 件数超過・期限切れで外れた既知通知を再受信しても初回受信を延長しない。
     warningHistory: mergeWarningHistory(
       state.warningHistory,
@@ -146,12 +210,7 @@ export function receiveNotifications(
       ? { selectedQuestionFeedKey: null, selectedQuestionChoice: null }
       : {}),
   };
-  const ranked = newItems.filter((item) => isVisibleForTerminal(item, mode)).sort(compareItems);
-  const chimeItem =
-    ranked.find((item) => item.category === 'emergency') ??
-    ranked.find((item) => item.category === 'question') ??
-    ranked.find((item) => item.category === 'warning');
-  const chime = chimeItem ? { category: chimeItem.category, feedKey: chimeItem.feedKey } : null;
+  const chime = selectNewArrivalChime(newItems, next, mode);
   return { state: { ...next, unreadFeedKeys: markDisplayedRowsRead(next, mode) }, chime };
 }
 
@@ -222,7 +281,17 @@ export function confirmNotification(
   state: NotificationUiState,
   feedKey: string,
   mode: TerminalMode,
+  cause: ConfirmationCause = 'manual',
 ): NotificationUiState {
+  const item = state.items.find((item) => item.feedKey === feedKey);
+  if (
+    !item ||
+    state.confirmedFeedKeys.has(feedKey) ||
+    (cause === 'automatic' &&
+      (item.category !== 'warning' ||
+        state.warningPresentationByFeedKey[feedKey]?.policy.autoConfirmAfterMs !== 5000))
+  )
+    return state;
   const confirmedFeedKeys = new Set(state.confirmedFeedKeys);
   confirmedFeedKeys.add(feedKey);
   const unreadFeedKeys = new Set(state.unreadFeedKeys);
@@ -231,8 +300,7 @@ export function confirmNotification(
     ...state,
     confirmedFeedKeys,
     unreadFeedKeys,
-    selectedQuestionFeedKey: null,
-    selectedQuestionChoice: null,
+    ...(cause === 'manual' ? { selectedQuestionFeedKey: null, selectedQuestionChoice: null } : {}),
   };
   return { ...next, unreadFeedKeys: markDisplayedRowsRead(next, mode) };
 }
