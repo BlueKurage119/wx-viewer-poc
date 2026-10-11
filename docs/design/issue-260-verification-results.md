@@ -141,3 +141,44 @@ tile 時刻修正後も上記 4 品質ゲートを再実行し、すべて exit 
 要求別の送信時刻・latency・status・応答 bytes と資源生値は[新構成](issue-260-exploratory-health-new.json)、[分離前](issue-260-exploratory-health-old.json)に保存した。旧版を800解析ごとに譲渡した先行試行は495件が30秒でタイムアウトしたが、譲渡間隔が製品の実処理と異なるため比較表から除外した。
 
 **解釈の限界:** 旧版は起動時に seed 済み5万件の未処理電文を再処理した一方、新構成は同じ起動処理を行っていない。そのため測定開始時の DB 内容・索引状態が一致しない。また、旧版の負荷は同じ XML 解析をメインスレッドへ注入したもので、実際の取得経路を通した試験ではない。譲渡間隔も旧版の製品挙動を厳密に再現した保証がない。ピークRSSには測定前の処理を含む。1回・healthのみの探索値であり、新構成が「軽くなった」または重くなったとの確定判定にも、E1/E2の合格にも使わない。厳密比較には、両版の測定開始時DBを論理・物理の両面でそろえ、実取得経路で同一処理量を与え、同一外部クライアントと資源サンプリングで全5系列を3回以上反復する必要がある。
+
+## 同一解析回数による5系列の再測定（探索的・厳密比較ではない）
+
+2026-10-11 UTC に、旧版 `3e95635bf46fb38a559d6ca9d63a36ce414c2ac2` と新構成 `abeb45a18b7607ee305f52dfdfdd453bec49c492` を各系列3ペア測定した。旧版の `@wx-viewer-poc/shared` は旧版コミットからビルドしたものを明示的に解決させた。上の初回比較は旧版で新構成の shared を解決していたため、この再測定と混ぜない。各試行の時刻、要求600件それぞれの送信時刻・status・bytes・latency、CPU/RSS、生 DB 値は [30試行の生値](issue-260-parser-comparison.ndjson) に保存した。NDJSON の1行が1試行で、`series`・`repeat`・`mode` と `record` を持つ。
+
+両版で Node v24.20.0、Darwin 25.6.0 x64、論理12コア、SQLite 3.53.4、`NODE_ENV=production` を使用した。seed 260 の原文5万件×1,024 bytes、PNG 1,024枚×65,536 bytesを生成し、原文 SHA-256 は `892676a0ab68480f87d735e11756624653cbfb5c5a386955ddb0a1f7c3bd3962`、PNG SHA-256 は `e36ebe4782b232411ca8b2d8e2e3eb32bd41e18a5691b7b720992897d8a9c0d5` で一致した。再処理の交絡を避けるため、原文の電文種別は両版とも `VPXX99` とした。気象 DB 本体は各 seed 直後81,928,192 bytes、5万行、`journal_mode=delete` で一致した。保持 DB 本体は旧版102,400 bytes、新構成114,688 bytesで一致せず、起動後の DB ファイルや WAL の物理一致も確認していない。保存済み警報 API の事前応答は各ペアで同じ454 bytes・同じ本文ハッシュ、タイルは各ペアで同じ65,536 bytes・同じ PNG ハッシュ・`X-Wx-Tile-Result: cached` を確認した。
+
+外部の独立したクライアントプロセスから同じパスへ100 ms間隔で600要求を送った。各要求の期限は30秒で、並行数の上限は設けていない。ウォームアップとして負荷前に対象 API を1回呼んだ。XML は同じ500要素の文字列を**各試行11,000回** DOM 解析した。新構成は取得 Worker 内で1,000回ずつ、旧版はメインスレッドで25回ごとに `setTimeout(0)` で譲った。この方法は解析量を固定するが、旧版の実取得フロー、DB書込、復旧、譲渡の製品挙動を再現しない。解析負荷の実時間は試行ごとに異なり、下表に記録した。`process.cpuUsage()` は負荷・外部クライアント開始直前から終了までのプロセス全体、RSS は同区間を100 ms間隔で採取した最大値で、メインと全 Worker を含む。同区間の CPU はクライアントの残要求待ち時間も含む。`resourceUsage().maxRSS` による起動以来の最大値も生値にある。
+
+次の各セルは反復1/2/3の順。CPU は秒、RSS は MiB、応答と解析実時間は ms、失敗は600件中の件数である。p95 はタイムアウトも含む。
+
+| 系列 | 版 | 解析実時間 (秒) | CPU (秒) | ピークRSS (MiB) | p95 (ms) | 最大 (ms) | 失敗 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| health | 新 | 74.7 / 72.2 / 95.7 | 75.0 / 72.6 / 88.1 | 579.7 / 589.3 / 588.8 | 2.7 / 2.8 / 4.7 | 58.5 / 85.5 / 61.7 | 0 / 0 / 0 |
+| health | 旧 | 72.4 / 69.8 / 82.9 | 71.8 / 69.5 / 81.5 | 485.1 / 468.0 / 478.5 | 178.9 / 160.5 / 189.7 | 953.3 / 787.4 / 1358.0 | 0 / 0 / 0 |
+| 監視 | 新 | 105.1 / 86.4 / 90.0 | 88.0 / 87.2 / 88.2 | 557.7 / 533.1 / 549.2 | 4.5 / 3.2 / 3.3 | 67.9 / 63.4 / 64.8 | 0 / 0 / 0 |
+| 監視 | 旧 | 89.4 / 91.8 / 80.4 | 89.3 / 91.5 / 80.1 | 486.0 / 381.6 / 459.7 | 216.1 / 230.4 / 225.9 | 1587.1 / 1424.7 / 1526.1 | 0 / 0 / 0 |
+| system 差分 | 新 | 69.4 / 82.2 / 85.4 | 70.2 / 78.7 / 76.4 | 570.9 / 579.8 / 573.5 | 3.0 / 3.4 / 3.2 | 60.2 / 57.5 / 58.6 | 0 / 0 / 0 |
+| system 差分 | 旧 | 71.8 / 74.8 / 70.6 | 71.7 / 70.9 / 70.6 | 487.4 / 466.0 / 502.5 | 160.4 / 515.7 / 157.9 | 1039.3 / 4457.5 / 817.5 | 0 / 0 / 0 |
+| 保存済み警報 API | 新 | 75.3 / 69.1 / 69.7 | 76.4 / 70.2 / 70.9 | 503.0 / 583.3 / 584.7 | 3.7 / 4.0 / 3.7 | 65.7 / 53.2 / 62.4 | 0 / 0 / 0 |
+| 保存済み警報 API | 旧 | 76.1 / 70.1 / 71.1 | 74.7 / 70.1 / 71.1 | 464.5 / 488.6 / 487.0 | 204.7 / 165.6 / 163.8 | 3053.8 / 949.7 / 996.4 | 0 / 0 / 0 |
+| 保存済み tile hit | 新 | 72.1 / 78.8 / 77.9 | 75.8 / 77.9 / 81.6 | 575.5 / 580.9 / 577.5 | 9.8 / 9.9 / 10.3 | 54.7 / 68.5 / 69.9 | 0 / 0 / 0 |
+| 保存済み tile hit | 旧 | 78.7 / 75.0 / 83.6 | 80.2 / 77.1 / 82.1 | 468.8 / 411.1 / 485.9 | 30002.8 / 30002.7 / 30002.7 | 30038.0 / 30022.3 / 30018.4 | 422 / 378 / 506 |
+
+この合成解析負荷では、新構成の5系列の応答 p95 は旧版より短く、タイル要求のタイムアウトも起きなかった。一方、新構成のピークRSSは全15ペアで旧版より大きく、CPU時間も多くのペアで増えた。解析の実時間と処理経路、保持 DB のサイズが異なるため、「Worker分離で製品全体が軽くなった」とは判定できない。今回確認できたのは、この固定解析量の試験での HTTP 応答分離の効果である。旧版の実取得経路で同じ入力を再現できておらず、外乱・swap、cold/warm、同時数1/8、毎秒1要求、write/recovery、main/両 Worker 別の資源、キュー・WAL の記録もない。E1/E2 は引き続き一部実施である。
+
+計測器は `apps/api/tests/issue260Compare.mts`、外部要求列は `apps/api/tests/issue260CompareClient.mjs`、ペア実行は `apps/api/tests/issue260CompareRunner.mjs`、新構成への負荷注入は `apps/api/tests/fixtures/worker/issue260-compare-load.ts`。再現時はリポジトリルートから次を実行する。旧版の展開とビルドに成功したこと、旧版 API の依存解決が旧 shared を指すことを確認してからペア実行する。
+
+```bash
+mkdir -p apps/api/data/issue260-baseline apps/api/data/issue260-compare
+git archive 3e95635bf46fb38a559d6ca9d63a36ce414c2ac2 | tar -x -C apps/api/data/issue260-baseline
+ln -s ../../../../node_modules apps/api/data/issue260-baseline/node_modules
+node node_modules/typescript/bin/tsc -p apps/api/data/issue260-baseline/packages/shared/tsconfig.json
+mkdir -p apps/api/data/issue260-baseline/apps/api/node_modules/@wx-viewer-poc
+ln -s ../../../../packages/shared apps/api/data/issue260-baseline/apps/api/node_modules/@wx-viewer-poc/shared
+BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-compare BENCH_CURRENT_COMMIT=abeb45a18b7607ee305f52dfdfdd453bec49c492 BENCH_FIXED_ITEMS=11000 node apps/api/tests/issue260CompareRunner.mjs health 1 3
+```
+
+最後のコマンドの `health` を `monitoring`、`systemDelta`、`weather`、`tileHit` に替えて各系列を実行する。固定コミットの取得にはローカル Git 履歴が必要で、旧版を展開したディレクトリは Git 管理外である。生成 JSON は出力先から検証して NDJSON に集約した。
+
+比較計測器・結果文書の追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` はすべて exit 0。`NODE_ENV=production npm run test -w apps/api` は 1,074/1,074 件成功、exit 0。今回の合成負荷を通常のテストファイルとして自動実行はしない。5系列×3ペアの計30実行で、`stage=completed`、固定解析11,000回、各600要求、解析60秒以上を検証した。
