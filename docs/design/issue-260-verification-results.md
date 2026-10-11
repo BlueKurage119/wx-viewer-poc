@@ -2,7 +2,7 @@
 
 ## 記録の範囲
 
-2026-10-11 JST 時点の製造段階の記録。設計条件は [Issue #260 設計](issue-260-two-worker-integrated-verification.md) に従う。この記録は E1〜E12 の完了報告ではない。サンドボックス内のローカル HTTP は `EPERM` で拒否されたため、実 Worker/HTTP の 7 試行は統括担当が権限外の隔離環境で実行した。実ブラウザ・rollback は未実施。失敗した試行も経緯を残す。
+2026-10-11 JST 時点の製造段階の記録。設計条件は [Issue #260 設計](issue-260-two-worker-integrated-verification.md) に従う。この記録は E1〜E12 の完了報告ではない。サンドボックス内のローカル HTTP は `EPERM` で拒否されたため、実 Worker/HTTP の 8 試行は統括担当が権限外の隔離環境で実行した。実ブラウザ・rollback は未実施。失敗した試行も経緯を残す。
 
 ## 固定した条件と未取得の入力
 
@@ -16,9 +16,9 @@
 | Node・driver | Node v24.20.0、better-sqlite3 13.0.3、`SELECT sqlite_version()` は 3.53.4 |
 | DB/WAL 設定・会場/端末 | seed 生成時の両 DB は `journal_mode=delete`。実 Worker 稼働時の WAL 設定・サイズは未記録。`NODE_ENV=production` でローカル会場上書きを無効化し、`hkeagh01` で要求 |
 | fixture と量 | seed 260、5万電文×1,024 bytes、1,024 PNG×65,536 bytes。ハッシュ・status 配分・DB 本体実 bytes は [manifest](issue-260-fixture-manifest.json) に記録 |
-| 計測開始・終了 | 7 試行それぞれの UTC 時刻は下記生 JSON に記録 |
+| 計測開始・終了 | 8 試行それぞれの UTC 時刻は下記生 JSON に記録 |
 
-設計の API 上限値（health 500 ms、監視 1,000 ms、system 差分・保存済み API・tile hit 各 2,000 ms、tile miss 30 秒）は目標である。health の同時 1・毎秒 10 件を 3 負荷で各 1 回、監視・system 差分・保存済み警報 API・tile hit を parser 負荷で各 1 回実測した。tile hit は失敗した。cold/warm、同時 8、毎秒 1、各セル 3 回以上、残る負荷組合せは未実施。要求別 latency/status/bytes と p50/p95/p99/最大、取得 Worker スレッド CPU 時間は生 JSON にある。ただし旧 parser/health では CPU 時間を未収集。main/提供 Worker の CPU/RSS/heap、キュー、busy/WAL、報告遅延、外乱、空運転は未取得。
+設計の API 上限値（health 500 ms、監視 1,000 ms、system 差分・保存済み API・tile hit 各 2,000 ms、tile miss 30 秒）は目標である。health の同時 1・毎秒 10 件を 3 負荷で各 1 回、監視・system 差分・保存済み警報 API を parser 負荷で各 1 回、tile hit を旧・修正版で各 1 回実測した。旧 tile hit はハーネス不備で失敗、修正版は成功した。cold/warm、同時 8、毎秒 1、各セル 3 回以上、残る負荷組合せは未実施。要求別 latency/status/bytes と p50/p95/p99/最大、取得 Worker スレッド CPU 時間は生 JSON にある。ただし旧 parser/health では CPU 時間を未収集。main/提供 Worker の CPU/RSS/heap、キュー、busy/WAL、報告遅延、外乱、空運転は未取得。
 
 ## 試験の実行
 
@@ -31,7 +31,7 @@
 | `npm run format:check` | exit 0 | 通過 |
 | `npm run build` | exit 0。Vite の 500 kB chunk 警告あり | 通過 |
 | サンドボックス外での API 試験再実行 | 本担当の権限要求は中断。後続の統括担当による全件実行結果は末尾に記録 | 報告済み・生ログ未取込 |
-| 実 Worker・実 HTTP の負荷と障害注入 | health 3 試行と parser 負荷の監視・system 差分・保存済み警報 API・tile hit 各 1 試行を隔離ポートで実測。tile hit は失敗。障害注入は未実施 | 一部実施 |
+| 実 Worker・実 HTTP の負荷と障害注入 | health 3 試行と parser 負荷の監視・system 差分・保存済み警報 API 各 1 試行、tile hit 2 試行を隔離ポートで実測。旧 tile hit は失敗、修正版は成功。障害注入は未実施 | 一部実施 |
 | 実ブラウザ操作 | スクリーンショット・操作ログなし | 未実施 |
 | 旧版比較・rollback・reset | 隔離 DB の複製と互換検証なし | 未実施 |
 
@@ -42,7 +42,7 @@
 | 条件 | 状態 | 不足する証拠 |
 | --- | --- | --- |
 | E1 条件固定 | 一部実施 | seed/hash/生成量/3 負荷の入力は記録。全設定、旧版との同一入力比較、端末・外乱条件が不足 |
-| E2 応答 | 一部実施 | health の 3 負荷×各 1 セルと parser 負荷の 3 API×各 1 セルは成功。tile hit は fixture 不整合による失敗。残る API・並行/投入率・cold/warm 反復と資源系列、旧版比較が不足 |
+| E2 応答 | 一部実施 | health の 3 負荷×各 1 セルと parser 負荷の 4 API×各 1 セルは成功。旧 tile hit の fixture 不整合による失敗も記録。残る API・並行/投入率・cold/warm 反復と資源系列、旧版比較が不足 |
 | E3 起動隔離 | 未検証 | open/migration と保持側障害の実注入ログ |
 | E4 role 別障害 | 未検証 | 両 role の停止・exit・応答途絶を別々に観測したログ |
 | E5 世代 | 未検証 | 旧 exit、DB 世代、tracker/健全性の横断照合 |
@@ -115,10 +115,10 @@ parser 負荷で同時 1・毎秒 10 件の 3 API を統括担当が権限外で
 
 同条件の [保存済み tile hit 試行](issue-260-parser-tile-c1-r10.json) は `stage=measurement_failed`、600 要求すべて失敗（404 が 1 件、503 が 599 件）。初回 404 は 5,015.928 ms、全体 p95 は 6.755 ms、最大は 5,015.928 ms で、2,000 ms の目標も超えた。取得 Worker の parser 負荷は 60,064 ms・9,591 回・CPU 59,844 ms まで実行された。旧ハーネスはタイルを静的な `2026-10-11T00:00:00.000Z` の frame で保存し、同じ時刻を URL に使った。試行開始は 04:55 UTC で、提供 Worker は実時刻を使用し、nowcast カタログは現在の表示窓（±60 分）外の frame を除外する。したがって保存済みタイルへの hit 条件を満たしておらず、この試行を実機能の性能評価として扱えない。旧 JSON は失敗 body を保存していないため、404/503 の個々の error code は未確定である。
 
-ハーネスはタイル frame 時刻を実行開始時刻に合わせ、非 200 の body と `X-Wx-Tile-Result` を記録し、すべての要求で `cached` が得られない場合は非 0 終了とした。修正版の権限外再計測は未実施であり、tile hit の E2 判定は未検証のままである。
+ハーネスはタイル frame 時刻を実行開始時刻に合わせ、非 200 の body と `X-Wx-Tile-Result` を記録し、すべての要求で `cached` が得られない場合は非 0 終了とした。統括担当が権限外で実行した [修正版 tile hit の生値](issue-260-parser-tile-c1-r10-v2.json) は `stage=measurement_completed`、`judgment.passed=true`。600 要求すべて HTTP 200・`X-Wx-Tile-Result: cached`、失敗 0 件で、p50 6.267 ms、p95 9.064 ms、p99 410.577 ms、最大 631.232 ms だった。取得 Worker の parser 負荷は 60,061 ms・9,257 回・CPU 59,808 ms、投入率は約 10 件/秒。最大値は 2,000 ms の目標内だが、cold/warm 分類や 3 回反復をしていないため E2 全体の判定は保留する。
 
 `BENCH_LOAD=write|recovery` の write は取得 Worker 内の SQLite 接続で既存の受信 1,000 件ずつの `title` を繰り返し更新する。recovery は同 Worker で未処理受信を追加し、既存の `reprocessPendingWarningTelegramReceptions` と `recoverWarningCurrent` を実行する。処理件数は更新行数、または再処理件数と復旧時解析件数の合計であり、異なる仕事量を同一単位として比較しない。両者の負荷時間・スレッド CPU 時間は上表のとおり。
 
 ハーネス追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` を再実行し、すべて exit 0。API/Web の全試験通過報告はハーネス追加前であり、追加 fixture を含む全試験の再実行結果は未取得。
 
-tile 時刻修正後も上記 4 品質ゲートを再実行し、すべて exit 0。`NODE_ENV=production npm run test -w apps/api` はサンドボックス内で再実行したが、HTTP 待受の `listen EPERM` による失敗が複数発生したため中断した。全件完走・合格の証拠にはしない。修正版 tile hit の権限外実測と API 全試験は引き続き必要である。
+tile 時刻修正後も上記 4 品質ゲートを再実行し、すべて exit 0。`NODE_ENV=production npm run test -w apps/api` はサンドボックス内で再実行したが、HTTP 待受の `listen EPERM` による失敗が複数発生したため中断した。全件完走・合格の証拠にはしない。修正版 tile hit の権限外実測は上記のとおり実施済みで、API 全試験は引き続き必要である。
