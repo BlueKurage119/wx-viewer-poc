@@ -407,6 +407,27 @@ select {
   color: hsl(from var(--md-sys-color-on-surface) h s l / 38%);
 }
 
+/* ツールバーと同じ2秒周期・配色で送信可能状態を示す。 */
+.notification-send-ready .notification-action-container {
+  animation: monitoring-send-ready-background 2s steps(1, end) infinite;
+}
+
+.notification-send-ready .notification-action-content {
+  animation: monitoring-send-ready-color 2s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-send-ready .notification-action-container {
+    animation: none;
+    background-color: var(--md-sys-color-inverse-surface);
+  }
+
+  .notification-send-ready .notification-action-content {
+    animation: none;
+    color: var(--md-sys-color-inverse-primary);
+  }
+}
+
 .notice-actions {
   display: flex;
   gap: 6px;

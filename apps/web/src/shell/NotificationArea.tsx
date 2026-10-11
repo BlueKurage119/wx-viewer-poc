@@ -118,6 +118,7 @@ function NoticeRow({
             <NotificationActionButton
               key={`${label}-${index}`}
               type="button"
+              sendReady={label === '送信'}
               disabled={
                 !notice ||
                 (label === '確認'
@@ -152,20 +153,25 @@ const NotificationGbButton = GbButton as React.ForwardRefExoticComponent<
 function NotificationActionButton({
   children,
   onClick,
+  disabled,
+  sendReady = false,
   'aria-pressed': pressed,
   ...props
-}: Omit<React.ComponentProps<typeof GbButton>, 'color' | 'size' | 'square'>) {
+}: Omit<React.ComponentProps<typeof GbButton>, 'color' | 'size' | 'square'> & {
+  readonly sendReady?: boolean;
+}) {
   const selectable = pressed !== undefined;
   const selected = pressed === 'true' || pressed === true;
   return (
     <NotificationGbButton
       {...props}
+      disabled={disabled}
       type={selectable ? 'toggle' : 'button'}
       selected={selectable ? selected : undefined}
       color="filled"
       size="sm"
       square
-      className={`notification-action-button${selected ? ' notification-action-selected' : ''}`}
+      className={`notification-action-button${selected ? ' notification-action-selected' : ''}${sendReady && !disabled ? ' notification-send-ready' : ''}`}
       aria-label={typeof children === 'string' && children ? children : undefined}
       onClick={(event) => {
         // 選択は通知storeで管理する。配布物の既定トグルによる解除を抑制する。
