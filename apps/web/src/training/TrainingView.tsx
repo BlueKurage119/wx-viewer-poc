@@ -47,48 +47,58 @@ interface GroupFieldsetProps {
   readonly onSelect: (group: string, itemId: TrainingItemId | null) => void;
 }
 
-function GroupFieldset({ group, items, selected, disabled, onSelect }: GroupFieldsetProps) {
+function GroupRow({ group, items, selected, disabled, onSelect }: GroupFieldsetProps) {
   const legend = TRAINING_GROUP_LABELS[group] ?? group;
   const noneSelected = !items.some((item) => selected.includes(item.id));
   const name = `training-${group}`;
+  const labelId = `${name}-label`;
   return (
-    <fieldset className="training-group" disabled={disabled}>
-      <legend>{legend}</legend>
-      {items.length === 1 ? (
-        <label className="training-option">
-          <input
-            type="checkbox"
-            name={name}
-            checked={selected.includes(items[0]!.id)}
-            onChange={(event) => onSelect(group, event.currentTarget.checked ? items[0]!.id : null)}
-          />
-          <span>{items[0]!.label}</span>
-        </label>
-      ) : (
-        <>
+    <div className="training-category" role="group" aria-labelledby={labelId}>
+      <span id={labelId} className="training-category-name">
+        {legend}
+      </span>
+      <div className="training-choices">
+        {items.length === 1 ? (
           <label className="training-option">
             <input
-              type="radio"
+              type="checkbox"
               name={name}
-              checked={noneSelected}
-              onChange={() => onSelect(group, null)}
+              checked={selected.includes(items[0]!.id)}
+              disabled={disabled}
+              onChange={(event) =>
+                onSelect(group, event.currentTarget.checked ? items[0]!.id : null)
+              }
             />
-            <span>選択なし</span>
+            <span>{items[0]!.label}</span>
           </label>
-          {items.map((item) => (
-            <label key={item.id} className="training-option">
+        ) : (
+          <>
+            <label className="training-option">
               <input
                 type="radio"
                 name={name}
-                checked={selected.includes(item.id)}
-                onChange={() => onSelect(group, item.id)}
+                checked={noneSelected}
+                disabled={disabled}
+                onChange={() => onSelect(group, null)}
               />
-              <span>{item.label}</span>
+              <span>なし</span>
             </label>
-          ))}
-        </>
-      )}
-    </fieldset>
+            {items.map((item) => (
+              <label key={item.id} className="training-option">
+                <input
+                  type="radio"
+                  name={name}
+                  checked={selected.includes(item.id)}
+                  disabled={disabled}
+                  onChange={() => onSelect(group, item.id)}
+                />
+                <span>{item.label}</span>
+              </label>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -170,7 +180,7 @@ export function TrainingContent({
               <h2>{section.title}</h2>
               <div className="training-groups">
                 {section.groups.map(({ group, items }) => (
-                  <GroupFieldset
+                  <GroupRow
                     key={group}
                     group={group}
                     items={items}

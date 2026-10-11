@@ -79,25 +79,29 @@ test('読込中・読込失敗は左ペイン内に出し、右ペインは描�
   assert.match(failed, /0／20件/);
 });
 
-test('項目: 16のfieldset、同一現象はradio(選択なし付き)、単独項目はcheckbox。見出しや削除項目は出さない', () => {
+test('項目: 1行1カテゴリ(16行)、同一現象はradio(なし付き)、単独項目はcheckbox。枠や説明文は付けない', () => {
   const html = render(ready);
   assert.ok(!html.includes('東京ビッグサイト周辺'));
-  assert.equal((html.match(/<fieldset/g) ?? []).length, 16);
-  const rain = html.match(/<legend>大雨<\/legend>(.*?)<\/fieldset>/)![1]!;
+  assert.equal((html.match(/role="group"/g) ?? []).length, 16);
+  assert.ok(!html.includes('<fieldset') && !html.includes('<legend'));
+  const row = (label: string) =>
+    html.match(new RegExp(`training-category-name">${label}</span>(.*?)</div></div>`))![1]!;
+  const rain = row('大雨');
   assert.equal((rain.match(/type="radio"/g) ?? []).length, 5);
-  assert.match(rain, /選択なし/);
-  const thunder = html.match(/<legend>雷<\/legend>(.*?)<\/fieldset>/)![1]!;
+  assert.match(rain, /<span>なし<\/span>/);
+  assert.ok(!html.includes('選択なし'));
+  const thunder = row('雷');
   assert.match(thunder, /type="checkbox"/);
   // 土砂災害はL2だけなのでcheckbox
-  const landslide = html.match(/<legend>土砂災害<\/legend>(.*?)<\/fieldset>/)![1]!;
+  const landslide = row('土砂災害');
   assert.match(landslide, /type="checkbox"/);
   assert.match(landslide, /レベル２土砂災害注意報/);
   assert.ok(!html.includes('レベル３土砂災害警報'));
-  assert.ok(!/<fieldset[^>]*disabled=""/.test(html) && !/<input[^>]*disabled/.test(html));
+  assert.ok(!/<input[^>]*disabled/.test(html));
   for (const word of ['融雪', 'なだれ', '選択できません']) {
     assert.ok(!html.includes(word), word);
   }
-  const wind = html.match(/<legend>風<\/legend>(.*?)<\/fieldset>/)![1]!;
+  const wind = row('風');
   assert.match(wind, /暴風警報/);
   assert.match(wind, /暴風雪警報/);
   assert.ok(!/type="(text|datetime-local|date|time)"/.test(html));
@@ -122,7 +126,7 @@ test('左ペイン下端の「生成」(塗りつぶし)・「リセット」(�
   assert.ok(none.indexOf('training-actions') < none.indexOf('training-right'));
 });
 
-test('生成中: 状態行に「生成中」、全fieldset・生成・リセットは押せず、一覧は維持', () => {
+test('生成中: 状態行に「生成中」、全input・生成・リセットは押せず、一覧は維持', () => {
   const html = render({
     ...ready,
     selected: ['warning-43'],
@@ -133,7 +137,8 @@ test('生成中: 状態行に「生成中」、全fieldset・生成・リセッ�
   const status = html.match(/class="training-statusbar">(.*?)<\/div>/)![1]!;
   assert.match(status, /1／20件/);
   assert.match(status, /生成中/);
-  assert.equal((html.match(/<fieldset[^>]*disabled=""/g) ?? []).length, 16);
+  assert.ok((html.match(/<input[^>]*disabled=""/g) ?? []).length > 30);
+  assert.ok(!/<input(?![^>]*disabled)/.test(html), '全inputが操作不可');
   assert.match(generateButton(html), /soft-disabled=""/);
   assert.match(resetButton(html), /soft-disabled=""/);
   assert.match(html, /雷注意報/);
@@ -257,6 +262,7 @@ test('XMLの描画にdangerouslySetInnerHTMLを使わず、色はトークンの
   }
   assert.ok(!/#[0-9a-fA-F]{3,8}\b/.test(css), 'HEX直書き禁止');
   assert.ok(!/\brgba?\(|\bhsla?\(/.test(css), 'RGB直書き禁止');
+  assert.match(css, /grid-template-columns: 6em minmax\(0, 1fr\)/);
   assert.match(css, /grid-template-columns: minmax\(320px, 2fr\) minmax\(0, 3fr\)/);
   assert.match(css, /grid-template-rows: 48px minmax\(0, 1fr\)/);
   assert.match(css, /max-block-size: 336px/);
