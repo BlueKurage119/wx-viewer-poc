@@ -1,7 +1,7 @@
 import { useWeatherRestart } from './monitoring/useWeatherRestart';
 import type { WeatherDangerLevel } from './weather/weatherDangerModel';
 import { useWeatherDangerData } from './weather/useWeatherDangerData';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FilledButton } from './components/md/Button';
 import { AppShell } from './shell/AppShell';
 import {
@@ -17,11 +17,18 @@ import {
   confirmNotification as confirmNotificationState,
   createNotificationUiState,
   expireWarningHistory,
-  nextUnconfirmedChime,
+  isVisibleForTerminal,
+  notificationChimeLevel,
+  type NotificationUiState,
   receiveNotifications,
   selectQuestionConfirmation,
 } from './notifications/notificationStore';
 import { useNotificationFeed } from './notifications/useNotificationFeed';
+import {
+  advanceAutoConfirmation,
+  nextAutoConfirmationDeadline,
+} from './notifications/autoConfirmation';
+import { createNotificationPreferencesRepository } from './notifications/notificationPreferences';
 import { useHeaderBuzzer } from './notifications/useHeaderBuzzer';
 import { operationGuideMessage } from './shell/notifications';
 import { WeatherMapView } from './map/WeatherMapView';
@@ -96,6 +103,10 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   const preview =
     import.meta.env.DEV && new URLSearchParams(window.location.search).get('shellPreview') === '1';
   const [scenario, setScenario] = useState<PreviewScenario>('empty');
+  const [preferencesRepository] = useState(createNotificationPreferencesRepository);
+  const [notificationPreferences, setNotificationPreferences] = useState(() =>
+    preferencesRepository.load(),
+  );
   const [previewState, setPreviewState] = useState(() => createNotificationUiState());
   const [warningSearch, setWarningSearch] = useState(createWarningListSearchState);
   const [monitoringState, setMonitoringState] = useState<MonitoringLoadState | null>(null);
@@ -123,13 +134,44 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
         ? (Number(dangerPreview) as WeatherDangerLevel)
         : weatherDanger.level;
   const buzzer = useHeaderBuzzer();
+  const { confirmLevel } = buzzer;
+  const onConfirmed = useCallback(
+    (state: NotificationUiState, feedKeys: readonly string[]) => {
+      for (const feedKey of feedKeys) {
+        const item = state.items.find((item) => item.feedKey === feedKey);
+        if (item && isVisibleForTerminal(item, terminal.mode))
+          confirmLevel(notificationChimeLevel(state, item));
+      }
+    },
+    [confirmLevel, terminal.mode],
+  );
   const notificationFeed = useNotificationFeed({
     terminalId: terminal.id,
     mode: terminal.mode,
     enabled: !preview,
     onChimeRequest: buzzer.request,
+    onConfirmed,
+    preferences: notificationPreferences,
     nowMs: now.getTime(),
   });
+  useEffect(() => {
+    if (!preview) return;
+    const advance = () => {
+      const result = advanceAutoConfirmation(previewState, terminal.mode, Date.now());
+      if (result.state !== previewState) {
+        setPreviewState(result.state);
+        onConfirmed(result.state, result.automaticallyConfirmedFeedKeys);
+      }
+    };
+    const deadline = nextAutoConfirmationDeadline(previewState);
+    const timer =
+      deadline === null ? null : window.setTimeout(advance, Math.max(0, deadline - Date.now()));
+    document.addEventListener('visibilitychange', advance);
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', advance);
+    };
+  }, [preview, previewState, terminal.mode, onConfirmed]);
   const workerRestart = useWeatherRestart();
   const deliveryRestart = useWeatherRestart('delivery');
   const restartModels = { acquisition: workerRestart, delivery: deliveryRestart };
@@ -172,6 +214,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       previewNotices(next),
       terminal.mode,
       Date.now(),
+      notificationPreferences,
     );
     const received = receivedResult.state;
     if (receivedResult.chime) buzzer.request(receivedResult.chime);
@@ -233,15 +276,15 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     ),
   };
   const confirmNotification = (feedKey: string) => {
-    const nextState = confirmNotificationState(visibleNotificationState, feedKey, terminal.mode);
-    if (preview) {
-      setPreviewState(nextState);
-    } else notificationFeed.confirm(feedKey);
-    if (buzzer.state.feedKey === feedKey) {
-      buzzer.stop();
-      const nextChime = nextUnconfirmedChime(nextState, terminal.mode);
-      if (nextChime) buzzer.request(nextChime);
+    if (!preview) {
+      notificationFeed.confirm(feedKey);
+      return;
     }
+    const advanced = advanceAutoConfirmation(previewState, terminal.mode, Date.now());
+    onConfirmed(advanced.state, advanced.automaticallyConfirmedFeedKeys);
+    const nextState = confirmNotificationState(advanced.state, feedKey, terminal.mode);
+    if (nextState !== advanced.state) onConfirmed(nextState, [feedKey]);
+    setPreviewState(nextState);
   };
   const selectQuestion = (feedKey: string) => {
     if (preview) {
@@ -328,6 +371,12 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
         />
       ) : view === 'warnings' ? (
         <WarningListView
+          notificationPreferences={notificationPreferences}
+          onSaveNotificationPreferences={(next) => {
+            if (!preferencesRepository.save(next).saved) return false;
+            setNotificationPreferences(next);
+            return true;
+          }}
           entries={visibleNotificationState.warningHistory}
           mode={terminal.mode}
           nowMs={now.getTime()}

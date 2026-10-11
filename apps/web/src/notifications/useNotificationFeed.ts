@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { type TerminalMode } from '@wx-viewer-poc/shared';
 import { fetchNotificationDelta } from '../api/notificationDelta';
 import { fetchStartupNotifications } from '../api/startupNotifications';
@@ -12,105 +12,142 @@ import {
   type ChimeRequest,
   type NotificationUiState,
 } from './notificationStore';
-
+import { advanceAutoConfirmation, nextAutoConfirmationDeadline } from './autoConfirmation';
 import {
-  createNotificationFeedController,
-  type NotificationTransportState,
-} from './notificationFeedController';
+  EMPTY_NOTIFICATION_PREFERENCES,
+  type NotificationPreferences,
+} from './notificationPreferences';
+import { createNotificationFeedController } from './notificationFeedController';
 export { retryDelayMs } from './notificationFeedController';
-
-type Action =
-  | { readonly type: 'reset' }
-  | {
-      readonly type: 'receive';
-      readonly items: NotificationUiState['items'];
-      readonly mode: TerminalMode;
-      readonly receivedAtMs: number;
-    }
-  | { readonly type: 'transport'; readonly update: NotificationTransportState }
-  | { readonly type: 'expire-history'; readonly nowMs: number }
-  | { readonly type: 'select-question-confirmation'; readonly feedKey: string }
-  | { readonly type: 'confirm'; readonly feedKey: string; readonly mode: TerminalMode };
-
-function reducer(state: NotificationUiState, action: Action): NotificationUiState {
-  switch (action.type) {
-    case 'reset':
-      return createNotificationUiState();
-    case 'receive':
-      return receiveNotifications(state, action.items, action.mode, action.receivedAtMs).state;
-    case 'expire-history':
-      return expireWarningHistory(state, action.nowMs);
-    case 'transport':
-      return setNotificationTransport(state, action.update);
-    case 'select-question-confirmation':
-      return selectQuestionConfirmation(state, action.feedKey);
-    case 'confirm':
-      return confirmNotification(state, action.feedKey, action.mode);
-  }
-}
 
 export interface UseNotificationFeedOptions {
   readonly terminalId: string;
   readonly mode: TerminalMode;
   readonly enabled?: boolean;
   readonly onChimeRequest?: (request: ChimeRequest) => void;
+  readonly onConfirmed?: (state: NotificationUiState, feedKeys: readonly string[]) => void;
+  readonly preferences?: NotificationPreferences;
   readonly nowMs: number;
+  readonly clock?: () => number;
 }
 
-/** 起動現況と通常差分を一つのメモリ内通知storeへ合流する。 */
+/** 起動現況・差分・期限照合を同じ状態へ順番に反映する。 */
 export function useNotificationFeed({
   terminalId,
   mode,
   enabled = true,
   onChimeRequest,
+  onConfirmed,
+  preferences = EMPTY_NOTIFICATION_PREFERENCES,
   nowMs,
+  clock = Date.now,
 }: UseNotificationFeedOptions): {
   readonly state: NotificationUiState;
   readonly selectQuestionConfirmation: (feedKey: string) => void;
   readonly confirm: (feedKey: string) => void;
 } {
-  const [state, dispatch] = useReducer(reducer, undefined, createNotificationUiState);
+  const [state, replace] = useReducer(
+    (_state: NotificationUiState, next: NotificationUiState) => next,
+    undefined,
+    createNotificationUiState,
+  );
   const stateRef = useRef(state);
-  stateRef.current = state;
-  const chimeRef = useRef(onChimeRequest);
-  chimeRef.current = onChimeRequest;
+  const callbacks = useRef({ onChimeRequest, onConfirmed, preferences, clock });
+  callbacks.current = { onChimeRequest, onConfirmed, preferences, clock };
+  const scheduleRef = useRef<() => void>(() => {});
+  const update = useCallback((next: NotificationUiState) => {
+    stateRef.current = next;
+    replace(next);
+  }, []);
+  const advance = useCallback(() => {
+    const result = advanceAutoConfirmation(stateRef.current, mode, callbacks.current.clock());
+    if (result.state !== stateRef.current) {
+      update(result.state);
+      callbacks.current.onConfirmed?.(result.state, result.automaticallyConfirmedFeedKeys);
+    }
+  }, [mode, update]);
 
   useEffect(() => {
-    dispatch({ type: 'expire-history', nowMs });
-  }, [nowMs]);
+    update(expireWarningHistory(stateRef.current, nowMs));
+  }, [nowMs, update]);
 
   useEffect(() => {
-    if (!enabled) return;
     const initialState = createNotificationUiState();
-    stateRef.current = initialState;
-    dispatch({ type: 'reset' });
-    const receive = (items: NotificationUiState['items']) => {
-      // reducerにも同じ純粋遷移を通す。鳴動要求だけは取得単位でここから公開する。
-      const current = stateRef.current;
-      const receivedAtMs = Date.now();
-      const { state: received, chime } = receiveNotifications(current, items, mode, receivedAtMs);
-      if (chime) chimeRef.current?.(chime);
-      stateRef.current = received;
-      dispatch({ type: 'receive', items, mode, receivedAtMs });
+    update(initialState);
+    if (!enabled) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      if (!active) return;
+      const deadline = nextAutoConfirmationDeadline(stateRef.current);
+      if (deadline === null) return;
+      timer = setTimeout(
+        () => {
+          if (!active) return;
+          advance();
+          schedule();
+        },
+        Math.max(0, deadline - callbacks.current.clock()),
+      );
     };
+    scheduleRef.current = schedule;
+    const receive = (items: NotificationUiState['items']) => {
+      if (!active) return;
+      advance();
+      const result = receiveNotifications(
+        stateRef.current,
+        items,
+        mode,
+        callbacks.current.clock(),
+        callbacks.current.preferences,
+      );
+      update(result.state);
+      if (result.chime) callbacks.current.onChimeRequest?.(result.chime);
+      schedule();
+    };
+    const visibility = () => {
+      if (!active) return;
+      advance();
+      schedule();
+    };
+    document.addEventListener('visibilitychange', visibility);
     const controller = createNotificationFeedController({
       terminalId,
       fetchDelta: fetchNotificationDelta,
       fetchStartup: fetchStartupNotifications,
       receive,
-      onTransportState: (update) => dispatch({ type: 'transport', update }),
+      onTransportState: (transport) => {
+        if (active) update(setNotificationTransport(stateRef.current, transport));
+      },
       setTimer: (task, delay) => setTimeout(task, delay),
-      clearTimer: (timer) => clearTimeout(timer),
+      clearTimer: (handle) => clearTimeout(handle),
     });
     controller.start();
-    return () => controller.stop();
-    // terminalId変更時だけ空のstoreから開始する。mode変更は端末IDと同時に起きる。
-  }, [terminalId, enabled, mode]);
+    return () => {
+      active = false;
+      if (timer !== null) clearTimeout(timer);
+      scheduleRef.current = () => {};
+      document.removeEventListener('visibilitychange', visibility);
+      controller.stop();
+    };
+    // 設定変更は以後の受信だけに適用し、端末切替では旧期限を破棄する。
+  }, [terminalId, enabled, mode, update, advance]);
 
   return {
     state,
     selectQuestionConfirmation: (feedKey) =>
-      dispatch({ type: 'select-question-confirmation', feedKey }),
-    confirm: (feedKey) => dispatch({ type: 'confirm', feedKey, mode }),
+      update(selectQuestionConfirmation(stateRef.current, feedKey)),
+    confirm: (feedKey) => {
+      advance();
+      const before = stateRef.current;
+      const next = confirmNotification(before, feedKey, mode, 'manual');
+      if (next !== before) {
+        update(next);
+        callbacks.current.onConfirmed?.(next, [feedKey]);
+      }
+      scheduleRef.current();
+    },
   };
 }

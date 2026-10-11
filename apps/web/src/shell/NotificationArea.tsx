@@ -1,3 +1,4 @@
+import { GbButton } from '../components/md';
 import type { TerminalMode } from '@wx-viewer-poc/shared';
 import {
   displayedNoticeForRow,
@@ -24,6 +25,11 @@ export function NotificationArea({
       <NoticeRow
         row="warning"
         notice={displayedNoticeForRow(state, mode, 'warning')}
+        autoConfirm={
+          state.warningPresentationByFeedKey[
+            displayedNoticeForRow(state, mode, 'warning')?.feedKey ?? ''
+          ]?.policy.tone === 'level2'
+        }
         onConfirm={onConfirm}
       />
       <NoticeRow
@@ -54,12 +60,14 @@ export function NotificationArea({
 function NoticeRow({
   row,
   notice,
+  autoConfirm = false,
   selectedQuestionFeedKey,
   selectedQuestionChoice,
   onSelectQuestionConfirmation,
   onConfirm,
 }: {
   row: 'warning' | 'question';
+  autoConfirm?: boolean;
   notice: ReturnType<typeof displayedNoticeForRow>;
   selectedQuestionFeedKey?: string | null;
   selectedQuestionChoice?: string | null;
@@ -68,7 +76,7 @@ function NoticeRow({
 }) {
   const rowClass =
     row === 'warning'
-      ? 'warning-row'
+      ? `warning-row ${autoConfirm ? 'warning-auto-row' : 'warning-manual-row'}`
       : notice?.category === 'emergency'
         ? 'emergency-row'
         : 'question-row';
@@ -95,19 +103,19 @@ function NoticeRow({
       <div className="notice-controls">
         {isQuestion && (
           <div className="notice-question-choices">
-            <button
+            <NotificationActionButton
               type="button"
-              aria-pressed={isConfirmationSelected}
+              aria-pressed={isConfirmationSelected ? 'true' : 'false'}
               disabled={!notice || !onSelectQuestionConfirmation}
               onClick={() => notice && onSelectQuestionConfirmation?.(notice.feedKey)}
             >
               確認
-            </button>
+            </NotificationActionButton>
           </div>
         )}
         <div className="notice-actions">
           {actions.map((label, index) => (
-            <button
+            <NotificationActionButton
               key={`${label}-${index}`}
               type="button"
               disabled={
@@ -125,10 +133,48 @@ function NoticeRow({
               }
             >
               {label}
-            </button>
+            </NotificationActionButton>
           ))}
         </div>
       </div>
     </div>
+  );
+}
+
+// 配布物のtoggle/selected APIは、通知の選択ボタンに限って型を拡張する。
+const NotificationGbButton = GbButton as React.ForwardRefExoticComponent<
+  Omit<React.ComponentProps<typeof GbButton>, 'type'> & {
+    readonly type: 'button' | 'toggle';
+    readonly selected?: boolean;
+  }
+>;
+
+function NotificationActionButton({
+  children,
+  onClick,
+  'aria-pressed': pressed,
+  ...props
+}: Omit<React.ComponentProps<typeof GbButton>, 'color' | 'size' | 'square'>) {
+  const selectable = pressed !== undefined;
+  const selected = pressed === 'true' || pressed === true;
+  return (
+    <NotificationGbButton
+      {...props}
+      type={selectable ? 'toggle' : 'button'}
+      selected={selectable ? selected : undefined}
+      color="filled"
+      size="sm"
+      square
+      className={`notification-action-button${selected ? ' notification-action-selected' : ''}`}
+      aria-label={typeof children === 'string' && children ? children : undefined}
+      onClick={(event) => {
+        // 選択は通知storeで管理する。配布物の既定トグルによる解除を抑制する。
+        if (selectable) event.preventDefault();
+        onClick?.(event);
+      }}
+    >
+      <span aria-hidden="true" className="notification-action-container" slot="container" />
+      <span className="notification-action-content">{children}</span>
+    </NotificationGbButton>
   );
 }
