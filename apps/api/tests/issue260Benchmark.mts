@@ -21,6 +21,7 @@ const requests = Number(process.env.BENCH_REQUESTS ?? 100);
 const concurrency = Number(process.env.BENCH_CONCURRENCY ?? 1);
 const rate = Number(process.env.BENCH_RATE ?? 10);
 const seriesName = process.env.BENCH_SERIES ?? 'health';
+const loadKind = process.env.BENCH_LOAD ?? 'parser';
 const effectiveRequests = Math.max(requests, Math.ceil(rate * durationSeconds));
 const output = process.env.BENCH_OUTPUT;
 if (
@@ -30,10 +31,11 @@ if (
   ![1, 8].includes(concurrency) ||
   ![1, 10].includes(rate) ||
   !['health', 'monitoring', 'systemDelta', 'weather', 'tileHit'].includes(seriesName) ||
+  !['parser', 'write', 'recovery'].includes(loadKind) ||
   durationSeconds < 60
 ) {
   throw new Error(
-    'BENCH_OUTPUT、BENCH_REQUESTS>=100、BENCH_CONCURRENCY=1|8、BENCH_RATE=1|10、BENCH_SERIES、BENCH_DURATION_SECONDS>=60 を指定してください。',
+    'BENCH_OUTPUT、BENCH_REQUESTS>=100、BENCH_CONCURRENCY=1|8、BENCH_RATE=1|10、BENCH_SERIES、BENCH_LOAD=parser|write|recovery、BENCH_DURATION_SECONDS>=60 を指定してください。',
   );
 }
 
@@ -94,6 +96,7 @@ const results: Record<string, unknown> = {
     concurrency,
     rate,
     seriesName,
+    loadKind,
     durationSeconds,
   },
   fixture: {
@@ -198,7 +201,7 @@ try {
       };
     })(),
     pollingServiceOptions: { clock: () => time },
-    acquisitionWorkerEntry: new URL('./fixtures/worker/load.ts', import.meta.url),
+    acquisitionWorkerEntry: new URL('./fixtures/worker/issue260-load.ts', import.meta.url),
     onAcquisitionWorkerCreated: (worker) => {
       acquisitionWorker = worker;
     },
@@ -214,28 +217,52 @@ try {
   const firstStarted = new Promise<void>((resolve) => {
     firstStartedResolve = resolve;
   });
-  const parserLoad = (async () => {
-    let iterations = 0;
+  const workerLoad = (async () => {
+    let items = 0;
+    let cpuMs = 0;
+    let busyMs = 0;
     let runs = 0;
     while (performance.now() - loadStarted < durationSeconds * 1000 || !measurementCompleted) {
-      const result = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('XML 負荷の終了待機が期限切れ')), 10_000);
-        const onMessage = (message: { test?: string; iterations?: number }) => {
-          if (message.test === 'load-started' && runs === 0) firstStartedResolve();
-          if (message.test !== 'load-ended') return;
-          clearTimeout(timer);
-          activeWorker.off('message', onMessage);
-          resolve(message.iterations ?? 0);
-        };
-        activeWorker.on('message', onMessage);
-        activeWorker.postMessage({ test: 'xml-load' });
-      });
-      iterations += result;
+      const result = await new Promise<{ items: number; cpuMs: number; elapsedMs: number }>(
+        (resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error(`${loadKind} 負荷の終了待機が期限切れ`)),
+            loadKind === 'recovery' ? 180_000 : 20_000,
+          );
+          const onMessage = (message: {
+            test?: string;
+            items?: number;
+            cpuMs?: number;
+            elapsedMs?: number;
+            error?: string;
+          }) => {
+            if (message.test === 'load-started' && runs === 0) firstStartedResolve();
+            if (message.test !== 'load-ended' && message.test !== 'load-failed') return;
+            clearTimeout(timer);
+            activeWorker.off('message', onMessage);
+            if (message.test === 'load-failed')
+              reject(new Error(message.error ?? `${loadKind} 負荷が失敗`));
+            else
+              resolve({
+                items: message.items ?? 0,
+                cpuMs: message.cpuMs ?? 0,
+                elapsedMs: message.elapsedMs ?? 0,
+              });
+          };
+          activeWorker.on('message', onMessage);
+          activeWorker.postMessage({ test: 'issue260-load', kind: loadKind });
+        },
+      );
+      items += result.items;
+      cpuMs += result.cpuMs;
+      busyMs += result.elapsedMs;
       runs++;
     }
     return {
       runs,
-      iterations,
+      items,
+      cpuMs,
+      busyMs,
       elapsedMs: performance.now() - loadStarted,
       eventLoopUtilization: activeWorker.performance.eventLoopUtilization(),
     };
@@ -249,7 +276,7 @@ try {
   await Promise.race([
     firstStarted,
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('XML 負荷の開始待機が期限切れ')), 10_000),
+      setTimeout(() => reject(new Error(`${loadKind} 負荷の開始待機が期限切れ`)), 10_000),
     ),
   ]);
   const root = `http://127.0.0.1:${server.port}`;
@@ -328,8 +355,8 @@ try {
       ];
     }),
   );
-  const loadResult = await parserLoad;
-  results.parserLoad = loadResult;
+  const loadResult = await workerLoad;
+  results.workerLoad = loadResult;
   const entries = samples[seriesName] ?? [];
   const firstOffsetMs = Math.min(...entries.map((entry) => entry.offsetMs));
   const lastOffsetMs = Math.max(...entries.map((entry) => entry.offsetMs));
@@ -346,10 +373,11 @@ try {
   if (
     !('elapsedMs' in loadResult) ||
     loadResult.elapsedMs < durationSeconds * 1000 ||
-    loadResult.runs * 5000 < durationSeconds * 1000 ||
-    loadResult.iterations < 1
+    loadResult.busyMs < durationSeconds * 1000 ||
+    loadResult.items < 1 ||
+    loadResult.cpuMs < 1
   )
-    reasons.push('xml_load_failed');
+    reasons.push(`${loadKind}_load_failed`);
   if (entries.length !== effectiveRequests) reasons.push('request_count_mismatch');
   if (entries.some((entry) => entry.status !== 200 || entry.bytes < 1))
     reasons.push('http_failure');
