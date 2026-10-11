@@ -84,12 +84,13 @@ export function WarningListFilters({ items, search, onSearchChange }: WarningLis
         </select>
       </label>
       <div className="warning-list-filter-actions">
-        <GbButton color="filled" size="sm" type="button" onClick={submit}>
+        <GbButton color="filled" size="sm" square type="button" onClick={submit}>
           検索
         </GbButton>
         <GbButton
           color="outlined"
           size="sm"
+          square
           type="button"
           onClick={() => onSearchChange(createWarningListSearchState())}
         >
