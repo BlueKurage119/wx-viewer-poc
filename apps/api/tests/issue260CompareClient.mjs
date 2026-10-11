@@ -10,6 +10,7 @@ const paths = {
   tileHit: `/api/weather/nowcast/N1/tiles/10/0/0.png?terminalId=hkeagh01&controlStatus=normal&baseTime=${tileTime}&validTime=${tileTime}`,
 };
 if (!paths[series]) throw new Error('比較対象のAPI系列が不正です');
+const startedAt = new Date().toISOString();
 const started = performance.now();
 const samples = [];
 const requests = Array.from(
@@ -59,4 +60,7 @@ const requests = Array.from(
 await Promise.all(requests);
 samples.sort((a, b) => a.index - b.index);
 const fs = await import('node:fs');
-fs.writeFileSync(output, JSON.stringify({ startedAt: new Date().toISOString(), samples }, null, 2));
+fs.writeFileSync(
+  output,
+  JSON.stringify({ startedAt, finishedAt: new Date().toISOString(), samples }, null, 2),
+);

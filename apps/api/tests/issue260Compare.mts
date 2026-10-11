@@ -27,6 +27,10 @@ if (
   throw new Error('BENCH_ROOT、BENCH_MODE、BENCH_OUTPUT、BENCH_FIXED_ITEMS を指定');
 const imp = async (relative: string) => import(pathToFileURL(join(root, relative)).href);
 const { startServer } = await imp('apps/api/src/server.ts');
+const deliveryProbeEvents =
+  realPoll && mode === 'new' && process.env.BENCH_DIAG_DELIVERY === '1'
+    ? await (await import('./issue260DeliveryProbe.mjs')).installDeliveryProbe(root)
+    : undefined;
 const { initializeTestDatabases, createTestServerDatabaseOptions } = await imp(
   'apps/api/tests/helpers/databasePair.ts',
 );
@@ -425,6 +429,7 @@ try {
     maxMs: latency.at(-1),
     failures: clientData.samples.filter((sample) => sample.status !== 200).length,
     clientSamples: clientData.samples,
+    deliveryProbeEvents,
   };
   results.judgment = {
     validDuration: loadEndedMs >= 60_000,
