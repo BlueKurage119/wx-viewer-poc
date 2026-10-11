@@ -175,19 +175,19 @@ tile 時刻修正後も上記 4 品質ゲートを再実行し、すべて exit 
 
 この合成解析負荷では、新構成の5系列の応答 p95 は旧版より短く、タイル要求のタイムアウトも起きなかった。一方、新構成のピークRSSは全15ペアで旧版より大きく、CPU時間も多くのペアで増えた。解析の実時間と処理経路、保持 DB のサイズが異なるため、「Worker分離で製品全体が軽くなった」とは判定できない。今回確認できたのは、この固定解析量の試験での HTTP 応答分離の効果である。旧版の実取得経路で同じ入力を再現できておらず、外乱・swap、cold/warm、同時数1/8、毎秒1要求、write/recovery、main/両 Worker 別の資源、キュー・WAL の記録もない。E1/E2 は引き続き一部実施である。
 
-計測器は `apps/api/tests/issue260Compare.mts`、外部要求列は `apps/api/tests/issue260CompareClient.mjs`、ペア実行は `apps/api/tests/issue260CompareRunner.mjs`、新構成への負荷注入は `apps/api/tests/fixtures/worker/issue260-compare-load.ts`。再現時はリポジトリルートから次を実行する。旧版の展開とビルドに成功したこと、旧版 API の依存解決が旧 shared を指すことを確認してからペア実行する。
+計測器は `apps/api/tests/issue260Compare.mts`、外部要求列は `apps/api/tests/issue260CompareClient.mjs`、ペア実行は `apps/api/tests/issue260CompareRunner.mjs`、新構成への負荷注入は `apps/api/tests/fixtures/worker/issue260-compare-load.ts`。再現時はリポジトリルートから次を実行する。旧版の worktree とビルド、旧版 API の依存解決が旧 shared を指すことを確認してからペア実行する。計測器は開始前に両ルートの Git HEAD と未コミット変更を確認し、実際の HEAD を結果に記録する。過去の生値に記録されたコミット識別は今回の修正で遡及検証されない。
 
 ```bash
-mkdir -p apps/api/data/issue260-baseline apps/api/data/issue260-compare
-git archive 3e95635bf46fb38a559d6ca9d63a36ce414c2ac2 | tar -x -C apps/api/data/issue260-baseline
+mkdir -p apps/api/data/issue260-compare
+git worktree add --detach apps/api/data/issue260-baseline 3e95635bf46fb38a559d6ca9d63a36ce414c2ac2
 ln -s ../../../../node_modules apps/api/data/issue260-baseline/node_modules
 node node_modules/typescript/bin/tsc -p apps/api/data/issue260-baseline/packages/shared/tsconfig.json
 mkdir -p apps/api/data/issue260-baseline/apps/api/node_modules/@wx-viewer-poc
 ln -s ../../../../packages/shared apps/api/data/issue260-baseline/apps/api/node_modules/@wx-viewer-poc/shared
-BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-compare BENCH_CURRENT_COMMIT=abeb45a18b7607ee305f52dfdfdd453bec49c492 BENCH_FIXED_ITEMS=11000 node apps/api/tests/issue260CompareRunner.mjs health 1 3
+BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-compare BENCH_FIXED_ITEMS=11000 node apps/api/tests/issue260CompareRunner.mjs health 1 3
 ```
 
-最後のコマンドの `health` を `monitoring`、`systemDelta`、`weather`、`tileHit` に替えて各系列を実行する。固定コミットの取得にはローカル Git 履歴が必要で、旧版を展開したディレクトリは Git 管理外である。生成 JSON は出力先から検証して NDJSON に集約した。
+最後のコマンドの `health` を `monitoring`、`systemDelta`、`weather`、`tileHit` に替えて各系列を実行する。固定コミットの取得にはローカル Git 履歴が必要である。生成 JSON は出力先から検証して NDJSON に集約した。
 
 比較計測器・結果文書の追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` はすべて exit 0。`NODE_ENV=production npm run test -w apps/api` は 1,074/1,074 件成功、exit 0。今回の合成負荷を通常のテストファイルとして自動実行はしない。5系列×3ペアの計30実行で、`stage=completed`、固定解析11,000回、各600要求、解析60秒以上を検証した。
 
@@ -209,7 +209,7 @@ BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/da
 再現コマンドは前節の旧版展開・旧 shared ビルド後、同じリポジトリルートから次を実行する。
 
 ```bash
-BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-real-pilot BENCH_CURRENT_COMMIT=eb85585a1c5303ae7d7f1c181396059a8de5ee1f BENCH_FIXED_ITEMS=100 BENCH_REAL_POLL=1 node apps/api/tests/issue260CompareRunner.mjs health 1 1
+BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-real-pilot BENCH_FIXED_ITEMS=100 BENCH_REAL_POLL=1 node apps/api/tests/issue260CompareRunner.mjs health 1 1
 ```
 
 ## 実警報取得を60秒以上続けたhealth比較（範囲限定）
@@ -236,7 +236,7 @@ BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/da
 再現時は前節の旧版展開・旧 shared ビルドに続き、リポジトリルートで次を実行する。
 
 ```bash
-BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-real-load BENCH_CURRENT_COMMIT=eb85585a1c5303ae7d7f1c181396059a8de5ee1f BENCH_FIXED_ITEMS=20000 BENCH_REAL_POLL=1 node apps/api/tests/issue260CompareRunner.mjs health 1 3
+BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-real-load BENCH_FIXED_ITEMS=20000 BENCH_REAL_POLL=1 node apps/api/tests/issue260CompareRunner.mjs health 1 3
 ```
 
 実取得用fixture・失敗原因記録・結果文書の追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` はすべて exit 0。`NODE_ENV=production npm run test -w apps/api` は 1,074/1,074 件成功、exit 0。実取得の比較計測は独立の手動ハーネスで、通常のテスト群には含めていない。
@@ -279,7 +279,7 @@ health と同じ Atom 20,000件、同一警報XML、初期 DB、旧 shared、新
 再現時は前節の旧版展開・ビルドに続き、次の `health` を `monitoring`、`systemDelta`、`weather`、`tileHit` に替えて各系列を実行する。
 
 ```bash
-BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-real-all BENCH_CURRENT_COMMIT=673bf08769856c2ff56e08327d6fc66980320ebd BENCH_FIXED_ITEMS=20000 BENCH_REAL_POLL=1 node apps/api/tests/issue260CompareRunner.mjs health 1 3
+BENCH_BASELINE_ROOT=apps/api/data/issue260-baseline BENCH_OUTPUT_DIR=apps/api/data/issue260-real-all BENCH_FIXED_ITEMS=20000 BENCH_REAL_POLL=1 node apps/api/tests/issue260CompareRunner.mjs health 1 3
 ```
 
 4系列の生値・診断プローブ・結果文書の追加後、`npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` はすべて exit 0。`NODE_ENV=production npm run test -w apps/api` は1,074/1,074件成功、exit 0。
