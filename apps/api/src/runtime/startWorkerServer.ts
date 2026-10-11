@@ -426,6 +426,17 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
         throw new WeatherRequestError('generation_changed');
     }
   }
+  function observeReadRejection(kind: string, error: unknown): void {
+    try {
+      options.weatherReadRejectionObserver?.({
+        at: new Date().toISOString(),
+        kind,
+        code: error instanceof WeatherRequestError ? error.code : String(error),
+      });
+    } catch {
+      // 診断フックの失敗は実際の応答を変えない。
+    }
+  }
   async function read<K extends keyof WeatherOperations>(
     kind: K,
     payload: WeatherOperations[K]['request'],
@@ -448,6 +459,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
     try {
       assertCurrentRead(kind, payload, initialContext, acquisitionEpoch, deliveryEpoch);
     } catch (error) {
+      observeReadRejection(kind, error);
       if (kind === 'tile.read' && result && typeof result === 'object' && 'release' in result)
         (result.release as (() => void) | undefined)?.();
       throw error;
@@ -475,6 +487,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
     try {
       assertCurrentRead(kind, payload, initialContext, acquisitionEpoch, deliveryEpoch);
     } catch (error) {
+      observeReadRejection(kind, error);
       result.release?.();
       throw error;
     }

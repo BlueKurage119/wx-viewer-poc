@@ -1,0 +1,55 @@
+{
+  "startedAt": "2026-10-11T02:20:34.178Z",
+  "seed": 260,
+  "environment": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "arch": "x64",
+    "cpuCount": 12,
+    "totalmem": 34359738368,
+    "node": "v24.20.0"
+  },
+  "config": {
+    "requests": 100,
+    "concurrency": 1,
+    "rate": 10,
+    "seriesName": "health",
+    "durationSeconds": 60
+  },
+  "fixture": {
+    "receptionCount": 50000,
+    "rawBytesEach": 1024,
+    "rawHash": "892676a0ab68480f87d735e11756624653cbfb5c5a386955ddb0a1f7c3bd3962",
+    "tileCount": 1024,
+    "tileBytesEach": 65536,
+    "pngHash": "e36ebe4782b232411ca8b2d8e2e3eb32bd41e18a5691b7b720992897d8a9c0d5",
+    "weatherDbBytes": 81928192,
+    "retainedDbBytes": 114688
+  },
+  "database": {
+    "sqliteVersion": {
+      "version": "3.53.4"
+    },
+    "weatherJournalMode": {
+      "journal_mode": "delete"
+    },
+    "retainedJournalMode": {
+      "journal_mode": "delete"
+    },
+    "controlStatusCounts": [
+      {
+        "control_status": "normal",
+        "count": 16667
+      },
+      {
+        "control_status": "test",
+        "count": 16666
+      },
+      {
+        "control_status": "training",
+        "count": 16667
+      }
+    ]
+  },
+  "stage": "fixture_created"
+}
