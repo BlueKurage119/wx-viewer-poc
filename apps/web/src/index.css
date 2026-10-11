@@ -373,16 +373,19 @@ select {
   flex: 0 0 auto;
   min-inline-size: 56px;
 }
-/* 32pxの通知行へ収め、ツールバーと同じ塗りと形を保つ。 */
+/* 32pxの通知行へ収め、全角3文字分の幅を確保する。 */
 .notification-action-button::part(btn) {
   --container-height: 28px;
-  --leading-space: 12px;
-  --trailing-space: 12px;
+  --container-shape: 4px;
+  --leading-space: 8px;
+  --trailing-space: 8px;
+  font-size: 12px;
+  letter-spacing: 0;
 }
 .notification-action-container {
   display: block;
   background-color: var(--md-sys-color-primary-container);
-  border-radius: var(--md-sys-shape-corner-md);
+  border-radius: 4px;
 }
 .notification-action-content {
   color: var(--md-sys-color-on-primary-container);
@@ -393,7 +396,7 @@ select {
 .notification-action-selected .notification-action-content {
   color: var(--md-sys-color-on-tertiary-container);
 }
-.notification-action-button:focus-within {
+.notification-action-button::part(btn):focus-visible {
   outline: 3px solid var(--md-sys-color-primary);
   outline-offset: -3px;
 }
