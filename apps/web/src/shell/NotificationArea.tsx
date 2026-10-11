@@ -141,21 +141,40 @@ function NoticeRow({
   );
 }
 
+// 配布物のtoggle/selected APIは、通知の選択ボタンに限って型を拡張する。
+const NotificationGbButton = GbButton as React.ForwardRefExoticComponent<
+  Omit<React.ComponentProps<typeof GbButton>, 'type'> & {
+    readonly type: 'button' | 'toggle';
+    readonly selected?: boolean;
+  }
+>;
+
 function NotificationActionButton({
   children,
+  onClick,
+  'aria-pressed': pressed,
   ...props
 }: Omit<React.ComponentProps<typeof GbButton>, 'color' | 'size' | 'square'>) {
+  const selectable = pressed !== undefined;
+  const selected = pressed === 'true' || pressed === true;
   return (
-    <GbButton
+    <NotificationGbButton
       {...props}
+      type={selectable ? 'toggle' : 'button'}
+      selected={selectable ? selected : undefined}
       color="filled"
       size="sm"
       square
-      className="notification-action-button"
+      className={`notification-action-button${selected ? ' notification-action-selected' : ''}`}
       aria-label={typeof children === 'string' && children ? children : undefined}
+      onClick={(event) => {
+        // 選択は通知storeで管理する。配布物の既定トグルによる解除を抑制する。
+        if (selectable) event.preventDefault();
+        onClick?.(event);
+      }}
     >
       <span aria-hidden="true" className="notification-action-container" slot="container" />
       <span className="notification-action-content">{children}</span>
-    </GbButton>
+    </NotificationGbButton>
   );
 }

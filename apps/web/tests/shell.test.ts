@@ -105,11 +105,7 @@ test('H2 AC9: 通知ありではwarningを2ボタン、問いかけを選択肢�
   assert.equal((html.match(/class="notification-action-content">詳細<\/span>/g) ?? []).length, 2);
   assert.equal((html.match(/class="notification-action-content">確認<\/span>/g) ?? []).length, 2);
   assert.equal((html.match(/class="notification-action-content">送信<\/span>/g) ?? []).length, 1);
-  assert.ok(
-    html.includes(
-      '<div class="notice-question-choices"><md-gb-button type="button" aria-pressed="false"',
-    ),
-  );
+  assert.ok(html.includes('<div class="notice-question-choices"><md-gb-button type="toggle"'));
   assert.equal((html.match(/disabled=""/g) ?? []).length, 5);
 });
 test('Issue #63: 問いかけは確認を選択してから送信を有効化する', () => {
@@ -126,7 +122,8 @@ test('Issue #63: 問いかけは確認を選択してから送信を有効化す
   const initialHtml = renderToStaticMarkup(
     el(NotificationArea, { state: received, mode: 'K', ...callbacks }),
   );
-  assert.ok(initialHtml.includes('aria-pressed="false"'));
+  assert.equal(initialHtml.includes('notification-action-selected'), false);
+  assert.equal(initialHtml.includes('type="toggle"'), true);
   assert.equal(
     /<md-gb-button[^>]*disabled=""[^>]*><span[^>]*><\/span><span[^>]*>送信<\/span><\/md-gb-button>/.test(
       initialHtml,
@@ -139,7 +136,8 @@ test('Issue #63: 問いかけは確認を選択してから送信を有効化す
   const selectedHtml = renderToStaticMarkup(
     el(NotificationArea, { state: selected, mode: 'K', ...callbacks }),
   );
-  assert.ok(selectedHtml.includes('aria-pressed="true"'));
+  assert.equal(selectedHtml.includes('notification-action-selected'), true);
+  assert.equal(selectedHtml.includes('selected=""'), true);
   assert.equal(
     /<md-gb-button(?![^>]*disabled)[^>]*><span[^>]*><\/span><span[^>]*>送信<\/span><\/md-gb-button>/.test(
       selectedHtml,
@@ -429,4 +427,45 @@ test('画面切替はH/Kで許可されたボタンだけを表示し、現在�
       );
     }
   }
+});
+
+test('#271 選択ボタンはtoggle/selectedで内部押下状態を指定し、既定の選択解除を抑える', () => {
+  const received = receiveNotifications(
+    createNotificationUiState(),
+    previewNotices('mixed'),
+    'K',
+    0,
+  ).state;
+  const key = displayedNoticeForRow(received, 'K', 'question')!.feedKey;
+  const state = selectQuestionConfirmation(received, key);
+  let selectedKey = '';
+  const walk = (node: React.ReactNode): React.ReactElement<Record<string, unknown>>[] => {
+    if (!React.isValidElement(node)) return [];
+    const element = node as React.ReactElement<Record<string, unknown>>;
+    if (typeof element.type === 'function') return walk(element.type(element.props));
+    return [
+      element,
+      ...React.Children.toArray(element.props.children as React.ReactNode).flatMap(walk),
+    ];
+  };
+  const elements = walk(
+    el(NotificationArea, {
+      state,
+      mode: 'K',
+      onSelectQuestionConfirmation: (feedKey: string) => {
+        selectedKey = feedKey;
+      },
+    }),
+  );
+  const button = elements.find((element) => element.props.type === 'toggle')!;
+  assert.equal(button.props.selected, true);
+  assert.equal(button.props.className, 'notification-action-button notification-action-selected');
+  let prevented = 0;
+  (button.props.onClick as (event: unknown) => void)({
+    preventDefault: () => {
+      prevented++;
+    },
+  });
+  assert.equal(prevented, 1);
+  assert.equal(selectedKey, key);
 });
