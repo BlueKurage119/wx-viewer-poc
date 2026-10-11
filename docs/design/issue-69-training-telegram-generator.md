@@ -1,0 +1,250 @@
+# Issue #69: 訓練電文の項目選択・自動生成・プレビュー
+
+## 状態と目的
+
+**設計承認済み・製造許可済み。** 2026年10月11日のヒアリングと追加判断を反映する。下記を既存対応形式に合わせた製造契約とする。速報5種類の地域・雨量・現象の想定もオーナー承認済み。電文テンプレート完成後にオーナー自身による監修を予定しており、完成テンプレートの監修済みを意味しない。
+
+原 Issue J1 の「来歴付きサンプル電文カタログ（一覧・選択）」を、選択項目からその場で合成電文を生成する機能へ変更する。既存サンプルを選んでそのまま投入する機能ではない。来歴の区別は引き継ぎ、生成結果は常に訓練用の合成電文と表示する。Issue 本文の変更は本設計作業では行っていない。
+
+## ヒアリング済み事項
+
+- 【確定】今回の対象は J1 のみ。発表の生成だけを扱い、取消は次回 PR で対応する。取消と解除を混同しない。
+- 【確定】地域条件に合わない項目は選択不可とする。
+- 【確定】同一現象内は単一段階、異なる現象間は複数選択とする。
+- 【既存確定】利用は K 端末のみ。[基本設計](../basic-design.md) §3.4 と [画面設定](../../apps/web/src/shell/config.ts) の既存挙動を維持し、新しい認証は追加しない。
+- 【確定】警戒レベルを冠する情報だけでなく、雷・強風等を含む警報・注意報全般を対象とする。
+- 【確定】気象防災速報は線状降水帯発生、線状降水帯直前予測、記録的短時間大雨、竜巻注意、竜巻目撃の5種類を含め、地域・雨量・現象の想定は承認済み。完成した電文テンプレートはオーナーが監修する。
+- 【確定】ユーザーが操作するのは項目の選択。複数選択を可能とする。
+- 【確定】日時は生成時点、地域は東京ビッグサイト付近かつ実際にあり得る区域構成に自動設定する。日時・地域の入力欄は設けない。
+- 【確定】今回の到達点は項目選択、合成 XML の生成、内容プレビュー。通常パイプラインへの注入は J2、通知・履歴・表示全体への伝播は J4 に残す。
+
+## 調査根拠と制約
+
+| 参照 | 確認した内容・設計への影響 |
+| --- | --- |
+| [Issue 台帳](../issues-draft.md) Epic J | J1 はカタログ、J2 は注入。今回の変更は明示的なスコープ変更として扱う |
+| [取得方法レポート](../data-acquisition-report.md) §3.2、§3.6 | VPWW55–61、VPBS50、VPHW50/51 は構造が異なる。名称の類似だけで共通 XML を作らない |
+| [警報パーサー](../../apps/api/src/polling/jmaWarningTelegramParser.ts) | 市町村等 Warning を抽出。訓練区分と日時を照合する。パーサー通過だけで公式仕様全体への適合とはしない |
+| [速報パーサー](../../apps/api/src/polling/jmaVpbs50Parser.ts)、[型定義](../../apps/api/src/repositories/types.ts) | 対象タグは線状降水帯発生・線状降水帯直前・記録雨。短時間大雪まで対応済みとは扱えない |
+| [竜巻パーサー](../../apps/api/src/polling/jmaVphwParser.ts) | VPHW50/51 に対応。発表電文の ValidDateTime を検証する |
+| [公式サンプル台帳](../../apps/api/tests/fixtures/jma/manifest.json) | 公式サンプルと加工・合成の来歴がある。公式原本を生成結果と誤認させない |
+| [線状降水帯サンプル](../../apps/api/tests/fixtures/jma/82_01_01_260324_VPBS50.xml) | Headline の情報タグ区域と Body の観測時刻・区域が存在する。表題だけ東京へ変更してはならない |
+| [竜巻サンプル](../../apps/api/tests/fixtures/jma/19_08_03_250630_VPHW50.xml) | 府県・一次細分区域等・市町村等をまとめた地域等の複数階層がある。発表時刻と有効時刻を区別する |
+| [会場設定](../../config/venues.yaml) | east は江東区 1310800、東京地方 130010、速報判定は 1310800・130012・130010。これは採用判定設定であり、あらゆる現象の発表可能性の証明ではない |
+| [気象庁 XML 技術資料](https://xml.kishou.go.jp/tec_material.html) | 2026年10月11日に参照。コード表10月7日、解説10月9日、サンプル9月17日更新。保存済資料との差分は未照合 |
+
+既存対応の R06 1.5_0、VPBS50 1.5_0、VPHW50 1.0_0／VPHW51 1.1_0 を対象形式とする。最新版の全差分や提供実態を網羅した設計ではない。最新 parser への全面更新は対象外。地域適合と生成可否は後述の項目表による。季節・実際の天候に応じて選択肢を変えない。
+
+## 対象候補と確定した操作方針
+
+### 生成項目表
+
+XML名称はレベル数字を全角とする。itemIdは `warning-{2桁Code}`、表示名は下表の名称。groupが同じ項目は排他。速報IDとgroupは後述。
+
+| 系列・group | 生成可能な名称とCode | 選択不可・理由 |
+| --- | --- | --- |
+| VPWW55・rain | レベル２大雨注意報10、レベル３大雨警報03、レベル４大雨危険警報43、レベル５大雨特別警報33 | なし |
+| VPWW56・landslide | レベル２土砂災害注意報29 | レベル３土砂災害警報09、レベル４土砂災害危険警報49、レベル５土砂災害特別警報39：江東区の該当基準設定なし |
+| VPWW57・surge | レベル２高潮注意報19、レベル３高潮警報08、レベル４高潮危険警報48、レベル５高潮特別警報38 | なし |
+| VPWW58・wind | 強風注意報15、暴風警報05、暴風特別警報35、風雪注意報13、暴風雪警報02、暴風雪特別警報32 | 暴風と暴風雪も同じgroupで同時選択不可 |
+| VPWW59・wave | 波浪注意報16、波浪警報07、波浪特別警報37 | なし |
+| VPWW60・snow | 大雪注意報12、大雪警報06、大雪特別警報36 | なし |
+| VPWW61・thunder | 雷注意報14 | なし |
+| VPWW61・fog | 濃霧注意報20 | なし |
+| VPWW61・dry | 乾燥注意報21 | なし |
+| VPWW61・cold | 低温注意報23 | なし |
+| VPWW61・frost | 霜注意報24 | なし |
+| VPWW61・icing | 着氷注意報25 | なし |
+| VPWW61・snow-accretion | 着雪注意報26 | なし |
+| VPWW61・snowmelt／avalanche | なし | 融雪注意報17、なだれ注意報22：江東区の具体的基準が設定されていないため本訓練の生成対象外 |
+| VPBS50・linear | 線状降水帯発生、線状降水帯直前予測 | 同時選択不可 |
+| VPBS50・record-rain | 記録的短時間大雨 | なし |
+| VPHW50/51・tornado | 竜巻注意、竜巻目撃 | 同時選択不可 |
+
+最大同時選択は16項目（警報注意報13group＋速報3group）。洪水警報04／洪水注意報18は新体系のVPWW55–61へ追加しない。河川単位の氾濫情報とは別。その他注意報27は具体的現象を特定できないため項目化しない。VPWS50集約、予報時系列、早期注意情報、河川氾濫、短時間大雪速報、潮位速報は今回の対象外。
+
+地域可否の根拠は気象庁の[江東区発表基準](https://www.jma.go.jp/jma/kishou/know/kijun/tokyo/kijun_1310800.pdf)（2026年5月28日）、[土砂L5](https://www.jma.go.jp/jma/kishou/know/kijun/tokyo/2_1_tokyo.csv)、[土砂L4/L3](https://www.jma.go.jp/jma/kishou/know/kijun/tokyo/2_2_tokyo.csv)、[土砂L2](https://www.jma.go.jp/jma/kishou/know/kijun/tokyo/2_3_tokyo.csv)、[高潮基準](https://www.jma.go.jp/jma/kishou/know/kijun/tokyo/4_tokyo.csv)。江東区土砂L5・L4は全66格子に基準なし、L2は基準あり。融雪・なだれの基準空欄は現象が絶対に発生しないという意味ではなく、具体的基準がないための今回の除外とする。着氷・着雪は基準ありなので除外しない。
+
+### 追加ヒアリングで確定した方針
+
+1. **地域適合。** 江東区を含む適切な区域で成立する項目のみ生成可能とし、地域条件に合わない項目は選択不可とする。種類を増やすために対象を近隣へ広げたり、不自然な地域に置き換えたりしない。採用する項目は次の項目表に固定する。
+2. **生成状態。** 今回は新規の発表を生成する。継続・強化・解除の遷移セットは含めない。取消は次回 PR で扱い、解除の生成で代替しない。ユーザーの明示は「取り消し（→解除でない）」である。
+3. **同一現象の複数段階。** 現象内は単一段階、異なる現象間は複数選択とする。同じ現象の競合する段階を同時生成せず、UI と API の双方で制御する。
+
+これらの操作方針に追加の質問はない。以下の数値・時間幅は訓練シナリオの固定値であり、公式の発表基準や運用周期を意味しない。
+
+## 形式・構造の根拠
+
+設計時に次の保存資料を読み、実サンプルと照合した。リモート製造環境では外部資料が見えないため、製造契約に必要な値は本書へ記載する。
+
+- [R06 解説](../../../docs/260907_weather-data/jmaxml_20260826_Manual(pdf)/気象警報・注意報（Ｒ０６）_解説資料.pdf) pp.4、8–15、24–25 と同梱別表2–6。別表3の種別名・コード、別表4の Property、別表5の危険度コードを照合。
+- [気象解説情報形式](../../../docs/260907_weather-data/jmaxml_20260826_Manual(pdf)/気象解説情報形式_解説資料.pdf) §2、§3.1。発表／対象／実況時刻、EventID、実況の表現構造を照合。
+- [竜巻注意情報](../../../docs/260907_weather-data/jmaxml_20260826_Manual(pdf)/竜巻注意情報_解説資料.pdf) pp.3–6。Header の版と空 EventID、5種類の Headline Information、4種類の Body Warning を照合。
+- 警報サンプルは `../../../docs/260907_weather-data/jmaxml_20260723_Samples/15_16_01_241031_VPWW56.xml`、`15_16_02_251222_VPWW57.xml`、`15_16_03_241226_VPWW55.xml`、`15_16_04_251222_VPWW58.xml`、`15_16_05_241226_VPWW59.xml`、`15_16_06_241226_VPWW60.xml`、`15_16_07_250825_VPWW61.xml` を参照（2本目以降も同じディレクトリ）。
+
+公式資料では警報の `ReportDateTime` は分単位で秒00、`TargetDateTime` は発表時刻と同じ、`EventID` と `Serial` は空。竜巻の EventID も空。これらへアプリ独自 UUID を入れない。アプリの生成セットIDとXML内の識別子は別管理とする。
+
+## モジュールと実行場所
+
+| ファイル | 責務 |
+| --- | --- |
+| `packages/shared/src/trainingTelegram.ts`、同 `index.ts` | request/response、表示用項目定義、厳密な入力検証の公開 |
+| `apps/api/src/training/trainingItemDefinitions.ts` | 種別コード、排他グループ、生成可否、区域、Property の固定シナリオ |
+| `apps/api/src/training/trainingTelegramGenerator.ts` | XMLを要素単位で構築する純粋処理。DB・ネットワーク不要 |
+| `apps/api/src/services/trainingTelegramService.ts` | terminal registry検証、時計・ID生成器の注入、生成後の既存parser検証 |
+| `apps/api/src/app.ts` | 下記2ルート、入力不備とエラーのHTTP化、no-store |
+| `apps/api/src/runtime/startWorkerServer.ts` | メインHTTPプロセスの `AppDependencies` にserviceを組み込む |
+| `apps/api/src/runtime/createApplicationRuntime.ts` | 単一プロセス起動用の `createApplicationRuntime` にも同じserviceを組み込む。delivery workerの `createDeliveryApplicationRuntime` へは組み込まない |
+| `apps/web/src/training/TrainingView.tsx`、同CSS、`apps/web/src/api/training.ts`、`apps/web/src/App.tsx` | 訓練画面・API呼出し・プレースホルダーとの置換 |
+
+現在の2 worker構成ではHTTPメインプロセス内で同期生成する。acquisition／delivery workerへのRPCや weather read portを追加しない。weather DB停止時にも生成可能。serviceは `terminalRegistry`、`now: () => string`、`idFactory: () => string` だけを依存とし、`createTrainingTelegramService(...)` を両起動入口から利用する。parser呼出しに必要な対象区域は本書の訓練用固定定義を渡し、実監視の会場設定を書き換えない。
+
+K端末は登録済 terminal の mode でAPIでも制限する。terminalIdは認証資格情報ではなく、既存の端末選択規約による識別である。K端末の会場がTRCでも、今回の生成対象はユーザー指定どおりビッグサイト周辺に固定し、結果に「江東区／東京地方」を表示する。
+
+## 型・API契約
+
+```ts
+type TrainingItemId = `warning-${string}` | `bulletin-${string}`;
+type TrainingTelegramType = 'VPWW55' | 'VPWW56' | 'VPWW57' | 'VPWW58' | 'VPWW59'
+  | 'VPWW60' | 'VPWW61' | 'VPBS50' | 'VPHW50' | 'VPHW51';
+interface TrainingItem {
+  readonly id: TrainingItemId;
+  readonly label: string;
+  readonly group: string;
+  readonly selectable: boolean;
+  readonly unavailableReason: string | null;
+}
+interface TrainingGenerateRequest {
+  readonly terminalId: string;
+  readonly itemIds: readonly TrainingItemId[];
+}
+interface TrainingTelegramPreview {
+  readonly id: string;
+  readonly itemIds: readonly TrainingItemId[];
+  readonly telegramType: TrainingTelegramType;
+  readonly title: string;
+  readonly xml: string;
+  readonly reportDateTime: string;
+  readonly targetDateTime: string;
+  readonly validDateTime: string | null;
+  readonly areaNames: readonly string[];
+  readonly provenance: 'synthetic';
+  readonly isTraining: true;
+}
+interface TrainingGenerateResponse {
+  readonly generationId: string;
+  readonly generatedAt: string;
+  readonly telegrams: readonly TrainingTelegramPreview[];
+}
+```
+
+- `GET /api/training/items?terminalId=...` → 200 `{ items: TrainingItem[], targetLabel: '東京ビッグサイト周辺' }`。queryはterminalIdだけを許可し、配列・重複・未知キーを拒否。
+- `POST /api/training/preview` → 200 `TrainingGenerateResponse`。bodyはplain objectで、上記2キー以外を拒否。terminalIdは空でない文字列、itemIdsは1～16件、各IDは64文字以下、既知・選択可能・重複なし・group内1個を要求。日時・地域・生XML・modeを入力として受け付けない。query付きPOSTは未知パラメータとして拒否する。
+- 不正入力／不明端末は400 `{status:'error',code:'invalid_request'}`、登録H端末は403 `forbidden_terminal`。registry/service未構成は503 `training_unavailable`。生成かparser照合の失敗は500 `training_generation_failed`。失敗時にXMLや部分成功を返さない。
+- 成否すべて `Cache-Control: no-store`。既存の `express.json()` より前に `/api/training` 限定でheaderを設定するmiddlewareを置く。body上限は全体設定を変更せず、trainingルートでUTF-8の `JSON.stringify(req.body)` が16KiB以下か検証し、超過は413 `request_too_large`。既存HTTP parserが先に拒否した場合はその413を維持する。
+- 生成時計は1回だけ読む。`generatedAt` はそのUTC ISO値、`T=floor(now/60000)*60000` を全電文共通の発表時刻とする。APIの日時はUTC ISO、XMLのHead/Body日時はJST `+09:00`、Control日時はUTC `Z`。
+- `idFactory` は UUID v4文字列を返すものに固定し、テストも有効なUUIDを注入する。`generationId=idFactory()`、結果idは `generationId + ':' + zeroBasedIndex`。同じ分の再生成でもIDは異なるが、XML発表時刻が同じになることは正常。電文順は VPWW55、56、57、58、59、60、61、VPBS50（発生、直前、記録雨の定義順）、VPHW50、51 とする。
+- `generateTrainingTelegrams(itemIds, {now, generationId})` はネットワーク・DB・環境時刻を参照しない。同じ引数に同じ出力を返す。
+
+## XML共通規則
+
+`Report` の名前空間は `http://xml.kishou.go.jp/jmaxml1/`、Headは `.../informationBasis1/`、Bodyは `.../body/meteorology1/`、量要素 `jmx_eb` は `.../elementBasis1/`。属性・本文はXML escapingし、DOCTYPE、外部実体、任意XMLの入力を許さない。生成結果は要素名・値から組み立て、サンプル全文の文字列置換や通常電文の再ラベルはしない。
+
+Controlは `Status=訓練`、`DateTime=now`、`EditorialOffice=気象庁`、`PublishingOffice=気象庁`。この官署名は形式内の合成設定であり、画面には常に「訓練用合成」を表示する。Headは `InfoType=発表`、ReportDateTimeとTargetDateTimeはT。
+
+訓練用に対象区域だけを表現する部分電文とする。公式配信の都内全区域スナップショットではない。無関係な地域に「発表なし」を生成せず、J2で欠落区域の削除として扱わない。参照元の原本はoriginal、出力はsynthetic。定義に参照資料URL・使用した原本ファイル名・生成内容を残す。
+
+### 警報・注意報
+
+- Control/Titleは `気象警報・注意報（Ｒ０６）（大雨／土砂／高潮／暴風／波浪／大雪／その他注意報）` の該当1つ。Head/Titleは `東京都大雨警報・注意報` 等、VPWW56は `東京都土砂災害警報・注意報`、VPWW58は `東京都暴風警報・注意報`、VPWW61は `東京都{選択した現象名を「・」で連結}注意報`（雷だけなら `東京都雷注意報`）。InfoKindは `気象警報・注意報`、Versionは `1.5_0`。EventID／Serialは空タグ。ValidDateTimeは生成しない。
+- Headline/Textは `【訓練】江東区に{選択名を読点で連結}を発表する想定です。`。Informationは `気象警報・注意報（府県予報区等）`／`（一次細分区域等）`／`（市町村等をまとめた地域等）`／`（市町村等）` を生成し、対応区域は東京都130000／東京地方130010／２３区東部130012／江東区1310800。
+- HeadlineのKindは選択したName/Code、Areas/codeTypeは上3層が `気象情報／府県予報区・細分区域等`、市町村が `気象・地震・火山情報／市町村等`。
+- Body/Warningも同じ4種類のtype・同じ区域を持つ。各Itemは選択Kind群→Area→ChangeStatusの順。KindのStatusは発表、LastKind／NextKinds／Kind/DateTimeは省略（個別新規発表であり集約通報ではない）。ChangeStatusは `警報・注意報種別に変化有`。上3層にはFullStatus=一部、EditingMark=0を置き、市町村層には置かない。Propertyは市町村Kindにのみ生成する。
+- VPWW61は同時選択した注意報Kindをコード昇順で1電文へまとめる。他系列は排他制御により1 Kind。任意の補足・前報・お知らせを無根拠に追加しない。
+- 危険度Propertyは `Type={現象}危険度`、`SignificancyPart/Base/Significancy@type` も同じ文字列、その直下Name/Codeを配置する。大雨のみ `大雨浸水危険度`、風は `風危険度`、大雪は `雪危険度`、波浪は `波危険度`。注意報級20／警報級30／特別警報級50、大雨・土砂災害・高潮のレベル2は `警戒レベル２`21、レベル3/4/5は `警戒レベル３相当`31／`警戒レベル４相当`41／`警戒レベル５相当`51。
+- 風・雪・波・濃霧・乾燥の量Propertyは以下の表。Property/Typeと `Part/Base/jmx_eb:要素` を公式サンプルに合わせる。descriptionは値と単位の日本語表現とし、危険度と矛盾する実測値を借用しない。
+
+| Property/Type | 構造・固定シナリオ値 |
+| --- | --- |
+| 風 | WindDirectionPart/Base/WindDirection: type=風向、unit=８方位漢字、値=南（風雪は北）。WindSpeedPart/Base/WindSpeed: type=最大風速、unit=m/s、注意報15／警報30／特別警報50 |
+| 雪 | SnowfallDepthPart/Base/SnowfallDepth: type=１２時間最大降雪量、unit=cm、注意報5／警報15／特別警報50 |
+| 波 | WaveHeightPart/Base/WaveHeight: type=波高、unit=m、注意報2／警報4／特別警報8 |
+| 濃霧 | VisibilityPart/Base/Visibility: type=視程、unit=m、condition=以下、値100 |
+| 乾燥 | HumidityPartを2つ置き、それぞれのBaseにHumidityを1つ: type=実効湿度、値40、type=最小湿度、値20、いずれもunit=% |
+
+その他注意報は対応する危険度Property。霜のみSignificancyPart/Base内のPeakTime/DateとTermを付け、T+24hのJST日付と3時間帯（未明／明け方／朝／昼前／昼過ぎ／夕方／夜のはじめ頃／夜遅く）を別表6に従い算出する。これは季節や時刻による選択制限ではない。
+
+高潮は `高潮危険度` に続き `高潮基準超過` と `高潮ピーク` を配置する。予報区間を捏造せず地域全体のBaseで表現する。レベル2/3/4の到達時刻をそれぞれ **A=T+18h／T+12h／T+6h** とし、CriteriaPeriod/BaseはCriteriaClass=警戒レベル４相当/41、Time=A、Duration=PT4H、SentenceはAからA+4hまでのJST日時を生成する。高潮基準超過のTidalLevelPart/Baseはtype=潮位、unit=m、値3.4、Time=A。高潮ピークはtype=最高潮位、値3.8、Time=A+1h。うちあげ高水位・水位基準地点・追加の予報区間は生成しない。
+
+この段階差は[公式の警報・注意報の種類](https://www.jma.go.jp/jma/kishou/know/bosai/warning_kind.html)が示す、高潮のL2／L3／L4を基準到達のおおむね18／12／6時間前までに発表する扱いを踏まえた訓練シナリオである。同じ予想最大潮位でも、基準到達が近づく段階を別々の初回発表として生成する。公式サンプル `15_18_01_250630_VPWS50.xml` でもL2はKind/DateTime=12日07:24に対し到達13日00:00（16時間36分後）、L3は12日06:32に対し同日19:00（12時間28分後）であり、L2とL3が同一のL4基準到達を異なる先行時間で表現することを照合した。同サンプルは[保存サンプル群](../../../docs/260907_weather-data/jmaxml_20260723_Samples/)内にある。18／12／6時間は今回の固定生成値であり、実運用でその時刻ぴったりに発表される、または時間だけで警報を自動決定するという意味ではない。
+
+レベル5は危険度51、Kind/Condition=氾濫発生とする。**CriteriaPeriodを省略しない**。R06解説§3-2-4-1-1-5-3の［解説］1～4に従い、CriteriaClass=警戒レベル５相当/51、TimeはTの直前の正時（Tが正時ならT）、SentenceはそのJST時刻にレベル5相当へ到達した想定とし、継続期間が示せない想定なのでDurationだけを省略する。高潮基準超過は値4.0・Time=T、ピークは値4.2・Time=T+1h。この数値は公式江東区高潮基準（L4=3.4m、L5=4.0m）を踏まえた合成値。江東区の別紙4の予報区間・海岸・水位基準欄は空なので追加の高潮予報区間Warning／TidalAreaPartを生成しない。
+
+### Propertyの静的照合範囲
+
+選択可能な全警報についてR06別表4のProperty/Typeと量要素の対応、別表5の危険度コードを照合した。大雨・土砂L2は危険度、風は危険度＋風向・風速、雪は危険度＋降雪量、波は危険度＋波高、高潮は危険度＋基準超過＋ピーク、濃霧は危険度＋視程、乾燥は危険度＋実効湿度・最小湿度、その他は各危険度を構築する。15_16_01～07の市町村KindでPart/Baseの階層と量要素の属性、霜のPeakTimeがSignificancyPart/Base直下にあることを確認した。CriteriaPeriodは本文§3-2-4-1-1-5-3を優先してL5も含めた。これは構造の静的照合であり、未実装XMLのXSD検証やparser往復を済ませた意味ではない。製造時のDOM期待値検査で、本書の各Propertyが欠落していないことを確認する。
+
+### 気象防災速報 VPBS50
+
+Control/Title=府県気象防災速報、Head/Title=`東京都気象防災速報（{線状降水帯発生／線状降水帯直前予測／記録的短時間大雨}）`、InfoKind=気象解説情報、Version=1.5_0、Serial=1。EventIDは `TRAIN` + generationIdからハイフンを除いた英数字 + `A/B/C`（項目別）とし、公式官署由来IDを装わず、独立現象として重複を避ける。根拠は気象解説情報形式§2-4／§5：親番のみの一意な文字列を許容し、日時や官署プレフィックスを必須にしていない。アンダーバーを使用せず、枝番ではなく項目ごとに独立した親番とする。既存parserは非空EventIDを検査し、日時プレフィックスを要求しない。Headline/Information@type=情報タグ、Kind/Name=情報タグ、Conditionは発生=`線状降水帯発生`、直前=`線状降水帯直前`、記録雨=`記録雨`。Areasは東京地方130010、codeType=気象情報／府県予報区・細分区域等。
+
+Bodyは `MeteorologicalInfos@type=観測実況/MeteorologicalInfo`。ここにはDateTime=Tを置く。
+
+| 項目ID | Item/Kind/Property と時間 | Item/Area |
+| --- | --- | --- |
+| bulletin-linear-occurrence | Type=気象現象の実況、EventPart/Event@type=線状降水帯、EventName=線状降水帯発生、Time=floor((T-10分)/10分)*10分 | 東京地方130010、codeType=気象情報／府県予報区・細分区域等 |
+| bulletin-linear-imminent | 同上、EventName=線状降水帯予想、Timeは上と同じ。Headlineに「今後３時間以内」の合成予測を記載 | 同上 |
+| bulletin-record-rain | Type=雨の実況、PrecipitationPart/jmx_eb:Precipitation@type=前１時間解析雨量、unit=mm、condition=約、値120、description=約１２０ミリ。Timeは上と同じ | 江東区1310800、codeType=気象・地震・火山情報／市町村等、Status=付近 |
+
+[記録的短時間大雨の発表基準一覧](https://www.jma.go.jp/jma/kishou/know/kijun/list_of_kirokuame_level.pdf)（2026年5月28日現在）の東京地方の基準は1時間100mmである。今回の江東区付近の合成解析雨量120mmはこの基準を上回る訓練値として採用する。[線状降水帯に関する公式説明](https://www.jma.go.jp/jma/kishou/know/bosai/kishojoho_senjoukousuitai.html)に従い、発生と今後3時間以内の直前予測を区別する。線状降水帯は一次細分区域の東京地方130010を対象とする広域の想定で、江東区だけの情報へ縮小しない。記録雨のBodyは江東区付近、Headlineのタグ区域は東京地方のままとする。これらの地域・雨量・現象の想定はオーナー承認済み。発表時刻14:10（JST）の場合、既定式による実況・解析時刻は14:00となる。
+
+Headline/Textは訓練であること、上記の区域・時刻・量に一致する合成文章を生成。Station要素を作らず実アメダス観測に見せない。有効期限は公式値を確認できないため生成しない。線状降水帯発生と直前は同一groupにし、同時選択不可。記録雨は別group。
+
+### 竜巻 VPHW50/51
+
+`bulletin-tornado` はVPHW50、Control/Title=竜巻注意情報、Version=1.0_0。`bulletin-tornado-observed` はVPHW51、Control/Title=竜巻注意情報（目撃情報付き）、Version=1.1_0。同じgroup=tornadoで排他。InfoKind=竜巻注意情報、Serial=1、EventIDは空、Head/Title=`東京都気象防災速報（竜巻注意／竜巻目撃）`。
+
+ValidDateTimeはT+60分を10分境界へ切り上げ（60～69分後）。これはサンプルの将来失効構造を保つ訓練シナリオであり、全実電文が同じ有効時間とは主張しない。
+
+Headlineは `竜巻注意情報（発表細分）`=東京都130000、`（一次細分区域等）`=東京地方130010、`（市町村等をまとめた地域等）`=２３区東部130012、`（市町村等）`=江東区1310800。KindはName=竜巻注意情報、Code=1、Condition=発表。Areas/codeTypeは警報と同じ階層別設定。VPHW51のみ `（目撃情報あり）` を追加し、江東区1310800の市町村codeTypeとする。Bodyの同4階層WarningはName=竜巻注意情報、Code=1、Status=発表、Areaは各1件。目撃の緯度経度や架空の実測地点を足さない。本文は「【訓練】江東区で竜巻などの激しい突風が発生したとみられる想定です。」を含む合成文。
+
+## UI契約
+
+現象ごとのfieldsetに「選択なし」と各段階のradioを置く。その他注意報は現象ごとのcheckbox。同じgroupは1項目、groupをまたいで複数選択できる。選択不可項目はdisabledと理由を表示する。Material Webの既存ラッパー・トークン規約に従う。日時・区域入力、注入・取消・解除操作は置かない。
+
+「生成」は未選択・読込中・送信中はdisabled。操作直後に送信中状態を描画し、API応答を待ってから反応するUIにしない。選択変更時に旧プレビューを消す。リクエストごとに連番とAbortControllerを持ち、選択変更、端末切替、画面離脱でabortと連番更新。古い成功・失敗レスポンスは描画しない。サーバー内部処理の取消は不要（副作用なし）。失敗時は選択を維持し日本語のエラーと再実行ボタンを表示。自動再送はしない。
+
+結果は電文ごとの見出し、対象区域、発表時刻（JST）、竜巻の失効時刻、訓練用合成バッジ、選択項目名を示す。XMLはdetails/pre等でテキスト表示し、dangerouslySetInnerHTMLは使わない。XMLのコピーやダウンロード、永続保存は今回追加しない。生成成功から次の選択変更まで画面内だけに保持する。
+
+## 生成後検証
+
+各XMLを `parseWarningTelegram(rawXml, expected, {municipalCode:'1310800',displayName:'江東区'})`、`parseVpbs50(rawXml, expected, {includedAreaCodes:['1310800','130012','130010']})`、`parseVphw(...)` に通す。expectedはtelegramType、controlStatus=training、reportDateTime=TのUTC、controlDateTime=nowのUTC。okだけでなく、訓練区分・種別・区域・選択コード群・発表時刻が一致することを確認する。原文DOM検証でVersion、Namespace、Property、EventID規則、時間関係も確認する。既存parserは変えない。検証不一致は内部エラーとして全体失敗し、通常パイプラインを呼ばない。
+
+## 受け入れ条件
+
+- [ ] 項目表の全選択可能項目を固定時計 `2026-10-11T14:59:45.000Z` で個別生成し、種別・公式名称・コード・区域・Propertyを本書と比較して一致する。無効項目はすべてAPIでも400。
+- [ ] 危険度コードと警報種別コードを独立に比較する。例: warning-43のKind/Code=43、Significancy/Code=41、warning-35はKind/Code=35、Significancy/Code=50。
+- [ ] 全16groupを同時選択した最大セットに成功し、body16KiB超は413。express.jsonの先行不正JSON応答にもno-storeが付く。
+- [ ] 複数系列とVPWW61の複数注意報を生成し、異系列は別XML、その他注意報は1XMLにコード昇順で全件含む。
+- [ ] 空・重複・未知ID・17件・64文字超ID・余分フィールド・非配列・不明端末・同group競合を送り400。H端末は403、K端末は成功。全応答no-store。
+- [ ] 全選択可能項目のparser往復を実行し、訓練区分・時刻・区域・コード／タグが一致する。期待値を生成定義からそのまま作らず、独立した期待表と比較する。
+- [ ] 月末・年末・JST日付跨ぎの固定時計で、秒00の発表時刻、Controlの実時刻、実況過去・高潮L2/L3/L4の18/12/6時間後のCriteria・高潮L5の直前正時のCriteria・竜巻未来の時間関係と本文時刻が一致する。
+- [ ] 同じ分に2回生成し、アプリIDとVPBS50 EventIDは別、警報／竜巻のEventIDは空を保持する。元サンプルの地名・時刻・前報を出力しない。
+- [ ] レスポンス順を逆転するweb試験で、新しい選択結果だけが表示される。選択変更、端末切替、離脱時にも旧成功／旧失敗が復活しない。
+- [ ] K画面で複数選択、disabled理由、生成中、失敗後再実行、XML展開を操作し確認。H画面のナビに訓練を表示しない。色・部品はMD3規約を満たす。
+- [ ] XMLをテキスト描画し、訓練用合成・実際の生成区域を常時確認できる。TRCのK端末でも結果をTRCと誤表示しない。
+- [ ] DB依存なしのservice単体試験と、workerが利用不可のHTTP試験で生成に成功する。DB・受信・processor・通知呼出しが0件で、監視availabilityを変更しない。
+- [ ] 発表のみで、取消・解除・継続・段階遷移の生成入口がない。注入と永続保存も行わない。
+- [ ] `npm run lint`、`npm run typecheck`、`npm run format:check` とAPI・web・sharedの変更対象テストを通す。新規契約のテストは検証業務標準に従いred確認・対照実験を記録する。
+
+## 後続への引き継ぎ
+
+J2は生成セットの再検証、注入時の時刻再生成、訓練ID、セットの投入順と原子性を決める。今回の部分電文で、省略区域を「解除」「なし」「削除」へ変換してはいけない。一方、既存 `jmaWarningCurrentReducer.ts` は江東区の個別ストリームを完全状態として採用するため、VPWW58は風・風雪全体、VPWW61はその他注意報全体を置き換える。今回の選択セットは「その生成回における当該ストリームの訓練状態全体」であり、既存訓練への追加差分ではない。例：VPWW61で雷だけを選ぶと、このセットの同ストリームには乾燥を含まない。独立した生成セット間の状態を保持する保証はしない。J1のparser検証は形式・抽出の確認であり、注入後の状態維持を保証しない。J4はisTrainingを通知・履歴・各表示へ伝播する。
+
+取消は次回PRのJ3へ引き継ぐ。**取消と解除は別**で、解除電文による代替はしない。とくにR06・竜巻の公式解説に記載されたInfoTypeは発表／訂正であり、全種へ機械的にInfoType=取消を付ける設計を保証しない。後続では各parser・公式の取消対応・訓練専用取消の必要性を確認し、対象範囲を決める。今回取消方式を先取りしない。J5の受入検証除外も対象外。
+
+## 検証状況
+
+公式保存資料・別表・サンプルと既存コードの静的照合を実施した。最新公式資料への全面追随、公式配信網への送信適合、全都スナップショットの再現は対象外。生成器は未実装のためparser往復・画面操作・worker非依存のHTTP動作は**実挙動未確認**であり、上記受入条件を製造・検収で実行する。
+
+作成: Codex（GPT-6）
