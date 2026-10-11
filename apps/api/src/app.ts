@@ -15,9 +15,12 @@ import {
   parseNowcastTileRequest,
   parseNotificationDeltaQuery,
   parseStartupNotificationRequest,
+  parseTrainingGenerateRequest,
+  parseTrainingItemsQuery,
   parseWeatherApiQuery,
   type TerminalConfigResponse,
   type TerminalRegistry,
+  TRAINING_MAX_BODY_BYTES,
   type UtcIso8601String,
   type VenueConfigResponse,
   type VenueRegistry,
@@ -34,6 +37,7 @@ import type { MonitoringStatusService } from './monitoring/monitoringStatusServi
 import type { MonitoringProcessingService } from './monitoring/monitoringProcessingService.js';
 import type { MonitoringHistoryService } from './monitoring/monitoringHistoryService.js';
 import type { FetchControlService } from './services/fetchControlService.js';
+import type { TrainingTelegramService } from './services/trainingTelegramService.js';
 import { isFetchControlRequestId, parseFetchControlRequest } from '@wx-viewer-poc/shared';
 
 /** HTTPは同期実装と非同期port facadeのどちらも受け取れる。 */
@@ -80,6 +84,7 @@ export interface AppDependencies {
     resolveNotificationReceptionById?: (id: number) => Promise<NotificationReceptionResolution>;
   };
   readonly fetchControl?: FetchControlService;
+  readonly trainingTelegram?: TrainingTelegramService;
 }
 
 function sendJsonNoStore(res: express.Response, status: number, body: unknown): void {
@@ -159,6 +164,12 @@ function sendWeatherFailure(res: express.Response, error: unknown, fallbackCode:
 
 export function createApp(dependencies: AppDependencies = {}): Express {
   const app = express();
+
+  // 訓練電文APIは成否・parserの先行拒否を含むすべての応答でno-storeにする。
+  app.use('/api/training', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
 
   app.use(express.json());
 
@@ -972,6 +983,72 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
     });
   }
+
+  // 訓練電文の項目選択・生成・プレビュー（Issue #69 J1）。DB・受信・processor・通知に依存しない。
+  app.get('/api/training/items', (req, res) => {
+    const training = dependencies.trainingTelegram;
+    if (!training) {
+      sendJsonNoStore(res, 503, { status: 'error', code: 'training_unavailable' });
+      return;
+    }
+    const query = parseTrainingItemsQuery(req.query);
+    if (query === null) {
+      sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+      return;
+    }
+    try {
+      const result = training.listItems(query.terminalId);
+      if (result.kind === 'unknown_terminal') {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+      } else if (result.kind === 'forbidden_terminal') {
+        sendJsonNoStore(res, 403, { status: 'error', code: 'forbidden_terminal' });
+      } else {
+        sendJsonNoStore(res, 200, result.value);
+      }
+    } catch {
+      sendJsonNoStore(res, 500, { status: 'error', code: 'training_generation_failed' });
+    }
+  });
+
+  app.post('/api/training/preview', (req, res) => {
+    const training = dependencies.trainingTelegram;
+    if (!training) {
+      sendJsonNoStore(res, 503, { status: 'error', code: 'training_unavailable' });
+      return;
+    }
+    if (Object.keys(req.query).length > 0) {
+      sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+      return;
+    }
+    let bodyBytes: number;
+    try {
+      bodyBytes = Buffer.byteLength(JSON.stringify(req.body ?? null), 'utf8');
+    } catch {
+      sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+      return;
+    }
+    if (bodyBytes > TRAINING_MAX_BODY_BYTES) {
+      sendJsonNoStore(res, 413, { status: 'error', code: 'request_too_large' });
+      return;
+    }
+    const request = parseTrainingGenerateRequest(req.body);
+    if (request === null) {
+      sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+      return;
+    }
+    try {
+      const result = training.generate(request);
+      if (result.kind === 'unknown_terminal') {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+      } else if (result.kind === 'forbidden_terminal') {
+        sendJsonNoStore(res, 403, { status: 'error', code: 'forbidden_terminal' });
+      } else {
+        sendJsonNoStore(res, 200, result.value);
+      }
+    } catch {
+      sendJsonNoStore(res, 500, { status: 'error', code: 'training_generation_failed' });
+    }
+  });
 
   // 不正 percent encoding は 400 invalid_request に正規化する（§3.1）
   // JSON 構文エラーは入力値を返さず、起動 API の契約どおり 400 に統一する。

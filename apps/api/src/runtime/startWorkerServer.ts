@@ -7,6 +7,7 @@ import {
   WEATHER_RUNTIME_REASON_LABELS,
 } from '@wx-viewer-poc/shared';
 import { createApp, type AppDependencies } from '../app.js';
+import { createTrainingTelegramService } from '../services/trainingTelegramService.js';
 import {
   loadVenueConfig,
   loadTerminalConfig,
@@ -669,6 +670,11 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
     venueRegistry: venue.registry,
     terminalConfig: terminal.response,
     terminalRegistry: terminal.registry,
+    trainingTelegram: createTrainingTelegramService({
+      terminalRegistry: terminal.registry,
+      now,
+      idFactory: randomUUID,
+    }),
     fetchControl: fetchControlService,
     notificationDelta: createNotificationDeltaService({
       connection: retained.connection,
