@@ -30,7 +30,7 @@
 | `npm run typecheck` | exit 0 | 通過 |
 | `npm run format:check` | exit 0 | 通過 |
 | `npm run build` | exit 0。Vite の 500 kB chunk 警告あり | 通過 |
-| サンドボックス外での API 試験再実行 | 権限要求中に作業ターンが中断され、結果を取得できなかった | 未実施 |
+| サンドボックス外での API 試験再実行 | 本担当の権限要求は中断。後続の統括担当による全件実行結果は末尾に記録 | 報告済み・生ログ未取込 |
 | 実 Worker・実 HTTP の負荷と障害注入 | 専用 fixture・隔離ポート・生ログなし | 未実施 |
 | 実ブラウザ操作 | スクリーンショット・操作ログなし | 未実施 |
 | 旧版比較・rollback・reset | 隔離 DB の複製と互換検証なし | 未実施 |
@@ -68,3 +68,23 @@
 設定読込だけを独立に確認すると、`loadVenueConfig({ environment: 'development' })` は `localOverride: applied`、3 会場を返し、`production` では `localOverride: disabled-production`、2 会場を返した。既定の `config/venues.yaml` は 2 会場であり、この環境には Git 管理外の `config/venues.local.yaml` に追加会場がある。`apps/api/tests/helpers/venueConfigPreload.ts` は引数なしの `loadVenueConfig()` を共用する。`reprocessProgressLogs.test.ts` の 601/650 行は `status.venues.length` と HTTP 応答の `venues.length` に 2 を固定期待し、`venueScopedAdoption.test.ts` の 390 行以降はレジストリの全会場を処理しながら 397 行で adoption 行数を 2 と固定期待する。
 
 この件数差はローカル設定を取り込んだ 3 会場という入力と、2 会場固定の旧試験期待の不一致で説明できる。`production` で後者が通ることも整合する。気象処理が 3 件を誤生成したという証拠は得ていない。前者の HTTP 試験については同一条件の単独再実行をしていないため、設定要因以外の失敗がないとは断定しない。恒久対策は試験 fixture をローカル設定から隔離するか、期待件数を対象レジストリから導くことだが、Issue #260 の製造範囲外のためコードは変更していない。
+
+## 後続の全試験結果
+
+統括担当がローカル接続可能な環境で再実行した結果、`NODE_ENV=production` の API 全試験は 1,074/1,074 件、Web 全試験は 511/511 件が通過した。生ログ・開始終了時刻・実行ホストの証拠は本記録に取り込めていないため、E12 の監査可能な完了証拠としては保留する。通常環境での会場 3 件と旧試験の 2 件固定期待の差は残る。
+
+## 固定 fixture と計測ハーネスの実行
+
+`apps/api/tests/issue260Benchmark.mts` を追加した。seed 260 から 5 万件の 1,024 bytes 原文（normal 16,667、training 16,667、test 16,666）と、1,024 枚の 65,536 bytes PNG を一時 DB/cache に生成する。PNG は同一内容を別ファイル名で保存するため、実運用の画像分布は再現しない。実取得・提供 Worker と HTTP を起動し、取得 Worker で同期 XML 解析を最低 60 秒反復する。1 回につき health、監視、system 差分、保存済み警報 API、保存済み tile hit のうち指定した 1 系列を 100 要求以上実行し、要求単位の送信相対時刻・latency・status・bytes と分位点を JSON へ記録する。`BENCH_CONCURRENCY=1|8`、`BENCH_RATE=1|10` を選べる。
+
+再現コマンド（`apps/api` で実行、出力先は任意の書込可能な一時ファイルに変更する）:
+
+```bash
+NODE_ENV=production BENCH_OUTPUT=./issue260-benchmark.json BENCH_SERIES=health BENCH_CONCURRENCY=1 BENCH_RATE=10 node --import tsx tests/issue260Benchmark.mts
+```
+
+サンドボックス内の試行では fixture の生成まで完了し、`listen EPERM 0.0.0.0` で実 Worker の HTTP 待受が拒否された。生成段階の機械可読値は [fixture manifest](issue-260-fixture-manifest.json) に保存した。2026-10-11 02:20:34 UTC 開始の試行で気象 DB 本体 81,928,192 bytes、保持 DB 本体 114,688 bytes、SQLite 3.53.4、seed 段階の journal mode は両 DB とも `delete`。原文 SHA-256 は `892676a0ab68480f87d735e11756624653cbfb5c5a386955ddb0a1f7c3bd3962`、PNG SHA-256 は `e36ebe4782b232411ca8b2d8e2e3eb32bd41e18a5691b7b720992897d8a9c0d5`。実 Worker 稼働時の WAL とファイル量は未計測である。
+
+権限外実行の要求は待機中に作業が中断されたため、HTTP の latency/status/bytes と解析反復回数は得られていない。このハーネスは現時点で XML 解析負荷のみを発生させ、大量保存・復旧・tile miss・旧版比較、CPU/RSS/キュー/DB busy/WAL/報告遅延の系列は実装していない。cold/warm の 3 回反復と全セルの実行も未実施であり、E1/E2 の合格証拠にはしない。
+
+ハーネス追加後に `npm run lint`、`npm run typecheck`、`npm run format:check`、`npm run build` を再実行し、すべて exit 0。API/Web の全試験通過報告はハーネス追加前であり、計測コード自体の HTTP 完走は未確認である。
