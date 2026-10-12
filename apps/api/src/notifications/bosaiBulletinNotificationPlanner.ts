@@ -74,6 +74,22 @@ const VPBS50_KIND_BY_TAG: Readonly<
   },
 };
 
+/**
+ * 速報の区域のうち、会場の includedAreaCodes に一致する区域名を返す。
+ * includedAreaCodes の並び（市町村 → まとめた地域 → 一次細分）で最初に一致した区域を採る。
+ * 一致する区域が無ければ null（会場名へのフォールバックはしない）。
+ */
+export function resolveBosaiTargetName(
+  areas: readonly Pick<BosaiBulletinAreaInput, 'areaCode' | 'areaName'>[],
+  includedAreaCodes: readonly string[],
+): string | null {
+  for (const code of includedAreaCodes) {
+    const hit = areas.find((area) => area.areaCode === code);
+    if (hit) return hit.areaName;
+  }
+  return null;
+}
+
 export function resolveBosaiBulletinSourceVersion(bulletin: BosaiBulletin): string {
   return JSON.stringify([
     bulletin.eventId,
@@ -171,14 +187,20 @@ export function planBosaiBulletinNotifications(
 
   const venueTargets = input.venueRegistry.getVenue(venueId);
   const venueIncludedAreaCodes = venueTargets.bosaiBulletin.includedAreaCodes;
-  const targetTuple: readonly [NotificationTarget] = [
-    {
-      kind: 'area',
-      codeType: 'venue',
-      code: venueId,
-      name: venueTargets.venueName,
-    },
+  // kind・codeType・code は会場のまま（配信範囲・識別単位・#145 の契約）。name だけ速報の区域名にする。
+  const makeTargets = (name: string): readonly [NotificationTarget] => [
+    { kind: 'area', codeType: 'venue', code: venueId, name },
   ];
+  const targetNameUnresolved = (eventId: string): BosaiBulletinNotificationPlan => ({
+    notifications: [],
+    skipped: [
+      {
+        reason: 'target_name_unresolved',
+        detail: `会場区域に一致する区域名を特定できません (eventId: ${eventId})`,
+        eventId,
+      },
+    ],
+  });
 
   const sourceVersion = resolveBosaiBulletinSourceVersion(current);
 
@@ -231,6 +253,9 @@ export function planBosaiBulletinNotifications(
       };
     }
 
+    const vphwTargetName = resolveBosaiTargetName(current.areas, venueIncludedAreaCodes);
+    if (vphwTargetName === null) return targetNameUnresolved(current.eventId);
+    const targetTuple = makeTargets(vphwTargetName);
     const planned: PlannedBosaiBulletinNotification[] = [];
     const isCorrected = current.infoType === '訂正';
 
@@ -402,6 +427,10 @@ export function planBosaiBulletinNotifications(
       };
     }
 
+    const cancelTargetName = resolveBosaiTargetName(chosenAreas, venueIncludedAreaCodes);
+    if (cancelTargetName === null) return targetNameUnresolved(current.eventId);
+    const targetTuple = makeTargets(cancelTargetName);
+
     const notificationId = notificationIdFactory();
     const notification: WeatherNotification = {
       notificationId,
@@ -461,6 +490,10 @@ export function planBosaiBulletinNotifications(
       ],
     };
   }
+
+  const issueTargetName = resolveBosaiTargetName(current.areas, venueIncludedAreaCodes);
+  if (issueTargetName === null) return targetNameUnresolved(current.eventId);
+  const targetTuple = makeTargets(issueTargetName);
 
   const isCorrected = current.infoType === '訂正';
   const notificationId = notificationIdFactory();

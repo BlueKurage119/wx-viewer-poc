@@ -2088,7 +2088,7 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
       kind: 'area',
       codeType: 'venue',
       code: eastVenueId,
-      name: '東京ビッグサイト',
+      name: '江東区',
     },
   ]);
 
@@ -2152,7 +2152,7 @@ test('AC12: sourceVersionをInfoKindVersionに戻すと訂正識別テストが�
       kind: 'area',
       codeType: 'venue',
       code: eastVenueId,
-      name: '東京ビッグサイト',
+      name: '東京地方',
     },
   ]);
   assert.deepStrictEqual(plannedTornado.notification.relatedRefs, [
