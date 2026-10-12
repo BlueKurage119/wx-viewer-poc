@@ -18,6 +18,7 @@ import {
   parseTrainingGenerateRequest,
   parseTrainingInjectRequest,
   parseTrainingItemsQuery,
+  parseTrainingRetractRequest,
   parseWeatherApiQuery,
   type TerminalConfigResponse,
   type TerminalRegistry,
@@ -41,6 +42,7 @@ import type { MonitoringHistoryService } from './monitoring/monitoringHistorySer
 import type { FetchControlService } from './services/fetchControlService.js';
 import type { TrainingTelegramService } from './services/trainingTelegramService.js';
 import type { TrainingInjectionService } from './services/trainingInjectionService.js';
+import type { TrainingRetractionService } from './services/trainingRetractionService.js';
 import { isFetchControlRequestId, parseFetchControlRequest } from '@wx-viewer-poc/shared';
 
 /** HTTPは同期実装と非同期port facadeのどちらも受け取れる。 */
@@ -89,6 +91,7 @@ export interface AppDependencies {
   readonly fetchControl?: FetchControlService;
   readonly trainingTelegram?: TrainingTelegramService;
   readonly trainingInjection?: TrainingInjectionService;
+  readonly trainingRetraction?: TrainingRetractionService;
 }
 
 function sendJsonNoStore(res: express.Response, status: number, body: unknown): void {
@@ -1132,6 +1135,59 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         }
       } catch {
         sendJsonNoStore(res, 500, { status: 'error', code: 'training_injection_failed' });
+      }
+    });
+  }
+
+  if (dependencies.trainingRetraction) {
+    const retractionService = dependencies.trainingRetraction;
+    app.post('/api/training/retract', async (req, res) => {
+      if (Object.keys(req.query).length > 0) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const request = parseTrainingRetractRequest(req.body);
+      if (request === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const outcome = await retractionService.retract(request);
+        if (outcome.kind === 'success') {
+          sendJsonNoStore(res, 200, outcome.response);
+        } else if (outcome.kind === 'unknown_terminal') {
+          sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        } else if (outcome.kind === 'forbidden_terminal') {
+          sendJsonNoStore(res, 403, { status: 'error', code: 'forbidden_terminal' });
+        } else if (outcome.kind === 'not_found') {
+          sendJsonNoStore(res, 404, {
+            status: 'error',
+            code: 'training_not_found',
+            trainingIds: outcome.trainingIds,
+          });
+        } else if (outcome.kind === 'already_retracted') {
+          sendJsonNoStore(res, 409, {
+            status: 'error',
+            code: 'training_already_retracted',
+            trainingIds: outcome.trainingIds,
+          });
+        } else if (outcome.kind === 'unavailable') {
+          sendJsonNoStore(res, 503, { status: 'error', code: 'training_retraction_unavailable' });
+        } else if (outcome.kind === 'result_unknown') {
+          sendJsonNoStore(res, 504, {
+            status: 'error',
+            code: 'training_retraction_result_unknown',
+            retractionId: outcome.retractionId,
+          });
+        } else {
+          sendJsonNoStore(res, 500, {
+            status: 'error',
+            code: 'training_retraction_failed',
+            ...(outcome.retractionId ? { retractionId: outcome.retractionId } : {}),
+          });
+        }
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'training_retraction_failed' });
       }
     });
   }

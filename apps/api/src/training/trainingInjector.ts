@@ -130,16 +130,29 @@ export async function injectTrainingTelegrams(
       'training',
       'VPWS50',
     );
-    const needBaseline = warningTelegrams.length > 0 && existingStream === null;
+    // 全抹消で基準電文が取消済み（ストリームが取消電文を指す）の場合も再投入する（Issue #71 J3）
+    const cancelledStream =
+      existingStream !== null &&
+      findTelegramReceptionById(connection, existingStream.receptionId)?.infoType === '取消'
+        ? existingStream
+        : null;
+    const needBaseline =
+      warningTelegrams.length > 0 && (existingStream === null || cancelledStream !== null);
 
     if (needBaseline) {
       const minReportMs = Math.min(...warningTelegrams.map((t) => Date.parse(t.reportDateTime)));
-      const tbMs = Math.floor((minReportMs - 60_000) / 60_000) * 60_000;
+      const normalTbMs = Math.floor((minReportMs - 60_000) / 60_000) * 60_000;
+      // 取消済みストリームより古い発表時刻にはしない（同時刻は Control/DateTime の新しさで採用させる）
+      const tbMs = cancelledStream
+        ? Math.max(normalTbMs, Date.parse(cancelledStream.reportDateTime))
+        : normalTbMs;
       const tbIso = new Date(tbMs).toISOString();
       // Control/DateTime は秒精度で書き出すため、検証の期待値も秒に切り捨てて揃える
-      const controlDateTime = new Date(
-        Math.floor(Date.parse(deps.clock()) / 1000) * 1000,
-      ).toISOString();
+      let controlMs = Math.floor(Date.parse(deps.clock()) / 1000) * 1000;
+      if (cancelledStream) {
+        controlMs = Math.max(controlMs, Date.parse(cancelledStream.controlDateTime) + 1000);
+      }
+      const controlDateTime = new Date(controlMs).toISOString();
 
       const baselineXml = generateTrainingWarningBaseline({
         reportDateTime: tbIso,

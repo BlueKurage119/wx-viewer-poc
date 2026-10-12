@@ -1,4 +1,5 @@
 import type { DatabaseConnection } from '../database/index.js';
+import { mapRetractedTrainingIds } from './trainingRetractionRepository.js';
 
 export type TrainingInjectionStatus = 'in_progress' | 'completed' | 'failed';
 export type TrainingInjectionRole = 'requested' | 'baseline';
@@ -189,6 +190,8 @@ export interface TrainingInjectionListRecord {
   readonly trainingId: string;
   readonly terminalId: string;
   readonly acceptedAt: string;
+  /** 抹消（completed）の受付時刻のうち最も早いもの。未抹消は null。 */
+  readonly retractedAt: string | null;
   readonly telegrams: readonly TrainingInjectionListTelegramRecord[];
 }
 
@@ -229,10 +232,15 @@ export function listCompletedTrainingInjections(
     ORDER BY r.sequence ASC
   `,
   );
+  const retractedAtByTraining = mapRetractedTrainingIds(
+    connection,
+    injections.map((injection) => injection.training_id),
+  );
   return injections.map((injection) => ({
     trainingId: injection.training_id,
     terminalId: injection.terminal_id,
     acceptedAt: injection.accepted_at,
+    retractedAt: retractedAtByTraining.get(injection.training_id) ?? null,
     telegrams: (
       telegramStatement.all(injection.training_id) as {
         sequence: number;
@@ -247,4 +255,24 @@ export function listCompletedTrainingInjections(
       previewId: row.preview_id,
     })),
   }));
+}
+
+export function listAllTrainingInjections(
+  connection: DatabaseConnection,
+): readonly TrainingInjectionRecord[] {
+  return (
+    connection
+      .prepare('SELECT * FROM training_injection ORDER BY accepted_at ASC, training_id ASC')
+      .all() as TrainingInjectionRow[]
+  ).map(mapInjectionRow);
+}
+
+export function findTrainingInjectionReceptionByReceptionId(
+  connection: DatabaseConnection,
+  receptionId: number,
+): TrainingInjectionReceptionRecord | null {
+  const row = connection
+    .prepare('SELECT * FROM training_injection_reception WHERE reception_id = ?')
+    .get(receptionId) as TrainingInjectionReceptionRow | undefined;
+  return row ? mapReceptionRow(row) : null;
 }

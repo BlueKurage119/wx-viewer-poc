@@ -43,12 +43,15 @@ import { createWorkerDecisions } from './workerDecisions.js';
 import type { DecisionCheckpoint, WeatherEpoch } from './weatherContracts.js';
 import type { WeatherTransport } from './weatherTransport.js';
 import { injectTrainingTelegrams } from '../training/trainingInjector.js';
+import { retractTrainingTelegrams } from '../training/trainingRetractor.js';
 import { listCompletedTrainingInjections } from '../repositories/trainingInjectionRepository.js';
 import type {
   TrainingInjectionCommand,
   TrainingInjectionListCommand,
   TrainingInjectionListResult,
   TrainingInjectionResult,
+  TrainingRetractionCommand,
+  TrainingRetractionResult,
 } from '../training/trainingInjectionContracts.js';
 
 export interface AcquisitionSettings {
@@ -428,6 +431,7 @@ export function createAcquisitionRuntime(
           trainingId: record.trainingId,
           terminalId: record.terminalId,
           acceptedAt: record.acceptedAt,
+          retractedAt: record.retractedAt,
           telegrams: record.telegrams.map((t) => ({
             sequence: t.sequence,
             telegramType:
@@ -449,6 +453,28 @@ export function createAcquisitionRuntime(
         await currentQueue;
         if (stopped) throw new Error('not_ready');
         return await injectTrainingTelegrams(connection, command, {
+          venueRegistry: registry,
+          runWeatherUpdate,
+          clock,
+          warningNotificationEmitDeps: warningEmitDeps,
+          bosaiNotificationEmitDeps: bosaiEmitDeps,
+        });
+      } finally {
+        release();
+      }
+    },
+    /** 注入と同じキューで直列化する（訓練の現況は会場×訓練で共有のため）。 */
+    async retractTraining(command: TrainingRetractionCommand): Promise<TrainingRetractionResult> {
+      if (stopped) throw new Error('not_ready');
+      const currentQueue = injectionQueue;
+      let release = () => {};
+      injectionQueue = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      try {
+        await currentQueue;
+        if (stopped) throw new Error('not_ready');
+        return await retractTrainingTelegrams(connection, command, {
           venueRegistry: registry,
           runWeatherUpdate,
           clock,
