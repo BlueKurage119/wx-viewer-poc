@@ -142,7 +142,7 @@ test('選択: 同一現象内は単一段階、異なる現象間は複数、gro
   assert.deepEqual(last().selected, []);
 });
 
-test('生成: 押下即実行で送信中を描画し、成功で一覧の先頭へ追加・先頭行を自動選択する', async () => {
+test('生成: 押下即実行で送信中を描画し、成功で一覧の先頭へ追加し項目選択を全解除する', async () => {
   const { controller, pending, last } = await ready();
   controller.generate();
   assert.equal(pending.length, 1, '未選択では送信しない');
@@ -166,8 +166,8 @@ test('生成: 押下即実行で送信中を描画し、成功で一覧の先頭
   assert.deepEqual(entry.itemLabels, ['レベル４大雨危険警報']);
   assert.deepEqual(last().checked, [], '生成後もチェックは付けない');
   assert.equal(last().saveFailed, false);
-  // 選択は維持され、選択変更で一覧は消えない
-  assert.deepEqual(last().selected, ['warning-43']);
+  // 成功で項目選択は全解除され、選択変更で一覧は消えない
+  assert.deepEqual(last().selected, []);
   controller.selectInGroup('thunder', 'warning-14');
   assert.equal(last().history.length, 1);
 });
@@ -182,6 +182,7 @@ test('1回の生成の複数通は先頭にAPI順で入り、新しい生成は�
     last().history.map((e) => e.id),
     ['a:0', 'a:1'],
   );
+  controller.selectInGroup('rain', 'warning-43');
   controller.generate();
   pending[2]!.resolve(Response.json(generation('b', 'warning-43', 3)));
   await tick();
@@ -222,8 +223,8 @@ test('一覧は最大20件: 20件・21件・複数通同時投入の境界で最
 
   // 状態機械でも21通目で最古が消え、選択中の古い行は選択解除（新しい先頭行へ移る）
   const { controller, pending, last } = await ready();
-  controller.selectInGroup('rain', 'warning-43');
   for (let round = 0; round < 3; round += 1) {
+    controller.selectInGroup('rain', 'warning-43'); // 成功で選択は全解除されるため毎回選び直す
     controller.generate();
     pending[pending.length - 1]!.resolve(Response.json(generation(`r${round}`, 'warning-43', 7)));
     await tick();
@@ -280,6 +281,7 @@ test('削除: 確認なしでチェック行を除き、直後に保存へ反映
     '保存内容と画面が一致',
   );
   // 生成中の削除: 生成結果は削除後の一覧の先頭に入る
+  controller.selectInGroup('rain', 'warning-43'); // 前回の成功で選択は解除済み
   controller.generate();
   assert.equal(last().generation.phase, 'sending');
   controller.setChecked('a:1', true);
@@ -303,8 +305,8 @@ test('削除: 確認なしでチェック行を除き、直後に保存へ反映
 test('保存: 生成・自動削除(21通目)で20件を保存し、再生成した画面で同じ一覧が復元されチェックは外れる', async () => {
   const memory = memoryStorage();
   const first = await ready(memory);
-  first.controller.selectInGroup('rain', 'warning-43');
   for (let round = 0; round < 3; round += 1) {
+    first.controller.selectInGroup('rain', 'warning-43'); // 成功で選択は全解除されるため毎回選び直す
     first.controller.generate();
     first.pending.at(-1)!.resolve(Response.json(generation(`r${round}`, 'warning-43', 7)));
     await tick();
@@ -369,18 +371,22 @@ test('リセット: 選択を全解除し一覧は変えない。未選択では
   assert.equal(pending.length, 2);
 });
 
-test('失敗: 選択と一覧を維持して日本語のエラーを示し、「生成」の再押下で再試行、成功で表示が消える', async () => {
+test('失敗: 選択と一覧を維持して日本語のエラーを示し、「生成」の再押下で再試行、成功で表示が消え選択が全解除される', async () => {
   const { controller, pending, last } = await ready();
   controller.selectInGroup('rain', 'warning-43');
   controller.generate();
   pending[1]!.resolve(Response.json(generation('g', 'warning-43')));
   await tick();
+  assert.deepEqual(last().selected, [], '成功で選択は全解除');
+  // 選び直して失敗させる: 選択と一覧は維持される
+  controller.selectInGroup('rain', 'warning-43');
+  controller.selectInGroup('thunder', 'warning-14');
   controller.generate();
   pending[2]!.resolve(new Response('{}', { status: 500 }));
   await tick();
   const failed = last().generation;
   assert.equal(failed.phase === 'failed' && failed.message, '訓練電文を生成できませんでした。');
-  assert.deepEqual(last().selected, ['warning-43']);
+  assert.deepEqual([...last().selected].sort(), ['warning-14', 'warning-43']);
   assert.equal(last().history.length, 1, '一覧は維持');
   assert.equal(pending.length, 3, '自動再送しない');
   controller.generate(); // 再試行
@@ -388,14 +394,24 @@ test('失敗: 選択と一覧を維持して日本語のエラーを示し、「
   pending[3]!.reject(new TypeError('Failed to fetch'));
   await tick();
   assert.equal(last().generation.phase, 'failed');
-  controller.reset(); // リセットでも失敗表示が消える
-  assert.equal(last().generation.phase, 'idle');
-  controller.selectInGroup('rain', 'warning-10');
+  assert.deepEqual([...last().selected].sort(), ['warning-14', 'warning-43'], '再失敗でも維持');
+  // 再試行が成功したら、失敗表示が消え、選択が全解除される
   controller.generate();
-  pending[4]!.resolve(Response.json(generation('h', 'warning-10')));
+  pending[4]!.resolve(Response.json(generation('h', 'warning-43')));
   await tick();
+  assert.equal(last().generation.phase, 'idle');
+  assert.deepEqual(last().selected, []);
   assert.equal(last().history.length, 2);
   assert.equal(last().history[0]!.id, 'h:0');
+  // リセットでも失敗表示が消える
+  controller.selectInGroup('rain', 'warning-10');
+  controller.generate();
+  pending[5]!.reject(new TypeError('x'));
+  await tick();
+  assert.equal(last().generation.phase, 'failed');
+  controller.reset();
+  assert.equal(last().generation.phase, 'idle');
+  assert.deepEqual(last().selected, []);
 });
 
 test('形式不正な応答は失敗扱いで一覧に追加しない', async () => {
@@ -483,6 +499,7 @@ test('全削除: 一覧を全件消して空配列を保存し、チェックも
   assert.deepEqual(last().checked, []);
   assert.deepEqual(JSON.parse(memory.data.get(key)!), { version: 1, entries: [] });
   // 生成中の全削除: 結果は削除後の一覧の先頭に入る
+  controller.selectInGroup('rain', 'warning-43'); // 前回の成功で選択は解除済み
   controller.generate();
   assert.equal(last().generation.phase, 'sending');
   assert.equal(controller.deleteAll(), 0);

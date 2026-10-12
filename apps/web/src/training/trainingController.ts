@@ -140,9 +140,11 @@ export function createTrainingController(
             telegram,
           }));
           // 削除済みの行の上に積み、先頭行にチェックは付けない。押し出された行のチェックは消える。
+          // 成功時は項目選択を全解除する（失敗時は再試行のため維持）。
           const history = prependHistory(state.history, added);
           const ids = new Set(history.map((entry) => entry.id));
           update({
+            selected: [],
             generation: { phase: 'idle' },
             history,
             checked: state.checked.filter((id) => ids.has(id)),
