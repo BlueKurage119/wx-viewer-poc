@@ -23,6 +23,7 @@ export interface InfoPanelFrameProps {
   readonly children?: ReactNode;
   readonly issuedTimes?: IssuedTimes;
   readonly isTraining?: boolean;
+  readonly trainingOverlay?: boolean;
 }
 
 function stopWheelPropagation(event: WheelEvent<HTMLElement>): void {
@@ -38,6 +39,7 @@ export function InfoPanelFrame({
   children,
   issuedTimes,
   isTraining,
+  trainingOverlay,
 }: InfoPanelFrameProps) {
   const display = resolveInfoPanelDisplay(definition.presence, status);
 
@@ -59,6 +61,7 @@ export function InfoPanelFrame({
     <article
       className="info-panel-card"
       data-panel-id={definition.id}
+      data-training-overlay={trainingOverlay ? 'true' : undefined}
       onWheel={stopWheelPropagation}
     >
       <header className="info-panel-card-heading">

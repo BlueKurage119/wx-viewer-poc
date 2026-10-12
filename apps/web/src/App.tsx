@@ -1,6 +1,6 @@
 import { useWeatherRestart } from './monitoring/useWeatherRestart';
 import type { WeatherDangerLevel } from './weather/weatherDangerModel';
-import { useWeatherDangerData } from './weather/useWeatherDangerData';
+import { resolvePanelControlStatus, useWeatherDangerData } from './weather/useWeatherDangerData';
 import { useCallback, useEffect, useState } from 'react';
 import { FilledButton } from './components/md/Button';
 import { AppShell } from './shell/AppShell';
@@ -104,6 +104,16 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     controlStatus: 'normal',
     nowMs: now.getTime(),
   });
+  // ?controlStatus=training（K端末のみ）で6パネルを訓練の読み出しに切り替える。ナビの危険度バッジ・地図レイヤーは normal 固定。
+  const panelControlStatus = resolvePanelControlStatus(window.location.search, terminal.mode);
+  const trainingPanelDanger = useWeatherDangerData({
+    terminalId: terminal.id,
+    controlStatus: panelControlStatus,
+    nowMs: now.getTime(),
+    enabled: panelControlStatus !== 'normal',
+  });
+  const dangerPanels =
+    panelControlStatus === 'normal' ? weatherDanger.panels : trainingPanelDanger.panels;
   // 開発時の視認性確認専用。通常の気象データ取得・パネルには影響しない。
   const dangerPreview = import.meta.env.DEV
     ? new URLSearchParams(window.location.search).get('navDangerFixture')
@@ -353,7 +363,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     >
       {view === 'weather' ? (
         <WeatherMapView
-          dangerPanelData={weatherDanger.panels}
+          dangerPanelData={dangerPanels}
+          panelControlStatus={panelControlStatus}
           venue={terminal.venue}
           terminalId={terminal.id}
           selectedLayerId={selectedLayerId}

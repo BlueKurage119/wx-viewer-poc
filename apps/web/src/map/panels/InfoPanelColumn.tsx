@@ -32,6 +32,7 @@ export function InfoPanelColumn({ venue, input }: InfoPanelColumnProps) {
             status={card.status}
             issuedTimes={card.issuedTimes}
             isTraining={card.isTraining}
+            trainingOverlay={card.trainingOverlay}
           >
             {card.content}
           </InfoPanelFrame>

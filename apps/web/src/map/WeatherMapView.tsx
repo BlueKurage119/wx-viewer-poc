@@ -1,4 +1,8 @@
-import { useWeatherDangerData, type WeatherDangerPanelData } from '../weather/useWeatherDangerData';
+import {
+  useTrainingOverlayCards,
+  useWeatherDangerData,
+  type WeatherDangerPanelData,
+} from '../weather/useWeatherDangerData';
 import { useState, useRef, useMemo, useCallback, useEffect, type ReactElement } from 'react';
 import type L from 'leaflet';
 import type { WeatherControlStatus } from '@wx-viewer-poc/shared';
@@ -31,7 +35,10 @@ export interface WeatherMapViewProps {
   dangerPanelData?: WeatherDangerPanelData;
   venue: Venue;
   terminalId?: string;
+  /** 地図レイヤー（ナウキャスト・キキクル）の制御状態。 */
   controlStatus?: WeatherControlStatus;
+  /** 6パネルの制御状態。省略時は controlStatus。training のとき訓練の重ね表示は行わない。 */
+  panelControlStatus?: WeatherControlStatus;
   timelineViewModel?: TimelineViewModel;
   onTimelineIntent?: (intent: TimelineIntent) => void;
   selectedLayerId?: MapLayerId;
@@ -103,7 +110,7 @@ function WeatherMapViewWithData(props: WeatherMapViewProps) {
   }, []);
   const data = useWeatherDangerData({
     terminalId: props.terminalId ?? (props.venue.id === 'trc' ? 'htrcph01' : 'hkeagh01'),
-    controlStatus: props.controlStatus ?? 'normal',
+    controlStatus: props.panelControlStatus ?? props.controlStatus ?? 'normal',
     nowMs,
   });
   return <WeatherMapViewContent {...props} dangerPanelData={data.panels} />;
@@ -113,12 +120,14 @@ function WeatherMapViewContent({
   venue,
   terminalId: propTerminalId,
   controlStatus = 'normal',
+  panelControlStatus: propPanelControlStatus,
   timelineViewModel: controlledTimelineViewModel,
   onTimelineIntent,
   selectedLayerId: controlledLayerId,
   onLayerSelect,
 }: WeatherMapViewProps & { dangerPanelData: WeatherDangerPanelData }) {
   const terminalId = propTerminalId ?? (venue.id === 'trc' ? 'htrcph01' : 'hkeagh01');
+  const panelControlStatus = propPanelControlStatus ?? controlStatus;
 
   const [internalLayerId, setInternalLayerId] = useState<MapLayerId>('nowcast');
   const currentLayerId = controlledLayerId ?? internalLayerId;
@@ -183,18 +192,33 @@ function WeatherMapViewContent({
     enabled: isKikikuru,
   });
 
-  const bosaiBulletinCards = dangerPanelData.bosaiBulletin;
-  const warningCards = dangerPanelData.warning;
+  // 通常表示のときだけ、警報・注意報と気象防災速報のパネルに訓練のカードを重ねる。
+  const trainingOverlay = useTrainingOverlayCards({
+    terminalId,
+    enabled: panelControlStatus === 'normal',
+  });
+  const bosaiBulletinCards = useMemo(
+    () => [...dangerPanelData.bosaiBulletin, ...trainingOverlay.bosaiBulletin],
+    [dangerPanelData.bosaiBulletin, trainingOverlay.bosaiBulletin],
+  );
+  const warningCards = useMemo(
+    () => [...dangerPanelData.warning, ...trainingOverlay.warning],
+    [dangerPanelData.warning, trainingOverlay.warning],
+  );
 
   // 警報等時系列の定期取得 (G4 #55)
   const warningTimeSeriesCard = useWarningTimeSeries({
     terminalId,
-    controlStatus,
+    controlStatus: panelControlStatus,
   });
 
   const earlyWarningCard = dangerPanelData.earlyWarning;
-  const amedasCard = useAmedas({ terminalId, controlStatus, venueId: venue.id });
-  const areaForecastCard = useAreaForecast({ terminalId, controlStatus });
+  const amedasCard = useAmedas({
+    terminalId,
+    controlStatus: panelControlStatus,
+    venueId: venue.id,
+  });
+  const areaForecastCard = useAreaForecast({ terminalId, controlStatus: panelControlStatus });
 
   const infoPanelInput = useMemo(
     () => ({

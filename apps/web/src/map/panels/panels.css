@@ -17,6 +17,14 @@
   box-sizing: border-box;
 }
 
+.info-panel-card[data-training-overlay='true'] {
+  /* 枠線を 1px から 2px に太らせた分を余白から引き、通常のカードと高さを揃える */
+  border: 2px solid var(--md-sys-color-tertiary);
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+  padding: 11px 15px;
+}
+
 .info-panel-card-heading {
   display: flex;
   flex-direction: column;

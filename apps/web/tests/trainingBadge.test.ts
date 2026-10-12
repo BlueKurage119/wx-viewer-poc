@@ -1,5 +1,6 @@
 import './setupEnv.ts';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -348,6 +349,51 @@ test('InfoPanelColumn: card.isTraining が InfoPanelFrame に伝播する', () =
 
   assert.ok(warningSection.includes('<span class="training-badge">訓練</span>'));
   assert.equal(timeSeriesSection.includes('training-badge'), false);
+});
+
+test('InfoPanelColumn: 訓練の重ね表示カードだけ data-training-overlay が付き、通常カードには付かない', () => {
+  const status = {
+    kind: 'data' as const,
+    availability: 'available' as const,
+    time: '2026-10-12T00:00:00.000Z',
+    timeKind: 'issued' as const,
+  };
+  const input: InfoPanelColumnInput = {
+    bosaiBulletin: [],
+    warning: [
+      { key: 'normal', heading: '気象警報・注意報', status, content: 'n', isTraining: false },
+      {
+        key: 'training-overlay-warning',
+        status,
+        content: 't',
+        isTraining: true,
+        trainingOverlay: true,
+      },
+    ],
+    warningTimeSeries: [],
+    earlyWarning: [],
+    amedas: [],
+    areaForecast: [],
+  };
+  const html = renderToStaticMarkup(el(InfoPanelColumn, { venue: eastVenue, input }));
+  assert.equal(html.match(/data-training-overlay="true"/g)?.length, 1);
+  const cards = html.split('<article').slice(1);
+  const normal = cards.find((card) => card.includes('>n<'))!;
+  const overlay = cards.find((card) => card.includes('>t<'))!;
+  assert.ok(!normal.includes('data-training-overlay') && !normal.includes('training-badge'));
+  assert.ok(overlay.includes('data-training-overlay="true"'));
+  assert.ok(overlay.includes('<span class="training-badge">訓練</span>'));
+  assert.match(overlay, /class="info-panel-card-title">警報・注意報</, '見出しはパネル名');
+});
+
+test('訓練の重ね表示カードのCSS: tertiary系トークンの2px枠で、通常カードと高さを揃え、HEX・黄色系を使わない', () => {
+  const css = readFileSync(new URL('../src/map/panels/panels.css', import.meta.url), 'utf8');
+  const block = css.match(/\.info-panel-card\[data-training-overlay='true'\] \{[^}]*\}/)![0];
+  assert.match(block, /border: 2px solid var\(--md-sys-color-tertiary\)/);
+  assert.match(block, /background: var\(--md-sys-color-tertiary-container\)/);
+  assert.match(block, /padding: 11px 15px/, '枠が1px太る分を余白から引く(通常は12px 16px)');
+  assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/.test(block));
+  assert.ok(!/warning|caution|yellow|amber/i.test(block));
 });
 
 // ----------------------------------------------------
