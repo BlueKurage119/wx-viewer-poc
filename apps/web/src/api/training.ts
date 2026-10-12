@@ -1,8 +1,10 @@
 import {
   parseTrainingInjectResponse,
+  parseTrainingInjectionsResponse,
   type TrainingGenerateResponse,
   type TrainingInjectResponse,
   type TrainingInjectTelegram,
+  type TrainingInjectionsResponse,
   type TrainingItem,
   type TrainingItemId,
   type TrainingItemsResponse,
@@ -155,5 +157,23 @@ export async function requestTrainingInject(
   if (parsed === null) {
     throw new TrainingApiError('電文投入できませんでした');
   }
+  return parsed;
+}
+
+/** 投入済み一覧（同じ会場のK端末が投入した完了済みの注入）。失敗・形式不正は例外。 */
+export async function fetchTrainingInjections(
+  terminalId: string,
+  signal: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<TrainingInjectionsResponse> {
+  const response = await fetcher(
+    `/api/training/injections?terminalId=${encodeURIComponent(terminalId)}`,
+    { signal, cache: 'no-store' },
+  );
+  if (!response.ok) {
+    throw new TrainingApiError(`投入済みの一覧を取得できませんでした（${response.status}）`);
+  }
+  const parsed = parseTrainingInjectionsResponse(await response.json());
+  if (parsed === null) throw new TrainingApiError('投入済みの一覧の形式が不正です');
   return parsed;
 }

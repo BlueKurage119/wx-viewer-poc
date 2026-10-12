@@ -1059,6 +1059,27 @@ export function createApp(dependencies: AppDependencies = {}): Express {
 
   if (dependencies.trainingInjection) {
     const service = dependencies.trainingInjection;
+    app.get('/api/training/injections', async (req, res) => {
+      const query = parseTrainingItemsQuery(req.query);
+      if (query === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const outcome = await service.list(query.terminalId);
+        if (outcome.kind === 'success') {
+          sendJsonNoStore(res, 200, outcome.response);
+        } else if (outcome.kind === 'unknown_terminal') {
+          sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        } else if (outcome.kind === 'forbidden_terminal') {
+          sendJsonNoStore(res, 403, { status: 'error', code: 'forbidden_terminal' });
+        } else {
+          sendJsonNoStore(res, 503, { status: 'error', code: 'training_injection_unavailable' });
+        }
+      } catch {
+        sendJsonNoStore(res, 503, { status: 'error', code: 'training_injection_unavailable' });
+      }
+    });
     app.post('/api/training/inject', async (req, res) => {
       if (Object.keys(req.query).length > 0) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });

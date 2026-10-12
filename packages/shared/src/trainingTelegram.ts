@@ -463,3 +463,88 @@ export function parseTrainingInjectResponse(value: unknown): TrainingInjectRespo
     baseline,
   };
 }
+
+// ---------------------------------------------------------------------------
+// 投入済み一覧（Issue #70 J2: GET /api/training/injections）
+// ---------------------------------------------------------------------------
+
+export const TRAINING_INJECTIONS_LIST_LIMIT = 50;
+
+export interface TrainingInjectionListTelegram {
+  readonly sequence: number;
+  readonly telegramType: TrainingTelegramType;
+  /** telegram_reception.title。受信に題名が無い場合は null。 */
+  readonly title: string | null;
+  readonly previewId: string;
+}
+export interface TrainingInjectionListItem {
+  readonly trainingId: string;
+  readonly terminalId: string;
+  /** Worker が受け付けた時刻（UTC ISO）。 */
+  readonly acceptedAt: string;
+  readonly telegrams: readonly TrainingInjectionListTelegram[];
+}
+export interface TrainingInjectionsResponse {
+  readonly injections: readonly TrainingInjectionListItem[];
+}
+
+export function parseTrainingInjectionsResponse(value: unknown): TrainingInjectionsResponse | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || keys[0] !== 'injections' || !Array.isArray(value.injections)) {
+    return null;
+  }
+  const injections: TrainingInjectionListItem[] = [];
+  for (const entry of value.injections) {
+    if (!isPlainObject(entry)) return null;
+    const eKeys = Object.keys(entry);
+    if (
+      eKeys.length !== 4 ||
+      !eKeys.includes('trainingId') ||
+      !eKeys.includes('terminalId') ||
+      !eKeys.includes('acceptedAt') ||
+      !eKeys.includes('telegrams')
+    ) {
+      return null;
+    }
+    if (typeof entry.trainingId !== 'string' || !UUID_V4_PATTERN.test(entry.trainingId)) {
+      return null;
+    }
+    if (typeof entry.terminalId !== 'string' || entry.terminalId.length === 0) return null;
+    if (!isValidUtcIso(entry.acceptedAt)) return null;
+    if (!Array.isArray(entry.telegrams)) return null;
+    const telegrams: TrainingInjectionListTelegram[] = [];
+    for (const t of entry.telegrams) {
+      if (!isPlainObject(t)) return null;
+      const tKeys = Object.keys(t);
+      if (
+        tKeys.length !== 4 ||
+        !tKeys.includes('sequence') ||
+        !tKeys.includes('telegramType') ||
+        !tKeys.includes('title') ||
+        !tKeys.includes('previewId')
+      ) {
+        return null;
+      }
+      if (typeof t.sequence !== 'number' || !Number.isInteger(t.sequence) || t.sequence < 0) {
+        return null;
+      }
+      if (!isTrainingTelegramType(t.telegramType)) return null;
+      if (t.title !== null && typeof t.title !== 'string') return null;
+      if (typeof t.previewId !== 'string' || t.previewId.length === 0) return null;
+      telegrams.push({
+        sequence: t.sequence,
+        telegramType: t.telegramType,
+        title: t.title,
+        previewId: t.previewId,
+      });
+    }
+    injections.push({
+      trainingId: entry.trainingId,
+      terminalId: entry.terminalId,
+      acceptedAt: entry.acceptedAt,
+      telegrams,
+    });
+  }
+  return { injections };
+}

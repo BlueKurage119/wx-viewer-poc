@@ -680,6 +680,7 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       terminalRegistry: terminal.registry,
       port: {
         inject: (command) => host.call('training.inject', command, 30_000),
+        list: (command) => host.call('training.injections', command, 5_000),
       },
       now,
       idFactory: randomUUID,

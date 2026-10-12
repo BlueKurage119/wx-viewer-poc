@@ -2,11 +2,14 @@ import type { TrainingTelegramPreview, TrainingTelegramType } from '@wx-viewer-p
 
 /** 一覧（ストック）に保持する最大件数。超過は最古から自動削除する。 */
 export const TRAINING_STOCK_LIMIT = 20;
-export const TRAINING_STOCK_VERSION = 2;
+export const TRAINING_STOCK_VERSION = 3;
 export const TRAINING_STOCK_KEY_PREFIX = 'wx-viewer:training-stock:v1:';
 
-/** 電文投入の状態。pending=未投入、injected=投入済み、failed=投入失敗。 */
-export type TrainingInjectionStatus = 'pending' | 'injected' | 'failed';
+/**
+ * ローカルに残る電文の投入状態。pending=未投入、failed=投入失敗。
+ * 投入済みはサーバーの注入記録を一覧に表示するため、ローカルには持たない（version 3）。
+ */
+export type TrainingInjectionStatus = 'pending' | 'failed';
 
 /** 一覧の1行＝生成した電文1通。 */
 export interface TrainingStockEntry {
@@ -53,15 +56,19 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
-function parseEntry(value: unknown, version: 1 | 2): TrainingStockEntry | null {
+/** 戻り値 'dropped' は version 2 の投入済みの行（サーバー一覧に出るため捨てる）。 */
+function parseEntry(value: unknown, version: 1 | 2 | 3): TrainingStockEntry | 'dropped' | null {
   if (!isRecord(value) || !isRecord(value.telegram)) return null;
-  if (
-    version === 2 &&
-    value.injectionStatus !== 'pending' &&
-    value.injectionStatus !== 'injected' &&
-    value.injectionStatus !== 'failed'
-  ) {
-    return null;
+  if (version === 2) {
+    if (
+      value.injectionStatus !== 'pending' &&
+      value.injectionStatus !== 'injected' &&
+      value.injectionStatus !== 'failed'
+    ) {
+      return null;
+    }
+  } else if (version === 3) {
+    if (value.injectionStatus !== 'pending' && value.injectionStatus !== 'failed') return null;
   }
   const t = value.telegram;
   if (
@@ -83,6 +90,7 @@ function parseEntry(value: unknown, version: 1 | 2): TrainingStockEntry | null {
   ) {
     return null;
   }
+  if (version === 2 && value.injectionStatus === 'injected') return 'dropped';
   return {
     id: value.id,
     generatedAt: value.generatedAt,
@@ -101,7 +109,7 @@ function parseEntry(value: unknown, version: 1 | 2): TrainingStockEntry | null {
       isTraining: true,
     },
     // version 1 は投入状態を持たないので全行を未投入として読む。
-    injectionStatus: version === 2 ? (value.injectionStatus as TrainingInjectionStatus) : 'pending',
+    injectionStatus: version === 1 ? 'pending' : (value.injectionStatus as TrainingInjectionStatus),
   };
 }
 
@@ -112,15 +120,15 @@ export function parseTrainingStock(
   value: unknown,
 ): { readonly entries: TrainingStockEntry[]; readonly migrated: boolean } | null {
   if (!isRecord(value) || !Array.isArray(value.entries)) return null;
-  if (value.version !== 1 && value.version !== 2) return null;
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3) return null;
   const version = value.version;
   const entries: TrainingStockEntry[] = [];
   for (const raw of value.entries) {
     const entry = parseEntry(raw, version);
     if (entry === null) return null;
-    entries.push(entry);
+    if (entry !== 'dropped') entries.push(entry);
   }
-  return { entries, migrated: version === 1 };
+  return { entries, migrated: version !== 3 };
 }
 
 /** 保存先を関数で差し替えられるリポジトリ（既存 notificationPreferences.ts と同じ形）。 */
@@ -165,7 +173,7 @@ export function createTrainingStockRepository(
       let entries = parsed.entries;
       const truncated = entries.length > TRAINING_STOCK_LIMIT;
       if (truncated) entries = entries.slice(0, TRAINING_STOCK_LIMIT);
-      // 超過の切り詰め、または version 1 からの移行は直ちに version 2 で書き戻す。
+      // 超過の切り詰め、または version 1 からの移行は直ちに version 3 で書き戻す。
       if (truncated || parsed.migrated) write(terminalId, entries);
       return entries;
     },

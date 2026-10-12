@@ -30,6 +30,9 @@ const ready: TrainingState = {
   history: [],
   checked: [],
   saveFailed: false,
+  injecting: false,
+  injected: [],
+  injectedLoadFailed: false,
 };
 
 const preview: TrainingTelegramPreview = {
@@ -52,6 +55,24 @@ const entry = (id: string, labels: string[], type = 'VPHW50'): TrainingStockEntr
   itemLabels: labels,
   telegram: { ...preview, id, telegramType: type as never },
   injectionStatus: 'pending',
+});
+
+const TID_1 = '11111111-1111-4111-8111-111111111111';
+const TID_2 = '22222222-2222-4222-8222-222222222222';
+const injection = (
+  trainingId: string,
+  acceptedAt: string,
+  telegrams: readonly (readonly [string | null, string])[],
+) => ({
+  trainingId,
+  terminalId: 'kkeagh02',
+  acceptedAt,
+  telegrams: telegrams.map(([title, telegramType], i) => ({
+    sequence: i + 1,
+    telegramType: telegramType as never,
+    title,
+    previewId: `p${i}:0`,
+  })),
 });
 
 const render = (state: TrainingState) =>
@@ -428,9 +449,9 @@ test('一覧: 行ごとに投入ステータス(未投入・投入済み・投�
     ...ready,
     history: [
       { ...entry('a', ['x']), injectionStatus: 'pending' },
-      { ...entry('b', ['x']), injectionStatus: 'injected' },
       { ...entry('c', ['x']), injectionStatus: 'failed' },
     ],
+    injected: [injection(TID_1, '2026-10-12T01:02:03.000Z', [['大雨警報', 'VPWW55']])],
   });
   assert.match(html, /data-status="pending">未投入</);
   assert.match(html, /data-status="injected">投入済み</);
@@ -440,4 +461,63 @@ test('一覧: 行ごとに投入ステータス(未投入・投入済み・投�
   assert.match(block, /var\(--md-sys-color-error\)/);
   assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(block));
   assert.match(css, /\.training-row \{[^}]*block-size: 48px/);
+});
+
+test('一覧の並び: 未投入 → 投入失敗 → 投入済みの順で、まとまりの中は新しい順', () => {
+  const html = render({
+    ...ready,
+    history: [
+      { ...entry('f1', ['x']), injectionStatus: 'failed' },
+      { ...entry('p1', ['x']), injectionStatus: 'pending' },
+      { ...entry('f2', ['x']), injectionStatus: 'failed' },
+      { ...entry('p2', ['x']), injectionStatus: 'pending' },
+    ],
+    injected: [
+      injection(TID_1, '2026-10-12T01:00:02.000Z', [['新', 'VPWW55']]),
+      injection(TID_2, '2026-10-12T01:00:01.000Z', [['旧', 'VPWW55']]),
+    ],
+  });
+  const order = [...html.matchAll(/data-(?:entry|training)-id="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ['p1', 'p2', 'f1', 'f2', TID_1, TID_2]);
+  assert.match(html, /4／20件/);
+});
+
+test('投入済みの行: 注入1回につき1行、title・種別を「、」連結、チェック欄もボタンも無い', () => {
+  const html = render({
+    ...ready,
+    injected: [
+      injection(TID_1, '2026-10-12T01:02:03.000Z', [
+        ['東京都大雨警報', 'VPWW55'],
+        [null, 'VPHW50'],
+      ]),
+    ],
+  });
+  const row = html.match(new RegExp(`<li[^>]*data-training-id="${TID_1}">.*?</li>`))![0];
+  assert.match(row, /10:02:03/); // JST HH:mm:ss
+  assert.match(row, /class="training-row-items">東京都大雨警報、VPHW50</);
+  assert.match(row, /class="training-row-type">VPWW55、VPHW50</);
+  assert.match(row, /data-status="injected">投入済み</);
+  assert.ok(!/<input/.test(row), 'チェック欄を置かない');
+  assert.ok(!/<button/.test(row), '押しても何も開かない');
+  assert.match(html, /0／20件/, '件数はローカル行だけで数える');
+});
+
+test('投入済み一覧の取得失敗: 状態行に alert。生成失敗・保存失敗が優先され、ローカル行は表示を続ける', () => {
+  const failed = render({
+    ...ready,
+    history: [entry('a', ['x'])],
+    injectedLoadFailed: true,
+  });
+  assert.match(failed, /role="alert"[^>]*>投入済みの一覧を取得できませんでした/);
+  assert.match(failed, /data-entry-id="a"/);
+  const withSave = render({ ...ready, injectedLoadFailed: true, saveFailed: true });
+  assert.match(withSave, />一覧を保存できませんでした</);
+  assert.ok(!withSave.includes('投入済みの一覧を取得できませんでした'));
+  const withGen = render({
+    ...ready,
+    injectedLoadFailed: true,
+    generation: { phase: 'failed', message: '訓練電文を生成できませんでした。' },
+  });
+  assert.match(withGen, />訓練電文を生成できませんでした。</);
+  assert.ok(!withGen.includes('投入済みの一覧を取得できませんでした'));
 });

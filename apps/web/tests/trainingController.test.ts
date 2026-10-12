@@ -1,6 +1,6 @@
 import './setupEnv.ts';
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import {
   TRAINING_ITEMS,
   type TrainingGenerateResponse,
@@ -300,7 +300,7 @@ test('削除: 確認なしでチェック行を除き、直後に保存へ反映
   controller.setChecked('b:0', true);
   controller.setChecked('b:1', true);
   controller.deleteChecked();
-  assert.deepEqual(JSON.parse(memory.data.get(key)!), { version: 2, entries: [] });
+  assert.deepEqual(JSON.parse(memory.data.get(key)!), { version: 3, entries: [] });
 });
 
 test('保存: 生成・自動削除(21通目)で20件を保存し、再生成した画面で同じ一覧が復元されチェックは外れる', async () => {
@@ -314,7 +314,7 @@ test('保存: 生成・自動削除(21通目)で20件を保存し、再生成し
   }
   assert.equal(first.last().history.length, 20);
   const saved = JSON.parse(memory.data.get(trainingStockKey('kkeagh01'))!);
-  assert.equal(saved.version, 2);
+  assert.equal(saved.version, 3);
   assert.equal(saved.entries.length, 20);
   assert.deepEqual(
     saved.entries.map((e: { id: string }) => e.id),
@@ -498,7 +498,7 @@ test('全削除: 一覧を全件消して空配列を保存し、チェックも
   assert.equal(controller.deleteAll(), 3, 'チェックの有無に関係なく全件');
   assert.deepEqual(last().history, []);
   assert.deepEqual(last().checked, []);
-  assert.deepEqual(JSON.parse(memory.data.get(key)!), { version: 2, entries: [] });
+  assert.deepEqual(JSON.parse(memory.data.get(key)!), { version: 3, entries: [] });
   // 生成中の全削除: 結果は削除後の一覧の先頭に入る
   controller.selectInGroup('rain', 'warning-43'); // 前回の成功で選択は解除済み
   controller.generate();
@@ -526,7 +526,7 @@ test('削除は除いた件数を返し、チェックなしでは0', async () =
 });
 
 test('injectChecked: 成功時は投入行のチェックを解除し、会場採用結果メッセージを返す', async () => {
-  const { controller, pending, last } = await ready();
+  const { controller, pending, last, memory } = await ready();
   controller.selectInGroup('rain', 'warning-43');
   controller.generate();
   pending[1]!.resolve(Response.json(generation('a', 'warning-43', 2)));
@@ -577,6 +577,11 @@ test('injectChecked: 成功時は投入行のチェックを解除し、会場�
   assert.equal(result.message, '2通を電文投入しました');
   assert.equal(last().injecting, false);
   assert.deepEqual(last().checked, []); // H7: チェック解除
+  // 投入済みの行はローカルから消え、保存にも残らない
+  assert.deepEqual(last().history, []);
+  assert.deepEqual(JSON.parse(memory.data.get(trainingStockKey('kkeagh01'))!).entries, []);
+  // 200 の直後に投入済み一覧を再読込する
+  assert.equal(pending[3]!.url, '/api/training/injections?terminalId=kkeagh01');
 });
 
 test('injectChecked: 会場で不採用がある場合は内訳メッセージを返す', async () => {
@@ -625,11 +630,8 @@ test('injectChecked: 会場で不採用がある場合は内訳メッセージ�
   assert.equal(result.success, true);
   assert.equal(result.message, '2通を電文投入しました（1通は会場で採用されませんでした）');
   assert.deepEqual(last().checked, []);
-  // 会場で採用されなかった電文も「投入済み」
-  assert.deepEqual(
-    last().history.map((e) => e.injectionStatus),
-    ['injected', 'injected'],
-  );
+  // 会場で採用されなかった電文もローカルから消える（投入済みはサーバーの一覧に出る）
+  assert.deepEqual(last().history, []);
 });
 
 test('injectChecked: 失敗時はステータスに応じたメッセージを返し、チェックを維持する', async () => {
@@ -688,7 +690,7 @@ const injectOk = (ids: string[]) =>
     })),
   });
 
-test('投入ステータス: 生成直後は未投入。送信した行だけ投入済みになり保存され、送信しなかった行は変わらない', async () => {
+test('投入ステータス: 生成直後は未投入。送信した行だけローカルから消え保存され、送信しなかった行は変わらない', async () => {
   const memory = memoryStorage();
   const { controller, pending, last } = await ready(memory);
   controller.selectInGroup('rain', 'warning-43');
@@ -707,20 +709,16 @@ test('投入ステータス: 生成直後は未投入。送信した行だけ投
   await tick();
   assert.deepEqual(
     last().history.map((e) => [e.id, e.injectionStatus]),
-    [
-      ['s:0', 'injected'],
-      ['s:1', 'pending'],
-      ['s:2', 'injected'],
-    ],
+    [['s:1', 'pending']],
   );
   const saved = JSON.parse(memory.data.get(trainingStockKey('kkeagh01'))!);
   assert.deepEqual(
-    saved.entries.map((e: { injectionStatus: string }) => e.injectionStatus),
-    ['injected', 'pending', 'injected'],
+    saved.entries.map((e: { id: string; injectionStatus: string }) => [e.id, e.injectionStatus]),
+    [['s:1', 'pending']],
   );
 });
 
-test('投入ステータス: 422・503・504・通信失敗で送信した行が投入失敗になり、再投入の200で投入済みに上書きされる', async () => {
+test('投入ステータス: 422・503・504・通信失敗で送信した行が投入失敗になり、再投入の200でローカルから消える', async () => {
   const { controller, pending, last } = await ready();
   controller.selectInGroup('rain', 'warning-43');
   controller.generate();
@@ -744,18 +742,15 @@ test('投入ステータス: 422・503・504・通信失敗で送信した行が
   assert.equal((await network).success, false);
   await tick();
   assert.equal(last().history[0]!.injectionStatus, 'failed');
-  // 失敗の行を再投入して200なら上書き、さらに投入済みの行も再投入できる
+  // 失敗の行を再投入して200なら、ローカルから消える
   const retry = controller.injectChecked('bigsight');
   pending[index++]!.resolve(injectOk(['f:0']));
   await retry;
   await tick();
-  assert.equal(last().history[0]!.injectionStatus, 'injected');
-  controller.setChecked('f:0', true);
-  const again = controller.injectChecked('bigsight');
-  pending[index++]!.resolve(new Response('{}', { status: 422 }));
-  await again;
-  await tick();
-  assert.equal(last().history[0]!.injectionStatus, 'failed');
+  assert.deepEqual(
+    last().history.map((e) => [e.id, e.injectionStatus]),
+    [['f:1', 'pending']],
+  );
 });
 
 test('投入ステータス: 投入中に画面離脱(dispose)した場合は状態も保存も変えない', async () => {
@@ -792,4 +787,82 @@ test('投入ステータス: 投入中に画面離脱し失敗応答が返って
   await tick();
   assert.equal(last().history[0]!.injectionStatus, 'pending');
   assert.equal(memory.data.get(trainingStockKey('kkeagh01')), before);
+});
+
+const injectionsBody = (trainingIds: string[]) => ({
+  injections: trainingIds.map((trainingId, i) => ({
+    trainingId,
+    terminalId: 'kkeagh02',
+    acceptedAt: `2026-10-12T10:00:0${i}.000Z`,
+    telegrams: [{ sequence: 1, telegramType: 'VPWW55', title: '大雨警報', previewId: `p${i}:0` }],
+  })),
+});
+const TID_A = '11111111-1111-4111-8111-111111111111';
+const TID_B = '22222222-2222-4222-8222-222222222222';
+
+test('投入済み一覧: 読込のURL、成功で保持、失敗で直近の一覧を残してフラグを立て、成功で戻る', async () => {
+  const { controller, pending, last } = await ready();
+  controller.startInjectedWatch();
+  assert.equal(pending[1]!.url, '/api/training/injections?terminalId=kkeagh01');
+  pending[1]!.resolve(Response.json(injectionsBody([TID_A, TID_B])));
+  await tick();
+  assert.deepEqual(
+    last().injected.map((i) => i.trainingId),
+    [TID_A, TID_B],
+  );
+  assert.equal(last().injectedLoadFailed, false);
+  controller.loadInjected();
+  pending[2]!.resolve(new Response('{}', { status: 503 }));
+  await tick();
+  assert.equal(last().injectedLoadFailed, true);
+  assert.equal(last().injected.length, 2, '失敗中は直近の成功分を表示し続ける');
+  controller.loadInjected();
+  pending[3]!.resolve(Response.json(injectionsBody([TID_B])));
+  await tick();
+  assert.equal(last().injectedLoadFailed, false);
+  assert.deepEqual(
+    last().injected.map((i) => i.trainingId),
+    [TID_B],
+  );
+  // 形式不正も失敗扱い
+  controller.loadInjected();
+  pending[4]!.resolve(Response.json({ injections: [{ trainingId: 'x' }] }));
+  await tick();
+  assert.equal(last().injectedLoadFailed, true);
+  controller.dispose();
+});
+
+test('投入済み一覧: 30秒ごとに再読込し、dispose で止まる', async () => {
+  mock.timers.enable({ apis: ['setInterval'] });
+  try {
+    const { controller, pending } = await ready();
+    controller.startInjectedWatch();
+    assert.equal(pending.length, 2);
+    mock.timers.tick(29_999);
+    assert.equal(pending.length, 2);
+    mock.timers.tick(1);
+    assert.equal(pending.length, 3);
+    assert.equal(pending[2]!.url, '/api/training/injections?terminalId=kkeagh01');
+    mock.timers.tick(30_000);
+    assert.equal(pending.length, 4);
+    controller.dispose();
+    mock.timers.tick(90_000);
+    assert.equal(pending.length, 4);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('投入済み一覧: 古い応答（先に出した要求）は新しい応答を上書きしない', async () => {
+  const { controller, pending, last } = await ready();
+  controller.loadInjected();
+  controller.loadInjected();
+  assert.equal(pending[1]!.signal.aborted, true);
+  pending[2]!.resolve(Response.json(injectionsBody([TID_B])));
+  pending[1]!.resolve(Response.json(injectionsBody([TID_A])));
+  await tick();
+  assert.deepEqual(
+    last().injected.map((i) => i.trainingId),
+    [TID_B],
+  );
 });

@@ -1,3 +1,6 @@
+import type { TrainingInjectionListItem } from '@wx-viewer-poc/shared';
+import type { TrainingStockEntry } from './trainingStock';
+
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 /** UTC ISO を「2026/10/11 14:10」（JST）に整形する。不正値はそのまま返す。 */
@@ -56,4 +59,21 @@ export function formatTrainingInjectSuccessMessage(
     return `${n}通を電文投入しました（${m}通は会場で採用されませんでした）`;
   }
   return `${n}通を電文投入しました`;
+}
+
+/** 一覧の並び: 未投入 → 投入失敗 → 投入済み。まとまりの中は新しい順（保存順・サーバー順のまま）。 */
+export function orderTrainingRows(
+  history: readonly TrainingStockEntry[],
+  injected: readonly TrainingInjectionListItem[],
+): {
+  readonly local: readonly TrainingStockEntry[];
+  readonly injected: readonly TrainingInjectionListItem[];
+} {
+  return {
+    local: [
+      ...history.filter((entry) => entry.injectionStatus === 'pending'),
+      ...history.filter((entry) => entry.injectionStatus === 'failed'),
+    ],
+    injected,
+  };
 }

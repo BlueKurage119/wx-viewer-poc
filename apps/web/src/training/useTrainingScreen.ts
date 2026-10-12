@@ -78,6 +78,7 @@ export function useTrainingScreen(
     const controller = createTrainingController(terminalId, setState);
     controllerRef.current = controller;
     controller.start();
+    controller.startInjectedWatch();
     return () => {
       controller.dispose();
       controllerRef.current = null;

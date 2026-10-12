@@ -65,6 +65,11 @@ const transport = new WeatherTransport(
         value as import('../training/trainingInjectionContracts.js').TrainingInjectionCommand,
       );
     }
+    if (method === 'training.injections') {
+      return await runtime.listTrainingInjections(
+        value as import('../training/trainingInjectionContracts.js').TrainingInjectionListCommand,
+      );
+    }
     if (method === 'fetch.execute') {
       const input = value as {
         operationId: string;

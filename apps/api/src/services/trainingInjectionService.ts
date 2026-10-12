@@ -4,7 +4,9 @@ import type {
   TrainingInjectRejectReason,
   TrainingInjectRequest,
   TrainingInjectResponse,
+  TrainingInjectionsResponse,
 } from '@wx-viewer-poc/shared';
+import { TRAINING_INJECTIONS_LIST_LIMIT } from '@wx-viewer-poc/shared';
 import type {
   TrainingInjectionCommand,
   TrainingInjectionPort,
@@ -32,6 +34,12 @@ export type TrainingInjectionOutcome =
   | { readonly kind: 'result_unknown'; readonly trainingId: string }
   | { readonly kind: 'failed'; readonly trainingId?: string };
 
+export type TrainingInjectionListOutcome =
+  | { readonly kind: 'success'; readonly response: TrainingInjectionsResponse }
+  | { readonly kind: 'unknown_terminal' }
+  | { readonly kind: 'forbidden_terminal' }
+  | { readonly kind: 'unavailable'; readonly code: string };
+
 export interface TrainingInjectionServiceDependencies {
   readonly terminalRegistry: TerminalRegistry;
   readonly port?: TrainingInjectionPort;
@@ -50,6 +58,25 @@ export class TrainingInjectionService {
     this.port = dependencies.port;
     this.now = dependencies.now ?? (() => new Date().toISOString());
     this.idFactory = dependencies.idFactory ?? (() => crypto.randomUUID());
+  }
+
+  /** 要求端末と同じ会場の K 端末が投入し、完了した注入を新しい順に最大50件返す。 */
+  async list(terminalId: string): Promise<TrainingInjectionListOutcome> {
+    const terminal = this.terminalRegistry.resolveTerminal(terminalId);
+    if (!terminal) return { kind: 'unknown_terminal' };
+    if (terminal.mode !== 'K') return { kind: 'forbidden_terminal' };
+    const port = this.port;
+    if (!port?.list) return { kind: 'unavailable', code: 'training_injection_unavailable' };
+    const terminalIds = this.terminalRegistry
+      .listTerminals()
+      .filter((t) => t.mode === 'K' && t.venueId === terminal.venueId)
+      .map((t) => t.id);
+    try {
+      const response = await port.list({ terminalIds, limit: TRAINING_INJECTIONS_LIST_LIMIT });
+      return { kind: 'success', response };
+    } catch {
+      return { kind: 'unavailable', code: 'training_injection_unavailable' };
+    }
   }
 
   async inject(request: TrainingInjectRequest): Promise<TrainingInjectionOutcome> {

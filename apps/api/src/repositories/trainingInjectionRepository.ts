@@ -177,3 +177,74 @@ export function listTrainingInjectionReceptions(
 
   return rows.map(mapReceptionRow);
 }
+
+export interface TrainingInjectionListTelegramRecord {
+  readonly sequence: number;
+  readonly telegramType: string;
+  readonly title: string | null;
+  readonly previewId: string;
+}
+
+export interface TrainingInjectionListRecord {
+  readonly trainingId: string;
+  readonly terminalId: string;
+  readonly acceptedAt: string;
+  readonly telegrams: readonly TrainingInjectionListTelegramRecord[];
+}
+
+/**
+ * 指定端末が投入し status='completed' の注入記録を、新しい順（accepted_at 降順、同時刻は training_id 昇順）で返す。
+ * telegrams は role='requested' のみ、sequence 昇順。基準電文は含めない。
+ */
+export function listCompletedTrainingInjections(
+  connection: DatabaseConnection,
+  terminalIds: readonly string[],
+  limit: number,
+): readonly TrainingInjectionListRecord[] {
+  if (terminalIds.length === 0) return [];
+  const placeholders = terminalIds.map(() => '?').join(', ');
+  const injections = connection
+    .prepare(
+      `
+      SELECT training_id, terminal_id, accepted_at
+      FROM training_injection
+      WHERE status = 'completed' AND terminal_id IN (${placeholders})
+      ORDER BY accepted_at DESC, training_id ASC
+      LIMIT ?
+    `,
+    )
+    .all(...terminalIds, limit) as {
+    training_id: string;
+    terminal_id: string;
+    accepted_at: string;
+  }[];
+
+  const telegramStatement = connection.prepare(
+    `
+    SELECT r.sequence AS sequence, r.telegram_type AS telegram_type, r.preview_id AS preview_id,
+           t.title AS title
+    FROM training_injection_reception r
+    JOIN telegram_reception t ON t.id = r.reception_id
+    WHERE r.training_id = ? AND r.role = 'requested'
+    ORDER BY r.sequence ASC
+  `,
+  );
+  return injections.map((injection) => ({
+    trainingId: injection.training_id,
+    terminalId: injection.terminal_id,
+    acceptedAt: injection.accepted_at,
+    telegrams: (
+      telegramStatement.all(injection.training_id) as {
+        sequence: number;
+        telegram_type: string;
+        preview_id: string;
+        title: string | null;
+      }[]
+    ).map((row) => ({
+      sequence: row.sequence,
+      telegramType: row.telegram_type,
+      title: row.title,
+      previewId: row.preview_id,
+    })),
+  }));
+}

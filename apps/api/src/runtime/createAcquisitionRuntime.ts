@@ -43,8 +43,11 @@ import { createWorkerDecisions } from './workerDecisions.js';
 import type { DecisionCheckpoint, WeatherEpoch } from './weatherContracts.js';
 import type { WeatherTransport } from './weatherTransport.js';
 import { injectTrainingTelegrams } from '../training/trainingInjector.js';
+import { listCompletedTrainingInjections } from '../repositories/trainingInjectionRepository.js';
 import type {
   TrainingInjectionCommand,
+  TrainingInjectionListCommand,
+  TrainingInjectionListResult,
   TrainingInjectionResult,
 } from '../training/trainingInjectionContracts.js';
 
@@ -411,6 +414,29 @@ export function createAcquisitionRuntime(
         failPreparation('service_setup');
         throw error;
       }
+    },
+    async listTrainingInjections(
+      command: TrainingInjectionListCommand,
+    ): Promise<TrainingInjectionListResult> {
+      if (stopped) throw new Error('not_ready');
+      return {
+        injections: listCompletedTrainingInjections(
+          connection,
+          command.terminalIds,
+          command.limit,
+        ).map((record) => ({
+          trainingId: record.trainingId,
+          terminalId: record.terminalId,
+          acceptedAt: record.acceptedAt,
+          telegrams: record.telegrams.map((t) => ({
+            sequence: t.sequence,
+            telegramType:
+              t.telegramType as TrainingInjectionListResult['injections'][number]['telegrams'][number]['telegramType'],
+            title: t.title,
+            previewId: t.previewId,
+          })),
+        })),
+      };
     },
     async injectTraining(command: TrainingInjectionCommand): Promise<TrainingInjectionResult> {
       if (stopped) throw new Error('not_ready');

@@ -204,6 +204,10 @@
   cursor: pointer;
 }
 
+.training-row-static {
+  cursor: default;
+}
+
 .training-row-open:focus-visible {
   outline: 2px solid var(--md-sys-color-primary);
   outline-offset: -2px;
@@ -221,6 +225,10 @@
 }
 
 .training-row-type {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   text-align: end;
   font-variant-numeric: tabular-nums;
 }
