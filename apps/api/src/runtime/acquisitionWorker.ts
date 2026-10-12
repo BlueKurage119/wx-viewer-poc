@@ -60,6 +60,11 @@ const transport = new WeatherTransport(
       return operations.get(`${input.operationId}:${input.operation}`) ?? null;
     }
     if (!runtime || closing || failureCode) throw new Error('not_ready');
+    if (method === 'training.inject') {
+      return await runtime.injectTraining(
+        value as import('../training/trainingInjectionContracts.js').TrainingInjectionCommand,
+      );
+    }
     if (method === 'fetch.execute') {
       const input = value as {
         operationId: string;

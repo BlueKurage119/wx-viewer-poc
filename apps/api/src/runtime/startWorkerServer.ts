@@ -8,6 +8,7 @@ import {
 } from '@wx-viewer-poc/shared';
 import { createApp, type AppDependencies } from '../app.js';
 import { createTrainingTelegramService } from '../services/trainingTelegramService.js';
+import { createTrainingInjectionService } from '../services/trainingInjectionService.js';
 import {
   loadVenueConfig,
   loadTerminalConfig,
@@ -672,6 +673,14 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
     terminalRegistry: terminal.registry,
     trainingTelegram: createTrainingTelegramService({
       terminalRegistry: terminal.registry,
+      now,
+      idFactory: randomUUID,
+    }),
+    trainingInjection: createTrainingInjectionService({
+      terminalRegistry: terminal.registry,
+      port: {
+        inject: (command) => host.call('training.inject', command, 30_000),
+      },
       now,
       idFactory: randomUUID,
     }),

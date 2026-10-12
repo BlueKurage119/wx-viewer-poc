@@ -739,6 +739,7 @@ export function summarizeAdoptionResults(
        FROM telegram_reception_adoption a
        JOIN telegram_reception t ON t.id = a.reception_id
        WHERE t.received_at >= ? AND a.adoption_result IS NOT NULL
+         AND (t.feed_kind IS NULL OR t.feed_kind <> 'training')
        GROUP BY a.venue_id, a.adoption_result
        ORDER BY a.venue_id ASC, a.adoption_result ASC`,
     )
@@ -812,6 +813,7 @@ export function listRecentAdoptionFailures(
        FROM telegram_reception_adoption a
        JOIN telegram_reception t ON t.id = a.reception_id
        WHERE t.received_at >= ? AND a.adoption_result IN (${placeholders})
+         AND (t.feed_kind IS NULL OR t.feed_kind <> 'training')
        ORDER BY a.adoption_decided_at DESC, a.reception_id DESC
        LIMIT ?`,
     )

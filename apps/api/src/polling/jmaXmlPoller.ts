@@ -10,6 +10,7 @@ import {
 } from '../repositories/telegramReceptionRepository.js';
 import type {
   FetchAttemptInput,
+  TelegramReception,
   TelegramReceptionAdoptionInput,
   TelegramReceptionInput,
 } from '../repositories/types.js';
@@ -63,6 +64,146 @@ export interface PollerContextOptions extends ParseAtomFeedOptions {
   readonly bosaiNotificationEmitDeps?: BosaiNotificationEmitDeps;
 }
 import { performHttpGet, sanitizeErrorMessage, sanitizeUrl } from './httpGet.js';
+
+export interface TelegramDocumentInput {
+  readonly documentUrl: string;
+  readonly xml: string;
+  readonly feedKind: string;
+  readonly feedEntryId: string | null;
+  readonly fetchAttemptId: number | null;
+  readonly receivedAt: UtcIso8601String; // 受信時刻かつ採用判定時刻
+  readonly bodyBytes: number | null;
+  readonly contentHash: string; // xml の SHA-256 hex
+}
+
+export async function ingestTelegramDocument(
+  connection: DatabaseConnection,
+  input: TelegramDocumentInput,
+  options: PollerContextOptions,
+  hooks?: { readonly afterRecord?: (reception: TelegramReception) => void },
+): Promise<TelegramReception> {
+  const venueRegistry = options.venueRegistry;
+  if (!venueRegistry) throw new Error('電文処理には会場レジストリが必要です');
+
+  // 共通エンベロープの解析
+  const parsed = parseTelegramXml(input.xml, input.documentUrl);
+
+  // エンベロープ不正は会場に依存しないため、全 VenueId 分の採用行として記録する（§3.3.1）。
+  const envelopeInvalidAdoptions: readonly TelegramReceptionAdoptionInput[] = parsed.isValidEnvelope
+    ? []
+    : venueRegistry.listVenueIds().map((venueId) => ({
+        venueId,
+        adoptionResult: '未対応形式',
+        adoptionReason: parsed.validationErrorReason,
+        adoptionDecidedAt: null,
+      }));
+
+  // telegram_reception への保存
+  const receptionInput: TelegramReceptionInput = {
+    fetchAttemptId: input.fetchAttemptId,
+    feedKind: input.feedKind,
+    feedEntryId: input.feedEntryId,
+    documentUrl: input.documentUrl,
+    telegramType: parsed.telegramType,
+    title: parsed.title,
+    controlStatus: parsed.controlStatus,
+    infoType: parsed.infoType,
+    eventId: parsed.eventId,
+    serial: parsed.serial,
+    controlDateTime: parsed.controlDateTime,
+    reportDateTime: parsed.reportDateTime,
+    targetDateTime: parsed.targetDateTime,
+    receivedAt: input.receivedAt,
+    rawBody: input.xml,
+    bodyBytes: input.bodyBytes,
+    contentHash: input.contentHash,
+    areas: parsed.areas,
+    adoptions: envelopeInvalidAdoptions,
+  };
+
+  let recordedReception: TelegramReception | null = null;
+  const commitReception = () => {
+    const reception = recordTelegramReception(connection, receptionInput);
+    recordedReception = reception;
+    hooks?.afterRecord?.(reception);
+    if (
+      reception.telegramType &&
+      (WARNING_TELEGRAM_TYPES as readonly string[]).includes(reception.telegramType)
+    ) {
+      processWarningTelegramReceptionForAllVenues(
+        connection,
+        reception,
+        input.receivedAt,
+        venueRegistry,
+        options.warningNotificationEmitDeps,
+      );
+    } else if (reception.telegramType === VPWP50_TELEGRAM_TYPE) {
+      processVpwp50ReceptionForAllVenues(connection, reception, input.receivedAt, venueRegistry);
+    } else if (
+      reception.telegramType === VPFD61_TELEGRAM_TYPE ||
+      reception.telegramType === VPFW60_TELEGRAM_TYPE
+    ) {
+      processEarlyWarningReceptionForVenues(connection, reception, input.receivedAt, venueRegistry);
+    } else if (reception.telegramType === VPFD51_TELEGRAM_TYPE) {
+      processVpfd51ReceptionForVenues(connection, reception, input.receivedAt, venueRegistry);
+    } else if (reception.telegramType === VPBS50_TELEGRAM_TYPE) {
+      processVpbs50Reception(
+        connection,
+        reception,
+        input.receivedAt,
+        options.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
+        options.bosaiNotificationEmitDeps,
+        venueRegistry,
+      );
+    } else if (
+      reception.telegramType === VPHW50_TELEGRAM_TYPE ||
+      reception.telegramType === VPHW51_TELEGRAM_TYPE
+    ) {
+      processVphwReception(
+        connection,
+        reception,
+        input.receivedAt,
+        options.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
+        options.bosaiNotificationEmitDeps,
+        venueRegistry,
+      );
+    }
+  };
+
+  if (options.runWeatherUpdate) {
+    const status = receptionInput.controlStatus;
+    const venues = venueRegistry.listVenueIds();
+    const warning = (WARNING_TELEGRAM_TYPES as readonly string[]).includes(
+      receptionInput.telegramType ?? '',
+    );
+    const bosai = (
+      [VPBS50_TELEGRAM_TYPE, VPHW50_TELEGRAM_TYPE, VPHW51_TELEGRAM_TYPE] as readonly string[]
+    ).includes(receptionInput.telegramType ?? '');
+    const warningAreas = venues
+      .map((id) => resolveVenueWarningContext(venueRegistry, id).targetArea.municipalCode)
+      .filter((code) => receptionInput.areas.some((area) => area.areaCode === code));
+    await options.runWeatherUpdate(commitReception, {
+      scopes: telegramWeatherScopes(venueRegistry, receptionInput),
+      initialWarningKeys:
+        warning && (status === 'normal' || status === 'training')
+          ? warningAreas.map((code) => `${code}|${status}`)
+          : [],
+      initialBosaiKeys:
+        bosai &&
+        (status === 'normal' || status === 'training') &&
+        !options.bosaiNotificationEmitDeps?.initialState.isCollecting()
+          ? venues.map((id) => `${id}|${status}`)
+          : [],
+    });
+  } else {
+    commitReception();
+  }
+
+  if (!recordedReception) {
+    throw new Error('電文の保存に失敗しました');
+  }
+  return recordedReception;
+}
 
 export async function pollSingleFeed(
   connection: DatabaseConnection,
@@ -287,114 +428,20 @@ export async function pollSingleFeed(
       errorMessage: null,
     });
 
-    // 共通エンベロープの解析
-    const parsed = parseTelegramXml(docHttpResult.bodyText, docUrl);
-
-    // エンベロープ不正は会場に依存しないため、全 VenueId 分の採用行として記録する（§3.3.1）。
-    const envelopeInvalidAdoptions: readonly TelegramReceptionAdoptionInput[] =
-      parsed.isValidEnvelope
-        ? []
-        : venueRegistry.listVenueIds().map((venueId) => ({
-            venueId,
-            adoptionResult: '未対応形式',
-            adoptionReason: parsed.validationErrorReason,
-            adoptionDecidedAt: null,
-          }));
-
-    // telegram_reception への保存
-    const receptionInput: TelegramReceptionInput = {
-      fetchAttemptId: docAttempt.id,
-      feedKind: feedDef.kind,
-      feedEntryId: entry.id,
-      documentUrl: docUrl,
-      telegramType: parsed.telegramType,
-      title: parsed.title,
-      controlStatus: parsed.controlStatus,
-      infoType: parsed.infoType,
-      eventId: parsed.eventId,
-      serial: parsed.serial,
-      controlDateTime: parsed.controlDateTime,
-      reportDateTime: parsed.reportDateTime,
-      targetDateTime: parsed.targetDateTime,
-      receivedAt: docFinishedAt,
-      rawBody: docHttpResult.bodyText,
-      bodyBytes: docHttpResult.responseBytes,
-      contentHash: docHash,
-      areas: parsed.areas,
-      adoptions: envelopeInvalidAdoptions,
-    };
-
-    const commitReception = () => {
-      const reception = recordTelegramReception(connection, receptionInput);
-      if (
-        reception.telegramType &&
-        (WARNING_TELEGRAM_TYPES as readonly string[]).includes(reception.telegramType)
-      ) {
-        processWarningTelegramReceptionForAllVenues(
-          connection,
-          reception,
-          docFinishedAt,
-          venueRegistry,
-          options?.warningNotificationEmitDeps,
-        );
-      } else if (reception.telegramType === VPWP50_TELEGRAM_TYPE) {
-        processVpwp50ReceptionForAllVenues(connection, reception, docFinishedAt, venueRegistry);
-      } else if (
-        reception.telegramType === VPFD61_TELEGRAM_TYPE ||
-        reception.telegramType === VPFW60_TELEGRAM_TYPE
-      ) {
-        processEarlyWarningReceptionForVenues(connection, reception, docFinishedAt, venueRegistry);
-      } else if (reception.telegramType === VPFD51_TELEGRAM_TYPE) {
-        processVpfd51ReceptionForVenues(connection, reception, docFinishedAt, venueRegistry);
-      } else if (reception.telegramType === VPBS50_TELEGRAM_TYPE) {
-        processVpbs50Reception(
-          connection,
-          reception,
-          docFinishedAt,
-          options?.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
-          options?.bosaiNotificationEmitDeps,
-          venueRegistry,
-        );
-      } else if (
-        reception.telegramType === VPHW50_TELEGRAM_TYPE ||
-        reception.telegramType === VPHW51_TELEGRAM_TYPE
-      ) {
-        processVphwReception(
-          connection,
-          reception,
-          docFinishedAt,
-          options?.bosaiBulletinTarget ?? resolveBosaiBulletinTarget(venueRegistry),
-          options?.bosaiNotificationEmitDeps,
-          venueRegistry,
-        );
-      }
-    };
-    if (options?.runWeatherUpdate) {
-      const status = receptionInput.controlStatus;
-      const venues = venueRegistry.listVenueIds();
-      const warning = (WARNING_TELEGRAM_TYPES as readonly string[]).includes(
-        receptionInput.telegramType ?? '',
-      );
-      const bosai = (
-        [VPBS50_TELEGRAM_TYPE, VPHW50_TELEGRAM_TYPE, VPHW51_TELEGRAM_TYPE] as readonly string[]
-      ).includes(receptionInput.telegramType ?? '');
-      const warningAreas = venues
-        .map((id) => resolveVenueWarningContext(venueRegistry, id).targetArea.municipalCode)
-        .filter((code) => receptionInput.areas.some((area) => area.areaCode === code));
-      await options.runWeatherUpdate(commitReception, {
-        scopes: telegramWeatherScopes(venueRegistry, receptionInput),
-        initialWarningKeys:
-          warning && (status === 'normal' || status === 'training')
-            ? warningAreas.map((code) => `${code}|${status}`)
-            : [],
-        initialBosaiKeys:
-          bosai &&
-          (status === 'normal' || status === 'training') &&
-          !options.bosaiNotificationEmitDeps?.initialState.isCollecting()
-            ? venues.map((id) => `${id}|${status}`)
-            : [],
-      });
-    } else commitReception();
+    await ingestTelegramDocument(
+      connection,
+      {
+        documentUrl: docUrl,
+        xml: docHttpResult.bodyText,
+        feedKind: feedDef.kind,
+        feedEntryId: entry.id,
+        fetchAttemptId: docAttempt.id,
+        receivedAt: docFinishedAt,
+        bodyBytes: docHttpResult.responseBytes,
+        contentHash: docHash,
+      },
+      options ?? {},
+    );
   }
 
   return {

@@ -42,6 +42,11 @@ import type { DecisionScope } from './weatherDecisionRuntime.js';
 import { createWorkerDecisions } from './workerDecisions.js';
 import type { DecisionCheckpoint, WeatherEpoch } from './weatherContracts.js';
 import type { WeatherTransport } from './weatherTransport.js';
+import { injectTrainingTelegrams } from '../training/trainingInjector.js';
+import type {
+  TrainingInjectionCommand,
+  TrainingInjectionResult,
+} from '../training/trainingInjectionContracts.js';
 
 export interface AcquisitionSettings {
   readonly venues: readonly VenueForecastTargets[];
@@ -393,6 +398,8 @@ export function createAcquisitionRuntime(
       await starting;
     }
   };
+  let injectionQueue: Promise<unknown> = Promise.resolve();
+
   return {
     imageServices,
     decisions,
@@ -403,6 +410,27 @@ export function createAcquisitionRuntime(
       } catch (error) {
         failPreparation('service_setup');
         throw error;
+      }
+    },
+    async injectTraining(command: TrainingInjectionCommand): Promise<TrainingInjectionResult> {
+      if (stopped) throw new Error('not_ready');
+      const currentQueue = injectionQueue;
+      let release = () => {};
+      injectionQueue = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      try {
+        await currentQueue;
+        if (stopped) throw new Error('not_ready');
+        return await injectTrainingTelegrams(connection, command, {
+          venueRegistry: registry,
+          runWeatherUpdate,
+          clock,
+          warningNotificationEmitDeps: warningEmitDeps,
+          bosaiNotificationEmitDeps: bosaiEmitDeps,
+        });
+      } finally {
+        release();
       }
     },
     status() {
