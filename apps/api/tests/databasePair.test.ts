@@ -36,6 +36,8 @@ const retainedTables = [
   'startup_warning_claim',
   'terminal_session',
 ];
+// 2DB分離後に weather 側だけへ追加した表。単一DBの旧 migrations には対応する表がない
+const weatherOnlyTables = ['training_injection', 'training_injection_reception'];
 function tables(db: ReturnType<typeof initializeDatabases>['weather']) {
   return (
     db.connection.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
@@ -60,7 +62,14 @@ test('物理2DB・最終DDL・保持5表・世代・checksumは再起動で不�
       databasePath: join(directory, 'legacy.sqlite3'),
       migrationsDirectory: resolve(import.meta.dirname, '../migrations'),
     });
-    for (const table of [...tables(pair.weather), ...retainedTables]) {
+    assert.deepEqual(
+      tables(pair.weather).filter((t) => weatherOnlyTables.includes(t)),
+      weatherOnlyTables,
+    );
+    for (const table of [
+      ...tables(pair.weather).filter((t) => !weatherOnlyTables.includes(t)),
+      ...retainedTables,
+    ]) {
       const target = retainedTables.includes(table)
         ? pair.retained.connection
         : pair.weather.connection;
