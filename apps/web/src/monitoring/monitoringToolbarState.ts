@@ -1,6 +1,19 @@
 import type { FetchControlOperationKind, WeatherRole } from '@wx-viewer-poc/shared';
+import {
+  backToolbar as backToolbarCommon,
+  backToolbarToRoot as backToolbarToRootCommon,
+  clearToolbarSelection as clearToolbarSelectionCommon,
+  createToolbarLocalState as createToolbarLocalStateCommon,
+  currentToolbar as currentToolbarCommon,
+  navigateToolbar as navigateToolbarCommon,
+  resetToolbarToRoot as resetToolbarToRootCommon,
+  toggleToolbarSelection,
+  type ToolbarDefinition as CommonToolbarDefinition,
+  type ToolbarId as CommonToolbarId,
+  type ToolbarLocalState as CommonToolbarLocalState,
+} from '../toolbar/operationToolbarState';
 
-export type ToolbarId = string;
+export type ToolbarId = CommonToolbarId;
 export type MonitoringDialogId =
   'reception' | 'telegram' | 'output' | 'diagnostics' | 'workerRestartHistory';
 export interface WorkerRestartSelection {
@@ -18,16 +31,8 @@ export type ToolbarItem =
   | { readonly kind: 'dialog'; readonly dialogId: MonitoringDialogId; readonly label: string }
   | { readonly kind: 'navigate'; readonly toolbarId: ToolbarId; readonly label: string }
   | { readonly kind: 'workerRestart'; readonly role: WeatherRole; readonly label: string };
-export interface ToolbarDefinition {
-  readonly id: ToolbarId;
-  readonly title: string;
-  readonly groups: readonly (readonly ToolbarItem[])[];
-}
-export interface ToolbarLocalState {
-  readonly history: readonly ToolbarId[];
-  readonly selectedOperation: ToolbarSelection | null;
-  readonly openDialog: MonitoringDialogId | null;
-}
+export type ToolbarDefinition = CommonToolbarDefinition<ToolbarItem>;
+export type ToolbarLocalState = CommonToolbarLocalState<ToolbarSelection, MonitoringDialogId>;
 
 export const MONITORING_TOOLBAR_ROOT_ID = 'monitor-root';
 export const MONITORING_TOOLBAR_WORKER_ID = 'monitor-worker';
@@ -107,45 +112,42 @@ export function toolbarSelectionLabel(selection: ToolbarSelection): string {
 }
 
 export function createToolbarLocalState(rootId: ToolbarId): ToolbarLocalState {
-  return { history: [rootId], selectedOperation: null, openDialog: null };
+  return createToolbarLocalStateCommon(rootId);
 }
 
 export function currentToolbar(
   state: ToolbarLocalState,
   definitions: readonly ToolbarDefinition[],
 ): ToolbarDefinition {
-  const currentId = state.history.at(-1);
-  const current = definitions.find((definition) => definition.id === currentId);
-  if (!current) throw new Error('監視ツールバーのルート定義が見つかりません');
-  return current;
+  return currentToolbarCommon(state, definitions, '監視ツールバーのルート定義が見つかりません');
 }
 
 export function selectToolbarOperation(
   state: ToolbarLocalState,
   operation: FetchControlOperationKind,
 ): ToolbarLocalState {
-  return {
-    ...state,
-    selectedOperation: state.selectedOperation === operation ? null : operation,
-  };
+  return toggleToolbarSelection<ToolbarLocalState, ToolbarSelection, MonitoringDialogId>(
+    state,
+    operation,
+  );
 }
 
 export function selectToolbarWorkerRestart(
   state: ToolbarLocalState,
   role: WeatherRole,
 ): ToolbarLocalState {
-  const current = state.selectedOperation;
-  return {
-    ...state,
-    selectedOperation:
-      isWorkerRestartSelection(current) && current.role === role
-        ? null
-        : { kind: 'workerRestart', role },
-  };
+  return toggleToolbarSelection<ToolbarLocalState, ToolbarSelection, MonitoringDialogId>(
+    state,
+    { kind: 'workerRestart', role },
+    (current, next) =>
+      isWorkerRestartSelection(current) &&
+      isWorkerRestartSelection(next) &&
+      current.role === next.role,
+  );
 }
 
 export function clearToolbarSelection(state: ToolbarLocalState): ToolbarLocalState {
-  return { ...state, selectedOperation: null };
+  return clearToolbarSelectionCommon(state);
 }
 
 export function openMonitoringDialog(
@@ -164,26 +166,18 @@ export function navigateToolbar(
   definitions: readonly ToolbarDefinition[],
   toolbarId: ToolbarId,
 ): ToolbarLocalState {
-  const currentId = state.history.at(-1);
-  if (toolbarId === currentId || !definitions.some((definition) => definition.id === toolbarId)) {
-    return state;
-  }
-  return { history: [...state.history, toolbarId], selectedOperation: null, openDialog: null };
+  return navigateToolbarCommon(state, definitions, toolbarId);
 }
 
 export function backToolbar(state: ToolbarLocalState): ToolbarLocalState {
-  if (state.history.length <= 1) return state;
-  return { history: state.history.slice(0, -1), selectedOperation: null, openDialog: null };
+  return backToolbarCommon(state);
 }
 
 export function backToolbarToRoot(state: ToolbarLocalState): ToolbarLocalState {
-  if (state.history.length <= 1) return state;
-  return { history: [state.history[0]!], selectedOperation: null, openDialog: null };
+  return backToolbarToRootCommon(state);
 }
 
 /** 監視画面から離れたとき。階層・選択・ダイアログをすべて破棄してルートへ戻す。 */
 export function resetToolbarToRoot(state: ToolbarLocalState): ToolbarLocalState {
-  if (state.history.length <= 1 && state.selectedOperation === null && state.openDialog === null)
-    return state;
-  return { history: [state.history[0]!], selectedOperation: null, openDialog: null };
+  return resetToolbarToRootCommon(state);
 }

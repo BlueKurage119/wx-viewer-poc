@@ -6,6 +6,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MonitoringDialogHost } from '../src/monitoring/MonitoringDialogHost.tsx';
 import { MonitoringToolbar } from '../src/monitoring/MonitoringToolbar.tsx';
+import { OperationToolbar } from '../src/toolbar/OperationToolbar.tsx';
 import { nextDialogFocusTarget } from '../src/monitoring/monitoringDialogFocus.ts';
 import { monitoringOperationMessage } from '../src/monitoring/monitoringOperationMessage.ts';
 import {
@@ -247,7 +248,7 @@ test('取得操作: 通常buttonの形状を維持し、選択時だけ状態ク
 
 test('戻るアイコン: 型付きラッパーをバレル経由で使い、通常buttonのclipを持ち込まない', () => {
   const toolbarSource = readFileSync(
-    new URL('../src/monitoring/MonitoringToolbar.tsx', import.meta.url),
+    new URL('../src/toolbar/OperationToolbar.tsx', import.meta.url),
     'utf8',
   );
   const barrelSource = readFileSync(
@@ -325,7 +326,8 @@ test('固定操作は中央スクロール領域の外に置き、階層ごと�
       history.length === 1
         ? monitoringToolbarDefinitions[0]!.groups
         : [[{ kind: 'operation' as const, label: '取得停止', operation: 'stop' as const }]];
-    const element = MonitoringToolbar({
+    // 描画は共通部品 OperationToolbar に移ったため、監視が渡す props で共通部品を展開して検証する。
+    const wrapper = MonitoringToolbar({
       model: {
         localState: {
           ...createToolbarLocalState('monitor-root'),
@@ -349,6 +351,7 @@ test('固定操作は中央スクロール領域の外に置き、階層ごと�
         backToRoot,
       },
     });
+    const element = OperationToolbar(wrapper.props);
     // JSXの構造と操作接続を検証する。寸法とスクロールはブラウザで別途確認する。
     const regions = React.Children.toArray(element.props.children) as React.ReactElement<{
       className: string;
