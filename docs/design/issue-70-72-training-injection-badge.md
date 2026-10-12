@@ -594,3 +594,104 @@ weather DB に置く理由: 受信と同じ書き手・同じDB世代で整合�
 
 - (a) 基準電文の Control/DateTime を秒精度に揃える修正（ffa1907）。Worker の時計にミリ秒端数があると、基準電文の検証（Control 日時の照合）が失敗し、警報系の電文投入が全体失敗していた。秒切り捨てに統一し、ミリ秒端数のある時計での回帰テストを追加済み。本書「時刻」の「秒切り捨て、UTC `Z`」はこの修正後の実装と一致する。
 - (b) `databasePair.test.ts` の旧DDL照合から訓練注入の2表（`training_injection`・`training_injection_reception`）を除外（a9a0982）。新規マイグレーションによる表追加を、旧DDLとの差分として誤検出しないため。
+
+## 2026-10-12 追加変更(2)
+
+オーナー判断で、次の3件を本PRに含める。**本節は前節まで（「UI監修で変更」節を含む）より優先する。** 基準は HEAD `f0ea45b`（前節まで実装済み）。
+
+### A. 投入済みの電文をサーバー側の一覧で表示する
+
+**現行:** 電文ストック（localStorage、version 2）の各行が `injectionStatus: 'pending' | 'injected' | 'failed'` を持つ。投入済みの行もローカルに残る（`apps/web/src/training/trainingStock.ts`）。
+
+**変更後:**
+
+- 生成直後の電文は従来どおりローカル（未投入）に置く。電文投入が 200 で返ったら、送信したローカルの行を**ストックから消す**。投入済みとしては、DB の注入記録（`training_injection`）を一覧に表示する。
+- 投入失敗（HTTPエラー・通信失敗）の行はローカルに残し「投入失敗」と表示する。ローカルの状態は `pending`（未投入）と `failed`（投入失敗）だけになる。
+- 投入済みの表示単位は**注入1回（訓練ID）につき1行**とする（J3 の取消単位に揃える）。基準電文（`role='baseline'`）は行の内訳に出さない。
+- **ストック形式 version 3:** `{ version: 3, entries: [{ id, generatedAt, itemLabels, telegram, injectionStatus: 'pending' | 'failed' }] }`。キーは変えない。
+  - 読込の移行: version 1 は全行 `pending`。version 2 は `pending` と `failed` をそのまま残し、**`injected` の行は捨てる**（DB の一覧に出ているため）。どちらも読込直後に version 3 で書き戻す。その他の版・不正値は従来どおり全体を捨て、キーを削除する。
+  - 20件の上限と「n／20件」の件数はローカル行だけで数える。
+- **新API `GET /api/training/injections?terminalId=...`**（読み取り専用。no-store。query は terminalId だけ）:
+  - 端末検証は J1・J2 と同じ（不明端末 400、H端末 403）。
+  - 対象: 要求した端末と**同じ会場の K端末**（`terminalRegistry` から、venueId が一致し mode=K の terminalId 集合をメインで求める）が投入し、`status='completed'` の注入記録。新しい順（`accepted_at` 降順、同時刻は `training_id` 昇順）で最大50件。
+  - 応答: `{ injections: [{ trainingId, terminalId, acceptedAt, telegrams: [{ sequence, telegramType, title, previewId }] }] }`。`telegrams` は `role='requested'` だけで、sequence 昇順。`title` は `telegram_reception.title`。
+  - 経路: weather DB の書き手である取得Workerへ `host.call('training.injections', { terminalIds, limit: 50 }, 5000)`。未準備・期限切れは 503 `training_injection_unavailable`。インライン起動ではポート未構成で 503。
+  - `status='failed'` や `in_progress` の記録は一覧に出さない。途中失敗で受信が一部残った注入は画面に現れないが、DB の記録は残す（J3 の抹消対象として扱う）。
+- **一覧の表示（1つのリストに混在）:**
+  - 並び: 状態ごとにまとめ、「未投入」→「投入失敗」→「投入済み」の順。各まとまりの中は新しい順。
+  - 投入済みの行: 時刻は `acceptedAt`（JST `HH:mm:ss`）。項目名の欄は各電文の `title` を「、」で連結し、電文種別の欄は `telegramType` を「、」で連結する。どちらも1行で省略記号。ステータスは「投入済み」。
+  - 投入済みの行のチェック欄は**置かない**（列幅は空けて揃える）。「リスト消去」「リスト全消」「電文投入」の対象にならない（DB の削除は J3）。「リスト全消」はローカル行だけを消す。選べる条件の件数（チェック数・一覧件数）もローカル行だけで数える。
+  - 投入済みの行は押しても何も開かない（ボタンにしない）。XML 表示は対象外。
+  - 一覧の読込: 訓練画面の表示時、電文投入が 200 で返った直後、表示中は30秒ごと。読込失敗時は状態行に「投入済みの一覧を取得できませんでした」（`role="alert"`。生成失敗・保存失敗より優先度は低い）を出し、ローカル行の表示は続ける。
+
+### B. 訓練データのパネル表示（オーナー選択: C案＋B案）
+
+**現行:** `WeatherMapView` の `controlStatus` は、地図レイヤー（ナウキャスト・キキクル）と6パネルに共通で、`'normal'` 固定。`InfoPanelCardInput.isTraining` によるバッジは実装済み。
+
+**C案（切替）:**
+
+- URL クエリ `?controlStatus=training` があり、かつ端末が **K** のときだけ、**6パネル**の読み出しを `controlStatus='training'` に切り替える。H端末では無視する。値が `training` 以外のときも無視（normal）。
+- 地図レイヤーは切り替えない（normal のまま）。既存のナウキャスト・キキクルは training では提供しないため。`WeatherMapView` に `panelControlStatus` を新設し、パネル用の hook だけに渡す。`controlStatus` は地図用として残す。
+- 訓練表示中は、応答の `isTraining=true` により全パネルの見出しに `TrainingBadge` が付く（実装済みの仕組み）。
+- ナビレールの危険度バッジ（`useWeatherDangerData`）は `'normal'` 固定のまま。常時表示・集計に訓練を反映しない。
+
+**B案（重ね表示、通常表示時）:**
+
+- C案の切替をしていないとき、気象防災速報パネルと警報・注意報パネルに限り、`controlStatus='training'` の応答も別に読み込み、訓練のカードを重ねて表示する。他の4パネルは重ねない。
+- **警報・注意報:** 通常と訓練は現況を別に管理している。通常の発表中リストに訓練を混ぜず、訓練の現況に発表中の項目があるときだけ、訓練用のカードを1枚追加する。
+  - 見出しは「警報・注意報」＋ `TrainingBadge`。カードは `--md-sys-color-tertiary` の 2px 枠線と `--md-sys-color-tertiary-container` 系の背景で区別する。
+  - カード内のバッジは通常と同じレベル配色。カード枠に黄色系（レベル2と衝突）・黒・紫・赤のレベル色を使わない。
+  - 訓練の発表中が0件、または取得失敗のときはカードを出さない（訓練側の失敗表示は出さない）。
+- **気象防災速報:** 訓練の速報（見出しに「＊＊＊これは訓練です＊＊＊」を含む）を `isTraining=true` のカードとして通常の速報カードと同じ列に並べる。並びは既存の時刻順。
+- 読み込みは各 hook の既存の周期・取得関数を `controlStatus='training'` で再利用する。訓練側の取得失敗は通常側の表示に影響させない。
+- 【設計判断】B案は **H端末にも表示する**。根拠:
+  - 基本設計 §3.4 は、5章の各パネルに訓練を「実発表と誤認させない表示（バッジ）を付けたうえで表示」すると定めている。
+  - 確定事項 H6 で、訓練通知は H端末にも表示・鳴動すると決めた。通知で鳴った訓練の内容をパネルで確認できない状態を避け、表示の一貫性を保つ。
+  - 誤認の防止はバッジ・tertiary 枠・本文の訓練表示行で担保する。切替（C案）は全パネルを置き換える操作のため、デバッグ用途の K端末に限る。
+
+### C. 気象防災速報の通知の対象名（既存不具合の修正、#145 由来）
+
+**現行:** `bosaiBulletinNotificationPlanner.ts`（174〜181行）と `startupCurrentNotificationProjector.ts`（159〜167行）は、`targets` を `[{ kind:'area', codeType:'venue', code: venueId, name: 会場名 }]` で作る。対象表示（#103: `targets[].name` を「、」で連結）に「東京ビッグサイト」等の会場名が出る。これは基本設計の「広域速報は元の対象区域名を表示し、会場の市町村単独の情報へ書き換えない」と矛盾する。
+
+**変更後:**
+
+- `kind`・`codeType:'venue'`・`code: venueId` は**変えない**。配信の会場範囲（`notificationVenueScope` の規則1）、識別単位（`venueId + notificationKind + sourceVersion`）、`relatedRefs`、#145 の「targets には会場を保持する」契約を維持する。
+- `name` だけを、その速報の区域のうち会場の `bosaiBulletin.includedAreaCodes` に一致する区域名にする。
+  - 選び方: `includedAreaCodes` の並び（会場設定は市町村→まとめた地域→一次細分の順）で最初に一致した区域の `areaName` を使う。
+  - 例: 線状降水帯（東京地方130010のみ）は「東京地方」。記録的短時間大雨（Headline 東京地方＋Body 江東区）は「江東区」。竜巻（4階層）は「江東区」。
+- 共通の純関数 `resolveBosaiTargetName(areas, includedAreaCodes): string | null` を新設し、planner と起動時現況投影の両方で使う。対象の区域は次のとおり。
+  - planner: `current.areas`。取消で区域が無い場合は、#145 の規則で決めた区域の組（previous）。
+  - 投影: 保存済み速報の `areas`。
+- 一致する区域が無い場合は会場名にフォールバックしない。採用判定上は起きないが、起きた場合は通知を見送り、理由 `target_name_unresolved` をログに出す。
+- 同じ targets を作る箇所は上記2か所だけ（`grep -n "codeType: 'venue'" apps/api/src/notifications` で確認）。データベース回復の通知（equipment）は対象外。
+- 過去の出力履歴の `summary` は書き換えない（#103「過去履歴を書き換えない」）。
+
+### 受け入れ条件（追加・修正）
+
+本節の条件は、前節の条件と矛盾する部分を置き換える。廃止するのは「`injectionStatus` が `injected` になる／投入済み行を再投入できる」「200 応答後、送信した全行が投入済みになる」「version 2 で保存」の各条件。
+
+**A. 投入済み一覧**
+
+- [ ] 電文投入が 200 で返ると、送信したローカルの行がストック（localStorage）から消える。同じ訓練IDの「投入済み」の行が1行、一覧の投入済みのまとまりに出る（項目名＝各電文の title 連結、種別＝telegramType 連結。基準電文は出ない）。
+- [ ] HTTPエラー・通信失敗の場合、送信した行はローカルに残り「投入失敗」になる。再投入して成功すると、ローカルから消えて投入済みの行になる。
+- [ ] version 1（全行 pending）・version 2（`injected` の行が捨てられ、pending・failed は残る）の保存値が、読込後に version 3 で書き戻される。不正値・その他の版は空から始まり、キーが削除される。
+- [ ] 一覧の並びが「未投入」→「投入失敗」→「投入済み」の順で、各まとまりの中は新しい順。投入済みの行にはチェック欄が無く、押しても何も開かない。
+- [ ] 投入済みの行は「リスト消去」「リスト全消」で消えない（DB の記録も変わらない）。件数「n／20件」と選べる条件はローカル行だけで数える。
+- [ ] `GET /api/training/injections`: K端末は 200。同じ会場の別の K端末が投入した記録も含み、別会場の K端末の記録は含まない。H端末は 403、不明端末・余分な query は 400、no-store。`failed` の記録は含まない。最大50件で新しい順。取得Worker未準備は 503。
+- [ ] 2台の K端末（同じ会場）で、一方が投入すると、もう一方の一覧に30秒以内に投入済みの行が出る。
+
+**B. パネル**
+
+- [ ] K端末で `?controlStatus=training` を付けると、6パネルのAPI要求が `controlStatus=training` になる（ネットワーク要求で確認）。全パネルの見出しに訓練バッジが付く。地図レイヤーとナビの危険度バッジの要求は `normal` のまま。H端末で同じクエリを付けても全要求が `normal`。
+- [ ] 通常表示で、訓練の警報（注入済み）があると、警報・注意報パネルに通常カードとは別の訓練カード（見出しのバッジ、`--md-sys-color-tertiary` 枠）が出る。通常カードの発表中リストに訓練の項目が含まれない。訓練の発表中が0件のときは訓練カードが出ない。
+- [ ] 通常表示で、訓練の速報（注入済み）が、バッジ付きの別カードとして気象防災速報パネルに並ぶ。他の4パネルには訓練が出ない。ナビの危険度バッジは訓練の警報で変わらない。
+- [ ] H端末でも上記の B案表示が出る。
+- [ ] 訓練側の取得を失敗させても（web単体試験で差し替え）、通常側のカードは変わらない。
+- [ ] 色はトークンのみ。訓練カードの有無で他のカードの寸法が変わらない（実測、ダークテーマ）。
+
+**C. 速報の通知対象名**
+
+- [ ] 単体試験: 線状降水帯（東京地方のみ）は `targets[0].name='東京地方'`。記録的短時間大雨（東京地方＋江東区）は「江東区」。竜巻は east で「江東区」。trc では会場設定の `includedAreaCodes` に従い、線状降水帯は「東京地方」。
+- [ ] `targets[0]` の `kind`・`codeType`・`code` が変更前と同じ。`notificationVenueScope` の結果、`notificationId` の識別単位、`relatedRefs` が変更前と同じ（既存の #145 テストが期待値の `name`・`summary` 以外を変えずに通る）。
+- [ ] 通常受信と起動時現況投影の両方で、`summary` の2行目が区域名になる（例「気象防災速報発表\n東京地方\n線状降水帯発生」）。
+- [ ] 一致する区域が無い入力（試験で作る）では、通知を出さずに `target_name_unresolved` がログに出る。
