@@ -147,11 +147,13 @@ export interface TrainingContentProps {
 function StockRow({
   entry,
   checked,
+  disabled = false,
   onSetChecked,
   onOpen,
 }: {
   readonly entry: TrainingStockEntry;
   readonly checked: boolean;
+  readonly disabled?: boolean;
   readonly onSetChecked: TrainingActions['setChecked'];
   readonly onOpen: (entry: TrainingStockEntry) => void;
 }) {
@@ -163,6 +165,7 @@ function StockRow({
         className="training-row-check"
         aria-label={`${time} ${entry.telegram.telegramType} を選択`}
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onSetChecked(entry.id, event.currentTarget.checked)}
       />
       <button type="button" className="training-row-open" onClick={() => onOpen(entry)}>
@@ -276,6 +279,7 @@ export function TrainingContent({
               key={entry.id}
               entry={entry}
               checked={state.checked.includes(entry.id)}
+              disabled={state.injecting}
               onSetChecked={onSetChecked}
               onOpen={onOpenEntry}
             />

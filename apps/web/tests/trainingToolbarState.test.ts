@@ -5,11 +5,12 @@ import {
   canSelectTrainingOperation,
   isTrainingSendReady,
   trainingDeletedMessage,
+  trainingInjectingMessage,
   trainingSelectionLabel,
   trainingToolbarDefinitions,
 } from '../src/training/trainingToolbarState.ts';
 
-test('定義: ルート1段・空タイトル、1グループに「削除」「全削除」の順の選択型項目だけ', () => {
+test('定義: ルート1段・空タイトル、2グループで「投入」、次に「削除」「全削除」の順の選択型項目', () => {
   assert.equal(trainingToolbarDefinitions.length, 1);
   const root = trainingToolbarDefinitions[0]!;
   assert.equal(root.id, 'training-root');
@@ -17,6 +18,7 @@ test('定義: ルート1段・空タイトル、1グループに「削除」「�
   assert.deepEqual(
     root.groups.map((group) => group.map((item) => [item.kind, item.label])),
     [
+      [['select', '投入']],
       [
         ['select', '削除'],
         ['select', '全削除'],
@@ -25,24 +27,40 @@ test('定義: ルート1段・空タイトル、1グループに「削除」「�
   );
 });
 
-test('選択可否: 削除はチェック1件以上、全削除は一覧1件以上(チェック不要)', () => {
-  assert.equal(canSelectTrainingOperation('delete', { checked: 0, stock: 5 }), false);
-  assert.equal(canSelectTrainingOperation('delete', { checked: 1, stock: 5 }), true);
-  assert.equal(canSelectTrainingOperation('deleteAll', { checked: 0, stock: 0 }), false);
-  assert.equal(canSelectTrainingOperation('deleteAll', { checked: 0, stock: 1 }), true);
+test('選択可否: 投入・削除はチェック1件以上かつ投入中でない、全削除は一覧1件以上かつ投入中でない', () => {
+  assert.equal(canSelectTrainingOperation('inject', { checked: 0, stock: 5 }, false), false);
+  assert.equal(canSelectTrainingOperation('inject', { checked: 1, stock: 5 }, false), true);
+  assert.equal(canSelectTrainingOperation('inject', { checked: 1, stock: 5 }, true), false);
+
+  assert.equal(canSelectTrainingOperation('delete', { checked: 0, stock: 5 }, false), false);
+  assert.equal(canSelectTrainingOperation('delete', { checked: 1, stock: 5 }, false), true);
+  assert.equal(canSelectTrainingOperation('delete', { checked: 1, stock: 5 }, true), false);
+
+  assert.equal(canSelectTrainingOperation('deleteAll', { checked: 0, stock: 0 }, false), false);
+  assert.equal(canSelectTrainingOperation('deleteAll', { checked: 0, stock: 1 }, false), true);
+  assert.equal(canSelectTrainingOperation('deleteAll', { checked: 0, stock: 1 }, true), false);
 });
 
-test('送信可否: 未選択は不可、選択中でも対象が0件になれば不可(選択は維持)', () => {
-  assert.equal(isTrainingSendReady(null, { checked: 3, stock: 3 }), false);
-  assert.equal(isTrainingSendReady('delete', { checked: 1, stock: 3 }), true);
-  assert.equal(isTrainingSendReady('delete', { checked: 0, stock: 3 }), false);
-  assert.equal(isTrainingSendReady('deleteAll', { checked: 0, stock: 3 }), true);
-  assert.equal(isTrainingSendReady('deleteAll', { checked: 0, stock: 0 }), false);
+test('送信可否: 未選択や投入中は不可、選択中でも対象が0件になれば不可(選択は維持)', () => {
+  assert.equal(isTrainingSendReady(null, { checked: 3, stock: 3 }, false), false);
+  assert.equal(isTrainingSendReady('inject', { checked: 1, stock: 3 }, false), true);
+  assert.equal(isTrainingSendReady('inject', { checked: 0, stock: 3 }, false), false);
+  assert.equal(isTrainingSendReady('inject', { checked: 1, stock: 3 }, true), false);
+
+  assert.equal(isTrainingSendReady('delete', { checked: 1, stock: 3 }, false), true);
+  assert.equal(isTrainingSendReady('delete', { checked: 0, stock: 3 }, false), false);
+  assert.equal(isTrainingSendReady('delete', { checked: 1, stock: 3 }, true), false);
+
+  assert.equal(isTrainingSendReady('deleteAll', { checked: 0, stock: 3 }, false), true);
+  assert.equal(isTrainingSendReady('deleteAll', { checked: 0, stock: 0 }, false), false);
+  assert.equal(isTrainingSendReady('deleteAll', { checked: 0, stock: 3 }, true), false);
 });
 
-test('表示名と送信後メッセージ', () => {
+test('表示名と送信後・処理中メッセージ', () => {
+  assert.equal(trainingSelectionLabel('inject'), '投入');
   assert.equal(trainingSelectionLabel('delete'), '削除');
   assert.equal(trainingSelectionLabel('deleteAll'), '全削除');
   assert.equal(trainingDeletedMessage(3), '3件を削除しました');
   assert.equal(trainingDeletedMessage(0), '0件を削除しました');
+  assert.equal(trainingInjectingMessage(2), '2通を投入中');
 });

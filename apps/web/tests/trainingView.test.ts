@@ -292,7 +292,7 @@ const button = (html: string, label: string) =>
     .split('<md-gb-button')
     .find((chunk) => chunk.includes(`monitoring-toolbar-button-content">${label}</span>`))!;
 
-test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、中央に削除・全削除(文字だけ)、右にクリア・送信(アイコン付き)', () => {
+test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、中央に投入・削除・全削除(文字だけ)、右にクリア・送信(アイコン付き)', () => {
   const html = renderToolbar(toolbarModel());
   assert.match(
     html,
@@ -305,7 +305,8 @@ test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、�
   const scroll = html.match(
     /class="monitoring-toolbar-scroll">(.*?)<div class="monitoring-toolbar-group monitoring-toolbar-submit">/,
   )![1]!;
-  assert.equal((scroll.match(/<md-gb-button/g) ?? []).length, 2);
+  assert.equal((scroll.match(/<md-gb-button/g) ?? []).length, 3);
+  assert.ok(scroll.indexOf('>投入<') < scroll.indexOf('>削除<'));
   assert.ok(scroll.indexOf('>削除<') < scroll.indexOf('>全削除<'));
   assert.ok(!scroll.includes('monitoring-toolbar-icon'), '項目ボタンは文字だけ');
   const submit = html.slice(html.indexOf('monitoring-toolbar-submit'));
@@ -313,11 +314,12 @@ test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、�
   assert.match(submit, /monitoring-toolbar-icon[^>]*>arrow_forward</);
   assert.match(submit, /クリア/);
   assert.ok(!html.includes('>delete<'), '押下即実行のdeleteアイコンは撤去');
-  assert.equal((html.match(/slot="container"/g) ?? []).length, 4);
+  assert.equal((html.match(/slot="container"/g) ?? []).length, 5);
 });
 
-test('ツールバー: 削除はチェック0件、全削除は一覧0件でsoftDisabled。選択中は「選択中」、送信は対象があるときだけ点滅して押せる', () => {
+test('ツールバー: 投入・削除はチェック0件、全削除は一覧0件でsoftDisabled。選択中は「選択中」、送信は対象があるときだけ点滅して押せる', () => {
   const empty = renderToolbar(toolbarModel());
+  assert.match(button(empty, '投入'), /soft-disabled=""/);
   assert.match(button(empty, '削除'), /soft-disabled=""/);
   assert.match(button(empty, '全削除'), /soft-disabled=""/);
   assert.match(empty, /soft-disabled=""[^>]*>(?:(?!<\/md-gb-button>).)*クリア/);

@@ -523,3 +523,143 @@ test('削除は除いた件数を返し、チェックなしでは0', async () =
   controller.setChecked('a:1', true);
   assert.equal(controller.deleteChecked(), 2);
 });
+
+test('injectChecked: 成功時は投入行のチェックを解除し、会場採用結果メッセージを返す', async () => {
+  const { controller, pending, last } = await ready();
+  controller.selectInGroup('rain', 'warning-43');
+  controller.generate();
+  pending[1]!.resolve(Response.json(generation('a', 'warning-43', 2)));
+  await tick();
+
+  controller.setChecked('a:0', true);
+  controller.setChecked('a:1', true);
+  assert.deepEqual(last().checked, ['a:0', 'a:1']);
+
+  const injectPromise = controller.injectChecked('bigsight');
+  assert.equal(last().injecting, true);
+
+  // POST /api/training/inject の検証
+  assert.equal(pending[2]!.url, '/api/training/inject');
+  pending[2]!.resolve(
+    Response.json({
+      trainingId: '11111111-1111-4111-8111-111111111111',
+      injectedAt: '2026-10-12T10:00:00.000Z',
+      baseline: null,
+      telegrams: [
+        {
+          sequence: 0,
+          previewId: 'a:0',
+          telegramType: 'VPWW55',
+          receptionId: 1,
+          documentUrl: 'training://11111111-1111-4111-8111-111111111111/0_VPWW55_training.xml',
+          adoptions: [
+            { venueId: 'bigsight', adoptionResult: '警報として解析済み', adoptionReason: null },
+          ],
+        },
+        {
+          sequence: 1,
+          previewId: 'a:1',
+          telegramType: 'VPWW55',
+          receptionId: 2,
+          documentUrl: 'training://11111111-1111-4111-8111-111111111111/1_VPWW55_training.xml',
+          adoptions: [
+            { venueId: 'bigsight', adoptionResult: '警報として解析済み', adoptionReason: null },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const result = await injectPromise;
+  await tick();
+  assert.equal(result.success, true);
+  assert.equal(result.message, '2通を投入しました');
+  assert.equal(last().injecting, false);
+  assert.deepEqual(last().checked, []); // H7: チェック解除
+});
+
+test('injectChecked: 会場で不採用がある場合は内訳メッセージを返す', async () => {
+  const { controller, pending, last } = await ready();
+  controller.selectInGroup('rain', 'warning-43');
+  controller.generate();
+  pending[1]!.resolve(Response.json(generation('b', 'warning-43', 2)));
+  await tick();
+
+  controller.setChecked('b:0', true);
+  controller.setChecked('b:1', true);
+
+  const injectPromise = controller.injectChecked('bigsight');
+  pending[2]!.resolve(
+    Response.json({
+      trainingId: '11111111-1111-4111-8111-111111111111',
+      injectedAt: '2026-10-12T10:00:00.000Z',
+      baseline: null,
+      telegrams: [
+        {
+          sequence: 0,
+          previewId: 'b:0',
+          telegramType: 'VPWW55',
+          receptionId: 1,
+          documentUrl: 'training://11111111-1111-4111-8111-111111111111/0_VPWW55_training.xml',
+          adoptions: [
+            { venueId: 'bigsight', adoptionResult: '警報として解析済み', adoptionReason: null },
+          ],
+        },
+        {
+          sequence: 1,
+          previewId: 'b:1',
+          telegramType: 'VPWW55',
+          receptionId: 2,
+          documentUrl: 'training://11111111-1111-4111-8111-111111111111/1_VPWW55_training.xml',
+          adoptions: [
+            { venueId: 'bigsight', adoptionResult: '対象地域外のため不採用', adoptionReason: null },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const result = await injectPromise;
+  await tick();
+  assert.equal(result.success, true);
+  assert.equal(result.message, '2通を投入しました（1通は会場で採用されませんでした）');
+  assert.deepEqual(last().checked, []);
+});
+
+test('injectChecked: 失敗時はステータスに応じたメッセージを返し、チェックを維持する', async () => {
+  const { controller, pending, last } = await ready();
+  controller.selectInGroup('rain', 'warning-43');
+  controller.generate();
+  pending[1]!.resolve(Response.json(generation('c', 'warning-43', 1)));
+  await tick();
+
+  controller.setChecked('c:0', true);
+
+  // 422 検証失敗
+  const p422 = controller.injectChecked('bigsight');
+  pending[2]!.resolve(new Response('{}', { status: 422 }));
+  const r422 = await p422;
+  await tick();
+  assert.equal(r422.success, false);
+  assert.equal(r422.message, '投入できませんでした（電文の検証に失敗しました）');
+  assert.deepEqual(last().checked, ['c:0']); // チェック維持
+  assert.equal(last().injecting, false);
+
+  // 503 取得処理利用不可
+  const p503 = controller.injectChecked('bigsight');
+  pending[3]!.resolve(new Response('{}', { status: 503 }));
+  const r503 = await p503;
+  await tick();
+  assert.equal(r503.success, false);
+  assert.equal(r503.message, '投入できませんでした（取得処理が利用できません）');
+  assert.deepEqual(last().checked, ['c:0']); // チェック維持
+
+  // 504 期限切れ
+  const p504 = controller.injectChecked('bigsight');
+  pending[4]!.resolve(new Response('{}', { status: 504 }));
+  const r504 = await p504;
+  await tick();
+  assert.equal(r504.success, false);
+  assert.equal(r504.message, '投入結果を確認できませんでした');
+  assert.deepEqual(last().checked, ['c:0']); // チェック維持
+});

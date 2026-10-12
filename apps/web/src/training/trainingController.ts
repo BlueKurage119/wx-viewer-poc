@@ -1,11 +1,17 @@
-import type { TrainingItem, TrainingItemId } from '@wx-viewer-poc/shared';
+import type { TrainingInjectTelegram, TrainingItem, TrainingItemId } from '@wx-viewer-poc/shared';
 import {
   TRAINING_STOCK_LIMIT,
   createTrainingStockRepository,
   type TrainingStockEntry,
   type TrainingStockRepository,
 } from './trainingStock';
-import { fetchTrainingItems, requestTrainingPreview } from '../api/training';
+import {
+  TrainingApiError,
+  fetchTrainingItems,
+  requestTrainingInject,
+  requestTrainingPreview,
+} from '../api/training';
+import { formatTrainingInjectSuccessMessage } from './trainingFormat';
 
 export type { TrainingStockEntry } from './trainingStock';
 
@@ -28,6 +34,8 @@ export interface TrainingState {
   readonly checked: readonly string[];
   /** 直近の保存が失敗した。次に保存が成功すると false に戻る。 */
   readonly saveFailed: boolean;
+  /** 訓練電文の投入処理中。 */
+  readonly injecting: boolean;
 }
 
 export interface TrainingController {
@@ -44,6 +52,8 @@ export interface TrainingController {
   deleteChecked(): number;
   /** 一覧を全件消し、空配列を保存する。チェックも消える。生成中でも実行できる。消した件数を返す。 */
   deleteAll(): number;
+  /** チェックされた電文を投入APIへ送信する。 */
+  injectChecked(venueId?: string): Promise<{ readonly success: boolean; readonly message: string }>;
   dispose(): void;
 }
 
@@ -55,6 +65,7 @@ export const INITIAL_TRAINING_STATE: TrainingState = {
   history: [],
   checked: [],
   saveFailed: false,
+  injecting: false,
 };
 
 /** 1回の生成結果を一覧の先頭へAPI順で挿入し、最大件数を超えた分を最古から捨てる。 */
@@ -183,6 +194,37 @@ export function createTrainingController(
       const count = state.history.length;
       update({ history: [], checked: [], saveFailed: !stock.save(terminalId, []).saved });
       return count;
+    },
+    async injectChecked(venueId?: string) {
+      if (!active || state.injecting || state.checked.length === 0) {
+        return { success: false, message: '投入できませんでした' };
+      }
+      const targetEntries = state.history.filter((entry) => state.checked.includes(entry.id));
+      if (targetEntries.length === 0) {
+        return { success: false, message: '投入できませんでした' };
+      }
+      update({ injecting: true });
+      const telegrams: TrainingInjectTelegram[] = targetEntries.map((entry) => ({
+        previewId: entry.telegram.id,
+        generatedAt: entry.generatedAt,
+        itemIds: entry.telegram.itemIds,
+        telegramType: entry.telegram.telegramType,
+        xml: entry.telegram.xml,
+      }));
+      try {
+        const response = await requestTrainingInject(terminalId, telegrams, undefined, fetcher);
+        const removed = new Set(targetEntries.map((entry) => entry.id));
+        update({
+          injecting: false,
+          checked: state.checked.filter((id) => !removed.has(id)),
+        });
+        const message = formatTrainingInjectSuccessMessage(response, venueId);
+        return { success: true, message };
+      } catch (error) {
+        update({ injecting: false });
+        const message = error instanceof TrainingApiError ? error.message : '投入できませんでした';
+        return { success: false, message };
+      }
     },
     dispose() {
       active = false;

@@ -14,6 +14,7 @@ import {
   canSelectTrainingOperation,
   isTrainingSendReady,
   trainingDeletedMessage,
+  trainingInjectingMessage,
   trainingSelectionLabel,
   trainingToolbarDefinitions,
   type TrainingToolbarItem,
@@ -48,16 +49,22 @@ export interface TrainingToolbarModel {
 export function useTrainingScreen(
   terminalId: string,
   enabled: boolean,
+  venueId?: string,
 ): {
   readonly state: TrainingState;
   readonly actions: TrainingActions;
   readonly toolbar: TrainingToolbarModel;
-  /** 共通通知領域の操作行（選択中の案内、または削除結果）。 */
+  /** 共通通知領域の操作行（選択中の案内、または投入・削除結果）。 */
   readonly operationLine: OperationLine | null;
 } {
   const [state, setState] = useState<TrainingState>(INITIAL_TRAINING_STATE);
   const controllerRef = useRef<TrainingController | null>(null);
-  const [deletedMessage, setDeletedMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const activeTerminalRef = useRef(terminalId);
+  activeTerminalRef.current = terminalId;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+
   const navigation = useToolbarNavigation<TrainingToolbarItem, TrainingToolbarSelection, never>({
     active: enabled,
     definitions: trainingToolbarDefinitions,
@@ -65,6 +72,7 @@ export function useTrainingScreen(
     isNavigateTo: (item, toolbarId) => item.kind === 'navigate' && item.toolbarId === toolbarId,
     missingMessage: '訓練ツールバーのルート定義が見つかりません',
   });
+
   useEffect(() => {
     if (!enabled) return;
     const controller = createTrainingController(terminalId, setState);
@@ -75,15 +83,16 @@ export function useTrainingScreen(
       controllerRef.current = null;
     };
   }, [terminalId, enabled]);
+
   useEffect(() => {
-    // 画面離脱で操作行の結果表示を消す（選択はナビゲーション側がルートへ戻して破棄する）。
-    if (!enabled) setDeletedMessage(null);
-  }, [enabled]);
+    // 画面離脱・端末切替で操作行の結果表示を消す（選択はナビゲーション側がルートへ戻して破棄する）。
+    setStatusMessage(null);
+  }, [enabled, terminalId]);
 
   const { clearSelection, setLocalState } = navigation;
   const selection = navigation.localState.selectedOperation;
   const counts = { checked: state.checked.length, stock: state.history.length };
-  const sendReady = isTrainingSendReady(selection, counts);
+  const sendReady = isTrainingSendReady(selection, counts, state.injecting);
 
   const actions = useMemo<TrainingActions>(
     () => ({
@@ -103,8 +112,8 @@ export function useTrainingScreen(
     selection,
     sendReady,
     selectOperation(next) {
-      if (selection !== next && !canSelectTrainingOperation(next, counts)) return;
-      setDeletedMessage(null);
+      if (selection !== next && !canSelectTrainingOperation(next, counts, state.injecting)) return;
+      setStatusMessage(null);
       setLocalState((current) => toggleToolbarSelection(current, next));
     },
     clear() {
@@ -112,17 +121,30 @@ export function useTrainingScreen(
     },
     send() {
       if (selection === null || !sendReady) return;
+      const currentSelection = selection;
       clearSelection();
-      const count =
-        selection === 'delete'
-          ? (controllerRef.current?.deleteChecked() ?? 0)
-          : (controllerRef.current?.deleteAll() ?? 0);
-      setDeletedMessage(trainingDeletedMessage(count));
+      if (currentSelection === 'inject') {
+        const injectCount = state.checked.length;
+        setStatusMessage(trainingInjectingMessage(injectCount));
+        const currentTerminal = terminalId;
+        controllerRef.current?.injectChecked(venueId).then((result) => {
+          if (!enabledRef.current || activeTerminalRef.current !== currentTerminal) return;
+          setStatusMessage(result.message);
+        });
+      } else if (currentSelection === 'delete') {
+        const count = controllerRef.current?.deleteChecked() ?? 0;
+        setStatusMessage(trainingDeletedMessage(count));
+      } else {
+        const count = controllerRef.current?.deleteAll() ?? 0;
+        setStatusMessage(trainingDeletedMessage(count));
+      }
     },
   };
+
   const operationLine = selectOperationLineFor(
     selection === null ? null : trainingSelectionLabel(selection),
-    [{ text: deletedMessage, changedSeq: 0 }],
+    [{ text: statusMessage, changedSeq: 0 }],
   );
+
   return { state, actions, toolbar, operationLine };
 }

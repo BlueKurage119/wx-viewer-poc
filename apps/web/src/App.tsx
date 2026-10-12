@@ -114,7 +114,11 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       : dangerPreview && /^[1-5]$/.test(dangerPreview)
         ? (Number(dangerPreview) as WeatherDangerLevel)
         : weatherDanger.level;
-  const training = useTrainingScreen(terminal.id, view === 'training' && terminal.mode === 'K');
+  const training = useTrainingScreen(
+    terminal.id,
+    view === 'training' && terminal.mode === 'K',
+    terminal.venue.id,
+  );
   const buzzer = useHeaderBuzzer();
   const { confirmLevel } = buzzer;
   const onConfirmed = useCallback(
