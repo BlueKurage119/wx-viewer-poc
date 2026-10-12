@@ -420,3 +420,96 @@ export function listAcceptanceOutputHistory(retained: DatabaseConnection, range:
   いずれも製造・検収で受け入れ条件として実行する。
 
 作成: Claude（Opus 5.5）
+
+## 2026-10-13 UI監修で変更
+
+本節は前節までより優先する。基準は実装済みのブランチ `feature/issue-71-73-training-retraction`（c6f84b4・9a19a52）。ツールバーの名称は実装どおり「電文抹消」「電文全抹消」とし、前節の「抹消」「全抹消」はこの名称で読み替える。
+
+### 決定（ユーザー確定）
+
+- 抹消済みの行にもチェック欄を出し、既存の「リスト消去」「リスト全消」で一覧から外せるようにする。
+- DB の行は削除しない。「一覧から外した」印を付けるだけとし、別の K端末からも再読込後も外れたままにする。
+- 未抹消の投入済みの行は、従来どおり一覧から消去できない（先に電文抹消する）。
+- 「リスト全消」の対象は、ローカル行と抹消済みの行。
+
+### 記録（`migrations/weather/0004_create_training_injection_list_hidden.sql`、新規）
+
+```sql
+CREATE TABLE training_injection_list_hidden (
+  training_id TEXT PRIMARY KEY REFERENCES training_injection(training_id) ON DELETE CASCADE,
+  hidden_at TEXT NOT NULL,
+  terminal_id TEXT NOT NULL CHECK (terminal_id <> '')
+);
+```
+
+- 既存の `training_injection` は変えない（0002 の DDL を変えないため、列追加ではなく別表とした）。`databasePair.test.ts` の旧DDL照合から除外する（0003 と同じ扱い）。
+- 書込みは `INSERT ... ON CONFLICT(training_id) DO NOTHING` だけにする（最初に外した時刻と端末を保つ）。**この表に対する DELETE・UPDATE 文は持たない**。外した行を一覧に戻す操作は設けない。
+- リポジトリは `trainingInjectionRepository.ts` に `hideTrainingInjectionsFromList(connection, { trainingIds, terminalId, hiddenAt })` を追加する。
+
+### API: `POST /api/training/injections/hide`（新規）
+
+- 要求: `{ terminalId: string, trainingIds: string[] }`（1〜50件、重複なし、UUID v4 小文字、余分なキーは拒否）。query 付きは 400。no-store。既定の `express.json()` を使う。
+- 経路: 取得Worker へ `host.call('training.injections.hide', command, 5_000)`。注入・抹消と**同じ直列化キュー**で処理する（抹消の完了前に外す判定が走らないようにする）。
+- 判定は Worker で行い、1件でも不可なら1件も記録しない。
+
+| 条件 | 応答 |
+| --- | --- |
+| 形式不正・不明端末 | 400 `invalid_request` |
+| H端末 | 403 `forbidden_terminal` |
+| 存在しない、または別会場の K端末が投入した訓練ID | 404 `training_not_found`（`trainingIds` 付き） |
+| 未抹消（`completed` の抹消の対象になっていない）の訓練ID | 409 `{status:'error',code:'training_not_retracted',trainingIds:[…]}` |
+| 既に外した訓練ID | 成功として扱う（冪等。記録は変えない） |
+| ポート未構成・Worker未準備・期限切れ | 503 `training_injection_unavailable` |
+| 成功 | 200 `{ hiddenTrainingIds: string[] }`（要求の全件、昇順） |
+
+- 型・検証関数は `packages/shared/src/trainingTelegram.ts` に `TrainingInjectionsHideRequest`・`parseTrainingInjectionsHideRequest`・`parseTrainingInjectionsHideResponse` を追加する。web は `apps/web/src/api/training.ts` に `requestTrainingInjectionsHide(terminalId, trainingIds, signal?)` を追加する。
+
+### 一覧 `GET /api/training/injections` の変更
+
+- 外した訓練を除く。**50件の上限は外していない行で数える**（外した行が上限の枠を使わない）。並び・対象・`retractedAt` は前節どおり。
+
+### Web（訓練画面）
+
+- 抹消済みの行にチェック欄を置く（前節の「抹消済みの行にはチェック欄を置かない」を廃止）。未抹消の投入済みの行のチェック欄は前節どおり（電文抹消用）。
+- 操作ごとに数える対象:
+
+| 操作 | 選べる条件 | 送信で対象にする行 |
+| --- | --- | --- |
+| リスト消去 | チェックされたローカル行または抹消済みの行が1以上 | チェックされたローカル行（ストックから消す）と抹消済みの行（hide API） |
+| リスト全消 | ローカル行または抹消済みの行が1以上 | 全ローカル行と全抹消済みの行。未抹消の投入済みの行は残す |
+| 電文投入 | チェックされたローカル行が1以上 | 前節どおり |
+| 電文抹消 | チェックされた未抹消の投入済み行が1以上 | 前節どおり（抹消済みの行は含めない） |
+| 電文全抹消 | 前節どおり | 前節どおり |
+
+  - チェックされているのが未抹消の投入済み行だけのとき、リスト消去は選べない。
+  - 選択の排他・選択破棄の契機は既存の規則のまま。投入中・抹消中・一覧から外す処理中は、他の操作を選べない（外す処理中も「処理中」に含める）。
+- 送信の処理順: 抹消済みの行がある場合、先に hide API を呼ぶ。200 のときだけローカル行をストックから消し、一覧を再読込する。hide API が失敗したときは、ローカル行も消さずにチェックを維持する（部分的に消えた状態を作らない）。抹消済みの行が無いときは、従来どおりローカル行だけを消す（API を呼ばない）。
+- 文言:
+  - 成功: `{n}件をリストから消去しました`（n はローカル行と抹消済みの行の合計。既存の文言をそのまま使う）。
+  - 処理中: `{n}件をリストから消去中`。
+  - 失敗: `リストから消去できませんでした（…）`。括弧内は 404「対象の訓練が見つかりません」、409「電文抹消が済んでいない訓練があります」、503「取得処理が利用できません」。400・通信失敗は括弧なし。
+- 件数「n／20件」はローカル行だけで数える（前節どおり）。
+- 色はトークンのみ。行高48px は変えない。
+
+### 前節の条件との整合
+
+- **「物理削除が無いこと」:** hide は INSERT だけで、既存のどの行も削除・変更しない。前節の grep（`apps/api/src/training`・`trainingRetractionService.ts`・`trainingRetractionRepository.ts`）に加えて、`trainingInjectionRepository.ts` と新設の hide 処理ファイル（例: `apps/api/src/services/trainingInjectionHideService.ts`）も対象に含め、`DELETE|\.delete\(` が0件（UPDATE は J2 の status 更新以外が無いこと）であることを確認する。`DELETE /api/training/...` のルートは作らない（POST を使う）。
+- **J5 除外・本番不変:** hide は一覧の表示だけに効く。受信・取得試行・出力履歴・現況・速報には触れないため、`listAcceptance*` の結果と normal 系のダンプは hide の前後で一致する（受け入れ条件で確認）。
+- 前節の受け入れ条件「抹消済みの行は『抹消』の対象として選べない」は維持する。「チェック欄が無くなる」は「チェック欄は残り、電文抹消の対象にはならない」に読み替える。
+
+### 受け入れ条件（追加・修正）
+
+- [ ] `POST /api/training/injections/hide`: 抹消済みの訓練は 200 で、以後 `GET /api/training/injections` に出ない。同じ会場の別の K端末の一覧からも消える。再度の hide は 200 で、`hidden_at` は変わらない。未抹消の訓練を含む要求は 409、存在しない・別会場の訓練は 404。どちらの場合も1件も記録されない。H端末 403。形式不正・51件・重複・query 付きは 400。no-store。Worker未準備は 503。
+- [ ] hide の前後で、`training_injection`・`training_injection_reception`・`training_retraction*`・`telegram_reception`・`fetch_attempt`・`bosai_bulletin`・`notification_output_history` の行数と内容が一致する。`listAcceptance*` の結果も一致する。
+- [ ] 一覧の50件の上限は外していない行で数える（試験: 外した行を含めて51件以上ある状態で、外していない最新50件が返る）。
+- [ ] 訓練画面: 抹消済みの行にチェック欄がある。抹消済みの行をチェックしてリスト消去すると、hide が呼ばれ `{n}件をリストから消去しました` が出て、その行が一覧から消える。再読込後も消えたまま。
+- [ ] 未抹消の投入済み行だけをチェックしたとき、リスト消去は選べない。未抹消の投入済み行とローカル行を混ぜてチェックしたときは、リスト消去でローカル行だけが消え、未抹消の行は残る。
+- [ ] リスト全消で、全ローカル行と全抹消済みの行が消え、未抹消の投入済み行は残る。対象がローカル行だけのときは hide API を呼ばない。
+- [ ] hide が 409・503・通信失敗（差し替え）のとき、本節の文言が出て、ローカル行もストックに残り、チェックが維持される。
+- [ ] 外す処理中は、電文投入・電文抹消・電文全抹消を選べない。
+- [ ] 色はトークンのみ。チェック欄の追加で行高48px が変わらない（1280×800・375×812 で実測、ダークテーマのみ）。
+- [ ] `grep -rnE "DELETE|\.delete\(" apps/api/src/training apps/api/src/repositories/trainingInjectionRepository.ts apps/api/src/repositories/trainingRetractionRepository.ts apps/api/src/services/trainingRetractionService.ts` に hide 処理のファイルを加えて実行し、0件であること。加えて `grep -n "UPDATE" apps/api/src/repositories/trainingInjectionRepository.ts` の結果が、J2 の `training_injection` の status 更新（実装済み、1か所）だけであり、`training_injection_list_hidden` を対象にする UPDATE が無いこと。
+
+### 実挙動未確認
+
+- 抹消の完了直後に hide を送った場合の、同じキュー上での処理順は試験で確かめていない。製造・検収で確認する。
