@@ -1,10 +1,13 @@
 import {
   parseTrainingInjectResponse,
   parseTrainingInjectionsResponse,
+  parseTrainingRetractResponse,
   type TrainingGenerateResponse,
   type TrainingInjectResponse,
   type TrainingInjectTelegram,
   type TrainingInjectionsResponse,
+  type TrainingRetractRequest,
+  type TrainingRetractResponse,
   type TrainingItem,
   type TrainingItemId,
   type TrainingItemsResponse,
@@ -175,5 +178,47 @@ export async function fetchTrainingInjections(
   }
   const parsed = parseTrainingInjectionsResponse(await response.json());
   if (parsed === null) throw new TrainingApiError('投入済みの一覧の形式が不正です');
+  return parsed;
+}
+
+/** 訓練データの抹消（論理取消）。失敗は利用者へ表示してよい日本語メッセージの TrainingApiError。 */
+export async function requestTrainingRetract(
+  request: TrainingRetractRequest,
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<TrainingRetractResponse> {
+  const failed = (reason?: string) =>
+    new TrainingApiError(reason ? `抹消できませんでした（${reason}）` : '抹消できませんでした');
+  let response: Response;
+  try {
+    response = await fetcher('/api/training/retract', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+      signal,
+      cache: 'no-store',
+    });
+  } catch {
+    throw failed();
+  }
+
+  if (!response.ok) {
+    if (response.status === 400) throw failed('要求が不正です');
+    if (response.status === 403) throw failed('この端末では操作できません');
+    if (response.status === 404) throw failed('対象の訓練が見つかりません');
+    if (response.status === 409) throw failed('既に抹消済みです');
+    if (response.status === 503) throw failed('取得処理が利用できません');
+    if (response.status === 504) throw new TrainingApiError('抹消の結果を確認できませんでした');
+    throw failed();
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw failed();
+  }
+  const parsed = parseTrainingRetractResponse(body);
+  if (parsed === null) throw failed();
   return parsed;
 }

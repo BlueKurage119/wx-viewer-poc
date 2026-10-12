@@ -794,6 +794,7 @@ const injectionsBody = (trainingIds: string[]) => ({
     trainingId,
     terminalId: 'kkeagh02',
     acceptedAt: `2026-10-12T10:00:0${i}.000Z`,
+    retractedAt: null,
     telegrams: [{ sequence: 1, telegramType: 'VPWW55', title: '大雨警報', previewId: `p${i}:0` }],
   })),
 });

@@ -244,6 +244,10 @@
   color: var(--md-sys-color-primary);
 }
 
+.training-row-status[data-status='retracted'] {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
 .training-row-status[data-status='failed'] {
   color: var(--md-sys-color-error);
 }

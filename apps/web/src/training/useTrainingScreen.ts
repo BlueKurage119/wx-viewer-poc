@@ -15,6 +15,8 @@ import {
   isTrainingSendReady,
   trainingDeletedMessage,
   trainingInjectingMessage,
+  trainingRetractingMessage,
+  TRAINING_RETRACTING_ALL_MESSAGE,
   trainingSelectionLabel,
   trainingToolbarDefinitions,
   type TrainingToolbarItem,
@@ -27,13 +29,19 @@ export interface TrainingActions {
   readonly reset: () => void;
   readonly reload: () => void;
   readonly setChecked: (entryId: string, checked: boolean) => void;
+  /** 投入済みの行（訓練ID）のチェックを切り替える。 */
+  readonly setCheckedInjected: (trainingId: string, checked: boolean) => void;
   /** XMLダイアログを開くときに呼ぶ。ツールバーの選択を破棄する（監視のダイアログ表示と同じ）。 */
   readonly onDialogOpen: () => void;
 }
 
 export interface TrainingToolbarModel {
   readonly navigation: ToolbarNavigation<TrainingToolbarItem, TrainingToolbarSelection, never>;
-  readonly counts: { readonly checked: number; readonly stock: number };
+  readonly counts: {
+    readonly checked: number;
+    readonly stock: number;
+    readonly checkedInjected: number;
+  };
   readonly selection: TrainingToolbarSelection | null;
   readonly sendReady: boolean;
   /** 項目の押下（選択のトグル）。対象が0件で選べない項目は、選択中でなければ何もしない。 */
@@ -92,8 +100,13 @@ export function useTrainingScreen(
 
   const { clearSelection, setLocalState } = navigation;
   const selection = navigation.localState.selectedOperation;
-  const counts = { checked: state.checked.length, stock: state.history.length };
-  const sendReady = isTrainingSendReady(selection, counts, state.injecting);
+  const counts = {
+    checked: state.checked.length,
+    stock: state.history.length,
+    checkedInjected: state.checkedInjected.length,
+  };
+  const busy = state.injecting || state.retracting;
+  const sendReady = isTrainingSendReady(selection, counts, busy);
 
   const actions = useMemo<TrainingActions>(
     () => ({
@@ -102,6 +115,8 @@ export function useTrainingScreen(
       reset: () => controllerRef.current?.reset(),
       reload: () => controllerRef.current?.start(),
       setChecked: (entryId, checked) => controllerRef.current?.setChecked(entryId, checked),
+      setCheckedInjected: (trainingId, checked) =>
+        controllerRef.current?.setCheckedInjected(trainingId, checked),
       onDialogOpen: () => clearSelection(),
     }),
     [clearSelection],
@@ -113,7 +128,7 @@ export function useTrainingScreen(
     selection,
     sendReady,
     selectOperation(next) {
-      if (selection !== next && !canSelectTrainingOperation(next, counts, state.injecting)) return;
+      if (selection !== next && !canSelectTrainingOperation(next, counts, busy)) return;
       setStatusMessage(null);
       setLocalState((current) => toggleToolbarSelection(current, next));
     },
@@ -129,6 +144,21 @@ export function useTrainingScreen(
         setStatusMessage(trainingInjectingMessage(injectCount));
         const currentTerminal = terminalId;
         controllerRef.current?.injectChecked(venueId).then((result) => {
+          if (!enabledRef.current || activeTerminalRef.current !== currentTerminal) return;
+          setStatusMessage(result.message);
+        });
+      } else if (currentSelection === 'retract' || currentSelection === 'retractAll') {
+        setStatusMessage(
+          currentSelection === 'retract'
+            ? trainingRetractingMessage(state.checkedInjected.length)
+            : TRAINING_RETRACTING_ALL_MESSAGE,
+        );
+        const currentTerminal = terminalId;
+        const run =
+          currentSelection === 'retract'
+            ? controllerRef.current?.retractChecked()
+            : controllerRef.current?.retractAll();
+        run?.then((result) => {
           if (!enabledRef.current || activeTerminalRef.current !== currentTerminal) return;
           setStatusMessage(result.message);
         });

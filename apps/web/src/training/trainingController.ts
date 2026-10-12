@@ -1,6 +1,7 @@
 import type {
   TrainingInjectionListItem,
   TrainingInjectTelegram,
+  TrainingRetractRequest,
   TrainingItem,
   TrainingItemId,
 } from '@wx-viewer-poc/shared';
@@ -16,9 +17,13 @@ import {
   fetchTrainingInjections,
   fetchTrainingItems,
   requestTrainingInject,
+  requestTrainingRetract,
   requestTrainingPreview,
 } from '../api/training';
-import { formatTrainingInjectSuccessMessage } from './trainingFormat';
+import {
+  formatTrainingInjectSuccessMessage,
+  formatTrainingRetractSuccessMessage,
+} from './trainingFormat';
 
 export type { TrainingStockEntry } from './trainingStock';
 
@@ -50,6 +55,10 @@ export interface TrainingState {
   readonly injected: readonly TrainingInjectionListItem[];
   /** 直近の投入済み一覧の読込が失敗した。次に成功すると false に戻る。 */
   readonly injectedLoadFailed: boolean;
+  /** 投入済みの行でチェックされた訓練ID（抹消済みは含まない）。保存しない。 */
+  readonly checkedInjected: readonly string[];
+  /** 訓練データの抹消処理中。 */
+  readonly retracting: boolean;
 }
 
 export interface TrainingController {
@@ -72,6 +81,12 @@ export interface TrainingController {
   loadInjected(): void;
   /** チェックされた電文を投入APIへ送信する。 */
   injectChecked(venueId?: string): Promise<{ readonly success: boolean; readonly message: string }>;
+  /** 投入済みの行のチェックを切り替える。存在しない行・抹消済みの行は無視する。 */
+  setCheckedInjected(trainingId: string, checked: boolean): void;
+  /** チェックされた投入済みの訓練を抹消する（確認なし、選択→送信の2段階で呼ばれる）。 */
+  retractChecked(): Promise<{ readonly success: boolean; readonly message: string }>;
+  /** 会場を問わず全ての訓練データを抹消する。 */
+  retractAll(): Promise<{ readonly success: boolean; readonly message: string }>;
   dispose(): void;
 }
 
@@ -86,6 +101,8 @@ export const INITIAL_TRAINING_STATE: TrainingState = {
   injecting: false,
   injected: [],
   injectedLoadFailed: false,
+  checkedInjected: [],
+  retracting: false,
 };
 
 /** 1回の生成結果を一覧の先頭へAPI順で挿入し、最大件数を超えた分を最古から捨てる。 */
@@ -137,13 +154,47 @@ export function createTrainingController(
     fetchTrainingInjections(terminalId, request.signal, fetcher).then(
       (response) => {
         if (request.signal.aborted || !active) return;
-        update({ injected: response.injections, injectedLoadFailed: false });
+        // 一覧から消えた行・抹消済みの行のチェックは外す。
+        const selectable = new Set(
+          response.injections.filter((i) => i.retractedAt === null).map((i) => i.trainingId),
+        );
+        update({
+          injected: response.injections,
+          injectedLoadFailed: false,
+          checkedInjected: state.checkedInjected.filter((id) => selectable.has(id)),
+        });
       },
       () => {
         if (request.signal.aborted || !active) return;
         update({ injectedLoadFailed: true });
       },
     );
+  };
+
+  const retract = async (
+    request: TrainingRetractRequest,
+  ): Promise<{ readonly success: boolean; readonly message: string }> => {
+    update({ retracting: true });
+    try {
+      const response = await requestTrainingRetract(request, undefined, fetcher);
+      const message = formatTrainingRetractSuccessMessage(
+        response.scope,
+        response.trainingIds.length,
+      );
+      // 画面離脱・端末切替後は状態を変えない。
+      if (!active) return { success: true, message };
+      // 抹消した行は「抹消済み」としてサーバーの一覧に残る。チェックは外し、直後に再読込する。
+      update({ retracting: false, checkedInjected: [] });
+      loadInjected();
+      return { success: true, message };
+    } catch (error) {
+      const message = error instanceof TrainingApiError ? error.message : '抹消できませんでした';
+      if (!active) return { success: false, message };
+      // 失敗時もチェックを維持し、一覧を再読込する（既に抹消済み等を反映する）。
+      update({ retracting: false });
+      loadInjected();
+      return { success: false, message };
+    }
   };
 
   return {
@@ -252,7 +303,7 @@ export function createTrainingController(
       return count;
     },
     async injectChecked(venueId?: string) {
-      if (!active || state.injecting || state.checked.length === 0) {
+      if (!active || state.injecting || state.retracting || state.checked.length === 0) {
         return { success: false, message: '電文投入できませんでした' };
       }
       const targetEntries = state.history.filter((entry) => state.checked.includes(entry.id));
@@ -297,6 +348,29 @@ export function createTrainingController(
         });
         return { success: false, message };
       }
+    },
+    setCheckedInjected(trainingId, checked) {
+      if (!active) return;
+      const target = state.injected.find((i) => i.trainingId === trainingId);
+      if (!target || target.retractedAt !== null) return;
+      const others = state.checkedInjected.filter((id) => id !== trainingId);
+      update({ checkedInjected: checked ? [...others, trainingId] : others });
+    },
+    async retractChecked() {
+      if (!active || state.injecting || state.retracting || state.checkedInjected.length === 0) {
+        return { success: false, message: '抹消できませんでした' };
+      }
+      return retract({
+        terminalId,
+        scope: 'training',
+        trainingIds: state.checkedInjected,
+      });
+    },
+    async retractAll() {
+      if (!active || state.injecting || state.retracting) {
+        return { success: false, message: '抹消できませんでした' };
+      }
+      return retract({ terminalId, scope: 'all' });
     },
     dispose() {
       active = false;
