@@ -10,7 +10,7 @@ import {
   trainingToolbarDefinitions,
 } from '../src/training/trainingToolbarState.ts';
 
-test('定義: ルート1段・空タイトル、2グループで「投入」、次に「削除」「全削除」の順の選択型項目', () => {
+test('定義: ルート1段・空タイトル、2グループで「リスト消去」「リスト全消」、次に「電文投入」の順の選択型項目', () => {
   assert.equal(trainingToolbarDefinitions.length, 1);
   const root = trainingToolbarDefinitions[0]!;
   assert.equal(root.id, 'training-root');
@@ -18,11 +18,11 @@ test('定義: ルート1段・空タイトル、2グループで「投入」、�
   assert.deepEqual(
     root.groups.map((group) => group.map((item) => [item.kind, item.label])),
     [
-      [['select', '投入']],
       [
-        ['select', '削除'],
-        ['select', '全削除'],
+        ['select', 'リスト消去'],
+        ['select', 'リスト全消'],
       ],
+      [['select', '電文投入']],
     ],
   );
 });
@@ -57,10 +57,10 @@ test('送信可否: 未選択や投入中は不可、選択中でも対象が0�
 });
 
 test('表示名と送信後・処理中メッセージ', () => {
-  assert.equal(trainingSelectionLabel('inject'), '投入');
-  assert.equal(trainingSelectionLabel('delete'), '削除');
-  assert.equal(trainingSelectionLabel('deleteAll'), '全削除');
-  assert.equal(trainingDeletedMessage(3), '3件を削除しました');
-  assert.equal(trainingDeletedMessage(0), '0件を削除しました');
-  assert.equal(trainingInjectingMessage(2), '2通を投入中');
+  assert.equal(trainingSelectionLabel('inject'), '電文投入');
+  assert.equal(trainingSelectionLabel('delete'), 'リスト消去');
+  assert.equal(trainingSelectionLabel('deleteAll'), 'リスト全消');
+  assert.equal(trainingDeletedMessage(3), '3件をリストから消去しました');
+  assert.equal(trainingDeletedMessage(0), '0件をリストから消去しました');
+  assert.equal(trainingInjectingMessage(2), '2通を電文投入中');
 });

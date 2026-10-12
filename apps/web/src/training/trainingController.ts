@@ -2,6 +2,7 @@ import type { TrainingInjectTelegram, TrainingItem, TrainingItemId } from '@wx-v
 import {
   TRAINING_STOCK_LIMIT,
   createTrainingStockRepository,
+  type TrainingInjectionStatus,
   type TrainingStockEntry,
   type TrainingStockRepository,
 } from './trainingStock';
@@ -74,6 +75,14 @@ export function prependHistory(
   added: readonly TrainingStockEntry[],
 ): TrainingStockEntry[] {
   return [...added, ...history].slice(0, TRAINING_STOCK_LIMIT);
+}
+
+function withInjectionStatus(
+  history: readonly TrainingStockEntry[],
+  ids: ReadonlySet<string>,
+  injectionStatus: TrainingInjectionStatus,
+): TrainingStockEntry[] {
+  return history.map((entry) => (ids.has(entry.id) ? { ...entry, injectionStatus } : entry));
 }
 
 /**
@@ -149,6 +158,7 @@ export function createTrainingController(
               (id) => state.items.find((item) => item.id === id)?.label ?? id,
             ),
             telegram,
+            injectionStatus: 'pending',
           }));
           // 削除済みの行の上に積み、先頭行にチェックは付けない。押し出された行のチェックは消える。
           // 成功時は項目選択を全解除する（失敗時は再試行のため維持）。
@@ -197,11 +207,11 @@ export function createTrainingController(
     },
     async injectChecked(venueId?: string) {
       if (!active || state.injecting || state.checked.length === 0) {
-        return { success: false, message: '投入できませんでした' };
+        return { success: false, message: '電文投入できませんでした' };
       }
       const targetEntries = state.history.filter((entry) => state.checked.includes(entry.id));
       if (targetEntries.length === 0) {
-        return { success: false, message: '投入できませんでした' };
+        return { success: false, message: '電文投入できませんでした' };
       }
       update({ injecting: true });
       const telegrams: TrainingInjectTelegram[] = targetEntries.map((entry) => ({
@@ -213,16 +223,30 @@ export function createTrainingController(
       }));
       try {
         const response = await requestTrainingInject(terminalId, telegrams, undefined, fetcher);
+        // 画面離脱・端末切替後は状態も保存も変えない。
+        if (!active)
+          return { success: true, message: formatTrainingInjectSuccessMessage(response, venueId) };
         const removed = new Set(targetEntries.map((entry) => entry.id));
+        const history = withInjectionStatus(state.history, removed, 'injected');
         update({
           injecting: false,
           checked: state.checked.filter((id) => !removed.has(id)),
+          history,
+          saveFailed: !stock.save(terminalId, history).saved,
         });
         const message = formatTrainingInjectSuccessMessage(response, venueId);
         return { success: true, message };
       } catch (error) {
-        update({ injecting: false });
-        const message = error instanceof TrainingApiError ? error.message : '投入できませんでした';
+        const message =
+          error instanceof TrainingApiError ? error.message : '電文投入できませんでした';
+        if (!active) return { success: false, message };
+        const failedIds = new Set(targetEntries.map((entry) => entry.id));
+        const history = withInjectionStatus(state.history, failedIds, 'failed');
+        update({
+          injecting: false,
+          history,
+          saveFailed: !stock.save(terminalId, history).saved,
+        });
         return { success: false, message };
       }
     },

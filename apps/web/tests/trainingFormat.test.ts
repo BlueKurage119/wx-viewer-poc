@@ -32,10 +32,10 @@ test('formatTrainingInjectSuccessMessage: 会場採用結果メッセージの�
       },
     ],
   };
-  assert.equal(formatTrainingInjectSuccessMessage(res1), '2通を投入しました');
+  assert.equal(formatTrainingInjectSuccessMessage(res1), '2通を電文投入しました');
 
   // 2. 指定会場ですべて採用された場合
-  assert.equal(formatTrainingInjectSuccessMessage(res1, 'bigsight'), '2通を投入しました');
+  assert.equal(formatTrainingInjectSuccessMessage(res1, 'bigsight'), '2通を電文投入しました');
 
   // 3. 指定会場で一部不採用がある場合
   const res2 = {
@@ -55,7 +55,7 @@ test('formatTrainingInjectSuccessMessage: 会場採用結果メッセージの�
   };
   assert.equal(
     formatTrainingInjectSuccessMessage(res2, 'bigsight'),
-    '3通を投入しました（2通は会場で採用されませんでした）',
+    '3通を電文投入しました（2通は会場で採用されませんでした）',
   );
 
   // 4. 指定会場のエントリがない場合（不採用としてカウント）
@@ -68,6 +68,6 @@ test('formatTrainingInjectSuccessMessage: 会場採用結果メッセージの�
   };
   assert.equal(
     formatTrainingInjectSuccessMessage(res3, 'bigsight'),
-    '1通を投入しました（1通は会場で採用されませんでした）',
+    '1通を電文投入しました（1通は会場で採用されませんでした）',
   );
 });

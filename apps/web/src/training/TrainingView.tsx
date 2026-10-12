@@ -5,7 +5,11 @@ import {
   type TrainingItemId,
 } from '@wx-viewer-poc/shared';
 import { CircularProgress, GbButton } from '../components/md';
-import { TRAINING_STOCK_LIMIT, type TrainingStockEntry } from './trainingStock';
+import {
+  TRAINING_STOCK_LIMIT,
+  type TrainingInjectionStatus,
+  type TrainingStockEntry,
+} from './trainingStock';
 import { TRAINING_SAVE_FAILED_MESSAGE, type TrainingState } from './trainingController';
 import type { TrainingActions } from './useTrainingScreen';
 import { formatTrainingJstTime } from './trainingFormat';
@@ -144,6 +148,12 @@ export interface TrainingContentProps {
   readonly onOpenEntry: (entry: TrainingStockEntry) => void;
 }
 
+const INJECTION_STATUS_LABELS: Readonly<Record<TrainingInjectionStatus, string>> = {
+  pending: '未投入',
+  injected: '投入済み',
+  failed: '投入失敗',
+};
+
 function StockRow({
   entry,
   checked,
@@ -172,6 +182,9 @@ function StockRow({
         <span className="training-row-time">{time}</span>
         <span className="training-row-items">{entry.itemLabels.join('、')}</span>
         <span className="training-row-type">{entry.telegram.telegramType}</span>
+        <span className="training-row-status" data-status={entry.injectionStatus}>
+          {INJECTION_STATUS_LABELS[entry.injectionStatus]}
+        </span>
       </button>
     </li>
   );

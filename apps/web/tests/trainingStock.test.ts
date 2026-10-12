@@ -27,6 +27,7 @@ const entry = (id: string): TrainingStockEntry => ({
   generatedAt: '2026-10-11T05:10:30.000Z',
   itemLabels: ['レベル２大雨注意報'],
   telegram: telegram(id),
+  injectionStatus: 'pending',
 });
 const entries = (count: number) => Array.from({ length: count }, (_, i) => entry(`e${i}`));
 
@@ -63,23 +64,25 @@ test('キーは端末ごと・v1', () => {
   assert.notEqual(trainingStockKey('kkeagh01'), trainingStockKey('ktrcph01'));
 });
 
-test('保存と読込: {version:1, entries} を往復し、順序と内容が一致する', () => {
+test('保存と読込: {version:2, entries} を往復し、順序と内容が一致する', () => {
   const m = memory();
   assert.deepEqual(m.repository.load('kkeagh01'), []);
   assert.deepEqual(m.repository.save('kkeagh01', entries(3)), { saved: true });
-  assert.deepEqual(JSON.parse(m.data.get(m.KEY)!), { version: 1, entries: entries(3) });
+  assert.deepEqual(JSON.parse(m.data.get(m.KEY)!), { version: 2, entries: entries(3) });
   assert.deepEqual(m.repository.load('kkeagh01'), entries(3));
   assert.deepEqual(m.repository.load('ktrcph01'), [], '別端末のキーには混ざらない');
   // 空配列も保存する（キーを消さない）
   m.repository.save('kkeagh01', []);
-  assert.deepEqual(JSON.parse(m.data.get(m.KEY)!), { version: 1, entries: [] });
+  assert.deepEqual(JSON.parse(m.data.get(m.KEY)!), { version: 2, entries: [] });
 });
 
 test('壊れたデータは全体を捨てて空から始め、キーを消す', () => {
   const bad: string[] = [
     '{"version":1,"entries":',
     'not json',
-    JSON.stringify({ version: 2, entries: entries(1) }),
+    JSON.stringify({ version: 3, entries: entries(1) }),
+    JSON.stringify({ version: 2, entries: [{ ...entry('a'), injectionStatus: 'done' }] }),
+    JSON.stringify({ version: 2, entries: [{ ...entry('a'), injectionStatus: undefined }] }),
     JSON.stringify({ entries: entries(1) }),
     JSON.stringify({ version: 1, entries: 'x' }),
     JSON.stringify([]),
@@ -109,17 +112,17 @@ test('壊れたデータは全体を捨てて空から始め、キーを消す',
     assert.equal(m.data.has(m.KEY), false, `キーを消す: ${raw}`);
     assert.equal(m.calls.remove, 1);
   }
-  assert.equal(parseTrainingStock({ version: 1, entries: entries(2) })!.length, 2);
+  assert.equal(parseTrainingStock({ version: 2, entries: entries(2) })!.entries.length, 2);
 });
 
 test('21件以上は新しい20件だけ採用して書き戻す', () => {
-  const m = memory(JSON.stringify({ version: 1, entries: entries(25) }));
+  const m = memory(JSON.stringify({ version: 2, entries: entries(25) }));
   const loaded = m.repository.load('kkeagh01');
   assert.equal(loaded.length, TRAINING_STOCK_LIMIT);
   assert.equal(loaded[0]!.id, 'e0');
   assert.equal(loaded.at(-1)!.id, 'e19');
   assert.equal(JSON.parse(m.data.get(m.KEY)!).entries.length, 20);
-  const exact = memory(JSON.stringify({ version: 1, entries: entries(20) }));
+  const exact = memory(JSON.stringify({ version: 2, entries: entries(20) }));
   exact.repository.load('kkeagh01');
   assert.equal(exact.calls.set, 0, '20件ちょうどは書き戻さない');
 });
@@ -142,4 +145,26 @@ test('getItem・setItem・removeItem・ストレージ取得が例外でも投�
   const trimmed = memory(JSON.stringify({ version: 1, entries: entries(22) }));
   trimmed.fail.set = true;
   assert.equal(trimmed.repository.load('kkeagh01').length, 20, '書戻し失敗でも20件を返す');
+});
+
+test('version 1 は破棄せず全行「未投入」で読み、直ちに version 2 で書き戻す', () => {
+  const v1 = entries(3).map((e) => {
+    const { injectionStatus, ...rest } = e;
+    void injectionStatus;
+    return rest;
+  });
+  const m = memory(JSON.stringify({ version: 1, entries: v1 }));
+  assert.deepEqual(m.repository.load('kkeagh01'), entries(3));
+  assert.equal(m.calls.remove, 0);
+  assert.deepEqual(JSON.parse(m.data.get(m.KEY)!), { version: 2, entries: entries(3) });
+});
+
+test('injectionStatus の3値は往復で保持される', () => {
+  const m = memory();
+  const mixed = entries(3).map((e, i) => ({
+    ...e,
+    injectionStatus: (['pending', 'injected', 'failed'] as const)[i]!,
+  }));
+  m.repository.save('kkeagh01', mixed);
+  assert.deepEqual(m.repository.load('kkeagh01'), mixed);
 });

@@ -119,41 +119,41 @@ export async function requestTrainingInject(
     });
   } catch (error) {
     if (error instanceof TrainingApiError) throw error;
-    throw new TrainingApiError('投入できませんでした');
+    throw new TrainingApiError('電文投入できませんでした');
   }
 
   if (!response.ok) {
     if (response.status === 400) {
-      throw new TrainingApiError('投入できませんでした（要求が不正です）');
+      throw new TrainingApiError('電文投入できませんでした（要求が不正です）');
     }
     if (response.status === 403) {
-      throw new TrainingApiError('投入できませんでした（この端末では操作できません）');
+      throw new TrainingApiError('電文投入できませんでした（この端末では操作できません）');
     }
     if (response.status === 413) {
-      throw new TrainingApiError('投入できませんでした（電文が大きすぎます）');
+      throw new TrainingApiError('電文投入できませんでした（電文が大きすぎます）');
     }
     if (response.status === 422) {
-      throw new TrainingApiError('投入できませんでした（電文の検証に失敗しました）');
+      throw new TrainingApiError('電文投入できませんでした（電文の検証に失敗しました）');
     }
     if (response.status === 503) {
-      throw new TrainingApiError('投入できませんでした（取得処理が利用できません）');
+      throw new TrainingApiError('電文投入できませんでした（取得処理が利用できません）');
     }
     if (response.status === 504) {
-      throw new TrainingApiError('投入結果を確認できませんでした');
+      throw new TrainingApiError('電文投入の結果を確認できませんでした');
     }
-    throw new TrainingApiError('投入できませんでした');
+    throw new TrainingApiError('電文投入できませんでした');
   }
 
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    throw new TrainingApiError('投入できませんでした');
+    throw new TrainingApiError('電文投入できませんでした');
   }
 
   const parsed = parseTrainingInjectResponse(body);
   if (parsed === null) {
-    throw new TrainingApiError('投入できませんでした');
+    throw new TrainingApiError('電文投入できませんでした');
   }
   return parsed;
 }

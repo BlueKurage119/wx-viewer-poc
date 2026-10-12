@@ -35,7 +35,7 @@ export interface TrainingInjectResponseLike {
 /**
  * 投入成功メッセージを整形する。
  * 自端末の会場（venueId）の採用結果が「…として解析済み」で終わらない電文が m 通あれば
- * 「{n}通を投入しました（{m}通は会場で採用されませんでした）」、なければ「{n}通を投入しました」。
+ * 「{n}通を電文投入しました（{m}通は会場で採用されませんでした）」、なければ「{n}通を電文投入しました」。
  * 基準電文は含まない。
  */
 export function formatTrainingInjectSuccessMessage(
@@ -44,7 +44,7 @@ export function formatTrainingInjectSuccessMessage(
 ): string {
   const n = response.telegrams.length;
   if (!venueId) {
-    return `${n}通を投入しました`;
+    return `${n}通を電文投入しました`;
   }
   const m = response.telegrams.filter((telegram) => {
     const adoption = telegram.adoptions.find((a) => a.venueId === venueId);
@@ -53,7 +53,7 @@ export function formatTrainingInjectSuccessMessage(
     );
   }).length;
   if (m > 0) {
-    return `${n}通を投入しました（${m}通は会場で採用されませんでした）`;
+    return `${n}通を電文投入しました（${m}通は会場で採用されませんでした）`;
   }
-  return `${n}通を投入しました`;
+  return `${n}通を電文投入しました`;
 }

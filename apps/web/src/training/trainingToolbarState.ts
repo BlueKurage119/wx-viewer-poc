@@ -13,17 +13,17 @@ export type TrainingToolbarItem =
 
 export const TRAINING_TOOLBAR_ROOT_ID = 'training-root';
 
-/** ツールバー定義（階層の配列）。[[投入], [削除, 全削除]] の2グループ。 */
+/** ツールバー定義（階層の配列）。[[リスト消去, リスト全消], [電文投入]] の2グループ。 */
 export const trainingToolbarDefinitions: readonly ToolbarDefinition<TrainingToolbarItem>[] = [
   {
     id: TRAINING_TOOLBAR_ROOT_ID,
     title: '',
     groups: [
-      [{ kind: 'select', selection: 'inject', label: '投入' }],
       [
-        { kind: 'select', selection: 'delete', label: '削除' },
-        { kind: 'select', selection: 'deleteAll', label: '全削除' },
+        { kind: 'select', selection: 'delete', label: 'リスト消去' },
+        { kind: 'select', selection: 'deleteAll', label: 'リスト全消' },
       ],
+      [{ kind: 'select', selection: 'inject', label: '電文投入' }],
     ],
   },
 ];
@@ -36,9 +36,9 @@ export interface TrainingToolbarCounts {
 }
 
 const labels: Readonly<Record<TrainingToolbarSelection, string>> = {
-  inject: '投入',
-  delete: '削除',
-  deleteAll: '全削除',
+  inject: '電文投入',
+  delete: 'リスト消去',
+  deleteAll: 'リスト全消',
 };
 
 export function trainingSelectionLabel(selection: TrainingToolbarSelection): string {
@@ -68,9 +68,9 @@ export function isTrainingSendReady(
 }
 
 export function trainingDeletedMessage(count: number): string {
-  return `${count}件を削除しました`;
+  return `${count}件をリストから消去しました`;
 }
 
 export function trainingInjectingMessage(count: number): string {
-  return `${count}通を投入中`;
+  return `${count}通を電文投入中`;
 }

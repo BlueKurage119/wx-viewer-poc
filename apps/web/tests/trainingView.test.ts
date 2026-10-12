@@ -51,6 +51,7 @@ const entry = (id: string, labels: string[], type = 'VPHW50'): TrainingStockEntr
   generatedAt: '2026-10-11T06:12:04.000Z',
   itemLabels: labels,
   telegram: { ...preview, id, telegramType: type as never },
+  injectionStatus: 'pending',
 });
 
 const render = (state: TrainingState) =>
@@ -198,7 +199,7 @@ test('一覧: 空は「0／20件」だけ、行はチェック欄＋行ボタン
   assert.match(html, /2／20件/);
   assert.match(
     html,
-    /<li class="training-row" data-entry-id="a"><input type="checkbox" class="training-row-check" aria-label="15:12:04 VPWW61 を選択"\/><button type="button" class="training-row-open"><span class="training-row-time">15:12:04<\/span><span class="training-row-items">雷注意報、乾燥注意報<\/span><span class="training-row-type">VPWW61<\/span><\/button><\/li>/,
+    /<li class="training-row" data-entry-id="a"><input type="checkbox" class="training-row-check" aria-label="15:12:04 VPWW61 を選択"\/><button type="button" class="training-row-open"><span class="training-row-time">15:12:04<\/span><span class="training-row-items">雷注意報、乾燥注意報<\/span><span class="training-row-type">VPWW61<\/span><span class="training-row-status" data-status="pending">未投入<\/span><\/button><\/li>/,
   );
   // チェック欄とボタンは入れ子にせず、チェック状態だけが反映される
   assert.match(
@@ -292,7 +293,7 @@ const button = (html: string, label: string) =>
     .split('<md-gb-button')
     .find((chunk) => chunk.includes(`monitoring-toolbar-button-content">${label}</span>`))!;
 
-test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、中央に投入・削除・全削除(文字だけ)、右にクリア・送信(アイコン付き)', () => {
+test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、中央に電文投入・リスト消去・リスト全消(文字だけ)、右にクリア・送信(アイコン付き)', () => {
   const html = renderToolbar(toolbarModel());
   assert.match(
     html,
@@ -306,8 +307,8 @@ test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、�
     /class="monitoring-toolbar-scroll">(.*?)<div class="monitoring-toolbar-group monitoring-toolbar-submit">/,
   )![1]!;
   assert.equal((scroll.match(/<md-gb-button/g) ?? []).length, 3);
-  assert.ok(scroll.indexOf('>投入<') < scroll.indexOf('>削除<'));
-  assert.ok(scroll.indexOf('>削除<') < scroll.indexOf('>全削除<'));
+  assert.ok(scroll.indexOf('>リスト全消<') < scroll.indexOf('>電文投入<'));
+  assert.ok(scroll.indexOf('>リスト消去<') < scroll.indexOf('>リスト全消<'));
   assert.ok(!scroll.includes('monitoring-toolbar-icon'), '項目ボタンは文字だけ');
   const submit = html.slice(html.indexOf('monitoring-toolbar-submit'));
   assert.match(submit, /monitoring-toolbar-icon[^>]*>close</);
@@ -317,41 +318,44 @@ test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、�
   assert.equal((html.match(/slot="container"/g) ?? []).length, 5);
 });
 
-test('ツールバー: 投入・削除はチェック0件、全削除は一覧0件でsoftDisabled。選択中は「選択中」、送信は対象があるときだけ点滅して押せる', () => {
+test('ツールバー: 電文投入・リスト消去はチェック0件、リスト全消は一覧0件でsoftDisabled。選択中は「選択中」、送信は対象があるときだけ点滅して押せる', () => {
   const empty = renderToolbar(toolbarModel());
-  assert.match(button(empty, '投入'), /soft-disabled=""/);
-  assert.match(button(empty, '削除'), /soft-disabled=""/);
-  assert.match(button(empty, '全削除'), /soft-disabled=""/);
+  assert.match(button(empty, '電文投入'), /soft-disabled=""/);
+  assert.match(button(empty, 'リスト消去'), /soft-disabled=""/);
+  assert.match(button(empty, 'リスト全消'), /soft-disabled=""/);
   assert.match(empty, /soft-disabled=""[^>]*>(?:(?!<\/md-gb-button>).)*クリア/);
   assert.ok(!empty.includes('monitoring-send-ready'));
   const stockOnly = renderToolbar(toolbarModel({ counts: { checked: 0, stock: 3 } }));
-  assert.match(button(stockOnly, '削除'), /soft-disabled=""/);
-  assert.ok(!/soft-disabled/.test(button(stockOnly, '全削除')));
+  assert.match(button(stockOnly, 'リスト消去'), /soft-disabled=""/);
+  assert.ok(!/soft-disabled/.test(button(stockOnly, 'リスト全消')));
   const checked = renderToolbar(toolbarModel({ counts: { checked: 2, stock: 3 } }));
-  assert.ok(!/soft-disabled/.test(button(checked, '削除')));
-  // 削除を選択中
+  assert.ok(!/soft-disabled/.test(button(checked, 'リスト消去')));
+  // リスト消去を選択中
   const selected = renderToolbar(
     toolbarModel({ selection: 'delete', counts: { checked: 2, stock: 3 } }),
   );
-  assert.match(selected, /aria-label="削除、選択中"/);
-  assert.match(button(selected, '削除'), /monitoring-toolbar-selected/);
-  assert.ok(!/monitoring-toolbar-selected/.test(button(selected, '全削除')), '排他: 選択は1つだけ');
-  assert.match(selected, /aria-label="削除を送信"/);
+  assert.match(selected, /aria-label="リスト消去、選択中"/);
+  assert.match(button(selected, 'リスト消去'), /monitoring-toolbar-selected/);
+  assert.ok(
+    !/monitoring-toolbar-selected/.test(button(selected, 'リスト全消')),
+    '排他: 選択は1つだけ',
+  );
+  assert.match(selected, /aria-label="リスト消去を送信"/);
   assert.match(selected, /monitoring-send-ready/);
   // 選択中にチェックが0件になっても選択は維持し、送信だけ押せない
   const lost = renderToolbar(
     toolbarModel({ selection: 'delete', counts: { checked: 0, stock: 3 } }),
   );
-  assert.match(lost, /aria-label="削除、選択中"/);
+  assert.match(lost, /aria-label="リスト消去、選択中"/);
   assert.ok(!lost.includes('monitoring-send-ready'));
-  assert.match(lost, /aria-label="削除を送信"[^>]*/);
-  assert.match(lost.slice(lost.indexOf('aria-label="削除を送信"') - 60), /soft-disabled=""/);
-  // 全削除を選択中
+  assert.match(lost, /aria-label="リスト消去を送信"[^>]*/);
+  assert.match(lost.slice(lost.indexOf('aria-label="リスト消去を送信"') - 60), /soft-disabled=""/);
+  // リスト全消を選択中
   const all = renderToolbar(
     toolbarModel({ selection: 'deleteAll', counts: { checked: 0, stock: 3 } }),
   );
-  assert.match(all, /aria-label="全削除、選択中"/);
-  assert.match(all, /aria-label="全削除を送信"/);
+  assert.match(all, /aria-label="リスト全消、選択中"/);
+  assert.match(all, /aria-label="リスト全消を送信"/);
   assert.match(all, /monitoring-send-ready/);
   assert.match(renderToolbar(toolbarModel()), /aria-label="操作を送信"/);
 });
@@ -417,4 +421,23 @@ test('XMLの描画にdangerouslySetInnerHTMLを使わず、色はトークンの
   assert.match(css, /grid-template-columns: minmax\(320px, 2fr\) minmax\(0, 3fr\)/);
   assert.match(css, /grid-template-rows: 48px minmax\(0, 1fr\)/);
   assert.match(css, /max-block-size: 336px/);
+});
+
+test('一覧: 行ごとに投入ステータス(未投入・投入済み・投入失敗)を表示し、色はトークンのみ', () => {
+  const html = render({
+    ...ready,
+    history: [
+      { ...entry('a', ['x']), injectionStatus: 'pending' },
+      { ...entry('b', ['x']), injectionStatus: 'injected' },
+      { ...entry('c', ['x']), injectionStatus: 'failed' },
+    ],
+  });
+  assert.match(html, /data-status="pending">未投入</);
+  assert.match(html, /data-status="injected">投入済み</);
+  assert.match(html, /data-status="failed">投入失敗</);
+  const css = readFileSync(new URL('../src/training/training.css', import.meta.url), 'utf8');
+  const block = css.match(/\.training-row-status[^{]*\{[^}]*\}/g)!.join('\n');
+  assert.match(block, /var\(--md-sys-color-error\)/);
+  assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(block));
+  assert.match(css, /\.training-row \{[^}]*block-size: 48px/);
 });
