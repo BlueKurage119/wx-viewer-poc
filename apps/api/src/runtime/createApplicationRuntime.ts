@@ -7,6 +7,7 @@ import { createInlineWeatherAcquisition } from './inlineWeatherAcquisition.js';
 import type { TileDeliveryResult } from '../services/tileApiSupport.js';
 import { randomUUID } from 'node:crypto';
 import type { AppDependencies } from '../app.js';
+import { createTrainingTelegramService } from '../services/trainingTelegramService.js';
 import type { WeatherApiService } from '../services/weatherApiService.js';
 import type { NowcastApiService } from '../services/nowcastApiService.js';
 import type { KikikuruApiService } from '../services/kikikuruApiService.js';
@@ -252,6 +253,15 @@ export function createApplicationRuntime(deps: ApplicationRuntimeDependencies) {
   const retainedHistory = createRetainedMonitoringHistory(deps.retainedConnection, read, now);
   const dependencies: AppDependencies = {
     ...deps,
+    trainingTelegram:
+      deps.trainingTelegram ??
+      (deps.terminalRegistry
+        ? createTrainingTelegramService({
+            terminalRegistry: deps.terminalRegistry,
+            now,
+            idFactory: randomUUID,
+          })
+        : undefined),
     monitoringStatus: deps.monitoringStatus
       ? {
           getStatus: (terminal) => {

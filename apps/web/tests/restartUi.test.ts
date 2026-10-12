@@ -269,7 +269,11 @@ test('D7: 警報へ区分を変えたWorker通知は警報の行に出て警報�
 test('C27/C28/C30: 画面を離れたらルートへ戻す配線、タイトルのタイポグラフィ、削除済みの仮UIが残らない', () => {
   const read = (file: string) =>
     readFileSync(new URL(`../src/monitoring/${file}`, import.meta.url), 'utf8');
-  const hook = read('useMonitoringToolbar.ts');
+  // 画面離脱時のルート復帰は共通フック useToolbarNavigation へ移った。
+  const hook = readFileSync(
+    new URL('../src/toolbar/useToolbarNavigation.ts', import.meta.url),
+    'utf8',
+  );
   assert.match(
     hook,
     /if \(active\) return;\s*(?:\/\/[^\n]*\n\s*)?setLocalState\(\(state\) => resetToolbarToRoot\(state\)\);/,
@@ -278,7 +282,10 @@ test('C27/C28/C30: 画面を離れたらルートへ戻す配線、タイトル�
   const titleRule = css.match(/\.monitoring-toolbar-title \{[^}]*\}/)?.[0] ?? '';
   assert.match(titleRule, /inline-size: 120px;/);
   assert.equal(/font-weight/.test(titleRule), false);
-  assert.match(read('MonitoringToolbar.tsx'), /monitoring-toolbar-title md-typescale-label-large/);
+  assert.match(
+    readFileSync(new URL('../src/toolbar/OperationToolbar.tsx', import.meta.url), 'utf8'),
+    /monitoring-toolbar-title md-typescale-label-large/,
+  );
   assert.equal(
     /\.monitoring-worker-(section|status|actions|result)\b|\.monitoring-worker-history\s*[{,]/.test(
       css,

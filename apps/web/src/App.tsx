@@ -55,31 +55,12 @@ import type { MonitoringLoadState } from './monitoring/useMonitoringStatus';
 import { useVenueRegistry } from './venueRegistryContext';
 import { useTerminalRegistry } from './terminalRegistryContext';
 import { WarningListView } from './warnings/WarningListView';
+import { TrainingView } from './training/TrainingView';
+import { TrainingToolbar } from './training/TrainingToolbar';
+import { useTrainingScreen } from './training/useTrainingScreen';
 import { createWarningListSearchState } from './warnings/warningListFilterModel';
 import './warnings/warningList.css';
-
-const VIEW_PLACEHOLDER: Record<ViewId, { symbol: string; heading: string; description: string }> = {
-  weather: {
-    symbol: '☁',
-    heading: '気象情報の表示領域',
-    description: '地図・情報パネルは今後実装します。',
-  },
-  warnings: {
-    symbol: '≡',
-    heading: '警報一覧の表示領域',
-    description: '一覧・フィルターは今後実装します。',
-  },
-  monitor: {
-    symbol: '▤',
-    heading: '取得監視の表示領域',
-    description: '取得状況・履歴・取得操作は今後実装します。',
-  },
-  training: {
-    symbol: '◎',
-    heading: '訓練通知の表示領域',
-    description: 'サンプル電文の注入・抹消操作は今後実装します。',
-  },
-};
+import './training/training.css';
 
 export function App() {
   const terminals = createTerminals(useVenueRegistry(), useTerminalRegistry());
@@ -133,6 +114,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       : dangerPreview && /^[1-5]$/.test(dangerPreview)
         ? (Number(dangerPreview) as WeatherDangerLevel)
         : weatherDanger.level;
+  const training = useTrainingScreen(terminal.id, view === 'training' && terminal.mode === 'K');
   const buzzer = useHeaderBuzzer();
   const { confirmLevel } = buzzer;
   const onConfirmed = useCallback(
@@ -252,7 +234,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   });
   const restartInProgress = (role: WeatherRole) =>
     ['accepted', 'preparing'].includes(workerViews[role].result.stage);
-  const operationLine = selectOperationLine(monitoringToolbar.localState, [
+  const monitoringOperationLine = selectOperationLine(monitoringToolbar.localState, [
     { text: fetchText, changedSeq: changedSeq('fetch') },
     {
       text: acquisitionRow,
@@ -265,6 +247,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       active: restartInProgress('delivery'),
     },
   ]);
+  // 訓練画面では、訓練ツールバーの選択案内・削除結果を操作行に出す。
+  const operationLine = view === 'training' ? training.operationLine : monitoringOperationLine;
   const operationMessage = operationLine?.text ?? null;
   const notificationState = {
     ...visibleNotificationState,
@@ -331,6 +315,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
               },
             }}
           />
+        ) : view === 'training' ? (
+          <TrainingToolbar model={training.toolbar} />
         ) : preview ? (
           <>
             <span className="preview-label">表示確認用</span>
@@ -394,13 +380,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
           restartCompletions={restartCompletions}
         />
       ) : (
-        <div className="view-placeholder">
-          <span className="placeholder-symbol" aria-hidden="true">
-            {VIEW_PLACEHOLDER[view].symbol}
-          </span>
-          <h3>{VIEW_PLACEHOLDER[view].heading}</h3>
-          <p>{VIEW_PLACEHOLDER[view].description}</p>
-        </div>
+        <TrainingView state={training.state} actions={training.actions} />
       )}
       <MonitoringDialogHost
         dialogId={monitoringToolbar.localState.openDialog}

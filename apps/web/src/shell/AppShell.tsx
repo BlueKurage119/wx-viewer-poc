@@ -166,7 +166,7 @@ export function AppShell({
       </main>
       {toolbar && (
         <div
-          className={`view-toolbar ${view === 'monitor' ? 'view-toolbar-monitor' : ''}`}
+          className={`view-toolbar ${view === 'monitor' || view === 'training' ? 'view-toolbar-monitor' : ''}`}
           aria-label="画面操作"
         >
           {toolbar}
