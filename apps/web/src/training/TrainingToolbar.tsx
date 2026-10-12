@@ -1,45 +1,46 @@
-import { GbButton } from '../components/md';
+import { OperationToolbar, type OperationToolbarItem } from '../toolbar/OperationToolbar';
+import { canSelectTrainingOperation, trainingSelectionLabel } from './trainingToolbarState';
+import type { TrainingToolbarModel } from './useTrainingScreen';
 
 /**
- * J1のツールバー。操作は「削除」だけ（押下即実行・確認なし）。外枠・部品・classは取得監視画面の
- * `.monitoring-toolbar` 系をそのまま使う。右端の固定群はJ2用に空けてある。
+ * 訓練画面のツールバー。取得監視と共通の `OperationToolbar` に、削除・全削除（選択→送信の2段階）を
+ * 渡すだけの薄い部品。右端のクリア・送信、左の `<<`・`<` は共通部品が描画する。
  */
-export function TrainingToolbar({
-  canDelete,
-  onDelete,
-}: {
-  readonly canDelete: boolean;
-  readonly onDelete: () => void;
-}) {
+export function TrainingToolbar({ model }: { readonly model: TrainingToolbarModel }) {
+  const { navigation, counts, selection } = model;
+  const current = navigation.currentToolbar;
+  const groups: OperationToolbarItem[][] = current.groups.map((group) =>
+    group.map((item): OperationToolbarItem => {
+      if (item.kind === 'select') {
+        return {
+          kind: 'select',
+          label: item.label,
+          selected: selection === item.selection,
+          softDisabled: !canSelectTrainingOperation(item.selection, counts),
+          onSelect: () => model.selectOperation(item.selection),
+        };
+      }
+      return {
+        kind: 'action',
+        label: item.label,
+        onClick: () => navigation.navigate(item.toolbarId),
+      };
+    }),
+  );
   return (
-    <div className="monitoring-toolbar">
-      <div className="monitoring-toolbar-scroll">
-        <div className="monitoring-toolbar-group">
-          <GbButton
-            color="filled"
-            size="sm"
-            square
-            type="button"
-            softDisabled={!canDelete}
-            aria-disabled={!canDelete}
-            onClick={() => {
-              if (canDelete) onDelete();
-            }}
-          >
-            <span
-              aria-hidden="true"
-              className="monitoring-toolbar-button-container"
-              slot="container"
-            />
-            <span className="monitoring-toolbar-button-content">
-              <span className="monitoring-toolbar-icon" aria-hidden="true">
-                delete
-              </span>
-              <span className="monitoring-toolbar-button-label">削除</span>
-            </span>
-          </GbButton>
-        </div>
-      </div>
-    </div>
+    <OperationToolbar
+      toolbarId={current.id}
+      title={current.title}
+      atRoot={navigation.localState.history.length <= 1}
+      navigationLabel="訓練メニュー移動"
+      groups={groups}
+      selectionActive={selection !== null}
+      sendReady={model.sendReady}
+      sendLabel={selection === null ? '操作を送信' : `${trainingSelectionLabel(selection)}を送信`}
+      onBackToRoot={navigation.backToRoot}
+      onBack={navigation.back}
+      onClear={model.clear}
+      onSend={model.send}
+    />
   );
 }

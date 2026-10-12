@@ -303,7 +303,10 @@ export function TrainingView({
         onReset={actions.reset}
         onReload={actions.reload}
         onSetChecked={actions.setChecked}
-        onOpenEntry={setOpenEntry}
+        onOpenEntry={(entry) => {
+          actions.onDialogOpen();
+          setOpenEntry(entry);
+        }}
       />
       <TrainingXmlDialog entry={openEntry} onClose={() => setOpenEntry(null)} />
     </>

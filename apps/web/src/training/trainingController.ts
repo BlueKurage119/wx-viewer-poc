@@ -40,8 +40,10 @@ export interface TrainingController {
   reset(): void;
   /** 一覧の行のチェックを切り替える（複数可）。 */
   setChecked(entryId: string, checked: boolean): void;
-  /** チェックされた行を確認なしで一覧から除き、直後に保存する。生成中でも実行できる。 */
-  deleteChecked(): void;
+  /** チェックされた行を確認なしで一覧から除き、直後に保存する。生成中でも実行できる。除いた件数を返す。 */
+  deleteChecked(): number;
+  /** 一覧を全件消し、空配列を保存する。チェックも消える。生成中でも実行できる。消した件数を返す。 */
+  deleteAll(): number;
   dispose(): void;
 }
 
@@ -167,10 +169,18 @@ export function createTrainingController(
       update({ checked: checked ? [...others, entryId] : others });
     },
     deleteChecked() {
-      if (!active || state.checked.length === 0) return;
+      if (!active || state.checked.length === 0) return 0;
       const removed = new Set(state.checked);
       const history = state.history.filter((entry) => !removed.has(entry.id));
+      const count = state.history.length - history.length;
       update({ history, checked: [], saveFailed: !stock.save(terminalId, history).saved });
+      return count;
+    },
+    deleteAll() {
+      if (!active || state.history.length === 0) return 0;
+      const count = state.history.length;
+      update({ history: [], checked: [], saveFailed: !stock.save(terminalId, []).saved });
+      return count;
     },
     dispose() {
       active = false;

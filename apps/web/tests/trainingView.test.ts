@@ -9,6 +9,12 @@ import { views } from '../src/shell/config.ts';
 import { AppShell } from '../src/shell/AppShell.tsx';
 import { TrainingContent } from '../src/training/TrainingView.tsx';
 import { TrainingToolbar } from '../src/training/TrainingToolbar.tsx';
+import type { TrainingToolbarModel } from '../src/training/useTrainingScreen.ts';
+import {
+  isTrainingSendReady,
+  trainingToolbarDefinitions,
+  type TrainingToolbarSelection,
+} from '../src/training/trainingToolbarState.ts';
 import { TrainingXmlDialog } from '../src/training/TrainingXmlDialog.tsx';
 import { formatTrainingJst, formatTrainingJstTime } from '../src/training/trainingFormat.ts';
 import { INITIAL_TRAINING_STATE, type TrainingState } from '../src/training/trainingController.ts';
@@ -246,22 +252,116 @@ test('XMLダイアログ: 見出し・訓練用合成・区域・発表/失効(J
   assert.ok(!closed.includes('<h2'));
 });
 
-test('ツールバーの操作は「削除」だけ(監視と同じ部品class)。チェック0件ではsoftDisabled、1件以上で押せる', () => {
-  const render0 = (canDelete: boolean) =>
-    renderToStaticMarkup(React.createElement(TrainingToolbar, { canDelete, onDelete: () => {} }));
-  const off = render0(false);
+function toolbarModel(
+  overrides: Partial<TrainingToolbarModel> & {
+    selection?: TrainingToolbarSelection | null;
+    counts?: { checked: number; stock: number };
+    history?: string[];
+  } = {},
+): TrainingToolbarModel {
+  const selection = overrides.selection ?? null;
+  const counts = overrides.counts ?? { checked: 0, stock: 0 };
+  const noop = () => undefined;
+  return {
+    navigation: {
+      localState: {
+        history: overrides.history ?? ['training-root'],
+        selectedOperation: selection,
+        openDialog: null,
+      },
+      setLocalState: noop,
+      currentToolbar: trainingToolbarDefinitions[0]!,
+      definitions: trainingToolbarDefinitions,
+      clearSelection: noop,
+      navigate: noop,
+      back: noop,
+      backToRoot: noop,
+    } as never,
+    counts,
+    selection,
+    sendReady: isTrainingSendReady(selection, counts),
+    selectOperation: noop,
+    clear: noop,
+    send: noop,
+  };
+}
+const renderToolbar = (model: TrainingToolbarModel) =>
+  renderToStaticMarkup(React.createElement(TrainingToolbar, { model }));
+const button = (html: string, label: string) =>
+  html
+    .split('<md-gb-button')
+    .find((chunk) => chunk.includes(`monitoring-toolbar-button-content">${label}</span>`))!;
+
+test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、中央に削除・全削除(文字だけ)、右にクリア・送信(アイコン付き)', () => {
+  const html = renderToolbar(toolbarModel());
   assert.match(
-    off,
-    /^<div class="monitoring-toolbar"><div class="monitoring-toolbar-scroll"><div class="monitoring-toolbar-group">/,
+    html,
+    /^<div class="monitoring-toolbar"><div class="monitoring-toolbar-group monitoring-toolbar-navigation" role="group" aria-label="訓練メニュー移動">/,
   );
-  assert.equal((off.match(/<md-gb-button/g) ?? []).length, 1);
-  assert.match(off, /soft-disabled=""/);
-  assert.match(off, /slot="container"/);
-  assert.match(off, /monitoring-toolbar-icon[^>]*>delete</);
-  assert.match(off, /monitoring-toolbar-button-label">削除</);
-  const on = render0(true);
-  assert.ok(!/soft-disabled/.test(on));
-  assert.ok(!/(送信|クリア|投入|取消)/.test(on));
+  const icons = [...html.matchAll(/<md-gb-icon-button\b([^>]*)>/g)].map((m) => m[1]!);
+  assert.equal(icons.length, 2);
+  assert.ok(icons.every((attributes) => /disabled=""/.test(attributes)));
+  assert.ok(!html.includes('monitoring-toolbar-title'));
+  const scroll = html.match(
+    /class="monitoring-toolbar-scroll">(.*?)<div class="monitoring-toolbar-group monitoring-toolbar-submit">/,
+  )![1]!;
+  assert.equal((scroll.match(/<md-gb-button/g) ?? []).length, 2);
+  assert.ok(scroll.indexOf('>削除<') < scroll.indexOf('>全削除<'));
+  assert.ok(!scroll.includes('monitoring-toolbar-icon'), '項目ボタンは文字だけ');
+  const submit = html.slice(html.indexOf('monitoring-toolbar-submit'));
+  assert.match(submit, /monitoring-toolbar-icon[^>]*>close</);
+  assert.match(submit, /monitoring-toolbar-icon[^>]*>arrow_forward</);
+  assert.match(submit, /クリア/);
+  assert.ok(!html.includes('>delete<'), '押下即実行のdeleteアイコンは撤去');
+  assert.equal((html.match(/slot="container"/g) ?? []).length, 4);
+});
+
+test('ツールバー: 削除はチェック0件、全削除は一覧0件でsoftDisabled。選択中は「選択中」、送信は対象があるときだけ点滅して押せる', () => {
+  const empty = renderToolbar(toolbarModel());
+  assert.match(button(empty, '削除'), /soft-disabled=""/);
+  assert.match(button(empty, '全削除'), /soft-disabled=""/);
+  assert.match(empty, /soft-disabled=""[^>]*>(?:(?!<\/md-gb-button>).)*クリア/);
+  assert.ok(!empty.includes('monitoring-send-ready'));
+  const stockOnly = renderToolbar(toolbarModel({ counts: { checked: 0, stock: 3 } }));
+  assert.match(button(stockOnly, '削除'), /soft-disabled=""/);
+  assert.ok(!/soft-disabled/.test(button(stockOnly, '全削除')));
+  const checked = renderToolbar(toolbarModel({ counts: { checked: 2, stock: 3 } }));
+  assert.ok(!/soft-disabled/.test(button(checked, '削除')));
+  // 削除を選択中
+  const selected = renderToolbar(
+    toolbarModel({ selection: 'delete', counts: { checked: 2, stock: 3 } }),
+  );
+  assert.match(selected, /aria-label="削除、選択中"/);
+  assert.match(button(selected, '削除'), /monitoring-toolbar-selected/);
+  assert.ok(!/monitoring-toolbar-selected/.test(button(selected, '全削除')), '排他: 選択は1つだけ');
+  assert.match(selected, /aria-label="削除を送信"/);
+  assert.match(selected, /monitoring-send-ready/);
+  // 選択中にチェックが0件になっても選択は維持し、送信だけ押せない
+  const lost = renderToolbar(
+    toolbarModel({ selection: 'delete', counts: { checked: 0, stock: 3 } }),
+  );
+  assert.match(lost, /aria-label="削除、選択中"/);
+  assert.ok(!lost.includes('monitoring-send-ready'));
+  assert.match(lost, /aria-label="削除を送信"[^>]*/);
+  assert.match(lost.slice(lost.indexOf('aria-label="削除を送信"') - 60), /soft-disabled=""/);
+  // 全削除を選択中
+  const all = renderToolbar(
+    toolbarModel({ selection: 'deleteAll', counts: { checked: 0, stock: 3 } }),
+  );
+  assert.match(all, /aria-label="全削除、選択中"/);
+  assert.match(all, /aria-label="全削除を送信"/);
+  assert.match(all, /monitoring-send-ready/);
+  assert.match(renderToolbar(toolbarModel()), /aria-label="操作を送信"/);
+});
+
+test('ツールバー: 子階層に入ると階層名が出て、<<・<が押せる(共通部品の階層対応)', () => {
+  const html = renderToolbar(toolbarModel({ history: ['training-root', 'training-child'] }));
+  const icons = [...html.matchAll(/<md-gb-icon-button\b([^>]*)>/g)].map((m) => m[1]!);
+  assert.ok(icons.every((attributes) => !/disabled=""/.test(attributes)));
+  assert.match(html, /monitoring-toolbar-title/);
+});
+
+test('training画面は監視と同じ外枠classを持つ', () => {
   const terminal = testTerminals.find((t) => t.mode === 'K')!;
   const shell = (view: 'training' | 'monitor' | 'warnings') =>
     renderToStaticMarkup(
@@ -276,7 +376,7 @@ test('ツールバーの操作は「削除」だけ(監視と同じ部品class)�
           now: new Date('2026-10-12T00:00:00.000Z'),
           connection: { failed: false, lastSuccessAt: null },
           notifications: React.createElement('div'),
-          toolbar: React.createElement(TrainingToolbar, { canDelete: false, onDelete: () => {} }),
+          toolbar: React.createElement(TrainingToolbar, { model: toolbarModel() }),
         },
         React.createElement('div'),
       ),

@@ -234,7 +234,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
   });
   const restartInProgress = (role: WeatherRole) =>
     ['accepted', 'preparing'].includes(workerViews[role].result.stage);
-  const operationLine = selectOperationLine(monitoringToolbar.localState, [
+  const monitoringOperationLine = selectOperationLine(monitoringToolbar.localState, [
     { text: fetchText, changedSeq: changedSeq('fetch') },
     {
       text: acquisitionRow,
@@ -247,6 +247,8 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
       active: restartInProgress('delivery'),
     },
   ]);
+  // 訓練画面では、訓練ツールバーの選択案内・削除結果を操作行に出す。
+  const operationLine = view === 'training' ? training.operationLine : monitoringOperationLine;
   const operationMessage = operationLine?.text ?? null;
   const notificationState = {
     ...visibleNotificationState,
@@ -314,10 +316,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
             }}
           />
         ) : view === 'training' ? (
-          <TrainingToolbar
-            canDelete={training.state.checked.length > 0}
-            onDelete={training.actions.deleteChecked}
-          />
+          <TrainingToolbar model={training.toolbar} />
         ) : preview ? (
           <>
             <span className="preview-label">表示確認用</span>

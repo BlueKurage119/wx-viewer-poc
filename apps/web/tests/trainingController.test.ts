@@ -466,3 +466,43 @@ test('通信は項目取得と生成だけ（保存系APIを呼ばない）', as
     ['/api/training/items', '/api/training/preview'],
   );
 });
+
+test('全削除: 一覧を全件消して空配列を保存し、チェックも消える。0件なら何もしない。生成中でも実行できる', async () => {
+  const { controller, pending, last, memory, states } = await ready();
+  const key = trainingStockKey('kkeagh01');
+  const before = states.length;
+  assert.equal(controller.deleteAll(), 0);
+  assert.equal(states.length, before);
+  controller.selectInGroup('rain', 'warning-43');
+  controller.generate();
+  pending[1]!.resolve(Response.json(generation('a', 'warning-43', 3)));
+  await tick();
+  controller.setChecked('a:0', true);
+  assert.equal(controller.deleteAll(), 3, 'チェックの有無に関係なく全件');
+  assert.deepEqual(last().history, []);
+  assert.deepEqual(last().checked, []);
+  assert.deepEqual(JSON.parse(memory.data.get(key)!), { version: 1, entries: [] });
+  // 生成中の全削除: 結果は削除後の一覧の先頭に入る
+  controller.generate();
+  assert.equal(last().generation.phase, 'sending');
+  assert.equal(controller.deleteAll(), 0);
+  pending[2]!.resolve(Response.json(generation('b', 'warning-43', 2)));
+  await tick();
+  assert.deepEqual(
+    last().history.map((e) => e.id),
+    ['b:0', 'b:1'],
+  );
+  assert.equal(controller.deleteAll(), 2);
+});
+
+test('削除は除いた件数を返し、チェックなしでは0', async () => {
+  const { controller, pending } = await ready();
+  controller.selectInGroup('rain', 'warning-43');
+  controller.generate();
+  pending[1]!.resolve(Response.json(generation('a', 'warning-43', 3)));
+  await tick();
+  assert.equal(controller.deleteChecked(), 0);
+  controller.setChecked('a:0', true);
+  controller.setChecked('a:1', true);
+  assert.equal(controller.deleteChecked(), 2);
+});
