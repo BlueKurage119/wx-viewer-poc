@@ -136,7 +136,10 @@ export async function injectTrainingTelegrams(
       const minReportMs = Math.min(...warningTelegrams.map((t) => Date.parse(t.reportDateTime)));
       const tbMs = Math.floor((minReportMs - 60_000) / 60_000) * 60_000;
       const tbIso = new Date(tbMs).toISOString();
-      const controlDateTime = deps.clock();
+      // Control/DateTime は秒精度で書き出すため、検証の期待値も秒に切り捨てて揃える
+      const controlDateTime = new Date(
+        Math.floor(Date.parse(deps.clock()) / 1000) * 1000,
+      ).toISOString();
 
       const baselineXml = generateTrainingWarningBaseline({
         reportDateTime: tbIso,

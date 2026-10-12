@@ -410,6 +410,41 @@ test('Worker injectTrainingTelegrams: 基準電文(H1)の成立とパイプラ�
   }
 });
 
+test('Worker injectTrainingTelegrams: 時計にミリ秒の端数があっても基準電文の検証に通る', async () => {
+  const db = setupDb();
+  try {
+    const clock = () => '2026-10-12T10:00:00.071Z';
+    const gen = generateTrainingTelegrams(['warning-03'], {
+      now: '2026-10-12T09:00:00.000Z',
+      generationId: '88888888-8888-4888-8888-888888888888',
+    });
+    const telegram = gen[0]!;
+    const trainingId = '99999999-9999-4999-8999-999999999999';
+    const result = await injectTrainingTelegrams(
+      db.weather.connection,
+      {
+        trainingId,
+        terminalId: K_EAST,
+        requestedAt: '2026-10-12T10:00:00.071Z',
+        telegrams: [
+          {
+            order: 0,
+            previewId: '88888888-8888-4888-8888-888888888888:0',
+            reportDateTime: telegram.reportDateTime,
+            telegramType: telegram.telegramType,
+            xml: telegram.xml,
+          },
+        ],
+      },
+      { venueRegistry: testVenueRegistry, clock },
+    );
+    assert.ok(result.baseline);
+    assert.equal(findTrainingInjection(db.weather.connection, trainingId)?.status, 'completed');
+  } finally {
+    db.close();
+  }
+});
+
 test('Worker injectTrainingTelegrams: 速報だけの注入では baseline: null', async () => {
   const db = setupDb();
   try {
