@@ -674,3 +674,23 @@ test('clearList: ローカル行と抹消済みの行を混ぜると、成功後
   assert.deepEqual(ng.last().checked, ['l:0']);
   ng.controller.dispose();
 });
+
+test('clearList は this に依存しない（分割代入して呼んでも動く）', async () => {
+  const { controller, pending, last } = await readyWithLocal([injection(TID_A, 1, RETRACTED_AT)]);
+  const { clearList, setChecked, setCheckedInjected } = controller;
+  setChecked('l:0', true);
+  setCheckedInjected(TID_A, true);
+  const promise = clearList('checked');
+  pending[2]!.resolve(Response.json({ hiddenTrainingIds: [TID_A] }));
+  assert.deepEqual(await promise, { success: true, message: '2件をリストから消去しました' });
+  assert.deepEqual(
+    last().history.map((e) => e.id),
+    ['l:1'],
+  );
+  const { clearList: again } = controller;
+  assert.deepEqual(await again('checked'), {
+    success: true,
+    message: '0件をリストから消去しました',
+  });
+  controller.dispose();
+});

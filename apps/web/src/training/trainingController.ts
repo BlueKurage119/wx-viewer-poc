@@ -196,6 +196,21 @@ export function createTrainingController(
     );
   };
 
+  const deleteChecked = (): number => {
+    if (!active || state.checked.length === 0) return 0;
+    const removed = new Set(state.checked);
+    const history = state.history.filter((entry) => !removed.has(entry.id));
+    const count = state.history.length - history.length;
+    update({ history, checked: [], saveFailed: !stock.save(terminalId, history).saved });
+    return count;
+  };
+  const deleteAll = (): number => {
+    if (!active || state.history.length === 0) return 0;
+    const count = state.history.length;
+    update({ history: [], checked: [], saveFailed: !stock.save(terminalId, []).saved });
+    return count;
+  };
+
   const retract = async (
     request: TrainingRetractRequest,
   ): Promise<{ readonly success: boolean; readonly message: string }> => {
@@ -313,20 +328,8 @@ export function createTrainingController(
       const others = state.checked.filter((id) => id !== entryId);
       update({ checked: checked ? [...others, entryId] : others });
     },
-    deleteChecked() {
-      if (!active || state.checked.length === 0) return 0;
-      const removed = new Set(state.checked);
-      const history = state.history.filter((entry) => !removed.has(entry.id));
-      const count = state.history.length - history.length;
-      update({ history, checked: [], saveFailed: !stock.save(terminalId, history).saved });
-      return count;
-    },
-    deleteAll() {
-      if (!active || state.history.length === 0) return 0;
-      const count = state.history.length;
-      update({ history: [], checked: [], saveFailed: !stock.save(terminalId, []).saved });
-      return count;
-    },
+    deleteChecked,
+    deleteAll,
     async injectChecked(venueId?: string) {
       if (
         !active ||
@@ -393,17 +396,20 @@ export function createTrainingController(
         scope === 'all'
           ? state.injected.filter((i) => i.retractedAt !== null).map((i) => i.trainingId)
           : splitCheckedInjected(state).retracted;
-      const localCount = scope === 'all' ? state.history.length : state.checked.length;
-      const clearLocal = () => (scope === 'all' ? this.deleteAll() : this.deleteChecked());
+      const clearLocal = () => (scope === 'all' ? deleteAll() : deleteChecked());
       if (retractedIds.length === 0) {
         return { success: true, message: trainingDeletedMessage(clearLocal()) };
       }
       update({ hiding: true });
       try {
         await requestTrainingInjectionsHide(terminalId, retractedIds, undefined, fetcher);
-        const message = trainingDeletedMessage(localCount + retractedIds.length);
-        if (!active) return { success: true, message };
-        clearLocal();
+        if (!active) {
+          return {
+            success: true,
+            message: trainingDeletedMessage(retractedIds.length),
+          };
+        }
+        const message = trainingDeletedMessage(clearLocal() + retractedIds.length);
         const hidden = new Set(retractedIds);
         update({
           hiding: false,

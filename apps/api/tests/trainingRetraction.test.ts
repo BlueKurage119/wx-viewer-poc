@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { findWarningCurrentSnapshot } from '../src/repositories/warningCurrentRepository.js';
 import { findWarningCurrentStream } from '../src/repositories/warningCurrentStreamRepository.js';
+import { randomUUID } from 'node:crypto';
+import { injectTrainingTelegrams } from '../src/training/trainingInjector.js';
+import { testVenueRegistry } from './helpers/venueConfigPreload.js';
 import { findTelegramReceptionById } from '../src/repositories/telegramReceptionRepository.js';
 import { listTrainingInjectionReceptions } from '../src/repositories/trainingInjectionRepository.js';
 import {
@@ -256,6 +259,72 @@ test('全抹消後、取消済みストリームの ReportDateTime 以前の警�
     assert.ok(
       listTrainingInjectionReceptions(db.weather.connection, old.command.trainingId).length === 2,
     );
+  } finally {
+    db.close();
+  }
+});
+
+test('抹消前に生成した電文を抹消後に再投入すると、警報・速報が再び表示される。書き換えは Control/DateTime だけ', async () => {
+  const db = setupDb();
+  try {
+    const c = db.weather.connection;
+    const clock = fixedClock();
+    const items = [
+      'warning-03',
+      'bulletin-linear-occurrence',
+      'bulletin-tornado',
+      'bulletin-tornado-observed',
+    ];
+    const first = await inject(c, items, { now: GEN_TIME, clock });
+    // 取消されていない状態への投入では XML は書き換わらない
+    for (const t of first.result.telegrams) {
+      const raw = c
+        .prepare('SELECT raw_body AS raw FROM telegram_reception WHERE id = ?')
+        .get(t.receptionId) as { raw: string };
+      assert.equal(raw.raw, first.command.telegrams.find((x) => x.previewId === t.previewId)!.xml);
+    }
+    await retract(c, retractionCommand('training', [first.command.trainingId]), clock);
+    assert.deepEqual(warningItems(db), []);
+
+    // 同じ（抹消前に生成した）電文を再投入する
+    const again = await injectTrainingTelegrams(
+      c,
+      { ...first.command, trainingId: randomUUID() },
+      { venueRegistry: testVenueRegistry, clock },
+    );
+    for (const t of again.telegrams) {
+      assert.ok(
+        t.adoptions.some(
+          (a) => a.venueId === 'east' && /として解析済み/.test(a.adoptionResult ?? ''),
+        ),
+        `${t.telegramType}: ${JSON.stringify(t.adoptions)}`,
+      );
+    }
+    assert.deepEqual(warningItems(db), ['レベル３大雨警報']);
+    const rows = c
+      .prepare(
+        "SELECT is_cancelled AS c, info_type AS t FROM bosai_bulletin WHERE control_status = 'training'",
+      )
+      .all() as { c: number; t: string }[];
+    assert.equal(rows.length, 3);
+    assert.ok(rows.every((r) => r.c === 0 && r.t === '発表'));
+
+    // 書き換えは Control/DateTime だけ
+    const stripControl = (xml: string) => xml.replace(/<DateTime>[^<]*<\/DateTime>/, '<DateTime/>');
+    for (const t of again.telegrams) {
+      const raw = (
+        c
+          .prepare('SELECT raw_body AS raw FROM telegram_reception WHERE id = ?')
+          .get(t.receptionId) as {
+          raw: string;
+        }
+      ).raw;
+      const original = first.command.telegrams.find((x) => x.previewId === t.previewId)!.xml;
+      assert.notEqual(raw, original);
+      assert.equal(stripControl(raw), stripControl(original));
+      const control = /<Control>[\s\S]*?<DateTime>([^<]*)<\/DateTime>/.exec(raw)![1]!;
+      assert.ok(Date.parse(control) > Date.parse('2026-10-12T10:00:00Z'), control);
+    }
   } finally {
     db.close();
   }

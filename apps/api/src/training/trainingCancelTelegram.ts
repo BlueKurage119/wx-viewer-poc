@@ -56,8 +56,9 @@ function serialize(doc: Document, original: string): string {
   const body = new XMLSerializer().serializeToString(doc);
   // xmldom は XML 宣言を保持しないため、原文にあれば先頭に戻す。
   const declaration = /^\s*(<\?xml[^?]*\?>)/.exec(original);
-  if (declaration && !body.startsWith('<?xml')) return `${declaration[1]}\n${body}`;
-  return body;
+  const tail = original.endsWith('\n') && !body.endsWith('\n') ? '\n' : '';
+  if (declaration && !body.startsWith('<?xml')) return `${declaration[1]}\n${body}${tail}`;
+  return `${body}${tail}`;
 }
 
 export interface BuildTrainingCancelOptions {
@@ -69,6 +70,16 @@ export function formatCancelControlDateTime(value: string): string {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) throw new Error('controlDateTime が不正です');
   return new Date(Math.floor(ms / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/**
+ * Control/DateTime だけを書き換える（取消済みの状態へ再投入する電文用。J2 の「XML は書き換えない」の例外）。
+ * 合成取消と同じ DOM 方式で、他の要素は変えない。
+ */
+export function setTrainingControlDateTime(rawXml: string, controlDateTime: string): string {
+  const doc = parseStrict(rawXml);
+  locateTargets(doc).controlDateTime.textContent = formatCancelControlDateTime(controlDateTime);
+  return serialize(doc, rawXml);
 }
 
 export function buildTrainingCancelTelegram(

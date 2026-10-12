@@ -106,7 +106,7 @@ function buildResult(
   };
 }
 
-function resolveBulletinEventId(
+export function resolveBulletinEventId(
   reception: TelegramReception,
   target: BosaiBulletinTarget,
 ): string | null {
