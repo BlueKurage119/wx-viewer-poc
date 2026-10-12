@@ -717,3 +717,55 @@ export function parseTrainingRetractResponse(value: unknown): TrainingRetractRes
     telegrams,
   };
 }
+
+// ---------------------------------------------------------------------------
+// 抹消済みの訓練を一覧から外す（Issue #71 UI監修: POST /api/training/injections/hide）
+// ---------------------------------------------------------------------------
+
+export interface TrainingInjectionsHideRequest {
+  readonly terminalId: string;
+  readonly trainingIds: readonly string[]; // 1〜50、重複なし、UUID v4 小文字
+}
+
+export interface TrainingInjectionsHideResponse {
+  readonly hiddenTrainingIds: readonly string[]; // 要求の全件、昇順
+}
+
+export function parseTrainingInjectionsHideRequest(
+  value: unknown,
+): TrainingInjectionsHideRequest | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes('terminalId') || !keys.includes('trainingIds')) {
+    return null;
+  }
+  if (typeof value.terminalId !== 'string' || value.terminalId.length === 0) return null;
+  const ids = value.trainingIds;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > TRAINING_RETRACT_MAX_TRAINING_IDS) {
+    return null;
+  }
+  const seen = new Set<string>();
+  const trainingIds: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || !UUID_V4_LOWER_PATTERN.test(id) || seen.has(id)) return null;
+    seen.add(id);
+    trainingIds.push(id);
+  }
+  return { terminalId: value.terminalId, trainingIds };
+}
+
+export function parseTrainingInjectionsHideResponse(
+  value: unknown,
+): TrainingInjectionsHideResponse | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || keys[0] !== 'hiddenTrainingIds') return null;
+  const ids = value.hiddenTrainingIds;
+  if (!Array.isArray(ids)) return null;
+  const hiddenTrainingIds: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || !UUID_V4_PATTERN.test(id)) return null;
+    hiddenTrainingIds.push(id);
+  }
+  return { hiddenTrainingIds };
+}

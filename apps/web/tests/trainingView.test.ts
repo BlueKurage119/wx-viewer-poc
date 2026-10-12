@@ -35,6 +35,7 @@ const ready: TrainingState = {
   injectedLoadFailed: false,
   checkedInjected: [],
   retracting: false,
+  hiding: false,
 };
 
 const preview: TrainingTelegramPreview = {

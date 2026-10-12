@@ -161,7 +161,8 @@ const INJECTION_STATUS_LABELS: Readonly<Record<TrainingInjectionStatus, string>>
 
 /**
  * 投入済みの行（サーバーの注入記録1回につき1行）。押しても何も開かない。
- * 抹消済みの行はステータスを「抹消済み」にし、チェック欄は置かない（列幅は空けて揃える）。
+ * 抹消済みの行はステータスを「抹消済み」にする。チェック欄は両方にあり、抹消済みの行は
+ * リスト消去・リスト全消で一覧から外せる（電文抹消の対象にはならない）。
  */
 function InjectedRow({
   injection,
@@ -179,18 +180,14 @@ function InjectedRow({
   const types = injection.telegrams.map((t) => t.telegramType).join('、');
   return (
     <li className="training-row" data-training-id={injection.trainingId}>
-      {retracted ? (
-        <span className="training-row-check-spacer" aria-hidden="true" />
-      ) : (
-        <input
-          type="checkbox"
-          className="training-row-check"
-          aria-label={`${time} ${types} を選択`}
-          checked={checked}
-          disabled={disabled}
-          onChange={(event) => onSetChecked(injection.trainingId, event.currentTarget.checked)}
-        />
-      )}
+      <input
+        type="checkbox"
+        className="training-row-check"
+        aria-label={`${time} ${types} を選択`}
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onSetChecked(injection.trainingId, event.currentTarget.checked)}
+      />
       <div className="training-row-open training-row-static">
         <span className="training-row-time">{time}</span>
         <span className="training-row-items">
@@ -258,7 +255,7 @@ export function TrainingContent({
   const canReset = ready && !sending && state.selected.length > 0;
   const sections = buildSections(state.items);
   const rows = orderTrainingRows(state.history, state.injected);
-  const busy = state.injecting || state.retracting;
+  const busy = state.injecting || state.retracting || state.hiding;
   return (
     <div className="training-view">
       <section className="training-left" aria-label="電文の作成">

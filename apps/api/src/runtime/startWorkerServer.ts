@@ -9,6 +9,7 @@ import {
 import { createApp, type AppDependencies } from '../app.js';
 import { createTrainingTelegramService } from '../services/trainingTelegramService.js';
 import { createTrainingInjectionService } from '../services/trainingInjectionService.js';
+import { createTrainingInjectionHideService } from '../services/trainingInjectionHideService.js';
 import { createTrainingRetractionService } from '../services/trainingRetractionService.js';
 import {
   loadVenueConfig,
@@ -685,6 +686,11 @@ export async function startWorkerServer(options: StartServerOptions = {}) {
       },
       now,
       idFactory: randomUUID,
+    }),
+    trainingInjectionHide: createTrainingInjectionHideService({
+      terminalRegistry: terminal.registry,
+      port: { hide: (command) => host.call('training.injections.hide', command, 5_000) },
+      now,
     }),
     trainingRetraction: createTrainingRetractionService({
       terminalRegistry: terminal.registry,

@@ -44,10 +44,12 @@ import type { DecisionCheckpoint, WeatherEpoch } from './weatherContracts.js';
 import type { WeatherTransport } from './weatherTransport.js';
 import { injectTrainingTelegrams } from '../training/trainingInjector.js';
 import { retractTrainingTelegrams } from '../training/trainingRetractor.js';
+import { hideTrainingInjections } from '../training/trainingInjectionHide.js';
 import { listCompletedTrainingInjections } from '../repositories/trainingInjectionRepository.js';
 import type {
   TrainingInjectionCommand,
   TrainingInjectionListCommand,
+  TrainingInjectionsHideCommand,
   TrainingInjectionListResult,
   TrainingInjectionResult,
   TrainingRetractionCommand,
@@ -459,6 +461,22 @@ export function createAcquisitionRuntime(
           warningNotificationEmitDeps: warningEmitDeps,
           bosaiNotificationEmitDeps: bosaiEmitDeps,
         });
+      } finally {
+        release();
+      }
+    },
+    /** 抹消の完了前に外す判定が走らないよう、注入・抹消と同じキューで直列化する。 */
+    async hideTrainingInjections(command: TrainingInjectionsHideCommand) {
+      if (stopped) throw new Error('not_ready');
+      const currentQueue = injectionQueue;
+      let release = () => {};
+      injectionQueue = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      try {
+        await currentQueue;
+        if (stopped) throw new Error('not_ready');
+        return hideTrainingInjections(connection, command);
       } finally {
         release();
       }

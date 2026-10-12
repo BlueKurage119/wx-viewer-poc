@@ -7,16 +7,17 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { TRAINING_ITEMS, type TrainingInjectionListItem } from '@wx-viewer-poc/shared';
 import { TrainingContent } from '../src/training/TrainingView.tsx';
 import { TrainingToolbar } from '../src/training/TrainingToolbar.tsx';
-import { requestTrainingRetract } from '../src/api/training.ts';
+import { requestTrainingInjectionsHide, requestTrainingRetract } from '../src/api/training.ts';
 import {
   INITIAL_TRAINING_STATE,
   createTrainingController,
   type TrainingState,
 } from '../src/training/trainingController.ts';
-import { createTrainingStockRepository } from '../src/training/trainingStock.ts';
+import { createTrainingStockRepository, trainingStockKey } from '../src/training/trainingStock.ts';
 import {
   canSelectTrainingOperation,
   isTrainingSendReady,
+  trainingDeletingMessage,
   trainingRetractingMessage,
   trainingSelectionLabel,
   trainingToolbarDefinitions,
@@ -157,7 +158,10 @@ interface Pending {
 }
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-async function readyWithInjected(items: TrainingInjectionListItem[]) {
+async function readyWithInjected(
+  items: TrainingInjectionListItem[],
+  preload: Record<string, string> = {},
+) {
   const pending: Pending[] = [];
   const fetcher = ((input: RequestInfo | URL, init?: RequestInit) =>
     new Promise<Response>((resolve) => {
@@ -168,7 +172,7 @@ async function readyWithInjected(items: TrainingInjectionListItem[]) {
       });
     })) as typeof fetch;
   const states: TrainingState[] = [];
-  const storage = new Map<string, string>();
+  const storage = new Map<string, string>(Object.entries(preload));
   const controller = createTrainingController(
     'kkeagh01',
     (state) => states.push(state),
@@ -189,7 +193,7 @@ async function readyWithInjected(items: TrainingInjectionListItem[]) {
   return { controller, pending, last, states };
 }
 
-test('チェック: 投入済みの行だけ切り替えられ、存在しない行・抹消済みの行は無視する', async () => {
+test('チェック: 投入済みの行（抹消済みを含む）だけ切り替えられ、存在しない行は無視する', async () => {
   const { controller, last } = await readyWithInjected([
     injection(TID_A, 1),
     injection(TID_B, 2, '2026-10-12T10:03:00.000Z'),
@@ -197,8 +201,9 @@ test('チェック: 投入済みの行だけ切り替えられ、存在しない
   controller.setCheckedInjected(TID_A, true);
   controller.setCheckedInjected(TID_B, true);
   controller.setCheckedInjected(TID_C, true);
-  assert.deepEqual(last().checkedInjected, [TID_A]);
+  assert.deepEqual(last().checkedInjected, [TID_A, TID_B]);
   controller.setCheckedInjected(TID_A, false);
+  controller.setCheckedInjected(TID_B, false);
   assert.deepEqual(last().checkedInjected, []);
   controller.dispose();
 });
@@ -301,7 +306,7 @@ test('retract 失敗: 日本語の文言を返し、チェックを維持して�
   }
 });
 
-test('再読込で一覧から消えた行・抹消済みになった行のチェックは外れる', async () => {
+test('再読込で一覧から消えた行のチェックは外れ、抹消済みになった行のチェックは残る', async () => {
   const { controller, pending, last } = await readyWithInjected([
     injection(TID_A, 1),
     injection(TID_B, 2),
@@ -313,7 +318,7 @@ test('再読込で一覧から消えた行・抹消済みになった行のチ�
     Response.json({ injections: [injection(TID_A, 1, '2026-10-12T10:05:00.000Z')] }),
   );
   await tick();
-  assert.deepEqual(last().checkedInjected, []);
+  assert.deepEqual(last().checkedInjected, [TID_A]);
   controller.dispose();
 });
 
@@ -355,7 +360,7 @@ const render = (state: TrainingState) =>
 const rowOf = (html: string, trainingId: string) =>
   html.match(new RegExp(`<li[^>]*data-training-id="${trainingId}">.*?</li>`))![0];
 
-test('投入済みの行: チェック欄が出る。抹消済みは「抹消済み」でチェック欄が無く、新しい順の中に混ざる', () => {
+test('投入済みの行: チェック欄が出る。抹消済みも「抹消済み」でチェック欄があり、新しい順の中に混ざる', () => {
   const html = render({
     ...ready,
     injected: [
@@ -376,14 +381,14 @@ test('投入済みの行: チェック欄が出る。抹消済みは「抹消済
   assert.doesNotMatch(normal, /checked=""/);
   assert.match(rowOf(html, TID_C), /<input[^>]*checked=""/);
   const retracted = rowOf(html, TID_B);
-  assert.ok(!/<input/.test(retracted), '抹消済みの行にチェック欄を置かない');
-  assert.match(retracted, /training-row-check-spacer/, '列幅は空けて揃える');
+  assert.match(retracted, /<input[^>]*type="checkbox"/, '抹消済みの行にもチェック欄がある');
+  assert.ok(!retracted.includes('training-row-check-spacer'));
   assert.match(retracted, /data-status="retracted">抹消済み</);
   assert.ok(!/<button/.test(retracted));
 });
 
-test('処理中（投入中・抹消中）は投入済みの行のチェック欄を押せない', () => {
-  for (const patch of [{ retracting: true }, { injecting: true }]) {
+test('処理中（投入中・抹消中・一覧から外す処理中）は投入済みの行のチェック欄を押せない', () => {
+  for (const patch of [{ retracting: true }, { injecting: true }, { hiding: true }]) {
     const html = render({ ...ready, injected: [injection(TID_A, 1)], ...patch });
     assert.match(rowOf(html, TID_A), /<input[^>]*disabled=""/);
   }
@@ -454,4 +459,218 @@ test('抹消済みの色はトークンのみ、行高48pxは変わらない', (
   assert.match(block, /var\(--md-sys-color-on-surface-variant\)/);
   assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(block));
   assert.match(css, /\.training-row \{[^}]*block-size: 48px/);
+});
+
+// ---------------------------------------------------------------------------
+// 抹消済みの行を一覧から外す（リスト消去・リスト全消）
+// ---------------------------------------------------------------------------
+
+const RETRACTED_AT = '2026-10-12T10:05:00.000Z';
+const entryFor = (id: string) => ({
+  id,
+  generatedAt: '2026-10-11T06:12:04.000Z',
+  itemLabels: ['x'],
+  telegram: {
+    id,
+    itemIds: ['bulletin-tornado' as const],
+    telegramType: 'VPHW50' as const,
+    title: 't',
+    xml: '<Report/>',
+    reportDateTime: '2026-10-11T05:10:00.000Z',
+    targetDateTime: '2026-10-11T05:10:00.000Z',
+    validDateTime: null,
+    areaNames: [],
+    provenance: 'synthetic' as const,
+    isTraining: true as const,
+  },
+  injectionStatus: 'pending' as const,
+});
+
+async function readyWithLocal(items: TrainingInjectionListItem[]) {
+  const stored = JSON.stringify({ version: 3, entries: [entryFor('l:0'), entryFor('l:1')] });
+  return readyWithInjected(items, { [trainingStockKey('kkeagh01')]: stored });
+}
+
+test('選択可否: リスト消去はローカル行または抹消済みの行のチェック、リスト全消は両方の件数。未抹消の投入済みだけでは選べない', () => {
+  const base = { checked: 0, stock: 0, checkedInjected: 0, checkedRetracted: 0, retracted: 0 };
+  assert.equal(canSelectTrainingOperation('delete', { ...base, checkedInjected: 2 }), false);
+  assert.equal(canSelectTrainingOperation('delete', { ...base, checkedRetracted: 1 }), true);
+  assert.equal(canSelectTrainingOperation('delete', { ...base, checked: 1 }), true);
+  assert.equal(canSelectTrainingOperation('deleteAll', base), false);
+  assert.equal(canSelectTrainingOperation('deleteAll', { ...base, retracted: 1 }), true);
+  assert.equal(canSelectTrainingOperation('deleteAll', { ...base, stock: 1 }), true);
+  assert.equal(canSelectTrainingOperation('delete', { ...base, checkedRetracted: 1 }, true), false);
+  // 電文抹消は抹消済みの行を数えない
+  assert.equal(canSelectTrainingOperation('retract', { ...base, checkedRetracted: 2 }), false);
+  assert.equal(trainingDeletingMessage(3), '3件をリストから消去中');
+});
+
+test('requestTrainingInjectionsHide: 要求の形と失敗の文言', async () => {
+  const calls: unknown[] = [];
+  const respond = (status: number, body: unknown = {}) =>
+    (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push([String(input), JSON.parse(String(init?.body))]);
+      return Response.json(body, { status });
+    }) as typeof fetch;
+  assert.deepEqual(
+    await requestTrainingInjectionsHide(
+      'kkeagh01',
+      [TID_A],
+      undefined,
+      respond(200, { hiddenTrainingIds: [TID_A] }),
+    ),
+    [TID_A],
+  );
+  assert.deepEqual(calls[0], [
+    '/api/training/injections/hide',
+    { terminalId: 'kkeagh01', trainingIds: [TID_A] },
+  ]);
+  const cases: [number, string][] = [
+    [404, 'リストから消去できませんでした（対象の訓練が見つかりません）'],
+    [409, 'リストから消去できませんでした（電文抹消が済んでいない訓練があります）'],
+    [503, 'リストから消去できませんでした（取得処理が利用できません）'],
+    [400, 'リストから消去できませんでした'],
+    [500, 'リストから消去できませんでした'],
+  ];
+  for (const [status, message] of cases) {
+    await assert.rejects(
+      requestTrainingInjectionsHide('kkeagh01', [TID_A], undefined, respond(status)),
+      { message },
+    );
+  }
+  await assert.rejects(
+    requestTrainingInjectionsHide('kkeagh01', [TID_A], undefined, (async () => {
+      throw new TypeError('x');
+    }) as typeof fetch),
+    { message: 'リストから消去できませんでした' },
+  );
+});
+
+test('clearList(checked): 抹消済みの行をチェックして消去すると hide が呼ばれ、成功後に一覧を再読込する', async () => {
+  const { controller, pending, last } = await readyWithLocal([
+    injection(TID_A, 1, RETRACTED_AT),
+    injection(TID_B, 2),
+  ]);
+  controller.setCheckedInjected(TID_A, true);
+  const promise = controller.clearList('checked');
+  assert.equal(last().hiding, true);
+  assert.equal(pending[2]!.url, '/api/training/injections/hide');
+  assert.deepEqual(pending[2]!.body, { terminalId: 'kkeagh01', trainingIds: [TID_A] });
+  pending[2]!.resolve(Response.json({ hiddenTrainingIds: [TID_A] }));
+  assert.deepEqual(await promise, { success: true, message: '1件をリストから消去しました' });
+  await tick();
+  assert.equal(last().hiding, false);
+  assert.deepEqual(last().checkedInjected, []);
+  assert.equal(pending[3]!.url, '/api/training/injections?terminalId=kkeagh01');
+  controller.dispose();
+});
+
+test('clearList(all): 抹消済みの行すべてを hide に送り、未抹消の行は送らない。ローカル行だけなら API を呼ばない', async () => {
+  const { controller, pending } = await readyWithLocal([
+    injection(TID_A, 1, RETRACTED_AT),
+    injection(TID_B, 2),
+    injection(TID_C, 3, RETRACTED_AT),
+  ]);
+  const promise = controller.clearList('all');
+  assert.deepEqual(pending[2]!.body, { terminalId: 'kkeagh01', trainingIds: [TID_A, TID_C] });
+  pending[2]!.resolve(Response.json({ hiddenTrainingIds: [TID_A, TID_C] }));
+  assert.deepEqual(await promise, { success: true, message: '4件をリストから消去しました' });
+  controller.dispose();
+
+  const second = await readyWithLocal([injection(TID_B, 2)]);
+  const result = await second.controller.clearList('all');
+  assert.deepEqual(result, { success: true, message: '2件をリストから消去しました' });
+  assert.equal(
+    second.pending.length,
+    2,
+    '対象がローカル行だけ（または無し）のときは hide API を呼ばない',
+  );
+  second.controller.dispose();
+});
+
+test('clearList: 409・503・通信失敗では文言を返し、チェックを維持して、ローカル行も消さない', async () => {
+  const cases: [number, string][] = [
+    [409, 'リストから消去できませんでした（電文抹消が済んでいない訓練があります）'],
+    [503, 'リストから消去できませんでした（取得処理が利用できません）'],
+    [500, 'リストから消去できませんでした'],
+  ];
+  for (const [status, message] of cases) {
+    const { controller, pending, last } = await readyWithLocal([injection(TID_A, 1, RETRACTED_AT)]);
+    controller.setCheckedInjected(TID_A, true);
+    const promise = controller.clearList('checked');
+    pending[2]!.resolve(Response.json({}, { status }));
+    assert.deepEqual(await promise, { success: false, message });
+    await tick();
+    assert.deepEqual(last().checkedInjected, [TID_A]);
+    assert.equal(last().hiding, false);
+    assert.equal(pending[3]!.url, '/api/training/injections?terminalId=kkeagh01');
+    controller.dispose();
+  }
+});
+
+test('clearList: 外す処理中は投入・抹消・二重の消去を受け付けない', async () => {
+  const { controller, pending } = await readyWithLocal([injection(TID_A, 1, RETRACTED_AT)]);
+  controller.setCheckedInjected(TID_A, true);
+  const promise = controller.clearList('checked');
+  assert.equal((await controller.clearList('checked')).success, false);
+  assert.equal((await controller.retractAll()).success, false);
+  assert.equal((await controller.injectChecked()).success, false);
+  assert.equal(pending.length, 3);
+  pending[2]!.resolve(Response.json({ hiddenTrainingIds: [TID_A] }));
+  await promise;
+  controller.dispose();
+});
+
+test('retractChecked は抹消済みの行を送らない', async () => {
+  const { controller, pending } = await readyWithLocal([
+    injection(TID_A, 1, RETRACTED_AT),
+    injection(TID_B, 2),
+  ]);
+  controller.setCheckedInjected(TID_A, true);
+  controller.setCheckedInjected(TID_B, true);
+  const promise = controller.retractChecked();
+  assert.deepEqual(pending[2]!.body, {
+    terminalId: 'kkeagh01',
+    scope: 'training',
+    trainingIds: [TID_B],
+  });
+  pending[2]!.resolve(Response.json(retractResponse('training', [TID_B])));
+  await promise;
+  controller.dispose();
+});
+
+test('clearList: ローカル行と抹消済みの行を混ぜると、成功後に両方が消え、未抹消の行は残る。失敗時はローカル行も残る', async () => {
+  const mixed = async (status: number) => {
+    const ctx = await readyWithLocal([injection(TID_A, 1, RETRACTED_AT), injection(TID_B, 2)]);
+    assert.equal(ctx.last().history.length, 2);
+    ctx.controller.setChecked('l:0', true);
+    ctx.controller.setCheckedInjected(TID_A, true);
+    ctx.controller.setCheckedInjected(TID_B, true);
+    const promise = ctx.controller.clearList('checked');
+    // 外す処理が終わるまでローカル行は消えない
+    assert.equal(ctx.last().history.length, 2);
+    ctx.pending[2]!.resolve(
+      status === 200
+        ? Response.json({ hiddenTrainingIds: [TID_A] })
+        : Response.json({}, { status }),
+    );
+    return { ...ctx, result: await promise };
+  };
+  const ok = await mixed(200);
+  assert.deepEqual(ok.result, { success: true, message: '2件をリストから消去しました' });
+  assert.deepEqual(
+    ok.last().history.map((e) => e.id),
+    ['l:1'],
+  );
+  assert.deepEqual(ok.last().checkedInjected, [TID_B], '未抹消のチェックは残る');
+  assert.deepEqual(ok.pending[2]!.body, { terminalId: 'kkeagh01', trainingIds: [TID_A] });
+  ok.controller.dispose();
+  const ng = await mixed(409);
+  assert.equal(ng.result.success, false);
+  assert.deepEqual(
+    ng.last().history.map((e) => e.id),
+    ['l:0', 'l:1'],
+  );
+  assert.deepEqual(ng.last().checked, ['l:0']);
+  ng.controller.dispose();
 });

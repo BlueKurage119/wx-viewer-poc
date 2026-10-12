@@ -1,4 +1,5 @@
 import type {
+  TrainingInjectionsHideResponse,
   TrainingInjectionsResponse,
   TrainingRetractResponse,
   TrainingInjectResponse,
@@ -85,7 +86,10 @@ export const TRAINING_RETRACTION_FAILED = 'training_retraction_failed';
 
 /** `training_not_found:<id>,<id>` の形式にする。 */
 export function encodeRetractionRejection(
-  code: typeof TRAINING_RETRACTION_NOT_FOUND | typeof TRAINING_RETRACTION_ALREADY_RETRACTED,
+  code:
+    | typeof TRAINING_RETRACTION_NOT_FOUND
+    | typeof TRAINING_RETRACTION_ALREADY_RETRACTED
+    | typeof TRAINING_NOT_RETRACTED,
   trainingIds: readonly string[],
 ): string {
   return `${code}:${trainingIds.join(',')}`;
@@ -94,11 +98,33 @@ export function encodeRetractionRejection(
 export function decodeRetractionRejection(
   message: string,
 ): { code: string; trainingIds: string[] } | null {
-  for (const code of [TRAINING_RETRACTION_NOT_FOUND, TRAINING_RETRACTION_ALREADY_RETRACTED]) {
+  for (const code of [
+    TRAINING_RETRACTION_NOT_FOUND,
+    TRAINING_RETRACTION_ALREADY_RETRACTED,
+    TRAINING_NOT_RETRACTED,
+  ]) {
     if (message.startsWith(`${code}:`)) {
       const rest = message.slice(code.length + 1);
       return { code, trainingIds: rest.length === 0 ? [] : rest.split(',') };
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// 抹消済みの訓練を一覧から外す（Issue #71 UI監修）
+// ---------------------------------------------------------------------------
+
+export const TRAINING_NOT_RETRACTED = 'training_not_retracted';
+
+export interface TrainingInjectionsHideCommand {
+  readonly terminalId: string;
+  readonly trainingIds: readonly string[];
+  readonly hiddenAt: string;
+  /** 要求端末と同じ会場の K 端末（所有判定）。 */
+  readonly allowedTerminalIds: readonly string[];
+}
+
+export interface TrainingInjectionsHidePort {
+  hide(command: TrainingInjectionsHideCommand): Promise<TrainingInjectionsHideResponse>;
 }

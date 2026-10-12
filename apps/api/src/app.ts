@@ -17,6 +17,7 @@ import {
   parseStartupNotificationRequest,
   parseTrainingGenerateRequest,
   parseTrainingInjectRequest,
+  parseTrainingInjectionsHideRequest,
   parseTrainingItemsQuery,
   parseTrainingRetractRequest,
   parseWeatherApiQuery,
@@ -42,6 +43,7 @@ import type { MonitoringHistoryService } from './monitoring/monitoringHistorySer
 import type { FetchControlService } from './services/fetchControlService.js';
 import type { TrainingTelegramService } from './services/trainingTelegramService.js';
 import type { TrainingInjectionService } from './services/trainingInjectionService.js';
+import type { TrainingInjectionHideService } from './services/trainingInjectionHideService.js';
 import type { TrainingRetractionService } from './services/trainingRetractionService.js';
 import { isFetchControlRequestId, parseFetchControlRequest } from '@wx-viewer-poc/shared';
 
@@ -91,6 +93,7 @@ export interface AppDependencies {
   readonly fetchControl?: FetchControlService;
   readonly trainingTelegram?: TrainingTelegramService;
   readonly trainingInjection?: TrainingInjectionService;
+  readonly trainingInjectionHide?: TrainingInjectionHideService;
   readonly trainingRetraction?: TrainingRetractionService;
 }
 
@@ -1135,6 +1138,47 @@ export function createApp(dependencies: AppDependencies = {}): Express {
         }
       } catch {
         sendJsonNoStore(res, 500, { status: 'error', code: 'training_injection_failed' });
+      }
+    });
+  }
+
+  if (dependencies.trainingInjectionHide) {
+    const hideService = dependencies.trainingInjectionHide;
+    app.post('/api/training/injections/hide', async (req, res) => {
+      if (Object.keys(req.query).length > 0) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      const request = parseTrainingInjectionsHideRequest(req.body);
+      if (request === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const outcome = await hideService.hide(request);
+        if (outcome.kind === 'success') {
+          sendJsonNoStore(res, 200, outcome.response);
+        } else if (outcome.kind === 'unknown_terminal') {
+          sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        } else if (outcome.kind === 'forbidden_terminal') {
+          sendJsonNoStore(res, 403, { status: 'error', code: 'forbidden_terminal' });
+        } else if (outcome.kind === 'not_found') {
+          sendJsonNoStore(res, 404, {
+            status: 'error',
+            code: 'training_not_found',
+            trainingIds: outcome.trainingIds,
+          });
+        } else if (outcome.kind === 'not_retracted') {
+          sendJsonNoStore(res, 409, {
+            status: 'error',
+            code: 'training_not_retracted',
+            trainingIds: outcome.trainingIds,
+          });
+        } else {
+          sendJsonNoStore(res, 503, { status: 'error', code: 'training_injection_unavailable' });
+        }
+      } catch {
+        sendJsonNoStore(res, 503, { status: 'error', code: 'training_injection_unavailable' });
       }
     });
   }

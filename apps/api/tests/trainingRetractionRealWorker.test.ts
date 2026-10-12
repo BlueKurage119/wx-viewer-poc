@@ -268,6 +268,31 @@ test('実Worker: 抹消では通知・出力履歴が増えず訓練表示が消
   });
 });
 
+test('実Worker: 抹消の直後に送った「一覧から外す」は同じキューで抹消の完了後に処理され、200になる', async () => {
+  await withRealWorker(async (ctx) => {
+    const injected = await ctx.inject(['warning-03'], nowIso(), GEN(8));
+    assert.equal(injected.status, 200, JSON.stringify(injected.json));
+    const trainingIds = [injected.json.trainingId];
+    const post = async (path: string, body: unknown) => {
+      const response = await fetch(`${ctx.root}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: response.status, json: await response.json() };
+    };
+    const retracting = ctx.retract({ terminalId: K_EAST, scope: 'training', trainingIds });
+    await new Promise((resolve) => setTimeout(resolve, 3));
+    const hiding = post('/api/training/injections/hide', { terminalId: K_EAST, trainingIds });
+    const [retracted, hidden] = await Promise.all([retracting, hiding]);
+    assert.equal(retracted.status, 200, JSON.stringify(retracted.json));
+    assert.equal(hidden.status, 200, JSON.stringify(hidden.json));
+    assert.deepEqual(hidden.json, { hiddenTrainingIds: trainingIds });
+    const list = await ctx.get(`/api/training/injections?terminalId=${K_EAST}`);
+    assert.deepEqual(list.json.injections, []);
+  });
+});
+
 test('インライン起動(createApplicationRuntime)では抹消APIが 503 training_retraction_unavailable', async () => {
   const fixture = createTemporaryTestDatabaseFixture();
   const options = createTestServerDatabaseOptions(fixture.config);

@@ -39,6 +39,7 @@ const retainedTables = [
 // 2DB分離後に weather 側だけへ追加した表。単一DBの旧 migrations には対応する表がない
 const weatherOnlyTables = [
   'training_injection',
+  'training_injection_list_hidden',
   'training_injection_reception',
   'training_retraction',
   'training_retraction_item',

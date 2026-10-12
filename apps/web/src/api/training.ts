@@ -1,5 +1,6 @@
 import {
   parseTrainingInjectResponse,
+  parseTrainingInjectionsHideResponse,
   parseTrainingInjectionsResponse,
   parseTrainingRetractResponse,
   type TrainingGenerateResponse,
@@ -221,4 +222,44 @@ export async function requestTrainingRetract(
   const parsed = parseTrainingRetractResponse(body);
   if (parsed === null) throw failed();
   return parsed;
+}
+
+/** 抹消済みの訓練を投入済み一覧から外す。失敗は利用者へ表示してよい日本語メッセージの TrainingApiError。 */
+export async function requestTrainingInjectionsHide(
+  terminalId: string,
+  trainingIds: readonly string[],
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<readonly string[]> {
+  const failed = (reason?: string) =>
+    new TrainingApiError(
+      reason ? `リストから消去できませんでした（${reason}）` : 'リストから消去できませんでした',
+    );
+  let response: Response;
+  try {
+    response = await fetcher('/api/training/injections/hide', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ terminalId, trainingIds }),
+      signal,
+      cache: 'no-store',
+    });
+  } catch {
+    throw failed();
+  }
+  if (!response.ok) {
+    if (response.status === 404) throw failed('対象の訓練が見つかりません');
+    if (response.status === 409) throw failed('電文抹消が済んでいない訓練があります');
+    if (response.status === 503) throw failed('取得処理が利用できません');
+    throw failed();
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw failed();
+  }
+  const parsed = parseTrainingInjectionsHideResponse(body);
+  if (parsed === null) throw failed();
+  return parsed.hiddenTrainingIds;
 }

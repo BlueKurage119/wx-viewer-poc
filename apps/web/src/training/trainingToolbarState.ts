@@ -39,6 +39,10 @@ export interface TrainingToolbarCounts {
   readonly stock: number;
   /** 投入済みの行でチェックされた（抹消済みを除く）訓練の数。省略は0。 */
   readonly checkedInjected?: number;
+  /** 投入済みの行でチェックされた抹消済みの行の数。省略は0。 */
+  readonly checkedRetracted?: number;
+  /** 一覧にある抹消済みの行の数。省略は0。 */
+  readonly retracted?: number;
 }
 
 const labels: Readonly<Record<TrainingToolbarSelection, string>> = {
@@ -55,7 +59,8 @@ export function trainingSelectionLabel(selection: TrainingToolbarSelection): str
 
 /**
  * 項目を新しく選べるか。処理中（投入中・抹消中）は選べない。
- * 投入・削除はローカル行のチェック1件以上、全削除は一覧1件以上、抹消は投入済みの行のチェック1件以上。
+ * 投入はローカル行のチェック1件以上、削除はローカル行または抹消済みの行のチェック1件以上、
+ * 全削除はローカル行または抹消済みの行1件以上、抹消は未抹消の投入済みの行のチェック1件以上。
  * 全抹消は一覧が空でも選べる（基準電文の取消のため）。
  */
 export function canSelectTrainingOperation(
@@ -65,8 +70,8 @@ export function canSelectTrainingOperation(
 ): boolean {
   if (busy) return false;
   if (selection === 'inject') return counts.checked > 0;
-  if (selection === 'delete') return counts.checked > 0;
-  if (selection === 'deleteAll') return counts.stock > 0;
+  if (selection === 'delete') return counts.checked + (counts.checkedRetracted ?? 0) > 0;
+  if (selection === 'deleteAll') return counts.stock + (counts.retracted ?? 0) > 0;
   if (selection === 'retract') return (counts.checkedInjected ?? 0) > 0;
   return true;
 }
@@ -94,3 +99,7 @@ export function trainingRetractingMessage(count: number): string {
 }
 
 export const TRAINING_RETRACTING_ALL_MESSAGE = '訓練データを全抹消中';
+
+export function trainingDeletingMessage(count: number): string {
+  return `${count}件をリストから消去中`;
+}

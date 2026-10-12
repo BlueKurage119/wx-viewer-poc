@@ -212,6 +212,7 @@ export function listCompletedTrainingInjections(
       SELECT training_id, terminal_id, accepted_at
       FROM training_injection
       WHERE status = 'completed' AND terminal_id IN (${placeholders})
+        AND training_id NOT IN (SELECT training_id FROM training_injection_list_hidden)
       ORDER BY accepted_at DESC, training_id ASC
       LIMIT ?
     `,
@@ -275,4 +276,30 @@ export function findTrainingInjectionReceptionByReceptionId(
     .prepare('SELECT * FROM training_injection_reception WHERE reception_id = ?')
     .get(receptionId) as TrainingInjectionReceptionRow | undefined;
   return row ? mapReceptionRow(row) : null;
+}
+
+/**
+ * 抹消済みの訓練を投入済み一覧から外す印を付ける。INSERT だけで、既存の行は変えない。
+ * 既に外した訓練は最初に外した時刻と端末を保つ。
+ */
+export function hideTrainingInjectionsFromList(
+  connection: DatabaseConnection,
+  input: {
+    readonly trainingIds: readonly string[];
+    readonly terminalId: string;
+    readonly hiddenAt: string;
+  },
+): void {
+  const statement = connection.prepare(
+    `
+    INSERT INTO training_injection_list_hidden (training_id, hidden_at, terminal_id)
+    VALUES (?, ?, ?)
+    ON CONFLICT(training_id) DO NOTHING
+  `,
+  );
+  connection.transaction(() => {
+    for (const trainingId of input.trainingIds) {
+      statement.run(trainingId, input.hiddenAt, input.terminalId);
+    }
+  })();
 }

@@ -6,6 +6,7 @@ import { useToolbarNavigation, type ToolbarNavigation } from '../toolbar/useTool
 import {
   INITIAL_TRAINING_STATE,
   createTrainingController,
+  splitCheckedInjected,
   type TrainingController,
   type TrainingState,
 } from './trainingController';
@@ -13,7 +14,7 @@ import {
   TRAINING_TOOLBAR_ROOT_ID,
   canSelectTrainingOperation,
   isTrainingSendReady,
-  trainingDeletedMessage,
+  trainingDeletingMessage,
   trainingInjectingMessage,
   trainingRetractingMessage,
   TRAINING_RETRACTING_ALL_MESSAGE,
@@ -41,6 +42,8 @@ export interface TrainingToolbarModel {
     readonly checked: number;
     readonly stock: number;
     readonly checkedInjected: number;
+    readonly checkedRetracted: number;
+    readonly retracted: number;
   };
   readonly selection: TrainingToolbarSelection | null;
   readonly sendReady: boolean;
@@ -100,12 +103,15 @@ export function useTrainingScreen(
 
   const { clearSelection, setLocalState } = navigation;
   const selection = navigation.localState.selectedOperation;
+  const split = splitCheckedInjected(state);
   const counts = {
     checked: state.checked.length,
     stock: state.history.length,
-    checkedInjected: state.checkedInjected.length,
+    checkedInjected: split.pending.length,
+    checkedRetracted: split.retracted.length,
+    retracted: state.injected.filter((i) => i.retractedAt !== null).length,
   };
-  const busy = state.injecting || state.retracting;
+  const busy = state.injecting || state.retracting || state.hiding;
   const sendReady = isTrainingSendReady(selection, counts, busy);
 
   const actions = useMemo<TrainingActions>(
@@ -150,7 +156,7 @@ export function useTrainingScreen(
       } else if (currentSelection === 'retract' || currentSelection === 'retractAll') {
         setStatusMessage(
           currentSelection === 'retract'
-            ? trainingRetractingMessage(state.checkedInjected.length)
+            ? trainingRetractingMessage(counts.checkedInjected)
             : TRAINING_RETRACTING_ALL_MESSAGE,
         );
         const currentTerminal = terminalId;
@@ -162,12 +168,21 @@ export function useTrainingScreen(
           if (!enabledRef.current || activeTerminalRef.current !== currentTerminal) return;
           setStatusMessage(result.message);
         });
-      } else if (currentSelection === 'delete') {
-        const count = controllerRef.current?.deleteChecked() ?? 0;
-        setStatusMessage(trainingDeletedMessage(count));
       } else {
-        const count = controllerRef.current?.deleteAll() ?? 0;
-        setStatusMessage(trainingDeletedMessage(count));
+        const scope = currentSelection === 'delete' ? 'checked' : 'all';
+        const total =
+          scope === 'checked'
+            ? counts.checked + counts.checkedRetracted
+            : counts.stock + counts.retracted;
+        const currentTerminal = terminalId;
+        const run = controllerRef.current?.clearList(scope);
+        if (counts.checkedRetracted > 0 || (scope === 'all' && counts.retracted > 0)) {
+          setStatusMessage(trainingDeletingMessage(total));
+        }
+        run?.then((result) => {
+          if (!enabledRef.current || activeTerminalRef.current !== currentTerminal) return;
+          setStatusMessage(result.message);
+        });
       }
     },
   };

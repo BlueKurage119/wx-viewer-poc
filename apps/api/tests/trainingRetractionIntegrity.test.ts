@@ -233,6 +233,8 @@ test('抹消の実装に DELETE 文・.delete( 呼び出しが無い', () => {
     ...sourceFiles(join(src, 'training')),
     join(src, 'services/trainingRetractionService.ts'),
     join(src, 'repositories/trainingRetractionRepository.ts'),
+    join(src, 'repositories/trainingInjectionRepository.ts'),
+    join(src, 'services/trainingInjectionHideService.ts'),
   ];
   assert.ok(files.length >= 10);
   for (const file of files) {
@@ -243,6 +245,14 @@ test('抹消の実装に DELETE 文・.delete( 呼び出しが無い', () => {
 // ---------------------------------------------------------------------------
 // J5: 受入条件検証の除外関数
 // ---------------------------------------------------------------------------
+
+test('一覧から外す実装は INSERT だけ: training_injection の status 更新以外に UPDATE が無い', () => {
+  const src = join(import.meta.dirname, '../src');
+  const text = readFileSync(join(src, 'repositories/trainingInjectionRepository.ts'), 'utf8');
+  assert.equal((text.match(/UPDATE/g) ?? []).length, 1);
+  assert.match(text, /UPDATE training_injection\s+SET status/);
+  assert.doesNotMatch(text, /UPDATE[^`]*training_injection_list_hidden/);
+});
 
 test('J5: listAcceptance* は訓練（注入・取消・気象庁実配信の訓練）を除き、述語関数は SQL の結果と一致する。抹消の前後で結果は不変', async () => {
   const db = setupDb();
