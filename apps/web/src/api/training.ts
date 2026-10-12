@@ -1,9 +1,14 @@
-import type {
-  TrainingGenerateResponse,
-  TrainingItem,
-  TrainingItemId,
-  TrainingItemsResponse,
-  TrainingTelegramPreview,
+import {
+  parseTrainingInjectResponse,
+  parseTrainingInjectionsResponse,
+  type TrainingGenerateResponse,
+  type TrainingInjectResponse,
+  type TrainingInjectTelegram,
+  type TrainingInjectionsResponse,
+  type TrainingItem,
+  type TrainingItemId,
+  type TrainingItemsResponse,
+  type TrainingTelegramPreview,
 } from '@wx-viewer-poc/shared';
 
 /** 利用者へ表示してよい日本語メッセージを持つエラー。 */
@@ -96,5 +101,79 @@ export async function requestTrainingPreview(
   if (!response.ok) throw new TrainingApiError(`電文の生成に失敗しました（${response.status}）`);
   const parsed = parseTrainingGenerateResponse(await response.json());
   if (parsed === null) throw new TrainingApiError('生成結果の形式が不正です');
+  return parsed;
+}
+
+export async function requestTrainingInject(
+  terminalId: string,
+  telegrams: readonly TrainingInjectTelegram[],
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<TrainingInjectResponse> {
+  let response: Response;
+  try {
+    response = await fetcher('/api/training/inject', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ terminalId, telegrams }),
+      signal,
+      cache: 'no-store',
+    });
+  } catch (error) {
+    if (error instanceof TrainingApiError) throw error;
+    throw new TrainingApiError('電文投入できませんでした');
+  }
+
+  if (!response.ok) {
+    if (response.status === 400) {
+      throw new TrainingApiError('電文投入できませんでした（要求が不正です）');
+    }
+    if (response.status === 403) {
+      throw new TrainingApiError('電文投入できませんでした（この端末では操作できません）');
+    }
+    if (response.status === 413) {
+      throw new TrainingApiError('電文投入できませんでした（電文が大きすぎます）');
+    }
+    if (response.status === 422) {
+      throw new TrainingApiError('電文投入できませんでした（電文の検証に失敗しました）');
+    }
+    if (response.status === 503) {
+      throw new TrainingApiError('電文投入できませんでした（取得処理が利用できません）');
+    }
+    if (response.status === 504) {
+      throw new TrainingApiError('電文投入の結果を確認できませんでした');
+    }
+    throw new TrainingApiError('電文投入できませんでした');
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new TrainingApiError('電文投入できませんでした');
+  }
+
+  const parsed = parseTrainingInjectResponse(body);
+  if (parsed === null) {
+    throw new TrainingApiError('電文投入できませんでした');
+  }
+  return parsed;
+}
+
+/** 投入済み一覧（同じ会場のK端末が投入した完了済みの注入）。失敗・形式不正は例外。 */
+export async function fetchTrainingInjections(
+  terminalId: string,
+  signal: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<TrainingInjectionsResponse> {
+  const response = await fetcher(
+    `/api/training/injections?terminalId=${encodeURIComponent(terminalId)}`,
+    { signal, cache: 'no-store' },
+  );
+  if (!response.ok) {
+    throw new TrainingApiError(`投入済みの一覧を取得できませんでした（${response.status}）`);
+  }
+  const parsed = parseTrainingInjectionsResponse(await response.json());
+  if (parsed === null) throw new TrainingApiError('投入済みの一覧の形式が不正です');
   return parsed;
 }

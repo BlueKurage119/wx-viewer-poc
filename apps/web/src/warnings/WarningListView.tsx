@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { GbButton } from '../components/md';
+import { TrainingBadge } from '../components/TrainingBadge';
 import { NotificationPreferencesDialog } from '../notifications/NotificationPreferencesDialog';
 import {
   EMPTY_NOTIFICATION_PREFERENCES,
@@ -93,7 +94,7 @@ export function WarningListView({
                   {(item.source === 'startup' || item.isTraining) && (
                     <span className="warning-list-flags">
                       {item.source === 'startup' && <span>起動時</span>}
-                      {item.isTraining && <span>訓練</span>}
+                      {item.isTraining && <TrainingBadge />}
                     </span>
                   )}
                   <span className="warning-list-summary">

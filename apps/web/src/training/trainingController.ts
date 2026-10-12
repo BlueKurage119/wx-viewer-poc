@@ -1,15 +1,31 @@
-import type { TrainingItem, TrainingItemId } from '@wx-viewer-poc/shared';
+import type {
+  TrainingInjectionListItem,
+  TrainingInjectTelegram,
+  TrainingItem,
+  TrainingItemId,
+} from '@wx-viewer-poc/shared';
 import {
   TRAINING_STOCK_LIMIT,
   createTrainingStockRepository,
+  type TrainingInjectionStatus,
   type TrainingStockEntry,
   type TrainingStockRepository,
 } from './trainingStock';
-import { fetchTrainingItems, requestTrainingPreview } from '../api/training';
+import {
+  TrainingApiError,
+  fetchTrainingInjections,
+  fetchTrainingItems,
+  requestTrainingInject,
+  requestTrainingPreview,
+} from '../api/training';
+import { formatTrainingInjectSuccessMessage } from './trainingFormat';
 
 export type { TrainingStockEntry } from './trainingStock';
 
+/** 投入済み一覧の定期再読込の間隔。 */
+export const TRAINING_INJECTED_POLL_MS = 30_000;
 export const TRAINING_GENERATE_FAILED_MESSAGE = '訓練電文を生成できませんでした。';
+export const TRAINING_INJECTED_LOAD_FAILED_MESSAGE = '投入済みの一覧を取得できませんでした';
 export const TRAINING_SAVE_FAILED_MESSAGE = '一覧を保存できませんでした';
 
 export type TrainingGenerationState =
@@ -28,6 +44,12 @@ export interface TrainingState {
   readonly checked: readonly string[];
   /** 直近の保存が失敗した。次に保存が成功すると false に戻る。 */
   readonly saveFailed: boolean;
+  /** 訓練電文の投入処理中。 */
+  readonly injecting: boolean;
+  /** 投入済みの注入（サーバーの記録）。新しい順。読込失敗中は直近の成功分を保持する。 */
+  readonly injected: readonly TrainingInjectionListItem[];
+  /** 直近の投入済み一覧の読込が失敗した。次に成功すると false に戻る。 */
+  readonly injectedLoadFailed: boolean;
 }
 
 export interface TrainingController {
@@ -44,6 +66,12 @@ export interface TrainingController {
   deleteChecked(): number;
   /** 一覧を全件消し、空配列を保存する。チェックも消える。生成中でも実行できる。消した件数を返す。 */
   deleteAll(): number;
+  /** 投入済み一覧を読み込み、以後30秒ごとに再読込する。 */
+  startInjectedWatch(): void;
+  /** 投入済み一覧を1回読み込む。 */
+  loadInjected(): void;
+  /** チェックされた電文を投入APIへ送信する。 */
+  injectChecked(venueId?: string): Promise<{ readonly success: boolean; readonly message: string }>;
   dispose(): void;
 }
 
@@ -55,6 +83,9 @@ export const INITIAL_TRAINING_STATE: TrainingState = {
   history: [],
   checked: [],
   saveFailed: false,
+  injecting: false,
+  injected: [],
+  injectedLoadFailed: false,
 };
 
 /** 1回の生成結果を一覧の先頭へAPI順で挿入し、最大件数を超えた分を最古から捨てる。 */
@@ -63,6 +94,14 @@ export function prependHistory(
   added: readonly TrainingStockEntry[],
 ): TrainingStockEntry[] {
   return [...added, ...history].slice(0, TRAINING_STOCK_LIMIT);
+}
+
+function withInjectionStatus(
+  history: readonly TrainingStockEntry[],
+  ids: ReadonlySet<string>,
+  injectionStatus: TrainingInjectionStatus,
+): TrainingStockEntry[] {
+  return history.map((entry) => (ids.has(entry.id) ? { ...entry, injectionStatus } : entry));
 }
 
 /**
@@ -81,6 +120,8 @@ export function createTrainingController(
   let sequence = 0;
   let loadRequest: AbortController | null = null;
   let generateRequest: AbortController | null = null;
+  let injectedRequest: AbortController | null = null;
+  let injectedTimer: ReturnType<typeof setInterval> | null = null;
 
   const update = (patch: Partial<TrainingState>) => {
     if (!active) return;
@@ -88,7 +129,32 @@ export function createTrainingController(
     publish(state);
   };
 
+  const loadInjected = () => {
+    if (!active) return;
+    injectedRequest?.abort();
+    const request = new AbortController();
+    injectedRequest = request;
+    fetchTrainingInjections(terminalId, request.signal, fetcher).then(
+      (response) => {
+        if (request.signal.aborted || !active) return;
+        update({ injected: response.injections, injectedLoadFailed: false });
+      },
+      () => {
+        if (request.signal.aborted || !active) return;
+        update({ injectedLoadFailed: true });
+      },
+    );
+  };
+
   return {
+    loadInjected,
+    startInjectedWatch() {
+      if (!active) return;
+      loadInjected();
+      if (injectedTimer === null) {
+        injectedTimer = setInterval(loadInjected, TRAINING_INJECTED_POLL_MS);
+      }
+    },
     start() {
       if (!active) return;
       loadRequest?.abort();
@@ -138,6 +204,7 @@ export function createTrainingController(
               (id) => state.items.find((item) => item.id === id)?.label ?? id,
             ),
             telegram,
+            injectionStatus: 'pending',
           }));
           // 削除済みの行の上に積み、先頭行にチェックは付けない。押し出された行のチェックは消える。
           // 成功時は項目選択を全解除する（失敗時は再試行のため維持）。
@@ -184,11 +251,61 @@ export function createTrainingController(
       update({ history: [], checked: [], saveFailed: !stock.save(terminalId, []).saved });
       return count;
     },
+    async injectChecked(venueId?: string) {
+      if (!active || state.injecting || state.checked.length === 0) {
+        return { success: false, message: '電文投入できませんでした' };
+      }
+      const targetEntries = state.history.filter((entry) => state.checked.includes(entry.id));
+      if (targetEntries.length === 0) {
+        return { success: false, message: '電文投入できませんでした' };
+      }
+      update({ injecting: true });
+      const telegrams: TrainingInjectTelegram[] = targetEntries.map((entry) => ({
+        previewId: entry.telegram.id,
+        generatedAt: entry.generatedAt,
+        itemIds: entry.telegram.itemIds,
+        telegramType: entry.telegram.telegramType,
+        xml: entry.telegram.xml,
+      }));
+      try {
+        const response = await requestTrainingInject(terminalId, telegrams, undefined, fetcher);
+        // 画面離脱・端末切替後は状態も保存も変えない。
+        if (!active)
+          return { success: true, message: formatTrainingInjectSuccessMessage(response, venueId) };
+        // 投入済みの行はローカルから消し、サーバーの一覧に出す（直後に再読込する）。
+        const removed = new Set(targetEntries.map((entry) => entry.id));
+        const history = state.history.filter((entry) => !removed.has(entry.id));
+        update({
+          injecting: false,
+          checked: state.checked.filter((id) => !removed.has(id)),
+          history,
+          saveFailed: !stock.save(terminalId, history).saved,
+        });
+        loadInjected();
+        const message = formatTrainingInjectSuccessMessage(response, venueId);
+        return { success: true, message };
+      } catch (error) {
+        const message =
+          error instanceof TrainingApiError ? error.message : '電文投入できませんでした';
+        if (!active) return { success: false, message };
+        const failedIds = new Set(targetEntries.map((entry) => entry.id));
+        const history = withInjectionStatus(state.history, failedIds, 'failed');
+        update({
+          injecting: false,
+          history,
+          saveFailed: !stock.save(terminalId, history).saved,
+        });
+        return { success: false, message };
+      }
+    },
     dispose() {
       active = false;
       sequence += 1;
       loadRequest?.abort();
       generateRequest?.abort();
+      injectedRequest?.abort();
+      if (injectedTimer !== null) clearInterval(injectedTimer);
+      injectedTimer = null;
     },
   };
 }

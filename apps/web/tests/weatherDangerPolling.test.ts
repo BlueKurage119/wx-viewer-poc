@@ -5,6 +5,8 @@ import React, { act } from 'react';
 import { flushSync } from 'react-dom';
 import { buildEarlyWarningFixtureResponse } from '../src/map/panels/earlyWarning/earlyWarningFixture.ts';
 import {
+  resolvePanelControlStatus,
+  useTrainingOverlayCards,
   useWeatherDangerData,
   type WeatherDangerData,
 } from '../src/weather/useWeatherDangerData.ts';
@@ -23,7 +25,14 @@ async function flushEffects(): Promise<void> {
 
 async function mountDanger(
   environment: EarlyWarningFixtureEnvironment,
-  options: { readonly initialFailure?: boolean; readonly metadataStale?: boolean } = {},
+  options: {
+    readonly initialFailure?: boolean;
+    readonly metadataStale?: boolean;
+    /** 通常表示に重ねる訓練カードの hook だけを描画する（enabled はその値）。 */
+    readonly overlay?: { readonly enabled: boolean };
+    /** useWeatherDangerData の enabled。 */
+    readonly dangerEnabled?: boolean;
+  } = {},
 ) {
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
@@ -94,11 +103,12 @@ async function mountDanger(
     fetches.push({ url: String(input), signal: init?.signal as AbortSignal });
     if (failFetch) throw new Error('通信失敗');
     const url = new URL(String(input), 'https://example.invalid');
+    const requestedStatus = url.searchParams.get('controlStatus') ?? controlStatus;
     const context = {
       terminalId,
       venueId: 'east',
-      controlStatus,
-      isTraining: controlStatus === 'training',
+      controlStatus: requestedStatus,
+      isTraining: requestedStatus === 'training',
       evaluatedAt: '2026-09-28T03:00:00Z',
     };
     const payload = url.pathname.endsWith('/warnings')
@@ -146,15 +156,22 @@ async function mountDanger(
   }) as typeof fetch;
 
   let data: WeatherDangerData | undefined;
-  function TestComponent() {
+  let overlay: ReturnType<typeof useTrainingOverlayCards> | undefined;
+  function OverlayComponent() {
+    overlay = useTrainingOverlayCards({ terminalId, enabled: options.overlay!.enabled });
+    return null;
+  }
+  function DangerComponent() {
     data = useWeatherDangerData({
       terminalId,
       controlStatus,
       nowMs,
       fixtureEnvironment: environment,
+      enabled: options.dangerEnabled,
     });
     return null;
   }
+  const TestComponent = options.overlay ? OverlayComponent : DangerComponent;
   const { createRoot } = await import('react-dom/client');
   const root = createRoot(element as unknown as Element);
   act(() => flushSync(() => root.render(el(TestComponent))));
@@ -163,6 +180,9 @@ async function mountDanger(
     timers,
     get data() {
       return data;
+    },
+    get overlay() {
+      return overlay;
     },
     update(params: { terminalId?: string; controlStatus?: WeatherControlStatus; nowMs?: number }) {
       terminalId = params.terminalId ?? terminalId;
@@ -297,5 +317,97 @@ test('early-warning開発fixtureは共有後も早期注意APIを停止し、他
     assert.equal(harness.fetches.length, 4);
   } finally {
     harness.cleanup();
+  }
+});
+
+const pathsOf = (fetches: readonly { url: string }[]) =>
+  fetches.map(({ url }) => new URL(url, 'https://example.invalid'));
+
+test('resolvePanelControlStatus: ?controlStatus=training のときだけ training（端末種別によらない）', () => {
+  assert.equal(resolvePanelControlStatus('?controlStatus=training'), 'training');
+  assert.equal(resolvePanelControlStatus(''), 'normal');
+  assert.equal(resolvePanelControlStatus('?controlStatus=test'), 'normal');
+  assert.equal(resolvePanelControlStatus('?controlStatus=normal'), 'normal');
+  assert.equal(resolvePanelControlStatus('?controlStatus=Training'), 'normal');
+});
+
+test('パネルの訓練切替: controlStatus=training で3 APIとも training を要求し、enabled=false では取得しない', async () => {
+  const off = await mountDanger({ isDev: true, search: '' }, { dangerEnabled: false });
+  try {
+    await flushEffects();
+    assert.equal(off.fetches.length, 0);
+  } finally {
+    off.cleanup();
+  }
+  const on = await mountDanger({ isDev: true, search: '' });
+  try {
+    on.update({ controlStatus: 'training' });
+    await flushEffects();
+    const training = pathsOf(on.fetches).filter(
+      (url) => url.searchParams.get('controlStatus') === 'training',
+    );
+    assert.deepEqual(training.map((url) => url.pathname).sort(), [
+      '/api/weather/bulletins',
+      '/api/weather/early-warning',
+      '/api/weather/warnings',
+    ]);
+    assert.equal(on.data?.panels.warning[0]?.isTraining, true);
+  } finally {
+    on.cleanup();
+  }
+});
+
+test('訓練の重ね表示: 通常表示では警報・注意報と気象防災速報だけを training で要求し、警報は訓練カードとして別に返す', async () => {
+  const harness = await mountDanger({ isDev: true, search: '' }, { overlay: { enabled: true } });
+  try {
+    await flushEffects();
+    const urls = pathsOf(harness.fetches);
+    assert.deepEqual(urls.map((u) => u.pathname).sort(), [
+      '/api/weather/bulletins',
+      '/api/weather/warnings',
+    ]);
+    assert.ok(urls.every((u) => u.searchParams.get('controlStatus') === 'training'));
+    const cards = harness.overlay!.warning;
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0]!.isTraining, true);
+    assert.equal(cards[0]!.trainingOverlay, true);
+    assert.equal(cards[0]!.heading, undefined, '見出しは既定のパネル名（警報・注意報）');
+    assert.match(cards[0]!.key, /^training-overlay-/);
+    assert.deepEqual(harness.overlay!.bosaiBulletin, []);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('訓練の重ね表示: 訓練の発表中が0件・取得失敗ではカードを出さず、無効化中は取得しない', async () => {
+  const empty = await mountDanger({ isDev: true, search: '' }, { overlay: { enabled: true } });
+  try {
+    await flushEffects();
+    assert.equal(empty.overlay!.warning.length, 1);
+    empty.clearResponses();
+    await empty.advanceOnePeriod();
+    await flushEffects();
+    assert.deepEqual(empty.overlay!.warning, []);
+  } finally {
+    empty.cleanup();
+  }
+  const failed = await mountDanger(
+    { isDev: true, search: '' },
+    { overlay: { enabled: true }, initialFailure: true },
+  );
+  try {
+    await flushEffects();
+    assert.deepEqual(failed.overlay!.warning, []);
+    assert.deepEqual(failed.overlay!.bosaiBulletin, []);
+  } finally {
+    failed.cleanup();
+  }
+  const disabled = await mountDanger({ isDev: true, search: '' }, { overlay: { enabled: false } });
+  try {
+    await flushEffects();
+    assert.equal(disabled.fetches.length, 0);
+    assert.deepEqual(disabled.overlay!.warning, []);
+  } finally {
+    disabled.cleanup();
   }
 });

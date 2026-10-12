@@ -209,6 +209,7 @@ export function buildWarningCards(
         timeKind: 'issued',
       },
       content: createElement(WarningBadgeList, { badges }),
+      isTraining: response.isTraining,
     },
   ];
 }

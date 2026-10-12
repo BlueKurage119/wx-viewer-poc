@@ -190,7 +190,7 @@
 
 .training-row-open {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) 72px;
+  grid-template-columns: 88px minmax(0, 1fr) 72px 56px;
   align-items: center;
   gap: 12px;
   block-size: 100%;
@@ -202,6 +202,10 @@
   font: inherit;
   text-align: start;
   cursor: pointer;
+}
+
+.training-row-static {
+  cursor: default;
 }
 
 .training-row-open:focus-visible {
@@ -221,8 +225,27 @@
 }
 
 .training-row-type {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   text-align: end;
   font-variant-numeric: tabular-nums;
+}
+
+.training-row-status {
+  text-align: end;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.training-row-status[data-status='injected'] {
+  color: var(--md-sys-color-primary);
+}
+
+.training-row-status[data-status='failed'] {
+  color: var(--md-sys-color-error);
 }
 
 .training-badge {

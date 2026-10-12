@@ -13,6 +13,7 @@
 @import './map/panels/areaForecast/areaForecast.css';
 @import './map/detail/detail.css';
 @import './monitoring/monitoring.css';
+@import './components/trainingBadge.css';
 
 :root {
   --md-ref-typeface-brand: 'Noto Sans JP', system-ui, sans-serif;

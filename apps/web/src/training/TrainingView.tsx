@@ -1,14 +1,23 @@
 import { useState } from 'react';
 import {
   TRAINING_GROUP_LABELS,
+  type TrainingInjectionListItem,
   type TrainingItem,
   type TrainingItemId,
 } from '@wx-viewer-poc/shared';
 import { CircularProgress, GbButton } from '../components/md';
-import { TRAINING_STOCK_LIMIT, type TrainingStockEntry } from './trainingStock';
-import { TRAINING_SAVE_FAILED_MESSAGE, type TrainingState } from './trainingController';
+import {
+  TRAINING_STOCK_LIMIT,
+  type TrainingInjectionStatus,
+  type TrainingStockEntry,
+} from './trainingStock';
+import {
+  TRAINING_INJECTED_LOAD_FAILED_MESSAGE,
+  TRAINING_SAVE_FAILED_MESSAGE,
+  type TrainingState,
+} from './trainingController';
 import type { TrainingActions } from './useTrainingScreen';
-import { formatTrainingJstTime } from './trainingFormat';
+import { formatTrainingJstTime, orderTrainingRows } from './trainingFormat';
 import { TrainingXmlDialog } from './TrainingXmlDialog';
 
 interface CategoryGroup {
@@ -144,14 +153,42 @@ export interface TrainingContentProps {
   readonly onOpenEntry: (entry: TrainingStockEntry) => void;
 }
 
+const INJECTION_STATUS_LABELS: Readonly<Record<TrainingInjectionStatus, string>> = {
+  pending: '未投入',
+  failed: '投入失敗',
+};
+
+/** 投入済みの行（サーバーの注入記録1回につき1行）。チェック欄は置かず、押しても何も開かない。 */
+function InjectedRow({ injection }: { readonly injection: TrainingInjectionListItem }) {
+  return (
+    <li className="training-row" data-training-id={injection.trainingId}>
+      <span className="training-row-check-spacer" aria-hidden="true" />
+      <div className="training-row-open training-row-static">
+        <span className="training-row-time">{formatTrainingJstTime(injection.acceptedAt)}</span>
+        <span className="training-row-items">
+          {injection.telegrams.map((t) => t.title ?? t.telegramType).join('、')}
+        </span>
+        <span className="training-row-type">
+          {injection.telegrams.map((t) => t.telegramType).join('、')}
+        </span>
+        <span className="training-row-status" data-status="injected">
+          投入済み
+        </span>
+      </div>
+    </li>
+  );
+}
+
 function StockRow({
   entry,
   checked,
+  disabled = false,
   onSetChecked,
   onOpen,
 }: {
   readonly entry: TrainingStockEntry;
   readonly checked: boolean;
+  readonly disabled?: boolean;
   readonly onSetChecked: TrainingActions['setChecked'];
   readonly onOpen: (entry: TrainingStockEntry) => void;
 }) {
@@ -163,12 +200,16 @@ function StockRow({
         className="training-row-check"
         aria-label={`${time} ${entry.telegram.telegramType} を選択`}
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onSetChecked(entry.id, event.currentTarget.checked)}
       />
       <button type="button" className="training-row-open" onClick={() => onOpen(entry)}>
         <span className="training-row-time">{time}</span>
         <span className="training-row-items">{entry.itemLabels.join('、')}</span>
         <span className="training-row-type">{entry.telegram.telegramType}</span>
+        <span className="training-row-status" data-status={entry.injectionStatus}>
+          {INJECTION_STATUS_LABELS[entry.injectionStatus]}
+        </span>
       </button>
     </li>
   );
@@ -189,6 +230,7 @@ export function TrainingContent({
   const canGenerate = ready && !sending && state.selected.length > 0;
   const canReset = ready && !sending && state.selected.length > 0;
   const sections = buildSections(state.items);
+  const rows = orderTrainingRows(state.history, state.injected);
   return (
     <div className="training-view">
       <section className="training-left" aria-label="電文の作成">
@@ -268,17 +310,25 @@ export function TrainingContent({
             <span className="training-error" role="alert">
               {TRAINING_SAVE_FAILED_MESSAGE}
             </span>
+          ) : state.injectedLoadFailed ? (
+            <span className="training-error" role="alert">
+              {TRAINING_INJECTED_LOAD_FAILED_MESSAGE}
+            </span>
           ) : null}
         </div>
         <ul className="training-list" aria-label="生成した電文の一覧">
-          {state.history.map((entry) => (
+          {rows.local.map((entry) => (
             <StockRow
               key={entry.id}
               entry={entry}
               checked={state.checked.includes(entry.id)}
+              disabled={state.injecting}
               onSetChecked={onSetChecked}
               onOpen={onOpenEntry}
             />
+          ))}
+          {rows.injected.map((injection) => (
+            <InjectedRow key={injection.trainingId} injection={injection} />
           ))}
         </ul>
       </section>

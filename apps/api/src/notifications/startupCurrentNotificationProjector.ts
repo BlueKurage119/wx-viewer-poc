@@ -16,6 +16,7 @@ import { findWarningCurrentSnapshot, listBosaiBulletins } from '../repositories/
 import { resolveWarningCurrentTargetArea } from '../venueForecastTargets.js';
 import {
   resolveBosaiBulletinExpiresAt,
+  resolveBosaiTargetName,
   resolveBosaiBulletinSourceVersion,
 } from './bosaiBulletinNotificationPlanner.js';
 import { classifyWarningNotificationCategory } from './warningNotificationCategoryClassifier.js';
@@ -157,13 +158,9 @@ export function projectStartupCurrentNotifications(
   }
 
   const venueTargets = input.venueRegistry.getVenue(input.venueId);
-  const bosaiTarget: readonly [NotificationTarget] = [
-    {
-      kind: 'area',
-      codeType: 'venue',
-      code: input.venueId,
-      name: venueTargets.venueName,
-    },
+  // kind・codeType・code は会場のまま。name だけ速報の区域のうち会場に一致する区域名にする。
+  const makeBosaiTargets = (name: string): readonly [NotificationTarget] => [
+    { kind: 'area', codeType: 'venue', code: input.venueId, name },
   ];
 
   for (const controlStatus of ['normal', 'training'] as const) {
@@ -186,6 +183,22 @@ export function projectStartupCurrentNotifications(
         bulletin.title.includes('竜巻注意情報');
 
       const sourceVersion = resolveBosaiBulletinSourceVersion(bulletin);
+
+      const bosaiTargetName = resolveBosaiTargetName(
+        bulletin.areas,
+        venueTargets.bosaiBulletin.includedAreaCodes,
+      );
+      if (bosaiTargetName === null) {
+        console.warn(
+          JSON.stringify({
+            event: 'startup_notification_bosai_skipped',
+            eventId: bulletin.eventId,
+            reason: 'target_name_unresolved',
+          }),
+        );
+        continue;
+      }
+      const bosaiTarget = makeBosaiTargets(bosaiTargetName);
 
       if (isVphw) {
         if (bulletin.areas.some((a) => a.informationType === null)) {

@@ -177,3 +177,374 @@ export function parseTrainingItemsQuery(query: unknown): { readonly terminalId: 
   if (typeof terminalId !== 'string' || terminalId.length === 0) return null;
   return { terminalId };
 }
+
+// ---------------------------------------------------------------------------
+// 訓練電文注入（Issue #70 J2）
+// ---------------------------------------------------------------------------
+
+export const TRAINING_INJECT_MAX_TELEGRAMS = 20; // ストック上限と同じ
+export const TRAINING_INJECT_MAX_XML_BYTES = 32 * 1024; // 実測最大 13,927 bytes の2倍超
+export const TRAINING_INJECT_MAX_BODY_BYTES = 384 * 1024; // 20通×実測最大約15KB に余裕
+
+export const TRAINING_TELEGRAM_TYPES: readonly TrainingTelegramType[] = Object.freeze([
+  'VPWW55',
+  'VPWW56',
+  'VPWW57',
+  'VPWW58',
+  'VPWW59',
+  'VPWW60',
+  'VPWW61',
+  'VPBS50',
+  'VPHW50',
+  'VPHW51',
+]);
+
+export function isTrainingTelegramType(value: unknown): value is TrainingTelegramType {
+  return (
+    typeof value === 'string' && (TRAINING_TELEGRAM_TYPES as readonly string[]).includes(value)
+  );
+}
+
+export interface TrainingInjectTelegram {
+  /** J1 の TrainingTelegramPreview.id（`${generationId}:${index}`、index は 0〜9）。 */
+  readonly previewId: string;
+  /** J1 の TrainingGenerateResponse.generatedAt（UTC ISO、ミリ秒付き）。 */
+  readonly generatedAt: string;
+  readonly itemIds: readonly TrainingItemId[];
+  readonly telegramType: TrainingTelegramType;
+  readonly xml: string;
+}
+
+export interface TrainingInjectRequest {
+  readonly terminalId: string;
+  readonly telegrams: readonly TrainingInjectTelegram[]; // 1〜20、previewId 重複なし
+}
+
+export interface TrainingInjectAdoption {
+  readonly venueId: string;
+  readonly adoptionResult: string | null;
+  readonly adoptionReason: string | null;
+}
+
+export interface TrainingInjectedTelegram {
+  readonly previewId: string;
+  /** 注入内の投入順（基準電文を投入した場合は基準電文が 0、要求電文は 1 から。投入しない場合は要求電文が 0 から）。 */
+  readonly sequence: number;
+  readonly telegramType: TrainingTelegramType;
+  readonly receptionId: number;
+  readonly documentUrl: string;
+  readonly adoptions: readonly TrainingInjectAdoption[]; // venueId 昇順
+}
+
+export interface TrainingInjectResponse {
+  readonly trainingId: string; // UUID v4
+  readonly injectedAt: string; // UTC ISO。Worker が受け付けた時刻
+  readonly telegrams: readonly TrainingInjectedTelegram[]; // 要求電文のみ、sequence 昇順
+  /** サーバーが生成・投入した訓練用 VPWS50 基準電文。投入しなかった場合は null。 */
+  readonly baseline: {
+    readonly sequence: 0;
+    readonly receptionId: number;
+    readonly documentUrl: string;
+    readonly reportDateTime: string; // UTC ISO
+    readonly adoptions: readonly TrainingInjectAdoption[];
+  } | null;
+}
+
+export type TrainingInjectRejectReason =
+  | 'regeneration_mismatch' // 再生成XMLと不一致
+  | 'verification_failed'; // 生成検証の不合格
+
+const PREVIEW_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:[0-9]$/;
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUtcIso(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && date.toISOString() === value;
+}
+
+function parseInjectTelegram(value: unknown): TrainingInjectTelegram | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 5 ||
+    !keys.includes('previewId') ||
+    !keys.includes('generatedAt') ||
+    !keys.includes('itemIds') ||
+    !keys.includes('telegramType') ||
+    !keys.includes('xml')
+  ) {
+    return null;
+  }
+  if (typeof value.previewId !== 'string' || !PREVIEW_ID_PATTERN.test(value.previewId)) {
+    return null;
+  }
+  if (!isValidUtcIso(value.generatedAt)) {
+    return null;
+  }
+  const itemIds = parseTrainingItemIds(value.itemIds);
+  if (itemIds === null) return null;
+  if (!isTrainingTelegramType(value.telegramType)) return null;
+  if (typeof value.xml !== 'string' || value.xml.length === 0) return null;
+  const byteLength = new TextEncoder().encode(value.xml).length;
+  if (byteLength > TRAINING_INJECT_MAX_XML_BYTES) return null;
+
+  return {
+    previewId: value.previewId,
+    generatedAt: value.generatedAt,
+    itemIds,
+    telegramType: value.telegramType,
+    xml: value.xml,
+  };
+}
+
+export function parseTrainingInjectRequest(value: unknown): TrainingInjectRequest | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes('terminalId') || !keys.includes('telegrams')) {
+    return null;
+  }
+  if (typeof value.terminalId !== 'string' || value.terminalId.length === 0) return null;
+  if (
+    !Array.isArray(value.telegrams) ||
+    value.telegrams.length < 1 ||
+    value.telegrams.length > TRAINING_INJECT_MAX_TELEGRAMS
+  ) {
+    return null;
+  }
+  const seenPreviewIds = new Set<string>();
+  const telegrams: TrainingInjectTelegram[] = [];
+  for (const entry of value.telegrams) {
+    const telegram = parseInjectTelegram(entry);
+    if (telegram === null) return null;
+    if (seenPreviewIds.has(telegram.previewId)) return null;
+    seenPreviewIds.add(telegram.previewId);
+    telegrams.push(telegram);
+  }
+  return { terminalId: value.terminalId, telegrams };
+}
+
+function parseInjectAdoption(value: unknown): TrainingInjectAdoption | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 3 ||
+    !keys.includes('venueId') ||
+    !keys.includes('adoptionResult') ||
+    !keys.includes('adoptionReason')
+  ) {
+    return null;
+  }
+  if (typeof value.venueId !== 'string' || value.venueId.length === 0) return null;
+  if (value.adoptionResult !== null && typeof value.adoptionResult !== 'string') return null;
+  if (value.adoptionReason !== null && typeof value.adoptionReason !== 'string') return null;
+  return {
+    venueId: value.venueId,
+    adoptionResult: value.adoptionResult,
+    adoptionReason: value.adoptionReason,
+  };
+}
+
+export function parseTrainingInjectResponse(value: unknown): TrainingInjectResponse | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 4 ||
+    !keys.includes('trainingId') ||
+    !keys.includes('injectedAt') ||
+    !keys.includes('telegrams') ||
+    !keys.includes('baseline')
+  ) {
+    return null;
+  }
+  if (typeof value.trainingId !== 'string' || !UUID_V4_PATTERN.test(value.trainingId)) {
+    return null;
+  }
+  if (!isValidUtcIso(value.injectedAt)) {
+    return null;
+  }
+  if (!Array.isArray(value.telegrams)) return null;
+  const telegrams: TrainingInjectedTelegram[] = [];
+  for (const entry of value.telegrams) {
+    if (!isPlainObject(entry)) return null;
+    const tKeys = Object.keys(entry);
+    if (
+      tKeys.length !== 6 ||
+      !tKeys.includes('previewId') ||
+      !tKeys.includes('sequence') ||
+      !tKeys.includes('telegramType') ||
+      !tKeys.includes('receptionId') ||
+      !tKeys.includes('documentUrl') ||
+      !tKeys.includes('adoptions')
+    ) {
+      return null;
+    }
+    if (typeof entry.previewId !== 'string') return null;
+    if (
+      typeof entry.sequence !== 'number' ||
+      !Number.isInteger(entry.sequence) ||
+      entry.sequence < 0
+    ) {
+      return null;
+    }
+    if (!isTrainingTelegramType(entry.telegramType)) return null;
+    if (
+      typeof entry.receptionId !== 'number' ||
+      !Number.isInteger(entry.receptionId) ||
+      entry.receptionId <= 0
+    ) {
+      return null;
+    }
+    if (typeof entry.documentUrl !== 'string' || entry.documentUrl.length === 0) return null;
+    if (!Array.isArray(entry.adoptions)) return null;
+    const adoptions: TrainingInjectAdoption[] = [];
+    for (const a of entry.adoptions) {
+      const adoption = parseInjectAdoption(a);
+      if (adoption === null) return null;
+      adoptions.push(adoption);
+    }
+    telegrams.push({
+      previewId: entry.previewId,
+      sequence: entry.sequence,
+      telegramType: entry.telegramType,
+      receptionId: entry.receptionId,
+      documentUrl: entry.documentUrl,
+      adoptions,
+    });
+  }
+
+  let baseline: TrainingInjectResponse['baseline'] = null;
+  if (value.baseline !== null) {
+    if (!isPlainObject(value.baseline)) return null;
+    const bKeys = Object.keys(value.baseline);
+    if (
+      bKeys.length !== 5 ||
+      !bKeys.includes('sequence') ||
+      !bKeys.includes('receptionId') ||
+      !bKeys.includes('documentUrl') ||
+      !bKeys.includes('reportDateTime') ||
+      !bKeys.includes('adoptions')
+    ) {
+      return null;
+    }
+    if (value.baseline.sequence !== 0) return null;
+    if (
+      typeof value.baseline.receptionId !== 'number' ||
+      !Number.isInteger(value.baseline.receptionId) ||
+      value.baseline.receptionId <= 0
+    ) {
+      return null;
+    }
+    if (typeof value.baseline.documentUrl !== 'string' || value.baseline.documentUrl.length === 0) {
+      return null;
+    }
+    if (typeof value.baseline.reportDateTime !== 'string') return null;
+    if (!Array.isArray(value.baseline.adoptions)) return null;
+    const adoptions: TrainingInjectAdoption[] = [];
+    for (const a of value.baseline.adoptions) {
+      const adoption = parseInjectAdoption(a);
+      if (adoption === null) return null;
+      adoptions.push(adoption);
+    }
+    baseline = {
+      sequence: 0,
+      receptionId: value.baseline.receptionId,
+      documentUrl: value.baseline.documentUrl,
+      reportDateTime: value.baseline.reportDateTime,
+      adoptions,
+    };
+  }
+
+  return {
+    trainingId: value.trainingId,
+    injectedAt: value.injectedAt,
+    telegrams,
+    baseline,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 投入済み一覧（Issue #70 J2: GET /api/training/injections）
+// ---------------------------------------------------------------------------
+
+export const TRAINING_INJECTIONS_LIST_LIMIT = 50;
+
+export interface TrainingInjectionListTelegram {
+  readonly sequence: number;
+  readonly telegramType: TrainingTelegramType;
+  /** telegram_reception.title。受信に題名が無い場合は null。 */
+  readonly title: string | null;
+  readonly previewId: string;
+}
+export interface TrainingInjectionListItem {
+  readonly trainingId: string;
+  readonly terminalId: string;
+  /** Worker が受け付けた時刻（UTC ISO）。 */
+  readonly acceptedAt: string;
+  readonly telegrams: readonly TrainingInjectionListTelegram[];
+}
+export interface TrainingInjectionsResponse {
+  readonly injections: readonly TrainingInjectionListItem[];
+}
+
+export function parseTrainingInjectionsResponse(value: unknown): TrainingInjectionsResponse | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || keys[0] !== 'injections' || !Array.isArray(value.injections)) {
+    return null;
+  }
+  const injections: TrainingInjectionListItem[] = [];
+  for (const entry of value.injections) {
+    if (!isPlainObject(entry)) return null;
+    const eKeys = Object.keys(entry);
+    if (
+      eKeys.length !== 4 ||
+      !eKeys.includes('trainingId') ||
+      !eKeys.includes('terminalId') ||
+      !eKeys.includes('acceptedAt') ||
+      !eKeys.includes('telegrams')
+    ) {
+      return null;
+    }
+    if (typeof entry.trainingId !== 'string' || !UUID_V4_PATTERN.test(entry.trainingId)) {
+      return null;
+    }
+    if (typeof entry.terminalId !== 'string' || entry.terminalId.length === 0) return null;
+    if (!isValidUtcIso(entry.acceptedAt)) return null;
+    if (!Array.isArray(entry.telegrams)) return null;
+    const telegrams: TrainingInjectionListTelegram[] = [];
+    for (const t of entry.telegrams) {
+      if (!isPlainObject(t)) return null;
+      const tKeys = Object.keys(t);
+      if (
+        tKeys.length !== 4 ||
+        !tKeys.includes('sequence') ||
+        !tKeys.includes('telegramType') ||
+        !tKeys.includes('title') ||
+        !tKeys.includes('previewId')
+      ) {
+        return null;
+      }
+      if (typeof t.sequence !== 'number' || !Number.isInteger(t.sequence) || t.sequence < 0) {
+        return null;
+      }
+      if (!isTrainingTelegramType(t.telegramType)) return null;
+      if (t.title !== null && typeof t.title !== 'string') return null;
+      if (typeof t.previewId !== 'string' || t.previewId.length === 0) return null;
+      telegrams.push({
+        sequence: t.sequence,
+        telegramType: t.telegramType,
+        title: t.title,
+        previewId: t.previewId,
+      });
+    }
+    injections.push({
+      trainingId: entry.trainingId,
+      terminalId: entry.terminalId,
+      acceptedAt: entry.acceptedAt,
+      telegrams,
+    });
+  }
+  return { injections };
+}

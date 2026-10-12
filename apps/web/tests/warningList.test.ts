@@ -228,7 +228,7 @@ test('#67 5列・JST・対象サービス・1行内容・未知種別・起動/�
   );
   assert.equal(
     tbody(html),
-    '<tr data-feed-key="startup:1"><td><time dateTime="2026-10-04T00:00:00.000Z">2026/10/04 09:00:00</time></td><td>非常</td><td>防災気象情報</td><td>future_type</td><td class="warning-list-content"><span class="warning-list-flags"><span>起動時</span><span>訓練</span></span><span class="warning-list-summary">長い内容　全文</span></td></tr>',
+    '<tr data-feed-key="startup:1"><td><time dateTime="2026-10-04T00:00:00.000Z">2026/10/04 09:00:00</time></td><td>非常</td><td>防災気象情報</td><td>future_type</td><td class="warning-list-content"><span class="warning-list-flags"><span>起動時</span><span class="training-badge">訓練</span></span><span class="warning-list-summary">長い内容　全文</span></td></tr>',
   );
   assert.equal((tbody(html)?.match(/<button|<md-gb-button/g) ?? []).length, 0);
   assert.equal(formatWarningOccurredAt('2026-10-03T15:00:00.000Z'), '2026/10/04 00:00:00');

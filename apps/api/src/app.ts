@@ -16,10 +16,12 @@ import {
   parseNotificationDeltaQuery,
   parseStartupNotificationRequest,
   parseTrainingGenerateRequest,
+  parseTrainingInjectRequest,
   parseTrainingItemsQuery,
   parseWeatherApiQuery,
   type TerminalConfigResponse,
   type TerminalRegistry,
+  TRAINING_INJECT_MAX_BODY_BYTES,
   TRAINING_MAX_BODY_BYTES,
   type UtcIso8601String,
   type VenueConfigResponse,
@@ -38,6 +40,7 @@ import type { MonitoringProcessingService } from './monitoring/monitoringProcess
 import type { MonitoringHistoryService } from './monitoring/monitoringHistoryService.js';
 import type { FetchControlService } from './services/fetchControlService.js';
 import type { TrainingTelegramService } from './services/trainingTelegramService.js';
+import type { TrainingInjectionService } from './services/trainingInjectionService.js';
 import { isFetchControlRequestId, parseFetchControlRequest } from '@wx-viewer-poc/shared';
 
 /** HTTPは同期実装と非同期port facadeのどちらも受け取れる。 */
@@ -85,6 +88,7 @@ export interface AppDependencies {
   };
   readonly fetchControl?: FetchControlService;
   readonly trainingTelegram?: TrainingTelegramService;
+  readonly trainingInjection?: TrainingInjectionService;
 }
 
 function sendJsonNoStore(res: express.Response, status: number, body: unknown): void {
@@ -170,6 +174,9 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
+
+  // 全体の express.json()（既定100KB）より前に、/api/training/inject 用の 512kb パーサーを置く（Issue #70 J2）
+  app.use('/api/training/inject', express.json({ limit: '512kb' }));
 
   app.use(express.json());
 
@@ -1050,6 +1057,85 @@ export function createApp(dependencies: AppDependencies = {}): Express {
     }
   });
 
+  if (dependencies.trainingInjection) {
+    const service = dependencies.trainingInjection;
+    app.get('/api/training/injections', async (req, res) => {
+      const query = parseTrainingItemsQuery(req.query);
+      if (query === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const outcome = await service.list(query.terminalId);
+        if (outcome.kind === 'success') {
+          sendJsonNoStore(res, 200, outcome.response);
+        } else if (outcome.kind === 'unknown_terminal') {
+          sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        } else if (outcome.kind === 'forbidden_terminal') {
+          sendJsonNoStore(res, 403, { status: 'error', code: 'forbidden_terminal' });
+        } else {
+          sendJsonNoStore(res, 503, { status: 'error', code: 'training_injection_unavailable' });
+        }
+      } catch {
+        sendJsonNoStore(res, 503, { status: 'error', code: 'training_injection_unavailable' });
+      }
+    });
+    app.post('/api/training/inject', async (req, res) => {
+      if (Object.keys(req.query).length > 0) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      let bodyBytes: number;
+      try {
+        bodyBytes = Buffer.byteLength(JSON.stringify(req.body ?? null), 'utf8');
+      } catch {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      if (bodyBytes > TRAINING_INJECT_MAX_BODY_BYTES) {
+        sendJsonNoStore(res, 413, { status: 'error', code: 'request_too_large' });
+        return;
+      }
+      const request = parseTrainingInjectRequest(req.body);
+      if (request === null) {
+        sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      try {
+        const outcome = await service.inject(request);
+        if (outcome.kind === 'success') {
+          sendJsonNoStore(res, 200, outcome.response);
+        } else if (outcome.kind === 'unknown_terminal') {
+          sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        } else if (outcome.kind === 'forbidden_terminal') {
+          sendJsonNoStore(res, 403, { status: 'error', code: 'forbidden_terminal' });
+        } else if (outcome.kind === 'verification_failed') {
+          sendJsonNoStore(res, 422, {
+            status: 'error',
+            code: 'training_verification_failed',
+            failures: outcome.failures,
+          });
+        } else if (outcome.kind === 'unavailable') {
+          sendJsonNoStore(res, 503, { status: 'error', code: 'training_injection_unavailable' });
+        } else if (outcome.kind === 'result_unknown') {
+          sendJsonNoStore(res, 504, {
+            status: 'error',
+            code: 'training_injection_result_unknown',
+            trainingId: outcome.trainingId,
+          });
+        } else {
+          sendJsonNoStore(res, 500, {
+            status: 'error',
+            code: 'training_injection_failed',
+            ...(outcome.trainingId ? { trainingId: outcome.trainingId } : {}),
+          });
+        }
+      } catch {
+        sendJsonNoStore(res, 500, { status: 'error', code: 'training_injection_failed' });
+      }
+    });
+  }
+
   // 不正 percent encoding は 400 invalid_request に正規化する（§3.1）
   // JSON 構文エラーは入力値を返さず、起動 API の契約どおり 400 に統一する。
   app.use(
@@ -1060,6 +1146,19 @@ export function createApp(dependencies: AppDependencies = {}): Express {
       }
       if (error instanceof SyntaxError && 'body' in error) {
         sendJsonNoStore(res, 400, { status: 'error', code: 'invalid_request' });
+        return;
+      }
+      if (
+        (typeof error === 'object' &&
+          error !== null &&
+          'status' in error &&
+          (error as { status: number }).status === 413) ||
+        (typeof error === 'object' &&
+          error !== null &&
+          'type' in error &&
+          (error as { type: string }).type === 'entity.too.large')
+      ) {
+        sendJsonNoStore(res, 413, { status: 'error', code: 'request_too_large' });
         return;
       }
       next(error);

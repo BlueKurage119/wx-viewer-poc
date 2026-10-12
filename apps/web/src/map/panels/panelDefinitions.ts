@@ -65,6 +65,10 @@ export interface InfoPanelCardInput {
    * areaForecast の API 応答コードが会場定義と一致しない場合の上書きに使う (Issue #58 §4.2)。
    */
   readonly target?: string;
+  /** 訓練電文由来か。true のとき見出しタイトル横に TrainingBadge を表示する (Issue #72)。 */
+  readonly isTraining?: boolean;
+  /** 通常表示に重ねた訓練のカード。true のとき tertiary の枠線で通常のカードと区別する。 */
+  readonly trainingOverlay?: boolean;
 }
 
 /** 種別ごとの入力。always 種別は常に1件、occasional 種別は0件以上 */
