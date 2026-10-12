@@ -830,8 +830,25 @@ function buildWarningTimeseriesQuietFixture(): InfoPanelColumnInput {
   });
 }
 
+/** `training-badges`: all-content と同じ内容で全カード isTraining: true (Issue #72) */
+export function buildTrainingBadgesFixture(): InfoPanelColumnInput {
+  const allContent = buildAllContentFixture();
+  const markTraining = (cards: readonly InfoPanelCardInput[]): readonly InfoPanelCardInput[] =>
+    cards.map((c) => ({ ...c, isTraining: true }));
+
+  return Object.freeze({
+    bosaiBulletin: markTraining(allContent.bosaiBulletin),
+    warning: markTraining(allContent.warning),
+    warningTimeSeries: markTraining(allContent.warningTimeSeries),
+    earlyWarning: markTraining(allContent.earlyWarning),
+    amedas: markTraining(allContent.amedas),
+    areaForecast: markTraining(allContent.areaForecast),
+  });
+}
+
 const FIXTURE_BUILDERS: Readonly<Record<string, () => InfoPanelColumnInput>> = Object.freeze({
   'all-content': buildAllContentFixture,
+  'training-badges': buildTrainingBadgesFixture,
   'bosai-bulletins': buildBosaiBulletinsFixture,
   'warning-badges': buildWarningBadgesFixture,
   'warning-timeseries': buildWarningTimeseriesFixture,

@@ -48,6 +48,7 @@ export function buildBosaiBulletinCards(params: {
   readonly bulletins: readonly BulletinDto[];
   readonly availability: Extract<Availability, 'available' | 'stale'>;
   readonly nowMs: number;
+  readonly isTraining?: boolean;
 }): readonly InfoPanelCardInput[] {
   const cards: InfoPanelCardInput[] = [];
 
@@ -66,6 +67,7 @@ export function buildBosaiBulletinCards(params: {
         timeKind: 'issued',
       },
       content: createElement(BosaiBulletinContent, { bulletin }),
+      isTraining: params.isTraining,
     });
   }
 

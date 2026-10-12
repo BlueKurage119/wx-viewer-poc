@@ -38,6 +38,7 @@ export function buildAreaForecastCard(
         }
       : { kind: 'failed' },
     content: <AreaForecastContent response={response} now={now} />,
+    isTraining: isAvailable ? response.isTraining : undefined,
   };
 }
 

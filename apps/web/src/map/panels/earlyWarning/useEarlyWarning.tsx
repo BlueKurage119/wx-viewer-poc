@@ -44,6 +44,7 @@ export function buildEarlyWarningCard(
         : { kind: 'failed' },
     issuedTimes,
     content: <EarlyWarningContent response={response} issuedTimes={issuedTimes} now={now} />,
+    isTraining: near || far ? response.isTraining : undefined,
   };
 }
 export function useEarlyWarning(params: {

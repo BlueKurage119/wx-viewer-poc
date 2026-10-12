@@ -8,6 +8,7 @@
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { GbIconButton } from '../../components/md';
+import { TrainingBadge } from '../../components/TrainingBadge';
 import { nextDialogFocusTarget } from '../../monitoring/monitoringDialogFocus';
 import { DetailDialogIcon } from './DetailDialogIcon';
 import { formatDetailDialogMeta, type DetailDialogMeta } from './detailDialogMeta';
@@ -143,9 +144,7 @@ export function DetailDialogInner({
               <h2 id={titleId} ref={titleRef} tabIndex={-1} className="md-typescale-headline-small">
                 {meta.title}
               </h2>
-              {formatted.trainingLabel !== null && (
-                <span className="detail-dialog-training-label">{formatted.trainingLabel}</span>
-              )}
+              {formatted.trainingLabel !== null && <TrainingBadge />}
               <GbIconButton
                 color="standard"
                 size="md"

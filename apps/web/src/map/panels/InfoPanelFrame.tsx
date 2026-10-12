@@ -13,6 +13,7 @@ import {
   formatNearIssuedTime,
   type IssuedTimes,
 } from './earlyWarning/issuedTimes';
+import { TrainingBadge } from '../../components/TrainingBadge';
 
 export interface InfoPanelFrameProps {
   readonly definition: InfoPanelDefinition;
@@ -21,6 +22,7 @@ export interface InfoPanelFrameProps {
   readonly status: InfoPanelStatus;
   readonly children?: ReactNode;
   readonly issuedTimes?: IssuedTimes;
+  readonly isTraining?: boolean;
 }
 
 function stopWheelPropagation(event: WheelEvent<HTMLElement>): void {
@@ -35,6 +37,7 @@ export function InfoPanelFrame({
   status,
   children,
   issuedTimes,
+  isTraining,
 }: InfoPanelFrameProps) {
   const display = resolveInfoPanelDisplay(definition.presence, status);
 
@@ -59,7 +62,10 @@ export function InfoPanelFrame({
       onWheel={stopWheelPropagation}
     >
       <header className="info-panel-card-heading">
-        <span className="info-panel-card-title">{headingText}</span>
+        <span className="info-panel-card-title">
+          {headingText}
+          {display.mode === 'content' && isTraining ? <TrainingBadge /> : null}
+        </span>
         {(target !== undefined || timeText !== undefined) && (
           <span className="info-panel-card-meta">
             {target}

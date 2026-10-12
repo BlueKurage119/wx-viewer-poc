@@ -24,6 +24,9 @@
 }
 
 .info-panel-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 600;
   color: var(--md-sys-color-on-surface);

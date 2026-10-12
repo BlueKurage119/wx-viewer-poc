@@ -27,6 +27,7 @@ export function buildAmedasCard(
         }
       : { kind: 'failed' },
     content: <AmedasContent response={response} now={now} staleMessage={staleMessage} />,
+    isTraining: row ? response.isTraining : undefined,
   };
 }
 export function buildAmedasFailedCard(failureKind: 'network' | 'http'): InfoPanelCardInput {

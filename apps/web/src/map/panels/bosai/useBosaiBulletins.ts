@@ -50,6 +50,7 @@ export function buildBosaiPollingCards(
       bulletins: pollingState.catalog.bulletins,
       availability,
       nowMs,
+      isTraining: pollingState.catalog.isTraining,
     });
   }
   if (pollingState.status === 'stale') {
@@ -57,6 +58,7 @@ export function buildBosaiPollingCards(
       bulletins: pollingState.catalog.bulletins,
       availability: 'stale',
       nowMs,
+      isTraining: pollingState.catalog.isTraining,
     });
   }
   return [];

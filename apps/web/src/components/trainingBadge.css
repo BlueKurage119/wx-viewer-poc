@@ -1,0 +1,15 @@
+.training-badge {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  block-size: 18px;
+  padding-inline: 10px;
+  border-radius: 999px;
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}

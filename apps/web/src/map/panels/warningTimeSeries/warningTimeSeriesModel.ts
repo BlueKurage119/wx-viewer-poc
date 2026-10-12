@@ -1164,6 +1164,7 @@ export function buildWarningTimeSeriesCard(
       timeKind: 'issued',
     },
     content: createElement(WarningTimeSeriesContent, { response, table }),
+    isTraining: response.isTraining,
   };
 }
 

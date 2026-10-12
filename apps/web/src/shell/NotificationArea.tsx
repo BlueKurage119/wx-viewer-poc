@@ -1,4 +1,5 @@
 import { GbButton } from '../components/md';
+import { TrainingBadge } from '../components/TrainingBadge';
 import type { TerminalMode } from '@wx-viewer-poc/shared';
 import {
   displayedNoticeForRow,
@@ -92,6 +93,7 @@ function NoticeRow({
     : ['', ''];
   return (
     <div className={`notice-row ${notice ? 'has-notice' : ''} ${rowClass}`}>
+      {notice?.isTraining ? <TrainingBadge /> : null}
       <div
         className="notice-text"
         role="status"
