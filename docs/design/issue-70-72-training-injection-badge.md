@@ -630,7 +630,8 @@ weather DB に置く理由: 受信と同じ書き手・同じDB世代で整合�
 
 **C案（切替）:**
 
-- URL クエリ `?controlStatus=training` があり、かつ端末が **K** のときだけ、**6パネル**の読み出しを `controlStatus='training'` に切り替える。H端末では無視する。値が `training` 以外のときも無視（normal）。
+- URL クエリ `?controlStatus=training` があるとき、**6パネル**の読み出しを `controlStatus='training'` に切り替える。値が `training` 以外のときは無視（normal）。
+  - **2026-10-13 UI監修で変更:** 当初は K端末に限っていたが、H端末でも同じクエリで切り替える（端末種別によらない）。
 - 地図レイヤーは切り替えない（normal のまま）。既存のナウキャスト・キキクルは training では提供しないため。`WeatherMapView` に `panelControlStatus` を新設し、パネル用の hook だけに渡す。`controlStatus` は地図用として残す。
 - 訓練表示中は、応答の `isTraining=true` により全パネルの見出しに `TrainingBadge` が付く（実装済みの仕組み）。
 - ナビレールの危険度バッジ（`useWeatherDangerData`）は `'normal'` 固定のまま。常時表示・集計に訓練を反映しない。
@@ -682,7 +683,7 @@ weather DB に置く理由: 受信と同じ書き手・同じDB世代で整合�
 
 **B. パネル**
 
-- [ ] K端末で `?controlStatus=training` を付けると、6パネルのAPI要求が `controlStatus=training` になる（ネットワーク要求で確認）。全パネルの見出しに訓練バッジが付く。地図レイヤーとナビの危険度バッジの要求は `normal` のまま。H端末で同じクエリを付けても全要求が `normal`。
+- [ ] K端末で `?controlStatus=training` を付けると、6パネルのAPI要求が `controlStatus=training` になる（ネットワーク要求で確認）。全パネルの見出しに訓練バッジが付く。地図レイヤーとナビの危険度バッジの要求は `normal` のまま。H端末でも同じクエリで6パネルが `training` になる（2026-10-13 UI監修で変更）。
 - [ ] 通常表示で、訓練の警報（注入済み）があると、警報・注意報パネルに通常カードとは別の訓練カード（見出しのバッジ、`--md-sys-color-tertiary` 枠）が出る。通常カードの発表中リストに訓練の項目が含まれない。訓練の発表中が0件のときは訓練カードが出ない。
 - [ ] 通常表示で、訓練の速報（注入済み）が、バッジ付きの別カードとして気象防災速報パネルに並ぶ。他の4パネルには訓練が出ない。ナビの危険度バッジは訓練の警報で変わらない。
 - [ ] H端末でも上記の B案表示が出る。

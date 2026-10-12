@@ -105,7 +105,7 @@ function TerminalApp({ terminal }: { terminal: Terminal }) {
     nowMs: now.getTime(),
   });
   // ?controlStatus=training（K端末のみ）で6パネルを訓練の読み出しに切り替える。ナビの危険度バッジ・地図レイヤーは normal 固定。
-  const panelControlStatus = resolvePanelControlStatus(window.location.search, terminal.mode);
+  const panelControlStatus = resolvePanelControlStatus(window.location.search);
   const trainingPanelDanger = useWeatherDangerData({
     terminalId: terminal.id,
     controlStatus: panelControlStatus,

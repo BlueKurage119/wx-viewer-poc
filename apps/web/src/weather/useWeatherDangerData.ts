@@ -32,14 +32,10 @@ export interface WeatherDangerData {
   readonly level: WeatherDangerLevel | null;
 }
 /**
- * パネルの制御状態。URL クエリ `?controlStatus=training` があり、かつ端末が K のときだけ training、
- * それ以外（値が training 以外・H 端末）は normal。地図レイヤー・ナビの危険度バッジには使わない。
+ * パネルの制御状態。URL クエリ `?controlStatus=training` があれば端末種別によらず training、
+ * それ以外は normal。地図レイヤー・ナビの危険度バッジには使わない。
  */
-export function resolvePanelControlStatus(
-  search: string,
-  terminalMode: 'H' | 'K',
-): WeatherControlStatus {
-  if (terminalMode !== 'K') return 'normal';
+export function resolvePanelControlStatus(search: string): WeatherControlStatus {
   return new URLSearchParams(search).get('controlStatus') === 'training' ? 'training' : 'normal';
 }
 

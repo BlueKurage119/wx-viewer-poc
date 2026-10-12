@@ -323,13 +323,12 @@ test('early-warning開発fixtureは共有後も早期注意APIを停止し、他
 const pathsOf = (fetches: readonly { url: string }[]) =>
   fetches.map(({ url }) => new URL(url, 'https://example.invalid'));
 
-test('resolvePanelControlStatus: K端末で ?controlStatus=training のときだけ training', () => {
-  assert.equal(resolvePanelControlStatus('?controlStatus=training', 'K'), 'training');
-  assert.equal(resolvePanelControlStatus('?controlStatus=training', 'H'), 'normal');
-  assert.equal(resolvePanelControlStatus('', 'K'), 'normal');
-  assert.equal(resolvePanelControlStatus('?controlStatus=test', 'K'), 'normal');
-  assert.equal(resolvePanelControlStatus('?controlStatus=normal', 'K'), 'normal');
-  assert.equal(resolvePanelControlStatus('?controlStatus=Training', 'K'), 'normal');
+test('resolvePanelControlStatus: ?controlStatus=training のときだけ training（端末種別によらない）', () => {
+  assert.equal(resolvePanelControlStatus('?controlStatus=training'), 'training');
+  assert.equal(resolvePanelControlStatus(''), 'normal');
+  assert.equal(resolvePanelControlStatus('?controlStatus=test'), 'normal');
+  assert.equal(resolvePanelControlStatus('?controlStatus=normal'), 'normal');
+  assert.equal(resolvePanelControlStatus('?controlStatus=Training'), 'normal');
 });
 
 test('パネルの訓練切替: controlStatus=training で3 APIとも training を要求し、enabled=false では取得しない', async () => {
