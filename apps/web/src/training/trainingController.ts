@@ -1,6 +1,7 @@
 import type {
   TrainingInjectionListItem,
   TrainingInjectTelegram,
+  TrainingRetractRequest,
   TrainingItem,
   TrainingItemId,
 } from '@wx-viewer-poc/shared';
@@ -16,9 +17,15 @@ import {
   fetchTrainingInjections,
   fetchTrainingItems,
   requestTrainingInject,
+  requestTrainingInjectionsHide,
+  requestTrainingRetract,
   requestTrainingPreview,
 } from '../api/training';
-import { formatTrainingInjectSuccessMessage } from './trainingFormat';
+import { trainingDeletedMessage } from './trainingToolbarState';
+import {
+  formatTrainingInjectSuccessMessage,
+  formatTrainingRetractSuccessMessage,
+} from './trainingFormat';
 
 export type { TrainingStockEntry } from './trainingStock';
 
@@ -50,6 +57,12 @@ export interface TrainingState {
   readonly injected: readonly TrainingInjectionListItem[];
   /** 直近の投入済み一覧の読込が失敗した。次に成功すると false に戻る。 */
   readonly injectedLoadFailed: boolean;
+  /** 投入済みの行でチェックされた訓練ID（抹消済みの行も含む）。保存しない。 */
+  readonly checkedInjected: readonly string[];
+  /** 訓練データの抹消処理中。 */
+  readonly retracting: boolean;
+  /** 抹消済みの訓練を一覧から外す処理中。 */
+  readonly hiding: boolean;
 }
 
 export interface TrainingController {
@@ -72,6 +85,19 @@ export interface TrainingController {
   loadInjected(): void;
   /** チェックされた電文を投入APIへ送信する。 */
   injectChecked(venueId?: string): Promise<{ readonly success: boolean; readonly message: string }>;
+  /** 投入済みの行のチェックを切り替える（抹消済みの行を含む）。存在しない行は無視する。 */
+  setCheckedInjected(trainingId: string, checked: boolean): void;
+  /** チェックされた投入済みの訓練を抹消する（確認なし、選択→送信の2段階で呼ばれる）。 */
+  retractChecked(): Promise<{ readonly success: boolean; readonly message: string }>;
+  /**
+   * リスト消去・リスト全消。ローカル行をストックから消し、抹消済みの投入済み行があれば
+   * 先に hide API で一覧から外す（失敗時はローカル行も消さずチェックを維持する）。
+   */
+  clearList(
+    scope: 'checked' | 'all',
+  ): Promise<{ readonly success: boolean; readonly message: string }>;
+  /** 会場を問わず全ての訓練データを抹消する。 */
+  retractAll(): Promise<{ readonly success: boolean; readonly message: string }>;
   dispose(): void;
 }
 
@@ -86,7 +112,25 @@ export const INITIAL_TRAINING_STATE: TrainingState = {
   injecting: false,
   injected: [],
   injectedLoadFailed: false,
+  checkedInjected: [],
+  retracting: false,
+  hiding: false,
 };
+
+/** チェックされた投入済みの行を、未抹消と抹消済みに分ける。 */
+export function splitCheckedInjected(state: Pick<TrainingState, 'checkedInjected' | 'injected'>): {
+  readonly pending: readonly string[];
+  readonly retracted: readonly string[];
+} {
+  const pending: string[] = [];
+  const retracted: string[] = [];
+  for (const id of state.checkedInjected) {
+    const row = state.injected.find((i) => i.trainingId === id);
+    if (!row) continue;
+    (row.retractedAt === null ? pending : retracted).push(id);
+  }
+  return { pending, retracted };
+}
 
 /** 1回の生成結果を一覧の先頭へAPI順で挿入し、最大件数を超えた分を最古から捨てる。 */
 export function prependHistory(
@@ -137,13 +181,69 @@ export function createTrainingController(
     fetchTrainingInjections(terminalId, request.signal, fetcher).then(
       (response) => {
         if (request.signal.aborted || !active) return;
-        update({ injected: response.injections, injectedLoadFailed: false });
+        // 一覧から消えた行のチェックは外す（抹消済みの行は一覧から外すためにチェックを残す）。
+        const selectable = new Set(response.injections.map((i) => i.trainingId));
+        update({
+          injected: response.injections,
+          injectedLoadFailed: false,
+          checkedInjected: state.checkedInjected.filter((id) => selectable.has(id)),
+        });
       },
       () => {
         if (request.signal.aborted || !active) return;
         update({ injectedLoadFailed: true });
       },
     );
+  };
+
+  const deleteChecked = (): number => {
+    if (!active || state.checked.length === 0) return 0;
+    const removed = new Set(state.checked);
+    const history = state.history.filter((entry) => !removed.has(entry.id));
+    const count = state.history.length - history.length;
+    update({ history, checked: [], saveFailed: !stock.save(terminalId, history).saved });
+    return count;
+  };
+  const deleteAll = (): number => {
+    if (!active || state.history.length === 0) return 0;
+    const count = state.history.length;
+    update({ history: [], checked: [], saveFailed: !stock.save(terminalId, []).saved });
+    return count;
+  };
+
+  const retract = async (
+    request: TrainingRetractRequest,
+  ): Promise<{ readonly success: boolean; readonly message: string }> => {
+    // 送信した（未抹消の）訓練IDだけ、成功後にチェックを外す。抹消済みの行のチェックは維持する。
+    const sentIds = new Set(
+      request.scope === 'training'
+        ? request.trainingIds
+        : state.injected.filter((i) => i.retractedAt === null).map((i) => i.trainingId),
+    );
+    update({ retracting: true });
+    try {
+      const response = await requestTrainingRetract(request, undefined, fetcher);
+      const message = formatTrainingRetractSuccessMessage(
+        response.scope,
+        response.trainingIds.length,
+      );
+      // 画面離脱・端末切替後は状態を変えない。
+      if (!active) return { success: true, message };
+      // 抹消した行は「抹消済み」としてサーバーの一覧に残る。チェックは外し、直後に再読込する。
+      update({
+        retracting: false,
+        checkedInjected: state.checkedInjected.filter((id) => !sentIds.has(id)),
+      });
+      loadInjected();
+      return { success: true, message };
+    } catch (error) {
+      const message = error instanceof TrainingApiError ? error.message : '抹消できませんでした';
+      if (!active) return { success: false, message };
+      // 失敗時もチェックを維持し、一覧を再読込する（既に抹消済み等を反映する）。
+      update({ retracting: false });
+      loadInjected();
+      return { success: false, message };
+    }
   };
 
   return {
@@ -237,22 +337,16 @@ export function createTrainingController(
       const others = state.checked.filter((id) => id !== entryId);
       update({ checked: checked ? [...others, entryId] : others });
     },
-    deleteChecked() {
-      if (!active || state.checked.length === 0) return 0;
-      const removed = new Set(state.checked);
-      const history = state.history.filter((entry) => !removed.has(entry.id));
-      const count = state.history.length - history.length;
-      update({ history, checked: [], saveFailed: !stock.save(terminalId, history).saved });
-      return count;
-    },
-    deleteAll() {
-      if (!active || state.history.length === 0) return 0;
-      const count = state.history.length;
-      update({ history: [], checked: [], saveFailed: !stock.save(terminalId, []).saved });
-      return count;
-    },
+    deleteChecked,
+    deleteAll,
     async injectChecked(venueId?: string) {
-      if (!active || state.injecting || state.checked.length === 0) {
+      if (
+        !active ||
+        state.injecting ||
+        state.retracting ||
+        state.hiding ||
+        state.checked.length === 0
+      ) {
         return { success: false, message: '電文投入できませんでした' };
       }
       const targetEntries = state.history.filter((entry) => state.checked.includes(entry.id));
@@ -297,6 +391,84 @@ export function createTrainingController(
         });
         return { success: false, message };
       }
+    },
+    setCheckedInjected(trainingId, checked) {
+      if (!active) return;
+      if (!state.injected.some((i) => i.trainingId === trainingId)) return;
+      const others = state.checkedInjected.filter((id) => id !== trainingId);
+      update({ checkedInjected: checked ? [...others, trainingId] : others });
+    },
+    async clearList(scope) {
+      const failure = { success: false, message: 'リストから消去できませんでした' };
+      if (!active || state.injecting || state.retracting || state.hiding) return failure;
+      const retractedIds =
+        scope === 'all'
+          ? state.injected.filter((i) => i.retractedAt !== null).map((i) => i.trainingId)
+          : splitCheckedInjected(state).retracted;
+      // 対象のローカル行は await の前に確定する（待つ間に増えた行は消さない）。
+      const localIds = new Set(
+        scope === 'all'
+          ? state.history.map((entry) => entry.id)
+          : state.checked.filter((id) => state.history.some((entry) => entry.id === id)),
+      );
+      const clearLocal = (): number => {
+        const history = state.history.filter((entry) => !localIds.has(entry.id));
+        const removed = state.history.length - history.length;
+        if (removed === 0) return 0;
+        update({
+          history,
+          checked: state.checked.filter((id) => !localIds.has(id)),
+          saveFailed: !stock.save(terminalId, history).saved,
+        });
+        return removed;
+      };
+      if (retractedIds.length === 0) {
+        return { success: true, message: trainingDeletedMessage(clearLocal()) };
+      }
+      update({ hiding: true });
+      try {
+        await requestTrainingInjectionsHide(terminalId, retractedIds, undefined, fetcher);
+        if (!active) {
+          return {
+            success: true,
+            message: trainingDeletedMessage(retractedIds.length),
+          };
+        }
+        const message = trainingDeletedMessage(clearLocal() + retractedIds.length);
+        const hidden = new Set(retractedIds);
+        update({
+          hiding: false,
+          checkedInjected: state.checkedInjected.filter((id) => !hidden.has(id)),
+        });
+        loadInjected();
+        return { success: true, message };
+      } catch (error) {
+        const message =
+          error instanceof TrainingApiError ? error.message : 'リストから消去できませんでした';
+        if (!active) return { success: false, message };
+        update({ hiding: false });
+        loadInjected();
+        return { success: false, message };
+      }
+    },
+    async retractChecked() {
+      const pendingIds = splitCheckedInjected(state).pending;
+      if (
+        !active ||
+        state.injecting ||
+        state.retracting ||
+        state.hiding ||
+        pendingIds.length === 0
+      ) {
+        return { success: false, message: '抹消できませんでした' };
+      }
+      return retract({ terminalId, scope: 'training', trainingIds: pendingIds });
+    },
+    async retractAll() {
+      if (!active || state.injecting || state.retracting || state.hiding) {
+        return { success: false, message: '抹消できませんでした' };
+      }
+      return retract({ terminalId, scope: 'all' });
     },
     dispose() {
       active = false;

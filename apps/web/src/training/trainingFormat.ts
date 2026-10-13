@@ -77,3 +77,10 @@ export function orderTrainingRows(
     injected,
   };
 }
+
+export function formatTrainingRetractSuccessMessage(
+  scope: 'training' | 'all',
+  count: number,
+): string {
+  return scope === 'all' ? '訓練データを全抹消しました' : `${count}件の訓練を抹消しました`;
+}

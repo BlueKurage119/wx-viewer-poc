@@ -150,6 +150,7 @@ export interface TrainingContentProps {
   readonly onReset: () => void;
   readonly onReload: () => void;
   readonly onSetChecked: TrainingActions['setChecked'];
+  readonly onSetCheckedInjected: TrainingActions['setCheckedInjected'];
   readonly onOpenEntry: (entry: TrainingStockEntry) => void;
 }
 
@@ -158,21 +159,43 @@ const INJECTION_STATUS_LABELS: Readonly<Record<TrainingInjectionStatus, string>>
   failed: '投入失敗',
 };
 
-/** 投入済みの行（サーバーの注入記録1回につき1行）。チェック欄は置かず、押しても何も開かない。 */
-function InjectedRow({ injection }: { readonly injection: TrainingInjectionListItem }) {
+/**
+ * 投入済みの行（サーバーの注入記録1回につき1行）。押しても何も開かない。
+ * 抹消済みの行はステータスを「抹消済み」にする。チェック欄は両方にあり、抹消済みの行は
+ * リスト消去・リスト全消で一覧から外せる（電文抹消の対象にはならない）。
+ */
+function InjectedRow({
+  injection,
+  checked,
+  disabled,
+  onSetChecked,
+}: {
+  readonly injection: TrainingInjectionListItem;
+  readonly checked: boolean;
+  readonly disabled: boolean;
+  readonly onSetChecked: TrainingActions['setCheckedInjected'];
+}) {
+  const retracted = injection.retractedAt !== null;
+  const time = formatTrainingJstTime(injection.acceptedAt);
+  const types = injection.telegrams.map((t) => t.telegramType).join('、');
   return (
     <li className="training-row" data-training-id={injection.trainingId}>
-      <span className="training-row-check-spacer" aria-hidden="true" />
+      <input
+        type="checkbox"
+        className="training-row-check"
+        aria-label={`${time} ${types} を選択`}
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onSetChecked(injection.trainingId, event.currentTarget.checked)}
+      />
       <div className="training-row-open training-row-static">
-        <span className="training-row-time">{formatTrainingJstTime(injection.acceptedAt)}</span>
+        <span className="training-row-time">{time}</span>
         <span className="training-row-items">
           {injection.telegrams.map((t) => t.title ?? t.telegramType).join('、')}
         </span>
-        <span className="training-row-type">
-          {injection.telegrams.map((t) => t.telegramType).join('、')}
-        </span>
-        <span className="training-row-status" data-status="injected">
-          投入済み
+        <span className="training-row-type">{types}</span>
+        <span className="training-row-status" data-status={retracted ? 'retracted' : 'injected'}>
+          {retracted ? '抹消済み' : '投入済み'}
         </span>
       </div>
     </li>
@@ -223,6 +246,7 @@ export function TrainingContent({
   onReset,
   onReload,
   onSetChecked,
+  onSetCheckedInjected,
   onOpenEntry,
 }: TrainingContentProps) {
   const sending = state.generation.phase === 'sending';
@@ -231,6 +255,7 @@ export function TrainingContent({
   const canReset = ready && !sending && state.selected.length > 0;
   const sections = buildSections(state.items);
   const rows = orderTrainingRows(state.history, state.injected);
+  const busy = state.injecting || state.retracting || state.hiding;
   return (
     <div className="training-view">
       <section className="training-left" aria-label="電文の作成">
@@ -322,13 +347,19 @@ export function TrainingContent({
               key={entry.id}
               entry={entry}
               checked={state.checked.includes(entry.id)}
-              disabled={state.injecting}
+              disabled={busy}
               onSetChecked={onSetChecked}
               onOpen={onOpenEntry}
             />
           ))}
           {rows.injected.map((injection) => (
-            <InjectedRow key={injection.trainingId} injection={injection} />
+            <InjectedRow
+              key={injection.trainingId}
+              injection={injection}
+              checked={state.checkedInjected.includes(injection.trainingId)}
+              disabled={busy}
+              onSetChecked={onSetCheckedInjected}
+            />
           ))}
         </ul>
       </section>
@@ -353,6 +384,7 @@ export function TrainingView({
         onReset={actions.reset}
         onReload={actions.reload}
         onSetChecked={actions.setChecked}
+        onSetCheckedInjected={actions.setCheckedInjected}
         onOpenEntry={(entry) => {
           actions.onDialogOpen();
           setOpenEntry(entry);

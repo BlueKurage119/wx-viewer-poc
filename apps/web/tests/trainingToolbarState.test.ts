@@ -10,7 +10,7 @@ import {
   trainingToolbarDefinitions,
 } from '../src/training/trainingToolbarState.ts';
 
-test('定義: ルート1段・空タイトル、2グループで「リスト消去」「リスト全消」、次に「電文投入」の順の選択型項目', () => {
+test('定義: ルート1段・空タイトル、3グループ[リスト消去・リスト全消][電文投入][電文抹消・電文全抹消]の選択型項目', () => {
   assert.equal(trainingToolbarDefinitions.length, 1);
   const root = trainingToolbarDefinitions[0]!;
   assert.equal(root.id, 'training-root');
@@ -23,6 +23,10 @@ test('定義: ルート1段・空タイトル、2グループで「リスト消�
         ['select', 'リスト全消'],
       ],
       [['select', '電文投入']],
+      [
+        ['select', '電文抹消'],
+        ['select', '電文全抹消'],
+      ],
     ],
   );
 });

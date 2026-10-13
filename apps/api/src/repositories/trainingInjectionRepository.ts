@@ -1,4 +1,5 @@
 import type { DatabaseConnection } from '../database/index.js';
+import { mapRetractedTrainingIds } from './trainingRetractionRepository.js';
 
 export type TrainingInjectionStatus = 'in_progress' | 'completed' | 'failed';
 export type TrainingInjectionRole = 'requested' | 'baseline';
@@ -189,6 +190,8 @@ export interface TrainingInjectionListRecord {
   readonly trainingId: string;
   readonly terminalId: string;
   readonly acceptedAt: string;
+  /** 抹消（completed）の受付時刻のうち最も早いもの。未抹消は null。 */
+  readonly retractedAt: string | null;
   readonly telegrams: readonly TrainingInjectionListTelegramRecord[];
 }
 
@@ -209,6 +212,7 @@ export function listCompletedTrainingInjections(
       SELECT training_id, terminal_id, accepted_at
       FROM training_injection
       WHERE status = 'completed' AND terminal_id IN (${placeholders})
+        AND training_id NOT IN (SELECT training_id FROM training_injection_list_hidden)
       ORDER BY accepted_at DESC, training_id ASC
       LIMIT ?
     `,
@@ -229,10 +233,15 @@ export function listCompletedTrainingInjections(
     ORDER BY r.sequence ASC
   `,
   );
+  const retractedAtByTraining = mapRetractedTrainingIds(
+    connection,
+    injections.map((injection) => injection.training_id),
+  );
   return injections.map((injection) => ({
     trainingId: injection.training_id,
     terminalId: injection.terminal_id,
     acceptedAt: injection.accepted_at,
+    retractedAt: retractedAtByTraining.get(injection.training_id) ?? null,
     telegrams: (
       telegramStatement.all(injection.training_id) as {
         sequence: number;
@@ -247,4 +256,50 @@ export function listCompletedTrainingInjections(
       previewId: row.preview_id,
     })),
   }));
+}
+
+export function listAllTrainingInjections(
+  connection: DatabaseConnection,
+): readonly TrainingInjectionRecord[] {
+  return (
+    connection
+      .prepare('SELECT * FROM training_injection ORDER BY accepted_at ASC, training_id ASC')
+      .all() as TrainingInjectionRow[]
+  ).map(mapInjectionRow);
+}
+
+export function findTrainingInjectionReceptionByReceptionId(
+  connection: DatabaseConnection,
+  receptionId: number,
+): TrainingInjectionReceptionRecord | null {
+  const row = connection
+    .prepare('SELECT * FROM training_injection_reception WHERE reception_id = ?')
+    .get(receptionId) as TrainingInjectionReceptionRow | undefined;
+  return row ? mapReceptionRow(row) : null;
+}
+
+/**
+ * 抹消済みの訓練を投入済み一覧から外す印を付ける。INSERT だけで、既存の行は変えない。
+ * 既に外した訓練は最初に外した時刻と端末を保つ。
+ */
+export function hideTrainingInjectionsFromList(
+  connection: DatabaseConnection,
+  input: {
+    readonly trainingIds: readonly string[];
+    readonly terminalId: string;
+    readonly hiddenAt: string;
+  },
+): void {
+  const statement = connection.prepare(
+    `
+    INSERT INTO training_injection_list_hidden (training_id, hidden_at, terminal_id)
+    VALUES (?, ?, ?)
+    ON CONFLICT(training_id) DO NOTHING
+  `,
+  );
+  connection.transaction(() => {
+    for (const trainingId of input.trainingIds) {
+      statement.run(trainingId, input.hiddenAt, input.terminalId);
+    }
+  })();
 }

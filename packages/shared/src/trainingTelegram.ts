@@ -482,6 +482,8 @@ export interface TrainingInjectionListItem {
   readonly terminalId: string;
   /** Worker が受け付けた時刻（UTC ISO）。 */
   readonly acceptedAt: string;
+  /** 抹消（論理取消）の受付時刻（UTC ISO）。未抹消は null（Issue #71 J3）。 */
+  readonly retractedAt: string | null;
   readonly telegrams: readonly TrainingInjectionListTelegram[];
 }
 export interface TrainingInjectionsResponse {
@@ -499,10 +501,11 @@ export function parseTrainingInjectionsResponse(value: unknown): TrainingInjecti
     if (!isPlainObject(entry)) return null;
     const eKeys = Object.keys(entry);
     if (
-      eKeys.length !== 4 ||
+      eKeys.length !== 5 ||
       !eKeys.includes('trainingId') ||
       !eKeys.includes('terminalId') ||
       !eKeys.includes('acceptedAt') ||
+      !eKeys.includes('retractedAt') ||
       !eKeys.includes('telegrams')
     ) {
       return null;
@@ -512,6 +515,7 @@ export function parseTrainingInjectionsResponse(value: unknown): TrainingInjecti
     }
     if (typeof entry.terminalId !== 'string' || entry.terminalId.length === 0) return null;
     if (!isValidUtcIso(entry.acceptedAt)) return null;
+    if (entry.retractedAt !== null && !isValidUtcIso(entry.retractedAt)) return null;
     if (!Array.isArray(entry.telegrams)) return null;
     const telegrams: TrainingInjectionListTelegram[] = [];
     for (const t of entry.telegrams) {
@@ -543,8 +547,225 @@ export function parseTrainingInjectionsResponse(value: unknown): TrainingInjecti
       trainingId: entry.trainingId,
       terminalId: entry.terminalId,
       acceptedAt: entry.acceptedAt,
+      retractedAt: entry.retractedAt,
       telegrams,
     });
   }
   return { injections };
+}
+
+// ---------------------------------------------------------------------------
+// 訓練データの抹消要求（Issue #71 J3: POST /api/training/retract）
+// ---------------------------------------------------------------------------
+
+export const TRAINING_RETRACT_MAX_TRAINING_IDS = 50; // 投入済み一覧の最大件数と同じ
+
+export type TrainingRetractRequest =
+  | {
+      readonly terminalId: string;
+      readonly scope: 'training';
+      readonly trainingIds: readonly string[]; // 1〜50、重複なし、UUID v4 小文字
+    }
+  | { readonly terminalId: string; readonly scope: 'all' };
+
+export type TrainingRetractSkipReason = 'superseded' | 'already_cancelled' | 'baseline_not_owned';
+
+export interface TrainingRetractedTelegram {
+  /** 取消対象の訓練ID。気象庁実配信の基準電文を指す baseline_not_owned では空文字。 */
+  readonly trainingId: string;
+  /** 注入内の sequence（基準電文は 0）。 */
+  readonly targetSequence: number;
+  readonly telegramType: string;
+  readonly role: 'requested' | 'baseline';
+  readonly outcome: 'cancelled' | TrainingRetractSkipReason;
+  /** 取消電文の受信ID（outcome='cancelled' のみ）。 */
+  readonly receptionId: number | null;
+  /** 取消電文の採用結果（venueId 昇順、外した電文は空）。 */
+  readonly adoptions: readonly TrainingInjectAdoption[];
+}
+
+export interface TrainingRetractResponse {
+  readonly retractionId: string; // UUID v4
+  readonly scope: 'training' | 'all';
+  readonly acceptedAt: string; // UTC ISO
+  readonly trainingIds: readonly string[]; // 対象とした訓練ID（昇順）
+  readonly telegrams: readonly TrainingRetractedTelegram[]; // 投入順
+}
+
+const UUID_V4_LOWER_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export function parseTrainingRetractRequest(value: unknown): TrainingRetractRequest | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (!keys.includes('terminalId') || !keys.includes('scope')) return null;
+  if (typeof value.terminalId !== 'string' || value.terminalId.length === 0) return null;
+  if (value.scope === 'all') {
+    if (keys.length !== 2) return null;
+    return { terminalId: value.terminalId, scope: 'all' };
+  }
+  if (value.scope !== 'training') return null;
+  if (keys.length !== 3 || !keys.includes('trainingIds')) return null;
+  const ids = value.trainingIds;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > TRAINING_RETRACT_MAX_TRAINING_IDS) {
+    return null;
+  }
+  const seen = new Set<string>();
+  const trainingIds: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || !UUID_V4_LOWER_PATTERN.test(id) || seen.has(id)) return null;
+    seen.add(id);
+    trainingIds.push(id);
+  }
+  return { terminalId: value.terminalId, scope: 'training', trainingIds };
+}
+
+export function parseTrainingRetractResponse(value: unknown): TrainingRetractResponse | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 5 ||
+    !keys.includes('retractionId') ||
+    !keys.includes('scope') ||
+    !keys.includes('acceptedAt') ||
+    !keys.includes('trainingIds') ||
+    !keys.includes('telegrams')
+  ) {
+    return null;
+  }
+  if (typeof value.retractionId !== 'string' || !UUID_V4_PATTERN.test(value.retractionId)) {
+    return null;
+  }
+  if (value.scope !== 'training' && value.scope !== 'all') return null;
+  if (!isValidUtcIso(value.acceptedAt)) return null;
+  if (!Array.isArray(value.trainingIds)) return null;
+  const trainingIds: string[] = [];
+  for (const id of value.trainingIds) {
+    if (typeof id !== 'string' || !UUID_V4_PATTERN.test(id)) return null;
+    trainingIds.push(id);
+  }
+  if (!Array.isArray(value.telegrams)) return null;
+  const telegrams: TrainingRetractedTelegram[] = [];
+  for (const entry of value.telegrams) {
+    if (!isPlainObject(entry)) return null;
+    const eKeys = Object.keys(entry);
+    if (
+      eKeys.length !== 7 ||
+      !eKeys.includes('trainingId') ||
+      !eKeys.includes('targetSequence') ||
+      !eKeys.includes('telegramType') ||
+      !eKeys.includes('role') ||
+      !eKeys.includes('outcome') ||
+      !eKeys.includes('receptionId') ||
+      !eKeys.includes('adoptions')
+    ) {
+      return null;
+    }
+    if (typeof entry.trainingId !== 'string') return null;
+    if (
+      typeof entry.targetSequence !== 'number' ||
+      !Number.isInteger(entry.targetSequence) ||
+      entry.targetSequence < 0
+    ) {
+      return null;
+    }
+    if (typeof entry.telegramType !== 'string' || entry.telegramType.length === 0) return null;
+    if (entry.role !== 'requested' && entry.role !== 'baseline') return null;
+    const outcome = entry.outcome;
+    if (
+      outcome !== 'cancelled' &&
+      outcome !== 'superseded' &&
+      outcome !== 'already_cancelled' &&
+      outcome !== 'baseline_not_owned'
+    ) {
+      return null;
+    }
+    let receptionId: number | null = null;
+    if (entry.receptionId !== null) {
+      if (
+        typeof entry.receptionId !== 'number' ||
+        !Number.isInteger(entry.receptionId) ||
+        entry.receptionId <= 0
+      ) {
+        return null;
+      }
+      receptionId = entry.receptionId;
+    }
+    if ((outcome === 'cancelled') !== (receptionId !== null)) return null;
+    if (!Array.isArray(entry.adoptions)) return null;
+    const adoptions: TrainingInjectAdoption[] = [];
+    for (const a of entry.adoptions) {
+      const adoption = parseInjectAdoption(a);
+      if (adoption === null) return null;
+      adoptions.push(adoption);
+    }
+    telegrams.push({
+      trainingId: entry.trainingId,
+      targetSequence: entry.targetSequence,
+      telegramType: entry.telegramType,
+      role: entry.role,
+      outcome,
+      receptionId,
+      adoptions,
+    });
+  }
+  return {
+    retractionId: value.retractionId,
+    scope: value.scope,
+    acceptedAt: value.acceptedAt,
+    trainingIds,
+    telegrams,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 抹消済みの訓練を一覧から外す（Issue #71 UI監修: POST /api/training/injections/hide）
+// ---------------------------------------------------------------------------
+
+export interface TrainingInjectionsHideRequest {
+  readonly terminalId: string;
+  readonly trainingIds: readonly string[]; // 1〜50、重複なし、UUID v4 小文字
+}
+
+export interface TrainingInjectionsHideResponse {
+  readonly hiddenTrainingIds: readonly string[]; // 要求の全件、昇順
+}
+
+export function parseTrainingInjectionsHideRequest(
+  value: unknown,
+): TrainingInjectionsHideRequest | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes('terminalId') || !keys.includes('trainingIds')) {
+    return null;
+  }
+  if (typeof value.terminalId !== 'string' || value.terminalId.length === 0) return null;
+  const ids = value.trainingIds;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > TRAINING_RETRACT_MAX_TRAINING_IDS) {
+    return null;
+  }
+  const seen = new Set<string>();
+  const trainingIds: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || !UUID_V4_LOWER_PATTERN.test(id) || seen.has(id)) return null;
+    seen.add(id);
+    trainingIds.push(id);
+  }
+  return { terminalId: value.terminalId, trainingIds };
+}
+
+export function parseTrainingInjectionsHideResponse(
+  value: unknown,
+): TrainingInjectionsHideResponse | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || keys[0] !== 'hiddenTrainingIds') return null;
+  const ids = value.hiddenTrainingIds;
+  if (!Array.isArray(ids)) return null;
+  const hiddenTrainingIds: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || !UUID_V4_PATTERN.test(id)) return null;
+    hiddenTrainingIds.push(id);
+  }
+  return { hiddenTrainingIds };
 }

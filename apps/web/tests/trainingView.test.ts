@@ -33,6 +33,9 @@ const ready: TrainingState = {
   injecting: false,
   injected: [],
   injectedLoadFailed: false,
+  checkedInjected: [],
+  retracting: false,
+  hiding: false,
 };
 
 const preview: TrainingTelegramPreview = {
@@ -67,6 +70,7 @@ const injection = (
   trainingId,
   terminalId: 'kkeagh02',
   acceptedAt,
+  retractedAt: null as string | null,
   telegrams: telegrams.map(([title, telegramType], i) => ({
     sequence: i + 1,
     telegramType: telegramType as never,
@@ -84,6 +88,7 @@ const render = (state: TrainingState) =>
       onReset: () => {},
       onReload: () => {},
       onSetChecked: () => {},
+      onSetCheckedInjected: () => {},
       onOpenEntry: () => {},
     }),
   );
@@ -314,7 +319,7 @@ const button = (html: string, label: string) =>
     .split('<md-gb-button')
     .find((chunk) => chunk.includes(`monitoring-toolbar-button-content">${label}</span>`))!;
 
-test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、中央に電文投入・リスト消去・リスト全消(文字だけ)、右にクリア・送信(アイコン付き)', () => {
+test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、中央にリスト消去・リスト全消｜電文投入｜電文抹消・電文全抹消(文字だけ)、右にクリア・送信(アイコン付き)', () => {
   const html = renderToolbar(toolbarModel());
   assert.match(
     html,
@@ -327,16 +332,18 @@ test('ツールバー: 左に<<・<(ルートでdisabled・階層名なし)、�
   const scroll = html.match(
     /class="monitoring-toolbar-scroll">(.*?)<div class="monitoring-toolbar-group monitoring-toolbar-submit">/,
   )![1]!;
-  assert.equal((scroll.match(/<md-gb-button/g) ?? []).length, 3);
+  assert.equal((scroll.match(/<md-gb-button/g) ?? []).length, 5);
   assert.ok(scroll.indexOf('>リスト全消<') < scroll.indexOf('>電文投入<'));
   assert.ok(scroll.indexOf('>リスト消去<') < scroll.indexOf('>リスト全消<'));
+  assert.ok(scroll.indexOf('>電文投入<') < scroll.indexOf('>電文抹消<'));
+  assert.ok(scroll.indexOf('>電文抹消<') < scroll.indexOf('>電文全抹消<'));
   assert.ok(!scroll.includes('monitoring-toolbar-icon'), '項目ボタンは文字だけ');
   const submit = html.slice(html.indexOf('monitoring-toolbar-submit'));
   assert.match(submit, /monitoring-toolbar-icon[^>]*>close</);
   assert.match(submit, /monitoring-toolbar-icon[^>]*>arrow_forward</);
   assert.match(submit, /クリア/);
   assert.ok(!html.includes('>delete<'), '押下即実行のdeleteアイコンは撤去');
-  assert.equal((html.match(/slot="container"/g) ?? []).length, 5);
+  assert.equal((html.match(/slot="container"/g) ?? []).length, 7);
 });
 
 test('ツールバー: 電文投入・リスト消去はチェック0件、リスト全消は一覧0件でsoftDisabled。選択中は「選択中」、送信は対象があるときだけ点滅して押せる', () => {
@@ -482,7 +489,7 @@ test('一覧の並び: 未投入 → 投入失敗 → 投入済みの順で、�
   assert.match(html, /4／20件/);
 });
 
-test('投入済みの行: 注入1回につき1行、title・種別を「、」連結、チェック欄もボタンも無い', () => {
+test('投入済みの行: 注入1回につき1行、title・種別を「、」連結、チェック欄はあるがボタンは無い', () => {
   const html = render({
     ...ready,
     injected: [
@@ -497,7 +504,7 @@ test('投入済みの行: 注入1回につき1行、title・種別を「、」�
   assert.match(row, /class="training-row-items">東京都大雨警報、VPHW50</);
   assert.match(row, /class="training-row-type">VPWW55、VPHW50</);
   assert.match(row, /data-status="injected">投入済み</);
-  assert.ok(!/<input/.test(row), 'チェック欄を置かない');
+  assert.match(row, /<input[^>]*type="checkbox"[^>]*aria-label="10:02:03 VPWW55、VPHW50 を選択"/);
   assert.ok(!/<button/.test(row), '押しても何も開かない');
   assert.match(html, /0／20件/, '件数はローカル行だけで数える');
 });
