@@ -181,7 +181,7 @@ export function createTrainingController(
     fetchTrainingInjections(terminalId, request.signal, fetcher).then(
       (response) => {
         if (request.signal.aborted || !active) return;
-        // 一覧から消えた行・抹消済みの行のチェックは外す。
+        // 一覧から消えた行のチェックは外す（抹消済みの行は一覧から外すためにチェックを残す）。
         const selectable = new Set(response.injections.map((i) => i.trainingId));
         update({
           injected: response.injections,
