@@ -57,7 +57,7 @@ export interface TrainingState {
   readonly injected: readonly TrainingInjectionListItem[];
   /** 直近の投入済み一覧の読込が失敗した。次に成功すると false に戻る。 */
   readonly injectedLoadFailed: boolean;
-  /** 投入済みの行でチェックされた訓練ID（抹消済みは含まない）。保存しない。 */
+  /** 投入済みの行でチェックされた訓練ID（抹消済みの行も含む）。保存しない。 */
   readonly checkedInjected: readonly string[];
   /** 訓練データの抹消処理中。 */
   readonly retracting: boolean;
@@ -214,6 +214,12 @@ export function createTrainingController(
   const retract = async (
     request: TrainingRetractRequest,
   ): Promise<{ readonly success: boolean; readonly message: string }> => {
+    // 送信した（未抹消の）訓練IDだけ、成功後にチェックを外す。抹消済みの行のチェックは維持する。
+    const sentIds = new Set(
+      request.scope === 'training'
+        ? request.trainingIds
+        : state.injected.filter((i) => i.retractedAt === null).map((i) => i.trainingId),
+    );
     update({ retracting: true });
     try {
       const response = await requestTrainingRetract(request, undefined, fetcher);
@@ -224,7 +230,10 @@ export function createTrainingController(
       // 画面離脱・端末切替後は状態を変えない。
       if (!active) return { success: true, message };
       // 抹消した行は「抹消済み」としてサーバーの一覧に残る。チェックは外し、直後に再読込する。
-      update({ retracting: false, checkedInjected: [] });
+      update({
+        retracting: false,
+        checkedInjected: state.checkedInjected.filter((id) => !sentIds.has(id)),
+      });
       loadInjected();
       return { success: true, message };
     } catch (error) {
@@ -396,7 +405,23 @@ export function createTrainingController(
         scope === 'all'
           ? state.injected.filter((i) => i.retractedAt !== null).map((i) => i.trainingId)
           : splitCheckedInjected(state).retracted;
-      const clearLocal = () => (scope === 'all' ? deleteAll() : deleteChecked());
+      // 対象のローカル行は await の前に確定する（待つ間に増えた行は消さない）。
+      const localIds = new Set(
+        scope === 'all'
+          ? state.history.map((entry) => entry.id)
+          : state.checked.filter((id) => state.history.some((entry) => entry.id === id)),
+      );
+      const clearLocal = (): number => {
+        const history = state.history.filter((entry) => !localIds.has(entry.id));
+        const removed = state.history.length - history.length;
+        if (removed === 0) return 0;
+        update({
+          history,
+          checked: state.checked.filter((id) => !localIds.has(id)),
+          saveFailed: !stock.save(terminalId, history).saved,
+        });
+        return removed;
+      };
       if (retractedIds.length === 0) {
         return { success: true, message: trainingDeletedMessage(clearLocal()) };
       }

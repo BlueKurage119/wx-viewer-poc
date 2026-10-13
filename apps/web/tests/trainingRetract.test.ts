@@ -694,3 +694,61 @@ test('clearList は this に依存しない（分割代入して呼んでも動�
   });
   controller.dispose();
 });
+
+test('retract 成功: 送った未抹消の行のチェックだけ外し、抹消済みの行のチェックは維持する', async () => {
+  const items = [injection(TID_A, 1, RETRACTED_AT), injection(TID_B, 2), injection(TID_C, 3)];
+  // 行抹消: 未抹消の B だけ送り、チェック済みの抹消済み A は残る
+  const one = await readyWithInjected(items);
+  one.controller.setCheckedInjected(TID_A, true);
+  one.controller.setCheckedInjected(TID_B, true);
+  const p1 = one.controller.retractChecked();
+  assert.deepEqual((one.pending[2]!.body as { trainingIds: string[] }).trainingIds, [TID_B]);
+  one.pending[2]!.resolve(Response.json(retractResponse('training', [TID_B])));
+  await p1;
+  assert.deepEqual(one.last().checkedInjected, [TID_A]);
+  one.controller.dispose();
+  // 全抹消: 全未抹消分のチェックを外し、抹消済みの A は残る
+  const all = await readyWithInjected(items);
+  for (const id of [TID_A, TID_B, TID_C]) all.controller.setCheckedInjected(id, true);
+  const p2 = all.controller.retractAll();
+  all.pending[2]!.resolve(Response.json(retractResponse('all', [TID_B, TID_C])));
+  await p2;
+  assert.deepEqual(all.last().checkedInjected, [TID_A]);
+  all.controller.dispose();
+});
+
+test('clearList: hide の待機中に生成された新しい行は消さない（対象は await 前に確定する）', async () => {
+  for (const scope of ['checked', 'all'] as const) {
+    const { controller, pending, last } = await readyWithLocal([injection(TID_A, 1, RETRACTED_AT)]);
+    controller.setChecked('l:0', true);
+    controller.setCheckedInjected(TID_A, true);
+    const promise = controller.clearList(scope);
+    assert.equal(pending[2]!.url, '/api/training/injections/hide');
+    // 待機中に電文が生成されて一覧の先頭へ増える
+    controller.selectInGroup('rain', 'warning-43');
+    controller.generate();
+    pending[3]!.resolve(
+      Response.json({
+        generationId: 'n',
+        generatedAt: '2026-10-11T05:10:30.000Z',
+        telegrams: [entryFor('n:0').telegram],
+      }),
+    );
+    await tick();
+    assert.deepEqual(
+      last().history.map((e) => e.id),
+      ['n:0', 'l:0', 'l:1'],
+    );
+    pending[2]!.resolve(Response.json({ hiddenTrainingIds: [TID_A] }));
+    const result = await promise;
+    const remaining = last().history.map((e) => e.id);
+    if (scope === 'checked') {
+      assert.deepEqual(remaining, ['n:0', 'l:1']);
+      assert.equal(result.message, '2件をリストから消去しました');
+    } else {
+      assert.deepEqual(remaining, ['n:0']);
+      assert.equal(result.message, '3件をリストから消去しました');
+    }
+    controller.dispose();
+  }
+});
