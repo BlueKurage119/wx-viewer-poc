@@ -78,7 +78,7 @@ test('mainは不正portをDB作成前に拒否する', () => {
         [
           '--import',
           import.meta.resolve('tsx'),
-          new URL('../src/server.ts', import.meta.url).pathname,
+          new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
         ],
         {
           cwd: join(fixture.config.databasePath, '..'),
@@ -116,7 +116,7 @@ for (const method of ['use', 'listen']) {
           import.meta.resolve('tsx'),
           '--import',
           new URL('./helpers/startupFailurePreload.mjs', import.meta.url).href,
-          new URL('../src/server.ts', import.meta.url).pathname,
+          new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
         ],
         {
           cwd: join(fixture.config.databasePath, '..'),

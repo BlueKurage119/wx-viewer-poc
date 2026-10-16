@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { arch, cpus, platform, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type { Worker } from 'node:worker_threads';
 import { startServer } from '../src/server.js';
 import { NowcastTileStore } from '../src/polling/nowcastTileStore.js';
@@ -668,20 +667,6 @@ test('夜間相当の取得停止中は保存済みhitを返し、未保存miss�
 
 test('単一会場構成でも提供Workerの読取と通知起動が成立し、未登録会場端末を拒否する', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'wx-single-venue-'));
-  const venuePath = join(directory, 'venues.yaml');
-  const terminalPath = join(directory, 'terminals.yaml');
-  writeFileSync(
-    venuePath,
-    readFileSync(new URL('../../../config/venues.yaml', import.meta.url), 'utf8').split(
-      '  - id: trc',
-    )[0]!,
-  );
-  writeFileSync(
-    terminalPath,
-    readFileSync(new URL('../../../config/terminals.yaml', import.meta.url), 'utf8').split(
-      '  - id: htrcph01',
-    )[0]!,
-  );
   const options = createTestServerDatabaseOptions({
     databasePath: join(directory, 'weather.sqlite3'),
     migrationsDirectory: join(import.meta.dirname, '../migrations'),
@@ -691,8 +676,8 @@ test('単一会場構成でも提供Workerの読取と通知起動が成立し�
     port: 0,
     enablePolling: false,
     pollingSchedule: createTestPollingSchedule(),
-    venueConfigUrl: pathToFileURL(venuePath),
-    terminalConfigUrl: pathToFileURL(terminalPath),
+    venueConfigUrl: new URL('./fixtures/config/venues.single.yaml', import.meta.url),
+    terminalConfigUrl: new URL('./fixtures/config/terminals.single.yaml', import.meta.url),
   });
   try {
     assert.equal((await server.weatherPrepared).status, 'ready');

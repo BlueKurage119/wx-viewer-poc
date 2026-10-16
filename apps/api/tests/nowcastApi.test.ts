@@ -1306,7 +1306,7 @@ test('B18 (統合検証): startServer 起動統合テストと main 子プロセ
       import.meta.resolve('tsx'),
       '--import',
       new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
-      new URL('../src/server.ts', import.meta.url).pathname,
+      new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
     ],
     {
       cwd: childTmpDir,

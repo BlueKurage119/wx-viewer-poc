@@ -15,7 +15,7 @@ import { DEFAULT_CONFIG_URL, LOCAL_CONFIG_URL } from '../src/config/pollingSched
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const originalRead = fs.readFileSync;
-const shared = originalRead(DEFAULT_CONFIG_URL, 'utf-8');
+const shared = originalRead(new URL('./fixtures/polling/schedule.yaml', import.meta.url), 'utf-8');
 
 async function readChildPollingLog(
   child: ChildProcess,
@@ -89,11 +89,13 @@ async function captureStartup(options: Parameters<typeof startServer>[0]): Promi
   console.info = (...args: unknown[]) => messages.push(args.join(' '));
   try {
     const server = await startServer({
-      ...options,
       ...createTestServerDatabaseOptions({
         databasePath: path.join(directory, 'test.sqlite3'),
         migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
       }),
+      // 既定のpolling設定読込そのものを検証するため、fs差し替えと組み合わせて既定URLを明示する
+      configUrl: DEFAULT_CONFIG_URL,
+      ...options,
       port: 0,
       enablePolling: false,
     });
@@ -160,6 +162,7 @@ test('不正なローカル設定はDB初期化と待受より前に拒否する
           databasePath,
           migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
         }),
+        configUrl: DEFAULT_CONFIG_URL,
         port: 0,
         enablePolling: false,
       }),
@@ -187,11 +190,12 @@ test('実プロセスの不正設定はDB生成と待受より前に失敗する
         import.meta.resolve('tsx'),
         '--import',
         new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
-        new URL('../src/server.ts', import.meta.url).pathname,
+        new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
       ],
       {
         cwd: directory,
         env: {
+          WX_TEST_DEFAULT_POLLING_CONFIG: '1',
           ...createTestServerProcessEnv({
             databasePath,
             migrationsDirectory: path.join(import.meta.dirname, '../migrations'),
@@ -232,11 +236,12 @@ test('実プロセスも同じ形式の成功ログを一度表示する', async
       import.meta.resolve('tsx'),
       '--import',
       new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
-      new URL('../src/server.ts', import.meta.url).pathname,
+      new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
     ],
     {
       cwd: directory,
       env: {
+        WX_TEST_DEFAULT_POLLING_CONFIG: '1',
         ...createTestServerProcessEnv({
           databasePath: path.join(directory, 'test.sqlite3'),
           migrationsDirectory: path.join(import.meta.dirname, '../migrations'),

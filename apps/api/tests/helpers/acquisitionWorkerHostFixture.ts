@@ -44,7 +44,9 @@ export function setup(mode = 'normal', databaseReady: () => Promise<void> = asyn
     venues: testVenueRegistry.listVenues(),
     venueGeneration: 'fixture',
     schedule: validatePollingScheduleConfig(
-      yaml.load(readFileSync(new URL('../../../../config/polling.yaml', import.meta.url), 'utf8')),
+      yaml.load(
+        readFileSync(new URL('../fixtures/polling/schedule.yaml', import.meta.url), 'utf8'),
+      ),
     ),
     enablePolling: false,
     desiredRunning: false,

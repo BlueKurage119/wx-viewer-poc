@@ -50,8 +50,17 @@ function fixture() {
     fs.cpSync(path.join(root, name), path.join(directory, name), {
       recursive: true,
       filter: (p) =>
-        !p.split(path.sep).some((part) => ['node_modules', 'dist', 'data'].includes(part)),
+        !p.split(path.sep).some((part) => ['node_modules', 'dist', 'data'].includes(part)) &&
+        !p.endsWith('.local.yaml'),
     });
+  }
+  // 実設定・ローカル設定に依存しないよう、一時ディレクトリの既定パスをテスト用fixtureで上書きする
+  for (const [target, source] of [
+    ['config/venues.yaml', 'fixtures/config/venues.yaml'],
+    ['config/terminals.yaml', 'fixtures/config/terminals.yaml'],
+    ['config/polling.yaml', 'fixtures/polling/schedule.yaml'],
+  ] as const) {
+    fs.copyFileSync(path.join(import.meta.dirname, source), path.join(directory, target));
   }
   fs.mkdirSync(path.join(directory, 'packages/shared/dist'), { recursive: true });
   fs.mkdirSync(path.join(directory, 'node_modules'));

@@ -18,6 +18,8 @@ import {
   validatePollingScheduleConfig,
 } from '../src/config/pollingSchedule.js';
 
+const fixtureScheduleUrl = new URL('./fixtures/polling/schedule.yaml', import.meta.url);
+
 describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
   const validFetchHealth = {
     evaluationIntervalSeconds: 30,
@@ -33,8 +35,8 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     candidatePageSize: 100,
   };
 
-  test('既定の config/polling.yaml を形式・値域どおりに読み込めること', () => {
-    const config = loadPollingScheduleConfig();
+  test('fixtureのpolling.yamlを形式・値域どおりに読み込めること', () => {
+    const config = loadPollingScheduleConfig(fixtureScheduleUrl);
     assert.equal(config.timezone, 'Asia/Tokyo');
     assert.ok(['proxy', 'jma-direct'].includes(config.tileDeliveryProfile));
     assert.ok(config.amedasPointRecheckSeconds > 0);
@@ -159,20 +161,6 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         () => validatePollingScheduleConfig(candidate),
         /tileDeliveryProfile は "proxy" または "jma-direct"/,
       );
-    }
-  });
-
-  test('cwd をどこに変更しても既定URLがリポジトリルートの config/polling.yaml を解決すること (受け入れ条件 15)', () => {
-    const origCwd = process.cwd();
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wx-cwd-test-'));
-    const configBeforeChdir = loadPollingScheduleConfig();
-    try {
-      process.chdir(tempDir);
-      const configFromTemp = loadPollingScheduleConfig();
-      assert.deepEqual(configFromTemp, configBeforeChdir);
-    } finally {
-      process.chdir(origCwd);
-      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -462,7 +450,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
 
 const originalRead = fs.readFileSync;
 const originalEnvironment = process.env.NODE_ENV;
-const shared = originalRead(DEFAULT_CONFIG_URL, 'utf-8');
+const shared = originalRead(fixtureScheduleUrl, 'utf-8');
 
 function withFiles(local: string | null, base = shared): void {
   fs.readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
@@ -486,6 +474,42 @@ afterEach(() => {
   syncBuiltinESMExports();
   if (originalEnvironment === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = originalEnvironment;
+});
+
+test('cwd をどこに変更しても既定URLを読み込むこと (受け入れ条件 15)', () => {
+  const origCwd = process.cwd();
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wx-cwd-test-'));
+  const requested: string[] = [];
+  delete process.env.NODE_ENV;
+  fs.readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
+    const href = file instanceof URL ? file.href : String(file);
+    requested.push(href);
+    if (href === DEFAULT_CONFIG_URL.href) return shared;
+    if (href === LOCAL_CONFIG_URL.href) {
+      const error = new Error('ファイルなし') as NodeJS.ErrnoException;
+      error.code = 'ENOENT';
+      throw error;
+    }
+    if (/polling(\.local)?\.yaml$/.test(href)) {
+      // 既定URL以外(cwd基準の相対パス等)で設定を探した場合は実ファイルを読ませない
+      const error = new Error('ファイルなし') as NodeJS.ErrnoException;
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return originalRead(file, ...(args as [BufferEncoding]));
+  }) as typeof fs.readFileSync;
+  syncBuiltinESMExports();
+  try {
+    process.chdir(tempDir);
+    const loaded = loadPollingScheduleConfig();
+    assert.equal(loaded.timezone, 'Asia/Tokyo');
+    assert.ok(requested.includes(DEFAULT_CONFIG_URL.href), '既定URLが読まれること');
+  } finally {
+    process.chdir(origCwd);
+    fs.readFileSync = originalRead;
+    syncBuiltinESMExports();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('不在、空の上書き、部分上書きと既存戻り値', () => {
@@ -536,7 +560,7 @@ test('本番ではローカルへアクセスしない。同じURLと別URLを�
     loadPollingScheduleConfigWithSources(new URL(DEFAULT_CONFIG_URL.href)).localOverride,
     'applied',
   );
-  const fixture = new URL('./fixtures/polling/schedule.yaml', import.meta.url);
+  const fixture = fixtureScheduleUrl;
   const explicit = loadPollingScheduleConfigWithSources(fixture);
   assert.equal(explicit.localOverride, 'not-applicable');
   assert.deepEqual(explicit.sources, [fixture]);
