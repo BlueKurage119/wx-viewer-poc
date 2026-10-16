@@ -71,6 +71,27 @@ test('会場設定は未知キーと会場内の対象不整合を拒否する',
   );
 });
 
+test('ローカル差分は会場IDごとに上書きされ、本番では無効', () => {
+  const base = fs.readFileSync(testVenueConfigUrl, 'utf8');
+  const local = 'venues:\n  - id: east\n    name: ローカル別名会場\n';
+  const names = (loaded: ReturnType<typeof loadVenueConfig>) =>
+    loaded.response.venues.map((venue) => venue.venueName);
+  withTemporaryVenueFiles(base, local, (baseUrl, localUrl) => {
+    const development = loadVenueConfig({ baseUrl, localUrl, environment: 'development' });
+    assert.equal(development.localOverride, 'applied');
+    assert.deepEqual(names(development), ['ローカル別名会場', '東京流通センター']);
+    const production = loadVenueConfig({ baseUrl, localUrl, environment: 'production' });
+    assert.equal(production.localOverride, 'disabled-production');
+    assert.deepEqual(names(production), ['東京ビッグサイト', '東京流通センター']);
+  });
+  withTemporaryVenueFiles(base, undefined, (baseUrl, localUrl) => {
+    assert.equal(
+      loadVenueConfig({ baseUrl, localUrl, environment: 'development' }).localOverride,
+      'absent',
+    );
+  });
+});
+
 test('共有 YAML の必須キー欠落はローカル差分で補完できない', () => {
   withTemporaryVenueFiles(
     'venues:\n  - id: third\n',
