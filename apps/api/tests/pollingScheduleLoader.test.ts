@@ -4,7 +4,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test, { afterEach, describe } from 'node:test';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
 import {
   DEFAULT_CONFIG_URL,
@@ -162,18 +162,6 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
         /tileDeliveryProfile は "proxy" または "jma-direct"/,
       );
     }
-  });
-
-  test('既定URLがcwdに依存せずリポジトリルートの config/polling.yaml を指すこと (受け入れ条件 15)', () => {
-    assert.equal(DEFAULT_CONFIG_URL.protocol, 'file:');
-    assert.ok(
-      fileURLToPath(DEFAULT_CONFIG_URL).endsWith(path.join('config', 'polling.yaml')),
-      '既定URLの末尾が config/polling.yaml であること',
-    );
-    assert.equal(
-      fileURLToPath(DEFAULT_CONFIG_URL),
-      path.resolve(import.meta.dirname, '../../../config/polling.yaml'),
-    );
   });
 
   test('存在しないファイル URL を指定した場合は詳細エラーで失敗すること (フォールバックなし)', () => {
@@ -486,6 +474,42 @@ afterEach(() => {
   syncBuiltinESMExports();
   if (originalEnvironment === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = originalEnvironment;
+});
+
+test('cwd をどこに変更しても既定URLを読み込むこと (受け入れ条件 15)', () => {
+  const origCwd = process.cwd();
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wx-cwd-test-'));
+  const requested: string[] = [];
+  delete process.env.NODE_ENV;
+  fs.readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
+    const href = file instanceof URL ? file.href : String(file);
+    requested.push(href);
+    if (href === DEFAULT_CONFIG_URL.href) return shared;
+    if (href === LOCAL_CONFIG_URL.href) {
+      const error = new Error('ファイルなし') as NodeJS.ErrnoException;
+      error.code = 'ENOENT';
+      throw error;
+    }
+    if (/polling(\.local)?\.yaml$/.test(href)) {
+      // 既定URL以外(cwd基準の相対パス等)で設定を探した場合は実ファイルを読ませない
+      const error = new Error('ファイルなし') as NodeJS.ErrnoException;
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return originalRead(file, ...(args as [BufferEncoding]));
+  }) as typeof fs.readFileSync;
+  syncBuiltinESMExports();
+  try {
+    process.chdir(tempDir);
+    const loaded = loadPollingScheduleConfig();
+    assert.equal(loaded.timezone, 'Asia/Tokyo');
+    assert.ok(requested.includes(DEFAULT_CONFIG_URL.href), '既定URLが読まれること');
+  } finally {
+    process.chdir(origCwd);
+    fs.readFileSync = originalRead;
+    syncBuiltinESMExports();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('不在、空の上書き、部分上書きと既存戻り値', () => {

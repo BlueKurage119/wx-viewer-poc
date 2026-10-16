@@ -7,7 +7,11 @@ import {
   type DatabaseConfig,
   type DatabasePairConfig,
 } from '../../src/database/index.js';
-import { testTerminalConfigUrl, testVenueConfigUrl } from './venueConfigPreload.js';
+import {
+  testPollingConfigUrl,
+  testTerminalConfigUrl,
+  testVenueConfigUrl,
+} from './venueConfigPreload.js';
 
 export function createTestDatabasePairConfig(config: DatabaseConfig): DatabasePairConfig {
   const insideTemporaryRoot = [tmpdir(), '/tmp'].some((root) => {
@@ -73,6 +77,8 @@ export function createTestServerDatabaseOptions(config: DatabaseConfig) {
     kikikuruCacheRoot: join(`${config.databasePath}.test-cache`, 'kikikuru'),
     venueConfigUrl: testVenueConfigUrl,
     terminalConfigUrl: testTerminalConfigUrl,
+    // 呼び出し側が pollingSchedule を渡す場合はそちらが優先される。未指定でも実polling設定は読まない。
+    configUrl: testPollingConfigUrl,
   };
 }
 

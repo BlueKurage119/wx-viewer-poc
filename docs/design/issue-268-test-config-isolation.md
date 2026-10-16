@@ -99,7 +99,7 @@ export const testTerminalRegistry: TerminalRegistry; // loadTerminalConfig({ bas
 
 - F: 実設定の文字列分割をやめ、`venues.single.yaml`・`terminals.single.yaml` を `venueConfigUrl` / `terminalConfigUrl` に渡す
 - G・H・I: `loadVenueConfig({ baseUrl: testVenueConfigUrl })` 等、fixtureの `baseUrl` を渡す。I の端末テストも `baseUrl: testTerminalConfigUrl` を渡す。「共有YAMLを順序どおり読む」趣旨のテスト名は「fixture YAML」に合わせて改める
-- J: 37行は `loadPollingScheduleConfig(fixtureUrl)` に変更。168行(cwd非依存の既定URL解決)は「既定URL `DEFAULT_CONFIG_URL` がリポジトリルートの `config/polling.yaml` を指す」ことを URL の比較(`fileURLToPath` の末尾一致等)で検証する形に改め、実ファイル内容を読まない。494行以降の差し替え方式は、`shared`(465行)の基底文字列を fixture から読むよう変更する
+- J: 37行は `loadPollingScheduleConfig(fixtureUrl)` に変更。168行(cwd非依存の既定URL解決)は `process.chdir` で一時ディレクトリへ移動した状態のまま、494行以降と同じ `fs.readFileSync` 差し替え方式(既定URLへの読み込みにfixture内容を返し、localは不在)で引数なしの `loadPollingScheduleConfig()` を実行し、読み込みが成功すること・既定URL `DEFAULT_CONFIG_URL` が読まれたことを検証する。cwd 基準の相対パス解決への退行を検知できる検証力を維持し、実ファイル内容は読まない(PR #281 レビュー対応で改訂)。494行以降の差し替え方式は、`shared`(465行)の基底文字列を fixture から読むよう変更する
 - K: 18行の基底文字列を fixture から読む
 
 ### 4.7 local優先の挙動テスト
