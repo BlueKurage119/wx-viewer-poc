@@ -274,7 +274,7 @@ test(
         import.meta.resolve('tsx'),
         '--import',
         new URL('./helpers/initialSyncFailurePreload.mjs', import.meta.url).href,
-        new URL('../src/server.ts', import.meta.url).pathname,
+        new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
       ],
       {
         env: {

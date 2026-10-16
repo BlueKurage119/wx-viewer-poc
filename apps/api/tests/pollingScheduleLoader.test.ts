@@ -4,7 +4,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test, { afterEach, describe } from 'node:test';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
 import {
   DEFAULT_CONFIG_URL,
@@ -17,6 +17,8 @@ import {
   resolvePollingPeriod,
   validatePollingScheduleConfig,
 } from '../src/config/pollingSchedule.js';
+
+const fixtureScheduleUrl = new URL('./fixtures/polling/schedule.yaml', import.meta.url);
 
 describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
   const validFetchHealth = {
@@ -33,8 +35,8 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     candidatePageSize: 100,
   };
 
-  test('既定の config/polling.yaml を形式・値域どおりに読み込めること', () => {
-    const config = loadPollingScheduleConfig();
+  test('fixtureのpolling.yamlを形式・値域どおりに読み込めること', () => {
+    const config = loadPollingScheduleConfig(fixtureScheduleUrl);
     assert.equal(config.timezone, 'Asia/Tokyo');
     assert.ok(['proxy', 'jma-direct'].includes(config.tileDeliveryProfile));
     assert.ok(config.amedasPointRecheckSeconds > 0);
@@ -162,18 +164,16 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
     }
   });
 
-  test('cwd をどこに変更しても既定URLがリポジトリルートの config/polling.yaml を解決すること (受け入れ条件 15)', () => {
-    const origCwd = process.cwd();
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wx-cwd-test-'));
-    const configBeforeChdir = loadPollingScheduleConfig();
-    try {
-      process.chdir(tempDir);
-      const configFromTemp = loadPollingScheduleConfig();
-      assert.deepEqual(configFromTemp, configBeforeChdir);
-    } finally {
-      process.chdir(origCwd);
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+  test('既定URLがcwdに依存せずリポジトリルートの config/polling.yaml を指すこと (受け入れ条件 15)', () => {
+    assert.equal(DEFAULT_CONFIG_URL.protocol, 'file:');
+    assert.ok(
+      fileURLToPath(DEFAULT_CONFIG_URL).endsWith(path.join('config', 'polling.yaml')),
+      '既定URLの末尾が config/polling.yaml であること',
+    );
+    assert.equal(
+      fileURLToPath(DEFAULT_CONFIG_URL),
+      path.resolve(import.meta.dirname, '../../../config/polling.yaml'),
+    );
   });
 
   test('存在しないファイル URL を指定した場合は詳細エラーで失敗すること (フォールバックなし)', () => {
@@ -462,7 +462,7 @@ describe('pollingScheduleLoader (受け入れ条件 5, 15)', () => {
 
 const originalRead = fs.readFileSync;
 const originalEnvironment = process.env.NODE_ENV;
-const shared = originalRead(DEFAULT_CONFIG_URL, 'utf-8');
+const shared = originalRead(fixtureScheduleUrl, 'utf-8');
 
 function withFiles(local: string | null, base = shared): void {
   fs.readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
@@ -536,7 +536,7 @@ test('本番ではローカルへアクセスしない。同じURLと別URLを�
     loadPollingScheduleConfigWithSources(new URL(DEFAULT_CONFIG_URL.href)).localOverride,
     'applied',
   );
-  const fixture = new URL('./fixtures/polling/schedule.yaml', import.meta.url);
+  const fixture = fixtureScheduleUrl;
   const explicit = loadPollingScheduleConfigWithSources(fixture);
   assert.equal(explicit.localOverride, 'not-applicable');
   assert.deepEqual(explicit.sources, [fixture]);

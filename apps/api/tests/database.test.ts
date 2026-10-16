@@ -18,6 +18,7 @@ import {
 } from '../src/database/index.js';
 import { startInlineServer as startServer } from '../src/server.js';
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
+import { testTerminalConfigUrl, testVenueConfigUrl } from './helpers/venueConfigPreload.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -357,6 +358,8 @@ test('server fixtureは2 DBと両cacheを一時領域に固定し、通常領域
     },
     nowcastCacheRoot: join(`${databasePath}.test-cache`, 'nowcast'),
     kikikuruCacheRoot: join(`${databasePath}.test-cache`, 'kikikuru'),
+    venueConfigUrl: testVenueConfigUrl,
+    terminalConfigUrl: testTerminalConfigUrl,
   });
   for (const databasePath of [
     'data/weather.sqlite3',

@@ -32,6 +32,7 @@ import {
   createTestPollingSchedule,
 } from './helpers/pollingSchedule.js';
 import { createNotificationDeltaService } from '../src/notifications/index.js';
+import { testTerminalConfigUrl, testVenueConfigUrl } from './helpers/venueConfigPreload.js';
 import type { SignalSource } from '../src/gracefulShutdown.js';
 import {
   resolveNotificationMessage,
@@ -925,7 +926,7 @@ for (const [jstTime, fixedNow] of [
         '--eval',
         `import { startInlineServer as startServer } from ${JSON.stringify(new URL('../src/server.ts', import.meta.url).href)};
        import { createTestPollingSchedule } from ${JSON.stringify(new URL('./helpers/pollingSchedule.ts', import.meta.url).href)};
-       const server = await startServer({ ${JSON.stringify(createTestServerDatabaseOptions({ databasePath: disabledDb, migrationsDirectory })).slice(1, -1)}, port: 0, pollingSchedule: createTestPollingSchedule() });
+       const server = await startServer({ ${JSON.stringify(createTestServerDatabaseOptions({ databasePath: disabledDb, migrationsDirectory })).slice(1, -1)}, venueConfigUrl: new URL(${JSON.stringify(testVenueConfigUrl.href)}), terminalConfigUrl: new URL(${JSON.stringify(testTerminalConfigUrl.href)}), port: 0, pollingSchedule: createTestPollingSchedule() });
        const status = await (await fetch('http://127.0.0.1:' + server.port + '/api/monitoring/status?terminalId=hkeagh01')).json();
        console.log('RECOVERY_STATUS:' + JSON.stringify(status.venues.map((venue) => [venue.venueId, venue.recovery.status])));
        await server.close();`,

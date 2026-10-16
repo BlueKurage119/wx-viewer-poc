@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { loadVenueConfig, validateVenueConfig } from '../src/config/venueConfigLoader.js';
+import { testVenueConfigUrl } from './helpers/venueConfigPreload.js';
 
 function withTemporaryVenueFiles(
   baseContent: string,
@@ -34,7 +35,7 @@ function thrownMessage(run: () => void): string {
 }
 
 test('会場 YAML は旧2会場を順序どおり読み込み、世代とレジストリを生成する', () => {
-  const loaded = loadVenueConfig({ environment: 'production' });
+  const loaded = loadVenueConfig({ baseUrl: testVenueConfigUrl });
   assert.deepEqual(loaded.registry.listVenueIds(), ['east', 'trc']);
   assert.equal(loaded.response.generation.length, 64);
   assert.deepEqual(

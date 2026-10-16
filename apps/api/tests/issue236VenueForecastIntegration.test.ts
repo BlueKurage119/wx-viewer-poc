@@ -10,6 +10,7 @@ import test from 'node:test';
 import { createVenueRegistry, type VenueForecastTargets } from '@wx-viewer-poc/shared';
 
 import { loadVenueConfig } from '../src/config/venueConfigLoader.js';
+import { testVenueConfigUrl } from './helpers/venueConfigPreload.js';
 import { createWeatherApiService } from '../src/services/weatherApiService.js';
 import { startInlineServer as startServer } from '../src/server.js';
 import { processEarlyWarningReceptionForVenues } from '../src/polling/jmaEarlyWarningProcessor.js';
@@ -46,7 +47,7 @@ function setup() {
   };
 }
 function registry() {
-  const base = loadVenueConfig({ environment: 'production' }).registry.listVenues();
+  const base = loadVenueConfig({ baseUrl: testVenueConfigUrl }).registry.listVenues();
   const east = base[0]!;
   const third: VenueForecastTargets = {
     ...east,
@@ -386,7 +387,7 @@ test('起動時再処理は不足した採用行を追加し、繰返しても s
 test('短期は南部、長期は府県単位で取得し、旧対象地域外の長期電文も復旧する', () => {
   const db = setup();
   try {
-    const base = loadVenueConfig({ environment: 'production' }).registry.listVenues();
+    const base = loadVenueConfig({ baseUrl: testVenueConfigUrl }).registry.listVenues();
     const east = base[0]!;
     const third: VenueForecastTargets = {
       ...east,

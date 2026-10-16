@@ -13,6 +13,8 @@ test('計測スクリプトは一時2DBで準備・起動・事後照合を完�
       [
         '--import',
         resolve(import.meta.dirname, '../../../node_modules/tsx/dist/loader.mjs'),
+        '--import',
+        new URL('./helpers/fixtureConfigPreload.mjs', import.meta.url).href,
         resolve(import.meta.dirname, '../scripts/measureWarningRecovery.ts'),
         '4',
         '0',

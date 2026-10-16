@@ -7,6 +7,7 @@ import {
   type DatabaseConfig,
   type DatabasePairConfig,
 } from '../../src/database/index.js';
+import { testTerminalConfigUrl, testVenueConfigUrl } from './venueConfigPreload.js';
 
 export function createTestDatabasePairConfig(config: DatabaseConfig): DatabasePairConfig {
   const insideTemporaryRoot = [tmpdir(), '/tmp'].some((root) => {
@@ -70,6 +71,8 @@ export function createTestServerDatabaseOptions(config: DatabaseConfig) {
     config: createTestDatabasePairConfig(config),
     nowcastCacheRoot: join(`${config.databasePath}.test-cache`, 'nowcast'),
     kikikuruCacheRoot: join(`${config.databasePath}.test-cache`, 'kikikuru'),
+    venueConfigUrl: testVenueConfigUrl,
+    terminalConfigUrl: testTerminalConfigUrl,
   };
 }
 

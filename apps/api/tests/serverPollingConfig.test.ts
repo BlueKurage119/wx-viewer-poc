@@ -15,7 +15,7 @@ import { DEFAULT_CONFIG_URL, LOCAL_CONFIG_URL } from '../src/config/pollingSched
 import { createTestPollingSchedule } from './helpers/pollingSchedule.js';
 
 const originalRead = fs.readFileSync;
-const shared = originalRead(DEFAULT_CONFIG_URL, 'utf-8');
+const shared = originalRead(new URL('./fixtures/polling/schedule.yaml', import.meta.url), 'utf-8');
 
 async function readChildPollingLog(
   child: ChildProcess,
@@ -187,7 +187,7 @@ test('実プロセスの不正設定はDB生成と待受より前に失敗する
         import.meta.resolve('tsx'),
         '--import',
         new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
-        new URL('../src/server.ts', import.meta.url).pathname,
+        new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
       ],
       {
         cwd: directory,
@@ -232,7 +232,7 @@ test('実プロセスも同じ形式の成功ログを一度表示する', async
       import.meta.resolve('tsx'),
       '--import',
       new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
-      new URL('../src/server.ts', import.meta.url).pathname,
+      new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
     ],
     {
       cwd: directory,

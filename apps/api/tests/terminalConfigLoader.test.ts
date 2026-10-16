@@ -5,13 +5,14 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { loadVenueConfig } from '../src/config/venueConfigLoader.js';
+import { testTerminalConfigUrl, testVenueConfigUrl } from './helpers/venueConfigPreload.js';
 import {
   loadTerminalConfig,
   validateLocalTerminalConfig,
   validateTerminalConfig,
 } from '../src/config/terminalConfigLoader.js';
 
-const venueRegistry = loadVenueConfig({ environment: 'production' }).registry;
+const venueRegistry = loadVenueConfig({ baseUrl: testVenueConfigUrl }).registry;
 const base = 'terminals:\n  - id: h1\n    name: 端末H1\n    mode: H\n    venueId: east\n';
 function withFiles(
   baseContent: string,
@@ -30,8 +31,8 @@ function withFiles(
   }
 }
 
-test('共有 YAML は既存4端末を順序どおり読み込む', () => {
-  const loaded = loadTerminalConfig({ venueRegistry, environment: 'production' });
+test('fixture YAML は既存4端末を順序どおり読み込む', () => {
+  const loaded = loadTerminalConfig({ baseUrl: testTerminalConfigUrl, venueRegistry });
   assert.deepEqual(
     loaded.registry.listTerminals().map((terminal) => terminal.id),
     ['hkeagh01', 'kkeagh01', 'htrcph01', 'ktrcph01'],
@@ -154,7 +155,7 @@ test('読込不能と YAML 構文誤りは絶対パスや設定全文を出さ�
 
 test('端末設定 API は起動時レジストリの値を非キャッシュで返す', async () => {
   const { createApp } = await import('../src/app.js');
-  const loaded = loadTerminalConfig({ venueRegistry, environment: 'production' });
+  const loaded = loadTerminalConfig({ baseUrl: testTerminalConfigUrl, venueRegistry });
   const app = createApp({
     venueRegistry,
     terminalRegistry: loaded.registry,
