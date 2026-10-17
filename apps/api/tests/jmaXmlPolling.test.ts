@@ -62,6 +62,111 @@ function createTempDb(): { databasePath: string; cleanup: () => void } {
   };
 }
 
+// advanceTime が「発火したサイクルの完了」を待つときの、実時間の上限。
+// 失敗したときにハングさせないための保険であり、合否の判定には使わない。
+const MANUAL_TIMER_COMPLETION_TIMEOUT_MS = 5_000;
+
+class ManualTimerScheduler implements PollingTimerScheduler {
+  private currentTimeMs: number;
+  private nextTimerId = 1;
+  private timers = new Map<number, { callback: () => void; dueTimeMs: number }>();
+  private registrationCount = 0;
+  private isServiceRunning: (() => boolean) | null = null;
+
+  constructor(initialTimeMs = 0) {
+    this.currentTimeMs = initialTimeMs;
+  }
+
+  getCurrentTimeMs(): number {
+    return this.currentTimeMs;
+  }
+
+  setTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout> {
+    const id = this.nextTimerId++;
+    this.registrationCount += 1;
+    this.timers.set(id, {
+      callback,
+      dueTimeMs: this.currentTimeMs + ms,
+    });
+    return id as unknown as ReturnType<typeof setTimeout>;
+  }
+
+  clearTimeout(id: ReturnType<typeof setTimeout>): void {
+    this.timers.delete(Number(id));
+  }
+
+  /**
+   * 取得中に stop() された場合は次のタイマーが登録されないため、
+   * サービスの稼働状態を渡しておくと advanceTime がその時点で待ちを終える。
+   */
+  bindServiceRunningState(isRunning: () => boolean): void {
+    this.isServiceRunning = isRunning;
+  }
+
+  /**
+   * 期限の来たタイマーを時刻順に発火し、そのたびに「次のタイマーが登録される」まで待つ。
+   * サービスは runScheduledOrRetryCycle の finally でだけ次のタイマーを登録するため、
+   * 登録されたことは、発火したサイクルの取得・状態遷移・通知が終わったことを意味する。
+   */
+  async advanceTime(ms: number): Promise<void> {
+    const targetTimeMs = this.currentTimeMs + ms;
+    while (true) {
+      let earliestId: number | null = null;
+      let earliestDueTimeMs = Infinity;
+      for (const [id, timer] of this.timers.entries()) {
+        if (timer.dueTimeMs <= targetTimeMs && timer.dueTimeMs < earliestDueTimeMs) {
+          earliestDueTimeMs = timer.dueTimeMs;
+          earliestId = id;
+        }
+      }
+
+      if (earliestId === null) {
+        this.currentTimeMs = targetTimeMs;
+        break;
+      }
+
+      this.currentTimeMs = earliestDueTimeMs;
+      const timer = this.timers.get(earliestId)!;
+      this.timers.delete(earliestId);
+      const registrationCountBeforeFire = this.registrationCount;
+      timer.callback();
+      await this.waitForNextRegistration(registrationCountBeforeFire);
+      // 登録後の非同期キューを1回だけフラッシュする
+      await new Promise((r) => setImmediate(r));
+    }
+  }
+
+  // 制約:
+  // (a) bindServiceRunningState を使うと、本番の stop() は実行中のサイクルを待つ前に
+  //     isRunning=false にするため、待ちは取得が終わる前に抜ける。サイクルの途中で stop する
+  //     テストは、検証の前に await service.stop() で取得の完了を待つこと。
+  // (b) 1回のサイクル中に setScheduledIntervalSeconds や再 start() で scheduleNextCycle が
+  //     呼ばれると、その登録で待ちが抜ける。
+  // (c) 遅延0の再登録が続くと、advanceTime は同じ時刻で発火を繰り返す。
+  // (d) 根本的には、本番のタイマーコールバックがサイクルの Promise を返さないことに由来する。
+  //     これは #284 で扱う。
+  private async waitForNextRegistration(registrationCountBeforeFire: number): Promise<void> {
+    const deadline = Date.now() + MANUAL_TIMER_COMPLETION_TIMEOUT_MS;
+    while (this.registrationCount === registrationCountBeforeFire) {
+      if (this.isServiceRunning !== null && !this.isServiceRunning()) {
+        return;
+      }
+      if (Date.now() > deadline) {
+        throw new Error('advanceTime: 発火したサイクルが次のタイマーを登録しませんでした');
+      }
+      await new Promise((r) => setImmediate(r));
+    }
+  }
+
+  hasPendingTimers(): boolean {
+    return this.timers.size > 0;
+  }
+
+  pendingTimerCount(): number {
+    return this.timers.size;
+  }
+}
+
 interface TestHttpServer {
   readonly baseUrl: string;
   readonly port: number;
@@ -1085,15 +1190,18 @@ test('10. start() の複数呼出しがタイマーを増やさず、stop() 後�
       return fetch(input, init);
     };
 
+    const scheduler = new ManualTimerScheduler(new Date('2026-09-09T01:00:00.000Z').getTime());
     const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
-      intervalMs: 50, // テスト用に短縮
-      clock: () => '2026-09-09T01:00:00Z',
+      intervalMs: 60_000,
+      timerScheduler: scheduler,
+      clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
     });
+    scheduler.bindServiceRunningState(() => service.getStatus().isRunning);
 
     // 複数回 start() を呼ぶ
     const p1 = service.start();
@@ -1105,6 +1213,8 @@ test('10. start() の複数呼出しがタイマーを増やさず、stop() 後�
 
     // 初回実行完了を待つ
     await Promise.all([p1, p2, p3]);
+    // 複数回の start() でもタイマーは 1 件だけである
+    assert.equal(scheduler.pendingTimerCount(), 1);
 
     // stop() を呼ぶ
     await service.stop();
@@ -1114,8 +1224,9 @@ test('10. start() の複数呼出しがタイマーを増やさず、stop() 後�
 
     const regularCountsAtStop = server.requestCounts.get('/feed/regular.xml') ?? 0;
 
-    // stop() 後に追加サイクルが開始されないことを確認
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    // stop() 後はタイマーが残らず、時間を進めても追加サイクルが開始されないことを確認
+    assert.equal(scheduler.pendingTimerCount(), 0);
+    await scheduler.advanceTime(600_000);
     const regularCountsAfterWait = server.requestCounts.get('/feed/regular.xml') ?? 0;
 
     assert.equal(regularCountsAfterWait, regularCountsAtStop);
@@ -2478,16 +2589,18 @@ test('22-2. start() で regular, extra, regular_l, extra_l が各 1 回要求さ
       return fetch(input, init);
     };
 
-    let fakeNow = '2026-09-09T01:00:00.000Z';
+    const scheduler = new ManualTimerScheduler(new Date('2026-09-09T01:00:00.000Z').getTime());
     const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
-      intervalMs: 40,
-      clock: () => fakeNow,
+      intervalMs: 60_000,
+      timerScheduler: scheduler,
+      clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
     });
+    scheduler.bindServiceRunningState(() => service.getStatus().isRunning);
 
     assert.deepEqual(service.getStatus().initialFetch, {
       phase: 'not_started',
@@ -2521,16 +2634,20 @@ test('22-2. start() で regular, extra, regular_l, extra_l が各 1 回要求さ
     assert.deepEqual(statusAfter.initialFetch.result, initResult);
 
     // タイマーによる通常ポーリングの動作確認（高頻度 2 フィードのみ増える）
-    fakeNow = '2026-09-09T01:01:00.000Z';
-    await new Promise((resolve) => setTimeout(resolve, 250));
-
-    await service.stop();
-
-    // regular, extra は 2 回以上要求されたが、長期フィード regular_l, extra_l は 1 回のまま
-    assert.ok((server.requestCounts.get('/feed/regular.xml') ?? 0) >= 2);
-    assert.ok((server.requestCounts.get('/feed/extra.xml') ?? 0) >= 2);
+    await scheduler.advanceTime(60_000);
+    assert.equal(server.requestCounts.get('/feed/regular.xml'), 2);
+    assert.equal(server.requestCounts.get('/feed/extra.xml'), 2);
     assert.equal(server.requestCounts.get('/feed/regular_l.xml'), 1);
     assert.equal(server.requestCounts.get('/feed/extra_l.xml'), 1);
+
+    // さらに 1 周期進めても、長期フィード regular_l, extra_l は 1 回のまま
+    await scheduler.advanceTime(60_000);
+    assert.equal(server.requestCounts.get('/feed/regular.xml'), 3);
+    assert.equal(server.requestCounts.get('/feed/extra.xml'), 3);
+    assert.equal(server.requestCounts.get('/feed/regular_l.xml'), 1);
+    assert.equal(server.requestCounts.get('/feed/extra_l.xml'), 1);
+
+    await service.stop();
   } finally {
     await server.close();
     cleanup();
@@ -2540,14 +2657,21 @@ test('22-2. start() で regular, extra, regular_l, extra_l が各 1 回要求さ
 // -------------------------------------------------------------------------------------------------
 // 22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本すべて試行され、failed となり失敗フィードが完全一致で残る
 // -------------------------------------------------------------------------------------------------
-test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本すべて試行され、phase=failed, completed=false となり、通常ポーリング成功後も failed のままで長期自動再試行はない', async () => {
+const FEED_URLS_22_3 = [
+  '/feed/regular.xml',
+  '/feed/extra.xml',
+  '/feed/regular_l.xml',
+  '/feed/extra_l.xml',
+];
+
+test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本すべて試行され、phase=failed, completed=false となり、失敗したフィードだけが60秒後のバックオフで再試行され、再試行が失敗する間は phase が failed のままである', async () => {
   const failurePatterns: Array<{
     name: string;
     failKind: 'regular' | 'extra' | 'regular_l' | 'extra_l';
     failUrl: string;
   }> = [
     { name: '先頭 regular 失敗', failKind: 'regular', failUrl: '/feed/regular.xml' },
-    { name: '中間 extra_l 失敗', failKind: 'regular_l', failUrl: '/feed/regular_l.xml' },
+    { name: '中間 regular_l 失敗', failKind: 'regular_l', failUrl: '/feed/regular_l.xml' },
     { name: '末尾 extra_l 失敗', failKind: 'extra_l', failUrl: '/feed/extra_l.xml' },
   ];
 
@@ -2598,15 +2722,18 @@ test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本す�
         return fetch(input, init);
       };
 
+      const scheduler = new ManualTimerScheduler(new Date('2026-09-09T01:00:00.000Z').getTime());
       const service = new JmaXmlPollingService(db.weather.connection, {
         venueRegistry: testVenueRegistry,
         freshnessPolicy: defaultXmlFreshnessPolicy,
         fetchFn: customFetch,
         allowedUrlPrefixes: [server.baseUrl],
         allowHttpForTesting: true,
-        intervalMs: 40,
-        clock: () => '2026-09-09T01:00:00.000Z',
+        intervalMs: 60_000,
+        timerScheduler: scheduler,
+        clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
       });
+      scheduler.bindServiceRunningState(() => service.getStatus().isRunning);
 
       const initResult = await service.start();
       assert.equal(initResult.completed, false, `${pattern.name}: completed は false`);
@@ -2630,19 +2757,36 @@ test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本す�
       );
       assert.ok(failAttempt, `${pattern.name}: fetch_attempt に失敗が記録される`);
 
-      // 通常タイマーを動かして scheduled が走っても初期状態は failed のまま
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      // 失敗フィードの再試行待ち（60 秒）の手前では、何も発火しない
+      assert.equal(scheduler.pendingTimerCount(), 1, `${pattern.name}: 再試行タイマーが登録済み`);
+      await scheduler.advanceTime(59_999);
+      assert.equal(service.getStatus().initialFetch.phase, 'failed');
+      for (const url of FEED_URLS_22_3) {
+        assert.equal(
+          server.requestCounts.get(url),
+          1,
+          `${pattern.name}: 待ち時間内は ${url} が 1 回`,
+        );
+      }
+
+      // 再試行が発火しても失敗が続く間は failed のまま。再試行対象は失敗フィードだけ
+      await scheduler.advanceTime(1);
       await service.stop();
 
       const statusAfterScheduled = service.getStatus();
       assert.equal(
         statusAfterScheduled.initialFetch.phase,
         'failed',
-        `${pattern.name}: 通常取得後も failed のまま`,
+        `${pattern.name}: 再試行が失敗する間は failed のまま`,
       );
-      // 長期フィードの自動再試行は発生せず各 1 回のまま
-      assert.equal(server.requestCounts.get('/feed/regular_l.xml'), 1);
-      assert.equal(server.requestCounts.get('/feed/extra_l.xml'), 1);
+      // 再試行されたのは失敗フィードだけ（2 回）で、成功済みフィードは各 1 回のまま
+      for (const url of FEED_URLS_22_3) {
+        assert.equal(
+          server.requestCounts.get(url),
+          url === pattern.failUrl ? 2 : 1,
+          `${pattern.name}: ${url} の要求回数`,
+        );
+      }
     } finally {
       await server.close();
       cleanup();
@@ -2862,15 +3006,18 @@ test('22-6. 同時複数 start() で 4 フィードは各 1 回のみ要求さ�
       return fetch(input, init);
     };
 
+    const scheduler = new ManualTimerScheduler(new Date('2026-09-09T01:00:00.000Z').getTime());
     const service = new JmaXmlPollingService(db.weather.connection, {
       venueRegistry: testVenueRegistry,
       freshnessPolicy: defaultXmlFreshnessPolicy,
       fetchFn: customFetch,
       allowedUrlPrefixes: [server.baseUrl],
       allowHttpForTesting: true,
-      intervalMs: 40,
-      clock: () => '2026-09-09T01:00:00.000Z',
+      intervalMs: 60_000,
+      timerScheduler: scheduler,
+      clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
     });
+    scheduler.bindServiceRunningState(() => service.getStatus().isRunning);
 
     // 1. 同時 3 回 start()
     const [r1, r2, r3] = await Promise.all([service.start(), service.start(), service.start()]);
@@ -2899,11 +3046,11 @@ test('22-6. 同時複数 start() で 4 フィードは各 1 回のみ要求さ�
     assert.equal(server.requestCounts.get('/feed/extra_l.xml'), 1);
 
     // タイマーにより通常ポーリング（高頻度）だけが再開される
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await scheduler.advanceTime(60_000);
     await service.stop();
 
-    assert.ok((server.requestCounts.get('/feed/regular.xml') ?? 0) >= 2);
-    assert.ok((server.requestCounts.get('/feed/extra.xml') ?? 0) >= 2);
+    assert.equal(server.requestCounts.get('/feed/regular.xml'), 2);
+    assert.equal(server.requestCounts.get('/feed/extra.xml'), 2);
     assert.equal(server.requestCounts.get('/feed/regular_l.xml'), 1);
     assert.equal(server.requestCounts.get('/feed/extra_l.xml'), 1);
   } finally {
@@ -3353,64 +3500,6 @@ test('22-10. 保存済み履歴の C3 再構成後に初期サイクルが未受
 // Issue #23: 指数バックオフ・再試行処理 (C13)
 // =================================================================================================
 
-class ManualTimerScheduler implements PollingTimerScheduler {
-  private currentTimeMs: number;
-  private nextTimerId = 1;
-  private timers = new Map<number, { callback: () => void; dueTimeMs: number }>();
-
-  constructor(initialTimeMs = 0) {
-    this.currentTimeMs = initialTimeMs;
-  }
-
-  getCurrentTimeMs(): number {
-    return this.currentTimeMs;
-  }
-
-  setTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout> {
-    const id = this.nextTimerId++;
-    this.timers.set(id, {
-      callback,
-      dueTimeMs: this.currentTimeMs + ms,
-    });
-    return id as unknown as ReturnType<typeof setTimeout>;
-  }
-
-  clearTimeout(id: ReturnType<typeof setTimeout>): void {
-    this.timers.delete(Number(id));
-  }
-
-  async advanceTime(ms: number): Promise<void> {
-    const targetTimeMs = this.currentTimeMs + ms;
-    while (true) {
-      let earliestId: number | null = null;
-      let earliestDueTimeMs = Infinity;
-      for (const [id, timer] of this.timers.entries()) {
-        if (timer.dueTimeMs <= targetTimeMs && timer.dueTimeMs < earliestDueTimeMs) {
-          earliestDueTimeMs = timer.dueTimeMs;
-          earliestId = id;
-        }
-      }
-
-      if (earliestId === null) {
-        this.currentTimeMs = targetTimeMs;
-        break;
-      }
-
-      this.currentTimeMs = earliestDueTimeMs;
-      const timer = this.timers.get(earliestId)!;
-      this.timers.delete(earliestId);
-      timer.callback();
-      // 非同期キューのフラッシュ
-      await new Promise((r) => setImmediate(r));
-      await new Promise((r) => setTimeout(r, 20));
-    }
-  }
-
-  hasPendingTimers(): boolean {
-    return this.timers.size > 0;
-  }
-}
-
 test('初期取得完了 listener が失敗した場合、completed を維持したまま次周期で再試行する', async () => {
   const { databasePath, cleanup } = createTempDb();
   const db = initializeTestDatabases({ databasePath, migrationsDirectory });
@@ -3744,16 +3833,12 @@ test('23-3b. 再試行時刻が通常周期より早い場合、失敗してい�
     assert.equal(initial.completed, true);
     regularStatus = 503;
 
+    // advanceTime は発火したサイクルの完了（次のタイマーの登録）まで待つ
     await scheduler.advanceTime(300_000);
-    // 並列テストの実行負荷に依存せず、発火したサイクルの全フィード完了を待つ。
-    await (service as unknown as { inFlightPollPromise: Promise<unknown> | null })
-      .inFlightPollPromise;
     assert.equal(server.requestCounts.get('/feed/regular.xml'), 2);
     assert.equal(server.requestCounts.get('/feed/extra.xml'), 2);
 
     await scheduler.advanceTime(60_000);
-    await (service as unknown as { inFlightPollPromise: Promise<unknown> | null })
-      .inFlightPollPromise;
     assert.equal(server.requestCounts.get('/feed/regular.xml'), 3);
     assert.equal(server.requestCounts.get('/feed/extra.xml'), 2);
 
