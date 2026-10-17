@@ -3,12 +3,17 @@ title: 外部レビューへの向き合い方
 description: トリアージ・再レビューの考え方、起動条件、独立レビュー(AGY・/code-review)の依頼文雛形・補い方・試行実績、AGY運用の癖
 phases: [検収]
 products: [Claude, Codex, Antigravity]
-notes: 「AGY運用の癖」はAntigravity CLI(agy)固有の内容。独立レビューのゲートと権限は業務標準08が正本で、ここは権限・合否を変えない。
+notes: 「AGY運用の癖」はAntigravity CLI(agy)固有、「/code-reviewで補う条件」はClaude Codeのハーネス独自スキルに依存する内容。独立レビューのゲートと権限は業務標準08が正本で、ここは権限・合否を変えない。
 ---
 
 # 外部レビューへの向き合い方
 
-対象: 統括担当。担当・権限の必須規定は[01-dev-workflow-protocol.md](../01-dev-workflow-protocol.md)の「外部レビュー対応の権限」と、[08-independent-review-protocol.md](../08-independent-review-protocol.md)(独立レビューのゲート・レビュー担当の権限境界・指摘の真偽判定)を参照。
+- 対象: 統括担当
+- 関連する業務標準:
+  - 外部レビュー対応の権限は[01-dev-workflow-protocol.md](../01-dev-workflow-protocol.md)の「外部レビュー対応の権限」
+  - 独立レビューのゲート・レビュー担当の権限境界・指摘の真偽判定は[08-independent-review-protocol.md](../08-independent-review-protocol.md)
+- 参照すべき関連指導文書:
+  - 委託先の成果物の検証は[G-04-verification-basics.md](G-04-verification-basics.md)
 
 ## トリアージと再レビュー
 
@@ -53,6 +58,8 @@ notes: 「AGY運用の癖」はAntigravity CLI(agy)固有の内容。独立レ�
 5. 報告に含める: 読んだファイルと確認した呼び出し元の一覧、指摘ごとのファイル・行番号・根拠・影響。
 
 ## `/code-review`で補う条件
+
+`/code-review`は、Claude Codeのハーネス独自のスキルである(Codex・Antigravityでは使えない)。Claude Code以外が統括担当のときの補い方は、未検証である。
 
 - 時刻や状態をまたぐ処理が差分に含まれる。
 - テストの検証力の低下(アサーションの弱まり、実読込から文字列比較への置換など)が論点である。

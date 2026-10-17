@@ -7,11 +7,16 @@ products: [Claude, Codex, Antigravity]
 
 # 独立レビュー業務標準
 
-対象: 統括担当、および独立レビューを担当する者(AGY・`/code-review`・Codex自動PRレビュー等)。起動方法・依頼文・モデルの選び方・実績は[G-03-external-review.md](advisory/G-03-external-review.md)を参照。指摘を受けたあとのトリアージ権限は[01-dev-workflow-protocol.md](01-dev-workflow-protocol.md)の「外部レビュー対応の権限」による。
+- 対象: 統括担当、および独立レビューを担当する者(AGY・`/code-review`・Codex自動PRレビュー等)
+- 関連する業務標準: 指摘を受けたあとのトリアージ権限は[01-dev-workflow-protocol.md](01-dev-workflow-protocol.md)の「外部レビュー対応の権限」
+- 参照すべき関連指導文書:
+  - 起動方法・依頼文の雛形・モデルの選び方・試行実績・AGY運用の癖は[G-03-external-review.md](advisory/G-03-external-review.md)
 
 ## 用語
 
 **独立レビュー**とは、当該PRの設計・製造・検収と文脈(会話履歴、担当者の自己報告、設計時の判断の経緯)を共有しない担当が、PRの差分を読んで行うコードレビューをいう。統括担当自身によるレビューは独立レビューに数えない。
+
+**`/code-review`**は、Claude Codeのハーネス独自のスキルである。Claude Code以外の製品(Codex・Antigravity)では使えない。AGYおよびCodex自動PRレビューは、この製品依存を持たない。
 
 ## 1. ゲート(必須)
 
