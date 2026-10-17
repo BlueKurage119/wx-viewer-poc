@@ -144,7 +144,7 @@ class ManualTimerScheduler implements PollingTimerScheduler {
   //     呼ばれると、その登録で待ちが抜ける。
   // (c) 遅延0の再登録が続くと、advanceTime は同じ時刻で発火を繰り返す。
   // (d) 根本的には、本番のタイマーコールバックがサイクルの Promise を返さないことに由来する。
-  //     これは別Issueで扱う。
+  //     これは #284 で扱う。
   private async waitForNextRegistration(registrationCountBeforeFire: number): Promise<void> {
     const deadline = Date.now() + MANUAL_TIMER_COMPLETION_TIMEOUT_MS;
     while (this.registrationCount === registrationCountBeforeFire) {
