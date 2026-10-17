@@ -1,9 +1,15 @@
+import './b18DelayPreload.js';
 import { startWorkerServer } from '../../src/runtime/startWorkerServer.js';
 import {
   testPollingConfigUrl,
   testTerminalConfigUrl,
   testVenueConfigUrl,
 } from './venueConfigPreload.js';
+
+const injectDelays = (process.env.WX_TEST_INJECT_DELAY ?? '').split(',').map((s) => s.trim());
+if (injectDelays.includes('b18-start')) {
+  await new Promise((resolve) => setTimeout(resolve, 45_000));
+}
 
 // src/server.ts 末尾の本番エントリ相当。会場・端末設定だけテスト用fixtureを明示注入する。
 void startWorkerServer({
@@ -19,5 +25,5 @@ void startWorkerServer({
   })
   .catch((error: unknown) => {
     console.error(error);
-    process.exitCode = 1;
+    process.exit(1);
   });
