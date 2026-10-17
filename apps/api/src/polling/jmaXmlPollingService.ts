@@ -48,7 +48,7 @@ export interface JmaXmlPollingStatus {
 }
 
 export interface PollingTimerScheduler {
-  setTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout>;
+  setTimeout(callback: () => void | Promise<void>, ms: number): ReturnType<typeof setTimeout>;
   clearTimeout(id: ReturnType<typeof setTimeout>): void;
 }
 
@@ -660,7 +660,7 @@ export class JmaXmlPollingService {
       if (!this.isRunning) {
         return;
       }
-      void this.runScheduledOrRetryCycle();
+      return this.runScheduledOrRetryCycle();
     }, delayMs);
   }
 

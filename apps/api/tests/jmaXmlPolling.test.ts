@@ -62,16 +62,12 @@ function createTempDb(): { databasePath: string; cleanup: () => void } {
   };
 }
 
-// advanceTime が「発火したサイクルの完了」を待つときの、実時間の上限。
-// 失敗したときにハングさせないための保険であり、合否の判定には使わない。
-const MANUAL_TIMER_COMPLETION_TIMEOUT_MS = 5_000;
+const MAX_SAME_TIME_FIRES = 100;
 
 class ManualTimerScheduler implements PollingTimerScheduler {
   private currentTimeMs: number;
   private nextTimerId = 1;
-  private timers = new Map<number, { callback: () => void; dueTimeMs: number }>();
-  private registrationCount = 0;
-  private isServiceRunning: (() => boolean) | null = null;
+  private timers = new Map<number, { callback: () => void | Promise<void>; dueTimeMs: number }>();
 
   constructor(initialTimeMs = 0) {
     this.currentTimeMs = initialTimeMs;
@@ -81,9 +77,8 @@ class ManualTimerScheduler implements PollingTimerScheduler {
     return this.currentTimeMs;
   }
 
-  setTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout> {
+  setTimeout(callback: () => void | Promise<void>, ms: number): ReturnType<typeof setTimeout> {
     const id = this.nextTimerId++;
-    this.registrationCount += 1;
     this.timers.set(id, {
       callback,
       dueTimeMs: this.currentTimeMs + ms,
@@ -96,20 +91,13 @@ class ManualTimerScheduler implements PollingTimerScheduler {
   }
 
   /**
-   * 取得中に stop() された場合は次のタイマーが登録されないため、
-   * サービスの稼働状態を渡しておくと advanceTime がその時点で待ちを終える。
-   */
-  bindServiceRunningState(isRunning: () => boolean): void {
-    this.isServiceRunning = isRunning;
-  }
-
-  /**
-   * 期限の来たタイマーを時刻順に発火し、そのたびに「次のタイマーが登録される」まで待つ。
-   * サービスは runScheduledOrRetryCycle の finally でだけ次のタイマーを登録するため、
-   * 登録されたことは、発火したサイクルの取得・状態遷移・通知が終わったことを意味する。
+   * 期限の来たタイマーを時刻順に発火し、コールバックの完了(Promise)を直接待つ。
    */
   async advanceTime(ms: number): Promise<void> {
     const targetTimeMs = this.currentTimeMs + ms;
+    let lastFiredDueTimeMs: number | null = null;
+    let sameTimeFireCount = 0;
+
     while (true) {
       let earliestId: number | null = null;
       let earliestDueTimeMs = Infinity;
@@ -125,38 +113,28 @@ class ManualTimerScheduler implements PollingTimerScheduler {
         break;
       }
 
+      if (lastFiredDueTimeMs === earliestDueTimeMs) {
+        sameTimeFireCount += 1;
+        if (sameTimeFireCount > MAX_SAME_TIME_FIRES) {
+          throw new Error('advanceTime: 同じ時刻での発火が上限を超えました');
+        }
+      } else {
+        lastFiredDueTimeMs = earliestDueTimeMs;
+        sameTimeFireCount = 1;
+      }
+
       this.currentTimeMs = earliestDueTimeMs;
       const timer = this.timers.get(earliestId)!;
       this.timers.delete(earliestId);
-      const registrationCountBeforeFire = this.registrationCount;
-      timer.callback();
-      await this.waitForNextRegistration(registrationCountBeforeFire);
-      // 登録後の非同期キューを1回だけフラッシュする
-      await new Promise((r) => setImmediate(r));
+      await timer.callback();
     }
   }
 
   // 制約:
-  // (a) bindServiceRunningState を使うと、本番の stop() は実行中のサイクルを待つ前に
-  //     isRunning=false にするため、待ちは取得が終わる前に抜ける。サイクルの途中で stop する
-  //     テストは、検証の前に await service.stop() で取得の完了を待つこと。
-  // (b) 1回のサイクル中に setScheduledIntervalSeconds や再 start() で scheduleNextCycle が
-  //     呼ばれると、その登録で待ちが抜ける。
-  // (c) 遅延0の再登録が続くと、advanceTime は同じ時刻で発火を繰り返す。
-  // (d) 根本的には、本番のタイマーコールバックがサイクルの Promise を返さないことに由来する。
-  //     これは #284 で扱う。
-  private async waitForNextRegistration(registrationCountBeforeFire: number): Promise<void> {
-    const deadline = Date.now() + MANUAL_TIMER_COMPLETION_TIMEOUT_MS;
-    while (this.registrationCount === registrationCountBeforeFire) {
-      if (this.isServiceRunning !== null && !this.isServiceRunning()) {
-        return;
-      }
-      if (Date.now() > deadline) {
-        throw new Error('advanceTime: 発火したサイクルが次のタイマーを登録しませんでした');
-      }
-      await new Promise((r) => setImmediate(r));
-    }
-  }
+  // (a) 完了はコールバックの Promise で直接待つ。サイクル途中で stop() しても、advanceTime は発火したサイクルの完了まで待つ。
+  // (b) サイクル中に setScheduledIntervalSeconds や再 start() で登録されたタイマーは、期限が来ていれば同じ advanceTime 内で後続として発火する(待ちを早く抜けない)。
+  // (c) 遅延0の再登録が続いた場合は回数上限で失敗させる。本番では連続しない(本書5章)。
+  // (d) #284 で、本番コールバックがサイクルの Promise を返すよう変更済み。
 
   hasPendingTimers(): boolean {
     return this.timers.size > 0;
@@ -1201,7 +1179,6 @@ test('10. start() の複数呼出しがタイマーを増やさず、stop() 後�
       timerScheduler: scheduler,
       clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
     });
-    scheduler.bindServiceRunningState(() => service.getStatus().isRunning);
 
     // 複数回 start() を呼ぶ
     const p1 = service.start();
@@ -2600,7 +2577,6 @@ test('22-2. start() で regular, extra, regular_l, extra_l が各 1 回要求さ
       timerScheduler: scheduler,
       clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
     });
-    scheduler.bindServiceRunningState(() => service.getStatus().isRunning);
 
     assert.deepEqual(service.getStatus().initialFetch, {
       phase: 'not_started',
@@ -2733,7 +2709,6 @@ test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本す�
         timerScheduler: scheduler,
         clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
       });
-      scheduler.bindServiceRunningState(() => service.getStatus().isRunning);
 
       const initResult = await service.start();
       assert.equal(initResult.completed, false, `${pattern.name}: completed は false`);
@@ -3017,7 +2992,6 @@ test('22-6. 同時複数 start() で 4 フィードは各 1 回のみ要求さ�
       timerScheduler: scheduler,
       clock: () => new Date(scheduler.getCurrentTimeMs()).toISOString(),
     });
-    scheduler.bindServiceRunningState(() => service.getStatus().isRunning);
 
     // 1. 同時 3 回 start()
     const [r1, r2, r3] = await Promise.all([service.start(), service.start(), service.start()]);
