@@ -139,4 +139,5 @@ Co-Authored-By: Codex (GPT 5.6 Terra) <noreply@openai.com>
 - 外部レビューの指摘は、統括担当がトリアージ(要対応・先送り・無視)してからユーザーへ提示する。
 - レビューへの回答・解決済みマークは統括担当が行う。
 - 統括担当は、再レビューの要否を判断し、外部レビューへの対応完了報告とともに提案すること。ただし、明確な指示なく自ら再レビュー要求を行ってはならない。
+- マージ提案前の独立レビューのゲート・レビュー担当の権限境界は[08-independent-review-protocol.md](08-independent-review-protocol.md)による。
 - 判断の背景と運用例は[G-03-external-review.md](advisory/G-03-external-review.md)を参照。

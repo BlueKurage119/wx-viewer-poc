@@ -38,6 +38,7 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
 - [05-verification-protocol.md](05-verification-protocol.md) — テスト追加時・検証時に必須の手順順序(red確認→対照実験)とアサーションの原則(発見の分類義務は[04-inspect-protocol.md](04-inspect-protocol.md)を参照)
 - [06-ui-md3-protocol.md](06-ui-md3-protocol.md) — apps/webで必ず守る技術制約(sideEffects・パッケージ固定・生タグ禁止・localStorageキー同期)
 - [07-wx-data-protocol.md](07-wx-data-protocol.md) — 気象庁XML電文の確定/未確定の扱い、isTrainingの伝播範囲、availability 3状態の縮退禁止
+- [08-independent-review-protocol.md](08-independent-review-protocol.md) — マージ提案前の独立レビュー1本以上のゲートと省略条件、レビュー担当の読み取り専用の権限境界、指摘の真偽判定の義務
 
 各ファイルの「必須事項」は上から順に実行できる構成にしてある。手法の詳細・具体例は該当する[docs/rules/advisory/](advisory/README.md)のファイルにリンクする。
 
