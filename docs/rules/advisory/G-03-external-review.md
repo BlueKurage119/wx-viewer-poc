@@ -59,7 +59,10 @@ notes: 「AGY運用の癖」はAntigravity CLI(agy)固有、「/code-reviewで�
 
 ## `/code-review`で補う条件
 
-`/code-review`は、Claude Codeのハーネス独自のスキルである(Codex・Antigravityでは使えない)。Claude Code以外が統括担当のときの補い方は、未検証である。
+`/code-review`は、Claude Codeのハーネス独自のスキルである(Codex・Antigravityでは使えない)。Claude Code以外が統括担当のときに同等のレビューを使う方法として、次が考えられる(いずれも未検証)。
+
+- Claude Code公式リポジトリの[code-reviewプラグイン](https://github.com/anthropics/claude-code/tree/c017428c8c27e604840435048d5bce6a9a22c040/plugins/code-review)を参照し、その手順を自分の環境で再現する。
+- `claude`コマンドを非対話で起動し、レビューさせる。この場合も、独立レビューの権限境界(読むだけ、PRへの投稿は統括担当)は[08-independent-review-protocol.md](../08-independent-review-protocol.md)による。
 
 - 時刻や状態をまたぐ処理が差分に含まれる。
 - テストの検証力の低下(アサーションの弱まり、実読込から文字列比較への置換など)が論点である。
