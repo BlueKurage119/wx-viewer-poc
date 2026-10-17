@@ -26,7 +26,7 @@ CLAUDE.md・AGENTS.md（権限と責任: 絶対禁止事項、役割と担当の
 
 - [G-01-hearing-first-design.md](G-01-hearing-first-design.md) — ヒアリング前提の設計になっている理由、設計書の書式の手本(ヒアリング・設計)
 - [G-02-dev-server-etiquette.md](G-02-dev-server-etiquette.md) — devサーバー作法の背景、APIが応答しない・データが出ないときの確認(製造・検収)
-- [G-03-external-review.md](G-03-external-review.md) — 外部レビューのトリアージ・起動条件・活用実績(検収)
+- [G-03-external-review.md](G-03-external-review.md) — 外部レビューのトリアージ・起動条件・活用実績、独立レビュー(AGY・/code-review)の依頼文雛形・補い方・試行実績・AGY運用の癖(検収)
 - [G-04-verification-basics.md](G-04-verification-basics.md) — 検証の基本原則(実物確認・実測・反復テストの絞り込み)(設計・製造・検収)
 - [G-05-test-effectiveness-verification.md](G-05-test-effectiveness-verification.md) — 対照実験がなぜ必要か、ミューテーションテストの限界(製造・検収)
 - [G-06-regression-test-pitfalls.md](G-06-regression-test-pitfalls.md) — 循環アサーション、回帰テストが逆向きに固定してしまう罠(製造・検収)
