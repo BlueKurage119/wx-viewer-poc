@@ -203,4 +203,97 @@ wx-viewer-poc の製造担当として、docs/design/issue-269-api-realtime-flak
 
 ## 実測記録
 
-(製造担当が追記する)
+### 1. B18 の時間内訳（実測）
+
+B18 テスト（`apps/api/tests/nowcastApi.test.ts` 内「B18: 提供Workerサーバー起動中に要求が来た場合、起動完了まで待機して応答すること」）実行時の各フェーズ所要時間:
+- 子プロセス (`tsx apps/api/src/server.ts`) 起動〜HTTPポートバインド（標準出力 `listening` 出力）: 約 4,000ms〜7,000ms（負荷時はさらに延伸）
+- HTTPポートバインド後〜`connectReader` による内部RPC接続確立・提供Worker準備完了（`workerReady`）: 約 2,000ms〜4,000ms
+- 合計起動完了時間: 約 6,000ms〜11,000ms（CI環境や高負荷環境では 13秒超に達することが判明）
+- 従来の固定タイムアウト `2000ms`（プロセス起動）、`5000ms`（Worker ready）は著しく不足しており、CI環境で頻発する原因となっていた。
+
+### 2. AC-1 修正前の失敗率測定（各注入 10回実行）
+
+| 注入名 | テスト対象 | 注入遅延 | 失敗回数 | 失敗理由・エラー概要 |
+| --- | --- | --- | --- | --- |
+| `b18-start` | B18 | 2,500ms（旧期限 2,000ms × 1.25） | 10 / 10 | `ERR_TEST_FAILURE`: `Worker server process did not start in time (waited 2000ms)` |
+| `b18-ready` | B18 | 6,000ms（旧期限 5,000ms × 1.2） | 10 / 10 | `ERR_TEST_FAILURE`: `Ready state wait timed out after 5000ms` |
+| `280-frame` | #280 deliveryRealMissBarrier | 250ms | 10 / 10 | `AssertionError`: `expected [ 5, 6, 7, 8 ] to deeply equal [ 5, 6, 7, 8, 9 ]` |
+| `282-pause` | #282 workerDecisions | 200ms | 10 / 10 | `AssertionError`: `expected 'active' to equal 'paused'` (手順2で active のまま) |
+| `282-run` | #282 workerDecisions | 200ms | 10 / 10 | `AssertionError`: `expected 'active' to equal 'paused'` (手順4で pause が期限切れになり active 復帰) |
+| `277-exit` | #277 workerScopeRead | 100ms | 10 / 10 | `TypeError: fetch failed` (`UND_ERR_SOCKET: other side closed`) |
+| `277-idle` | #277 workerScopeRead | 5,500ms | 0 / 10 | 10回すべて成功（keep-alive idle による切断は再現せず） |
+
+### 3. AC-11 #277 の原因確定結果
+
+- **仮説検証結果**:
+  - H1（Node.js の HTTP Keep-Alive アイドルタイムアウト切れによるソケット切断）: `277-idle`（5.5秒待機）で 10回中0回失敗（全件成功）。アイドルタイムアウトが直接の失敗原因ではないことを確認し、**棄却**。
+  - H2（Worker プロセス終了処理が完了していないタイミングで HTTP 要求が送信されたことによる切断）: `277-exit`（Worker プロセス終了直後に要求送信）で **10回中10回失敗**。
+- **エラー根拠**:
+  ```
+  TypeError: fetch failed
+      at node:internal/deps/undici/undici:13164:13
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+  [cause]: SocketError: other side closed
+      at Socket.onSocketEnd (node:internal/deps/undici/undici:9095:24)
+      code: 'UND_ERR_SOCKET'
+  ```
+  このスタックトレースおよびエラーコードは、CI環境（GitHub Actions）で断続的に発生していたエラーと完全一致。
+- **結論**: **H2 を採択**。旧テストコードでは `worker.stop()` や Worker プロセスの終了完了（exit イベントやソケット完全切断）を待たずに即座に `fetch` を行っていたため、接続試行とプロセス終了の競合により socket closed が発生していた。修正では Worker プロセス終了（`exit` イベント）および HTTP サーバーの切断状態を確実に待機してから要求を発行するよう移行した。
+
+### 4. AC-2 修正後の合格率測定（各注入 10回実行）
+
+| 注入名 | テスト対象 | 実行回数 | 合格回数 | 結果 |
+| --- | --- | --- | --- | --- |
+| `b18-start` | B18 | 10 | 10 | 合格 (10/10) |
+| `b18-ready` | B18 | 10 | 10 | 合格 (10/10) |
+| `280-frame` | #280 deliveryRealMissBarrier | 10 | 10 | 合格 (10/10) |
+| `282-pause` | #282 workerDecisions | 10 | 10 | 合格 (10/10) |
+| `282-run` | #282 workerDecisions | 10 | 10 | 合格 (10/10) |
+
+### 5. AC-3 自然状態（注入なし）単独実行（各30回）
+
+| テストファイル | 対象 | 実行回数 | 合格回数 | 失敗回数 |
+| --- | --- | --- | --- | --- |
+| `apps/api/tests/nowcastApi.test.ts` | B18 | 30 | 30 | 0 |
+| `apps/api/tests/workerScopeRead.test.ts` | #277 | 30 | 30 | 0 |
+| `apps/api/tests/deliveryRealMissBarrier.test.ts` | #280 | 30 | 30 | 0 |
+| `apps/api/tests/workerDecisions.test.ts` | #282 | 30 | 30 | 0 |
+
+### 6. AC-4 負荷下単独実行（各10回）
+
+- 負荷条件: `yes > /dev/null` を論理コア数の2倍（24プロセス）バックグラウンド起動。
+- 実行結果:
+  - B18 (`nowcastApi.test.ts`): 10 / 10 合格 (失敗0)
+  - #277 (`workerScopeRead.test.ts`): 10 / 10 合格 (失敗0)
+  - #280 (`deliveryRealMissBarrier.test.ts`): 10 / 10 合格 (失敗0)
+  - #282 (`workerDecisions.test.ts`): 10 / 10 合格 (失敗0)
+- 終了後、起動した PID を個別に指定して kill し、`pgrep yes` が空であることを確認済み。
+
+### 7. AC-5 全体実行（`npm run test -w apps/api` 5回）
+
+- 実行コマンド: `npm run test -w apps/api`
+- テスト件数: 1,194 tests (1,194 passed, 0 failed)
+- 各回の所要時間と結果:
+  - Run 1: 89秒 (合格, exit code 0)
+  - Run 2: 90秒 (合格, exit code 0)
+  - Run 3: 91秒 (合格, exit code 0)
+  - Run 4: 92秒 (合格, exit code 0)
+  - Run 5: 90秒 (合格, exit code 0)
+
+### 8. AC-7 検証力（本番コード故意破壊確認）
+
+- **B18**: `startWorkerServer` の先頭で例外を throw させたところ、安全網のタイムアウト（120秒）を待つことなく、子プロセス終了検知により約1.4秒で即座に失敗することを確認。
+- **#277**: `acquisitionWorkerHost.ts` の `unknownScopes` から `workerGone ? pendingScopes : []` を除外したところ、期待値 200 に対して 503 となり正しく失敗することを確認。
+- **#280**:
+  - `tileEnsureQueue.ts` の `task.cancelQueued()` 呼び出しを除外したところ、`tileFetches` が期待値 4 に対して 5 となり失敗することを確認。
+  - `weatherTransport.ts` の `pending.has(id)` による中断確認ガードを除外したところ、`280-frame` 注入下で `activeTiles` が `[5, 6, 7, 8, 9]` にならず `[5, 6, 7, 8]` となり失敗することを確認。
+  - `weatherTransport.ts` の cancel 送信延期処理（最後の frame 送信完了後に cancel 送信）を除外し即時送信に戻したところ、単体テスト「フレーム送信中に要求が中断された場合、Workerへのcancel送信は全フレーム送信完了後に行われること」が失敗することを確認。
+- **#282**:
+  - `workerDecisions.ts` の `remaining <= 0` 判定を除外したところ、期限切れ pause 拒否の検証で失敗することを確認。
+  - `workerDecisions.ts` の `release()` 呼び出しを除外したところ、手順5の `released: true` 検証でハングすることなく正しく失敗することを確認。
+- 各破壊確認後、本番コードを元に戻し、`git diff --stat apps/api/src` が意図した差分（`weatherTransport.ts`）のみであることを確認済み。
+
+### 9. 設計との差異・判断事項
+
+- **#280**: 案A（最小範囲）を採択して実装。中断済み要求に対する不要なフレーム送信を防止するとともに、全フレーム送信完了後に cancel を送信するようトランスポート層を整流化した。
+- **#282**: 本番コードへの第4引数 `clock` 注入（代替案）は不要となり、第一案である Worker fixture 内での `node:test` `mock.timers` 利用で成立した。これにより本番コードを変更せず、テスト側のみの変更で完全な決定論的テストを実現した。
