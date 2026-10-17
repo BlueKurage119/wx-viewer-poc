@@ -136,6 +136,15 @@ class ManualTimerScheduler implements PollingTimerScheduler {
     }
   }
 
+  // 制約:
+  // (a) bindServiceRunningState を使うと、本番の stop() は実行中のサイクルを待つ前に
+  //     isRunning=false にするため、待ちは取得が終わる前に抜ける。サイクルの途中で stop する
+  //     テストは、検証の前に await service.stop() で取得の完了を待つこと。
+  // (b) 1回のサイクル中に setScheduledIntervalSeconds や再 start() で scheduleNextCycle が
+  //     呼ばれると、その登録で待ちが抜ける。
+  // (c) 遅延0の再登録が続くと、advanceTime は同じ時刻で発火を繰り返す。
+  // (d) 根本的には、本番のタイマーコールバックがサイクルの Promise を返さないことに由来する。
+  //     これは別Issueで扱う。
   private async waitForNextRegistration(registrationCountBeforeFire: number): Promise<void> {
     const deadline = Date.now() + MANUAL_TIMER_COMPLETION_TIMEOUT_MS;
     while (this.registrationCount === registrationCountBeforeFire) {
@@ -2655,14 +2664,14 @@ const FEED_URLS_22_3 = [
   '/feed/extra_l.xml',
 ];
 
-test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本すべて試行され、phase=failed, completed=false となり、通常ポーリング成功後も failed のままで長期自動再試行はない', async () => {
+test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本すべて試行され、phase=failed, completed=false となり、失敗したフィードだけが60秒後のバックオフで再試行され、再試行が失敗する間は phase が failed のままである', async () => {
   const failurePatterns: Array<{
     name: string;
     failKind: 'regular' | 'extra' | 'regular_l' | 'extra_l';
     failUrl: string;
   }> = [
     { name: '先頭 regular 失敗', failKind: 'regular', failUrl: '/feed/regular.xml' },
-    { name: '中間 extra_l 失敗', failKind: 'regular_l', failUrl: '/feed/regular_l.xml' },
+    { name: '中間 regular_l 失敗', failKind: 'regular_l', failUrl: '/feed/regular_l.xml' },
     { name: '末尾 extra_l 失敗', failKind: 'extra_l', failUrl: '/feed/extra_l.xml' },
   ];
 
@@ -2749,6 +2758,7 @@ test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本す�
       assert.ok(failAttempt, `${pattern.name}: fetch_attempt に失敗が記録される`);
 
       // 失敗フィードの再試行待ち（60 秒）の手前では、何も発火しない
+      assert.equal(scheduler.pendingTimerCount(), 1, `${pattern.name}: 再試行タイマーが登録済み`);
       await scheduler.advanceTime(59_999);
       assert.equal(service.getStatus().initialFetch.phase, 'failed');
       for (const url of FEED_URLS_22_3) {
@@ -2767,7 +2777,7 @@ test('22-3. 先頭・中間・末尾フィードの部分失敗時に 4 本す�
       assert.equal(
         statusAfterScheduled.initialFetch.phase,
         'failed',
-        `${pattern.name}: 通常取得後も failed のまま`,
+        `${pattern.name}: 再試行が失敗する間は failed のまま`,
       );
       // 再試行されたのは失敗フィードだけ（2 回）で、成功済みフィードは各 1 回のまま
       for (const url of FEED_URLS_22_3) {
