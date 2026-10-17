@@ -245,6 +245,7 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
   let worker: Worker | undefined;
   let deliveryWorker: Worker | undefined;
   const observed: string[] = [];
+  let tile9Started = false;
   let entered!: (value: number) => void;
   let tileFetches = 0;
   const waitingForEnsure = new Promise<number>((resolve) => {
@@ -274,6 +275,37 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
           entered(message.tileFetches);
         }
       });
+      const injectDelays = (process.env.WX_TEST_INJECT_DELAY ?? '').split(',').map((s) => s.trim());
+      if (injectDelays.includes('280-frame')) {
+        const originalPostMessage = value.postMessage.bind(value);
+        let delayedId: string | null = null;
+        let delayedFrameSent = false;
+        value.postMessage = ((message: unknown, transfer?: readonly ArrayBuffer[]) => {
+          const packet = message as {
+            type?: string;
+            index?: number;
+            final?: boolean;
+            id?: string;
+          };
+          if (tile9Started && packet?.type === 'frame' && packet.index === 0 && !delayedFrameSent) {
+            if (packet.final !== true) {
+              throw new Error('280-frame: unexpected multi-frame tile.ensure request');
+            }
+            delayedFrameSent = true;
+            delayedId = packet.id ?? null;
+            setTimeout(() => {
+              originalPostMessage(message, transfer as ArrayBuffer[]);
+            }, 1000);
+            return;
+          }
+          if (packet?.type === 'cancel' && packet.id === delayedId) {
+            (
+              globalThis as unknown as { __last280CancelRecorded?: string }
+            ).__last280CancelRecorded = packet.id;
+          }
+          originalPostMessage(message, transfer as ArrayBuffer[]);
+        }) as typeof value.postMessage;
+      }
     },
   });
   const root = `http://127.0.0.1:${server.port}`;
@@ -469,6 +501,7 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     const queuedController = new AbortController();
+    tile9Started = true;
     const queuedTile = fetch(tile(9), { signal: queuedController.signal });
     while (server.acquisitionHost.status().pendingRequests < 5) {
       if (performance.now() - queuedStarted > 5000) throw new Error('取得待機要求が登録されません');
@@ -486,8 +519,10 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
       assert.equal(activeResponse.status, 200);
       assert.deepEqual(Buffer.from(await activeResponse.arrayBuffer()), png);
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.equal(tileFetches, 7, '中断した未開始タイルは上流取得しない');
+    const sentinelResponse = await fetch(tile(10));
+    assert.equal(sentinelResponse.status, 200);
+    assert.deepEqual(Buffer.from(await sentinelResponse.arrayBuffer()), png);
+    assert.equal(tileFetches, 8, '中断した未開始タイルは上流取得しない');
     const stopResponse = await fetch(`${root}/api/control/fetch/stop`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -547,7 +582,7 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
     const stoppedMiss = await fetch(tile(9));
     assert.equal(stoppedMiss.status >= 400, true);
     assert.equal(performance.now() - stoppedMissStarted < 30_000, true);
-    assert.equal(tileFetches, 7, '停止中のmissで上流取得しない');
+    assert.equal(tileFetches, 8, '停止中のmissで上流取得しない');
     await worker!.terminate();
     const exitStarted = performance.now();
     while (!server.acquisitionHost.status().exitConfirmed) {
@@ -559,7 +594,7 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
     const failedMiss = await fetch(tile(9));
     assert.equal(failedMiss.status >= 400, true);
     assert.equal(performance.now() - failedMissStarted < 30_000, true);
-    assert.equal(tileFetches, 7, '取得Worker異常終了後のmissで上流取得しない');
+    assert.equal(tileFetches, 8, '取得Worker異常終了後のmissで上流取得しない');
   } finally {
     worker?.postMessage({ test: 'release-tile' });
     await server.close();
