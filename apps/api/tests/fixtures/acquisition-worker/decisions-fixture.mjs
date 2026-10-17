@@ -1,7 +1,15 @@
 import { parentPort, workerData } from 'node:worker_threads';
+import { mock } from 'node:test';
 import Database from 'better-sqlite3';
 import { register } from 'tsx/esm/api';
 register();
+const realSetTimeout = globalThis.setTimeout;
+if (workerData.mockTimers) {
+  mock.timers.enable({
+    apis: ['Date', 'setTimeout'],
+    now: typeof workerData.mockTimers === 'number' ? workerData.mockTimers : 1_700_000_000_000,
+  });
+}
 const { WeatherTransport } = await import('../../../src/runtime/weatherTransport.ts');
 const { createWorkerDecisions } = await import('../../../src/runtime/workerDecisions.ts');
 const { aggregateFetchHealth } = await import('../../../src/monitoring/fetchHealthEvaluator.ts');
@@ -15,8 +23,16 @@ const transport = new WeatherTransport(
   parentPort,
   workerData.epoch.workerGeneration,
   async (method, value) => {
+    if (method === 'fixture.clock.advance') {
+      mock.timers.tick(value.ms);
+      return { now: Date.now() };
+    }
     if (method === 'fixture.run') {
-      return decisions.runUpdate(
+      const injectDelays = (process.env.WX_TEST_INJECT_DELAY ?? '').split(',').map((s) => s.trim());
+      if (injectDelays.includes('282-run')) {
+        await new Promise((resolve) => realSetTimeout(resolve, 600));
+      }
+      const promise = decisions.runUpdate(
         {
           scopes: [value.target],
           initialWarningKeys: [`${value.target}|normal`],
@@ -59,6 +75,10 @@ const transport = new WeatherTransport(
           return recorded;
         },
       );
+      if (workerData.mockTimers) {
+        await transport.call('fixture.latch', { stage: 'run_enqueued' });
+      }
+      return promise;
     }
     if (method === 'fixture.health') {
       return decisions.runUpdate({ scopes: [], initialWarningKeys: [], initialBosaiKeys: [] }, () =>
@@ -98,7 +118,13 @@ const transport = new WeatherTransport(
         ),
       );
     }
-    if (method === 'fixture.pause') return decisions.pause(value.token, value.expiresAt);
+    if (method === 'fixture.pause') {
+      const injectDelays = (process.env.WX_TEST_INJECT_DELAY ?? '').split(',').map((s) => s.trim());
+      if (injectDelays.includes('282-pause')) {
+        await new Promise((resolve) => realSetTimeout(resolve, 600));
+      }
+      return decisions.pause(value.token, value.expiresAt);
+    }
     if (method === 'fixture.release') return decisions.release(value.token);
     if (method === 'fixture.inspect')
       return {
