@@ -209,6 +209,8 @@ export class WeatherTransport {
         await this.acquireFrameSlot(lane);
         try {
           if (this.closed) throw new WeatherRequestError('not_ready');
+          // 送信枠を待つ間に中断された要求は、Workerへ1frameも送らない(#280)
+          if (packet.kind === 'call' && index === 0 && !this.pending.has(packet.id)) return;
           await new Promise<void>((resolve, reject) => {
             const key = `${packet.id}:${index}`;
             const timer = setTimeout(() => {

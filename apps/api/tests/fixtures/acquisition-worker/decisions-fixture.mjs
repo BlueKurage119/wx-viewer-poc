@@ -1,7 +1,15 @@
 import { parentPort, workerData } from 'node:worker_threads';
+import { mock } from 'node:test';
 import Database from 'better-sqlite3';
 import { register } from 'tsx/esm/api';
 register();
+const realSetTimeout = globalThis.setTimeout;
+if (workerData.mockTimers) {
+  mock.timers.enable({
+    apis: ['Date', 'setTimeout'],
+    now: typeof workerData.mockTimers === 'number' ? workerData.mockTimers : 1_700_000_000_000,
+  });
+}
 const { WeatherTransport } = await import('../../../src/runtime/weatherTransport.ts');
 const { createWorkerDecisions } = await import('../../../src/runtime/workerDecisions.ts');
 const { aggregateFetchHealth } = await import('../../../src/monitoring/fetchHealthEvaluator.ts');
@@ -15,8 +23,12 @@ const transport = new WeatherTransport(
   parentPort,
   workerData.epoch.workerGeneration,
   async (method, value) => {
+    if (method === 'fixture.clock.advance') {
+      mock.timers.tick(value.ms);
+      return { now: Date.now() };
+    }
     if (method === 'fixture.run') {
-      return decisions.runUpdate(
+      const promise = decisions.runUpdate(
         {
           scopes: [value.target],
           initialWarningKeys: [`${value.target}|normal`],
@@ -59,6 +71,10 @@ const transport = new WeatherTransport(
           return recorded;
         },
       );
+      if (workerData.mockTimers) {
+        await transport.call('fixture.latch', { stage: 'run_enqueued' });
+      }
+      return promise;
     }
     if (method === 'fixture.health') {
       return decisions.runUpdate({ scopes: [], initialWarningKeys: [], initialBosaiKeys: [] }, () =>
@@ -98,7 +114,20 @@ const transport = new WeatherTransport(
         ),
       );
     }
-    if (method === 'fixture.pause') return decisions.pause(value.token, value.expiresAt);
+    if (method === 'fixture.pause') {
+      // 遅延注入(試験用)。対象テストの pause(残り 0〜1000ms)にだけ効かせる。残りは Worker 内の時計で計算する。
+      // 282-pause: decisions.pause に渡す前に待つ(受理前の遅れ)。
+      // 282-run: pause を受理したあと、テストへ応答する前に待つ(run を送るのを遅らせる)。
+      // 待ちは mock.timers を有効にする前に退避した本物の setTimeout で行う。
+      const injectDelays = (process.env.WX_TEST_INJECT_DELAY ?? '').split(',').map((s) => s.trim());
+      const remaining = Date.parse(value.expiresAt) - Date.now();
+      const targeted = remaining > 0 && remaining <= 1000;
+      const realDelay = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms));
+      if (targeted && injectDelays.includes('282-pause')) await realDelay(600);
+      const accepted = await decisions.pause(value.token, value.expiresAt);
+      if (targeted && injectDelays.includes('282-run')) await realDelay(600);
+      return accepted;
+    }
     if (method === 'fixture.release') return decisions.release(value.token);
     if (method === 'fixture.inspect')
       return {

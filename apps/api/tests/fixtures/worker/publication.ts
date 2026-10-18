@@ -78,7 +78,13 @@ const transport = new WeatherTransport(
         initialBosaiKeys: [],
       });
       saveWarningCurrentSnapshot(db.connection, input.snapshot);
-      if (input.exit) setTimeout(() => process.exit(1), 100);
+      if (input.exit) {
+        const injectDelays = (process.env.WX_TEST_INJECT_DELAY ?? '')
+          .split(',')
+          .map((s) => s.trim());
+        const delayMs = injectDelays.includes('277-exit') ? 8000 : 100;
+        setTimeout(() => process.exit(1), delayMs);
+      }
       return null;
     }
     if (method === 'fixture.update') {

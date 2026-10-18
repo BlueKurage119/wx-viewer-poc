@@ -11,7 +11,7 @@ let autoRelease = false;
 let tileFetches = 0;
 globalThis.fetch = async (input, init) => {
   const url = String(input);
-  if (!/\/10\/([2-9])\/\1\.png$/.test(url)) return new Response('', { status: 503 });
+  if (!/\/10\/([2-9]|10)\/\1\.png$/.test(url)) return new Response('', { status: 503 });
   tileFetches++;
   port.postMessage({ test: 'tile-ensure-entered', tileFetches });
   if (autoRelease)

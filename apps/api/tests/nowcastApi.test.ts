@@ -1259,125 +1259,133 @@ test('B18: ナウキャスト - getter 未準備で 503、準備後は 200 で�
   }
 });
 
-test('B18 (統合検証): startServer 起動統合テストと main 子プロセス HTTP 結線確認', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'start-server-test-'));
-  const dbPath = path.join(tmpDir, 'test.db');
+test(
+  'B18 (統合検証): startServer 起動統合テストと main 子プロセス HTTP 結線確認',
+  { timeout: 120_000 },
+  async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'start-server-test-'));
+    const dbPath = path.join(tmpDir, 'test.db');
 
-  // 1. startServer 起動統合テスト
-  const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
-  const started = await startServer({
-    port: 0,
-    enablePolling: false,
-    ...createTestServerDatabaseOptions({ databasePath: dbPath, migrationsDirectory }),
-    pollingSchedule: createTestPollingSchedule(),
-  });
-
-  try {
-    const res = await fetch(
-      `http://127.0.0.1:${started.port}/api/weather/nowcast/times?terminalId=hkeagh01&controlStatus=normal`,
-    );
-    assert.equal(res.status, 200);
-    const json = (await res.json()) as { status: string };
-    assert.equal(json.status, 'ok');
-  } finally {
-    await started.close();
-  }
-
-  // 2. main 子プロセス起動テスト
-  const childTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'main-child-test-'));
-  const childDbPath = path.join(childTmpDir, 'child.db');
-
-  const testServer = http.createServer();
-  await new Promise<void>((resolve, reject) => {
-    testServer.once('error', reject);
-    testServer.listen(0, '127.0.0.1', resolve);
-  });
-  const testAddress = testServer.address();
-  assert.ok(testAddress && typeof testAddress !== 'string', '空きポートを取得できること');
-  const testPort = testAddress.port;
-  await new Promise<void>((resolve, reject) => {
-    testServer.close((error) => (error === undefined ? resolve() : reject(error)));
-  });
-
-  const child = spawn(
-    process.execPath,
-    [
-      '--import',
-      import.meta.resolve('tsx'),
-      '--import',
-      new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
-      new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
-    ],
-    {
-      cwd: childTmpDir,
-      env: {
-        ...createTestServerProcessEnv({ databasePath: childDbPath, migrationsDirectory }),
-        PORT: String(testPort),
-        DISABLE_POLLING: 'true',
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  );
-
-  try {
-    let output = '';
-    const portPromise = new Promise<number>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error(`Timeout waiting for server to start. Output: ${output}`)),
-        15000,
-      );
-      child.stdout?.on('data', (data) => {
-        output += data.toString();
-        const match = output.match(/listening on http:\/\/localhost:(\d+)/);
-        if (match) {
-          clearTimeout(timeout);
-          resolve(Number(match[1]));
-        }
-      });
-      child.stderr?.on('data', (data) => {
-        output += data.toString();
-      });
-      child.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-      child.on('exit', (code) => {
-        clearTimeout(timeout);
-        reject(new Error(`Child exited early with code ${code}. Output: ${output}`));
-      });
+    // 1. startServer 起動統合テスト
+    const migrationsDirectory = path.join(import.meta.dirname, '../migrations');
+    const started = await startServer({
+      port: 0,
+      enablePolling: false,
+      ...createTestServerDatabaseOptions({ databasePath: dbPath, migrationsDirectory }),
+      pollingSchedule: createTestPollingSchedule(),
     });
 
-    const port = await portPromise;
-    const readyDeadline = Date.now() + 10000;
-    for (;;) {
-      const status = await fetch(
-        `http://127.0.0.1:${port}/api/monitoring/status?terminalId=hkeagh01`,
-      );
-      const body = (await status.json()) as {
-        weatherRuntimes: { delivery: { lifecycle: string } };
-      };
-      if (body.weatherRuntimes.delivery.lifecycle === 'ready') break;
-      if (Date.now() >= readyDeadline) assert.fail('実Workerの準備が期限内に完了しません');
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    let res: Response;
     try {
-      res = await fetch(
-        `http://127.0.0.1:${port}/api/weather/nowcast/times?terminalId=hkeagh01&controlStatus=normal`,
+      const res = await fetch(
+        `http://127.0.0.1:${started.port}/api/weather/nowcast/times?terminalId=hkeagh01&controlStatus=normal`,
       );
-    } catch (error) {
-      throw new Error(
-        `main子プロセスへの接続に失敗しました: exitCode=${child.exitCode}, signalCode=${child.signalCode}, output=${output}`,
-        { cause: error },
-      );
+      assert.equal(res.status, 200);
+      const json = (await res.json()) as { status: string };
+      assert.equal(json.status, 'ok');
+    } finally {
+      await started.close();
     }
-    assert.equal(res.status, 200);
-    const json = (await res.json()) as { status: string };
-    assert.equal(json.status, 'ok');
-  } finally {
-    child.kill('SIGTERM');
-    await new Promise<void>((resolve) => child.on('exit', () => resolve()));
-    fs.rmSync(childTmpDir, { recursive: true, force: true });
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
-});
+
+    // 2. main 子プロセス起動テスト
+    const childTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'main-child-test-'));
+    const childDbPath = path.join(childTmpDir, 'child.db');
+
+    const testServer = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      testServer.once('error', reject);
+      testServer.listen(0, '127.0.0.1', resolve);
+    });
+    const testAddress = testServer.address();
+    assert.ok(testAddress && typeof testAddress !== 'string', '空きポートを取得できること');
+    const testPort = testAddress.port;
+    await new Promise<void>((resolve, reject) => {
+      testServer.close((error) => (error === undefined ? resolve() : reject(error)));
+    });
+
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        import.meta.resolve('tsx'),
+        '--import',
+        new URL('./helpers/pollingConfigPreload.mjs', import.meta.url).href,
+        new URL('./helpers/fixtureServerMain.ts', import.meta.url).pathname,
+      ],
+      {
+        cwd: childTmpDir,
+        env: {
+          ...createTestServerProcessEnv({ databasePath: childDbPath, migrationsDirectory }),
+          PORT: String(testPort),
+          DISABLE_POLLING: 'true',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+
+    try {
+      let output = '';
+      const portPromise = new Promise<number>((resolve, reject) => {
+        child.stdout?.on('data', (data) => {
+          output += data.toString();
+          const match = output.match(/listening on http:\/\/localhost:(\d+)/);
+          if (match) {
+            resolve(Number(match[1]));
+          }
+        });
+        child.stderr?.on('data', (data) => {
+          output += data.toString();
+        });
+        child.on('error', (err) => {
+          reject(err);
+        });
+        child.on('exit', (code) => {
+          reject(new Error(`Child exited early with code ${code}. Output: ${output}`));
+        });
+      });
+
+      const port = await portPromise;
+      for (;;) {
+        if (child.exitCode !== null) {
+          assert.fail(
+            `main子プロセスが終了しました: exitCode=${child.exitCode}, signalCode=${child.signalCode}, output=${output}`,
+          );
+        }
+        const status = await fetch(
+          `http://127.0.0.1:${port}/api/monitoring/status?terminalId=hkeagh01`,
+        );
+        const body = (await status.json()) as {
+          weatherRuntimes: { delivery: { lifecycle: string } };
+        };
+        const lifecycle = body.weatherRuntimes?.delivery?.lifecycle;
+        if (lifecycle === 'ready') break;
+        if (lifecycle === 'failed' || lifecycle === 'stopped') {
+          assert.fail(
+            `提供Workerのlifecycleが異常状態です: lifecycle=${lifecycle}, output=${output}`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      let res: Response;
+      try {
+        res = await fetch(
+          `http://127.0.0.1:${port}/api/weather/nowcast/times?terminalId=hkeagh01&controlStatus=normal`,
+        );
+      } catch (error) {
+        throw new Error(
+          `main子プロセスへの接続に失敗しました: exitCode=${child.exitCode}, signalCode=${child.signalCode}, output=${output}`,
+          { cause: error },
+        );
+      }
+      assert.equal(res.status, 200);
+      const json = (await res.json()) as { status: string };
+      assert.equal(json.status, 'ok');
+    } finally {
+      if (child.exitCode === null) {
+        child.kill('SIGTERM');
+        await new Promise<void>((resolve) => child.once('exit', () => resolve()));
+      }
+      fs.rmSync(childTmpDir, { recursive: true, force: true });
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  },
+);

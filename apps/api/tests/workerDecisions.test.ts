@@ -77,13 +77,27 @@ function setup() {
       )
       .all() as { notification_id: string; source_type: string; change_type: string }[];
   }
-  async function start(epoch: WeatherEpoch, stage: string | null = null) {
+  async function start(
+    epoch: WeatherEpoch,
+    stage: string | null = null,
+    options: { mockTimers?: boolean | number } = {},
+  ) {
     const ready = deferred<void>();
     const reached = deferred<string>();
     const hold = deferred<void>();
+    const latches = new Map<string, () => void>();
     const worker = new Worker(
       new URL('./fixtures/acquisition-worker/decisions-fixture.mjs', import.meta.url),
-      { execArgv: [], workerData: { weatherPath, epoch, stage, checkpoint: state.snapshot() } },
+      {
+        execArgv: [],
+        workerData: {
+          weatherPath,
+          epoch,
+          stage,
+          checkpoint: state.snapshot(),
+          mockTimers: options.mockTimers,
+        },
+      },
     );
     const transport = new WeatherTransport(
       worker,
@@ -94,7 +108,11 @@ function setup() {
           return null;
         }
         if (method === 'fixture.latch') {
-          reached.resolve((value as { stage: string }).stage);
+          const lStage = (value as { stage: string }).stage;
+          latches.get(lStage)?.();
+          if (lStage !== 'run_enqueued') {
+            reached.resolve(lStage);
+          }
           return null;
         }
         if (method === 'update.begin') {
@@ -128,6 +146,11 @@ function setup() {
     return {
       transport,
       reached: reached.promise,
+      waitForLatch: (stageName: string) =>
+        new Promise<void>((resolve) => {
+          latches.set(stageName, resolve);
+        }),
+      advance: (ms: number) => transport.call<{ now: number }>('fixture.clock.advance', { ms }),
       async terminate() {
         await worker.terminate();
         transport.close();
@@ -364,7 +387,8 @@ test('実Workerのpauseは先行更新後のrevisionを返し、後続更新は�
 test('実Workerのpause期限失効で後続更新を解放し、期限切れpauseは拒否する', async () => {
   const fixture = setup();
   try {
-    const worker = await fixture.start(firstEpoch);
+    const T0 = 1_700_000_000_000;
+    const worker = await fixture.start(firstEpoch, null, { mockTimers: T0 });
     await assert.rejects(
       worker.transport.call('fixture.pause', {
         token: 'expired',
@@ -372,19 +396,24 @@ test('実Workerのpause期限失効で後続更新を解放し、期限切れpau
       }),
       { message: 'deadline_exceeded' },
     );
-    const expires = Date.now() + 150;
+    const expiresAt = new Date(T0 + 150).toISOString();
     assert.deepEqual(
       await worker.transport.call('fixture.pause', {
         token: 'p1',
-        expiresAt: new Date(expires).toISOString(),
+        expiresAt,
       }),
       { revision: 0 },
     );
+    const latchPromise = worker.waitForLatch('run_enqueued');
     const following = worker.transport.call('fixture.run', { target: 'east' });
-    await delay(50);
+    await latchPromise;
+    await worker.advance(149);
     assert.deepEqual(fixture.commits(), []);
+    await worker.advance(1);
+    assert.deepEqual(await worker.transport.call('fixture.release', { token: 'wrong' }), {
+      released: true,
+    });
     await following;
-    assert.equal(Date.now() >= expires, true);
     assert.deepEqual(fixture.commits(), ['east']);
   } finally {
     await fixture.close();
