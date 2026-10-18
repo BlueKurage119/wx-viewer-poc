@@ -550,6 +550,7 @@ test('3. 同じ document_url が複数フィードまたは同一フィードに
       skippedDuplicateCount: 1,
       downloadedCount: 1,
       failedDocumentCount: 0,
+      skippedBackfillLimitCount: 0,
     });
 
     // extra フィード: 発見1, スキップ1 (既処理), ダウンロード0
@@ -561,6 +562,7 @@ test('3. 同じ document_url が複数フィードまたは同一フィードに
       skippedDuplicateCount: 1,
       downloadedCount: 0,
       failedDocumentCount: 0,
+      skippedBackfillLimitCount: 0,
     });
 
     // 個別電文 URL への GET リクエストは完全一致で 1 回だけ
@@ -4745,7 +4747,7 @@ test('取得前電文種別フィルタ: 対象電文のみ個別GET・保存・
     assert.equal(cycleResult.feedResults.length, 1);
     const regularResult = cycleResult.feedResults[0]!;
 
-    // AC3: FeedPollResult の完全一致（6プロパティすべて、余計なプロパティなし）
+    // AC3: FeedPollResult の完全一致（7プロパティすべて、余計なプロパティなし）
     assert.deepEqual(regularResult, {
       feedKind: 'regular',
       feedFetchOutcome: 'success',
@@ -4753,6 +4755,7 @@ test('取得前電文種別フィルタ: 対象電文のみ個別GET・保存・
       skippedDuplicateCount: 1,
       downloadedCount: 3,
       failedDocumentCount: 1,
+      skippedBackfillLimitCount: 0,
     });
 
     // AC2: 個別 XML への HTTP リクエスト回数の完全一致
@@ -4930,6 +4933,7 @@ test('取得前電文種別フィルタ: 全トリガ(scheduled, manual, initial
           skippedDuplicateCount: 0,
           downloadedCount: 0,
           failedDocumentCount: 0,
+          skippedBackfillLimitCount: 0,
         });
       }
 
@@ -4942,6 +4946,7 @@ test('取得前電文種別フィルタ: 全トリガ(scheduled, manual, initial
         skippedDuplicateCount: 0,
         downloadedCount: 1,
         failedDocumentCount: 0,
+        skippedBackfillLimitCount: 0,
       });
 
       // 5. 対象外URL・抽出不能URLへの個別GETが 0 回、対象URLへの個別GETが 1 回

@@ -24,6 +24,8 @@ export interface FeedPollResult {
   readonly skippedDuplicateCount: number;
   readonly downloadedCount: number;
   readonly failedDocumentCount: number;
+  /** 初回・復旧の集約電文絞り込みで取得しなかった件数 */
+  readonly skippedBackfillLimitCount: number;
 }
 
 export interface PollCycleResult {
