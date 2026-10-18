@@ -20,6 +20,10 @@ import {
   type JmaXmlFeedDefinition,
   type JmaXmlPollTrigger,
 } from './jmaXmlFeeds.js';
+import {
+  selectBackfillExcludedUrls,
+  shouldLimitLongFeedBackfill,
+} from './longFeedBackfillFilter.js';
 import type { FetchAbortSignal } from './fetchAbort.js';
 import {
   extractTelegramTypeFromUrl,
@@ -264,6 +268,7 @@ export async function pollSingleFeed(
         skippedDuplicateCount: 0,
         downloadedCount: 0,
         failedDocumentCount: 0,
+        skippedBackfillLimitCount: 0,
       },
       errorReason: feedHttpResult.errorMessage,
     };
@@ -307,6 +312,7 @@ export async function pollSingleFeed(
         skippedDuplicateCount: 0,
         downloadedCount: 0,
         failedDocumentCount: 0,
+        skippedBackfillLimitCount: 0,
       },
       errorReason: parseErrMsg,
     };
@@ -336,7 +342,13 @@ export async function pollSingleFeed(
   let skippedDuplicateCount = 0;
   let downloadedCount = 0;
   let failedDocumentCount = 0;
+  let skippedBackfillLimitCount = 0;
   let aborted = false;
+
+  // 初回・復旧の長期フィードでは、集約型を種別×発表官署ごとの直近N件へ絞る
+  const excludedUrls: ReadonlySet<string> = shouldLimitLongFeedBackfill(trigger, feedDef)
+    ? selectBackfillExcludedUrls(entries)
+    : new Set<string>();
 
   // 3. 各エントリの処理
   for (const entry of entries) {
@@ -350,6 +362,12 @@ export async function pollSingleFeed(
     // 取得前種別選別: URLから電文種別を抽出し、対象15種以外または抽出不能なら個別取得・保存を行わない
     const telegramType = extractTelegramTypeFromUrl(docUrl);
     if (!isTargetTelegramType(telegramType)) {
+      continue;
+    }
+
+    // 初回・復旧の集約電文絞り込み: 取得も記録もしない
+    if (excludedUrls.has(docUrl)) {
+      skippedBackfillLimitCount++;
       continue;
     }
 
@@ -452,6 +470,7 @@ export async function pollSingleFeed(
       skippedDuplicateCount,
       downloadedCount,
       failedDocumentCount,
+      skippedBackfillLimitCount,
     },
     errorReason: null,
   };
