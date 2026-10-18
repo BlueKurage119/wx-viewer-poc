@@ -73,10 +73,65 @@ function vpwpXml(hh: number): string {
 </Report>`;
 }
 
+function vpfd51Xml(hh: number): string {
+  const r = reportDateTimeOf(hh);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+<Control><Title>府県天気予報（Ｒ１）</Title><DateTime>2026-09-09T0${hh}:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁本庁</EditorialOffice><PublishingOffice>気象庁予報部</PublishingOffice></Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都府県天気予報</Title><ReportDateTime>${r}</ReportDateTime><TargetDateTime>${r}</TargetDateTime><InfoType>発表</InfoType><InfoKind>府県天気予報</InfoKind><InfoKindVersion>1.0_1</InfoKindVersion></Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<MeteorologicalInfos type="区域予報">
+<TimeSeriesInfo>
+<TimeDefines><TimeDefine timeId="1"><DateTime>${r}</DateTime><Duration>PT3H</Duration></TimeDefine></TimeDefines>
+<Item>
+<Kind><Property><Type>３時間内卓越天気</Type><WeatherPart><jmx_eb:Weather refID="1" type="天気">くもり</jmx_eb:Weather></WeatherPart></Property></Kind>
+<Kind><Property><Type>３時間内代表風</Type><WindDirectionPart><jmx_eb:WindDirection refID="1" type="風向" unit="８方位漢字">北</jmx_eb:WindDirection></WindDirectionPart><WindSpeedPart><WindSpeedLevel refID="1" type="風速階級">3</WindSpeedLevel></WindSpeedPart></Property></Kind>
+<Area><Name>東京地方</Name><Code>130010</Code></Area>
+</Item>
+</TimeSeriesInfo>
+</MeteorologicalInfos>
+<MeteorologicalInfos type="地点予報">
+<TimeSeriesInfo>
+<TimeDefines><TimeDefine timeId="1"><DateTime>${r}</DateTime></TimeDefine></TimeDefines>
+<Item>
+<Kind><Property><Type>３時間毎気温</Type><TemperaturePart><jmx_eb:Temperature refID="1" type="気温" unit="度">25</jmx_eb:Temperature></TemperaturePart></Property></Kind>
+<Station><Name>東京</Name><Code>44132</Code></Station>
+</Item>
+</TimeSeriesInfo>
+</MeteorologicalInfos>
+</Body>
+</Report>`;
+}
+
+/** VPFD61(近)・VPFW60(遠) の早期注意情報 */
+function earlyWarningXml(hh: number, type: 'VPFD61' | 'VPFW60'): string {
+  const r = reportDateTimeOf(hh);
+  const near = type === 'VPFD61';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx_add="http://xml.kishou.go.jp/jmaxml1/addition1/">
+<Control><Title>${near ? '早期注意情報（明後日まで）' : '警報級の可能性（明後日以降）'}</Title><DateTime>2026-09-09T0${hh}:00:00Z</DateTime><Status>通常</Status><EditorialOffice>気象庁</EditorialOffice><PublishingOffice>気象庁</PublishingOffice></Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/"><Title>東京都早期注意情報</Title><ReportDateTime>${r}</ReportDateTime><TargetDateTime>${r}</TargetDateTime><InfoType>発表</InfoType><InfoKind>${near ? '警報級の可能性（明日まで）' : '警報級の可能性（明後日以降）'}</InfoKind><InfoKindVersion>${near ? '1.5_0' : '1.2_0'}</InfoKindVersion></Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<MeteorologicalInfos type="区域予報">
+<TimeSeriesInfo>
+<TimeDefines><TimeDefine timeId="1"><DateTime>${near ? r : '2026-09-11T00:00:00+09:00'}</DateTime><Duration>${near ? 'PT6H' : 'P1D'}</Duration></TimeDefine></TimeDefines>
+<Item>
+<Kind><Property><Type>${near ? '大雨の警報級の可能性' : '雨の警報級の可能性'}</Type><PossibilityRankOfWarningPart><jmx_eb:PossibilityRankOfWarning refID="1" type="${near ? '大雨の警報級の可能性' : '雨の警報級の可能性'}">${near ? '中' : '高'}</jmx_eb:PossibilityRankOfWarning></PossibilityRankOfWarningPart></Property></Kind>
+<Area><Name>東京地方</Name><Code>130010</Code></Area>
+</Item>
+</TimeSeriesInfo>
+</MeteorologicalInfos>
+</Body>
+</Report>`;
+}
+
 function xmlFor(url: string): string {
   const hh = Number(/\d{9}(\d)0000_0_/.exec(url)![1]);
   const type = /_([A-Z]{4}\d{2})_/.exec(url)![1]!;
-  return type === 'VPWP50' ? vpwpXml(hh) : vpwwXml(hh, type);
+  if (type === 'VPWP50') return vpwpXml(hh);
+  if (type === 'VPFD51') return vpfd51Xml(hh);
+  if (type === 'VPFD61' || type === 'VPFW60') return earlyWarningXml(hh, type);
+  return vpwwXml(hh, type);
 }
 
 function atomFeed(urls: readonly string[]): string {
@@ -290,20 +345,36 @@ test('絞り込みあり（initial）と絞り込みなし（scheduled）で、�
       ...fiveOf('VPWS50'),
       ...fiveOf('VPWW55'),
       ...fiveOf('VPWW56'),
+      ...fiveOf('VPFD51'),
+      ...fiveOf('VPFD61'),
+      ...fiveOf('VPFW60'),
     ];
     await limited.poll('initial', feed);
     await full.poll('scheduled', feed);
-    assert.equal(limited.fetched.length, 5 * 2 + 3 * 2);
-    assert.equal(full.fetched.length, 20);
+    assert.equal(limited.fetched.length, 5 * 2 + 3 * 5);
+    assert.equal(full.fetched.length, 35);
 
     const a = dumpDerivedTables(limited);
     const b = dumpDerivedTables(full);
     assert.deepEqual(a, b);
 
-    // 比較対象が空でないこと（空同士の一致で通過させない）
-    assert.ok(a['warning_timeseries_snapshot']!.length >= 1);
-    assert.ok(a['warning_current_stream']!.length >= 1);
-    assert.ok(a['warning_current_snapshot']!.length >= 1);
+    // 比較対象が空でないこと（空同士の一致で通過させない）。各 snapshot 系テーブルの行数が0でない
+    for (const table of [
+      'warning_current_snapshot',
+      'warning_current_item',
+      'warning_current_stream',
+      'warning_timeseries_snapshot',
+      'warning_timeseries_time_define',
+      'warning_timeseries_value',
+      'early_warning_snapshot',
+      'early_warning_time_define',
+      'early_warning_cell',
+      'area_timeseries_snapshot',
+      'area_timeseries_time_define',
+      'area_timeseries_value',
+    ]) {
+      assert.ok(a[table]!.length > 0, `${table} が空`);
+    }
   } finally {
     limited.cleanup();
     full.cleanup();
