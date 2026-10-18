@@ -23,6 +23,7 @@ import {
   TimeBasedPollingScheduler,
   AmedasScheduledAdapter,
   type ScheduledPollAdapter,
+  type ManualRunResult,
 } from '../src/polling/timeBasedPollingScheduler.js';
 
 const defaultSchedule = createTestPollingSchedule();
@@ -202,6 +203,11 @@ class FakeXmlPollingService {
     this.isRunning = false;
     this.stopCount++;
     return Promise.resolve();
+  }
+
+  async pollOnce(_trigger?: 'manual'): Promise<{ feedResults: []; aborted: false }> {
+    void _trigger;
+    return { feedResults: [], aborted: false };
   }
 
   getStatus(): JmaXmlPollingStatus {
@@ -1231,6 +1237,284 @@ test('10. アメダス地点失敗時の次周期再試行と回復後のスキ�
     await adapter.runScheduled();
     assert.equal(latestTimeRequestCount, 5);
     assert.equal(pointDataRequestCount, 3, '回復後はスキップされる');
+
+    database.close();
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Issue #166 アメダス取得失敗検知のテストカバレッジ追加
+// ---------------------------------------------------------------------------
+
+test('#166 M1: latest_time 失敗で runManual が例外を投げ、runManualOnce が amedas を failedSources に含める', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  try {
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+
+    const customFetch: typeof fetch = async (input) => {
+      const urlStr = String(input);
+      if (urlStr.includes('latest_time.txt')) {
+        return new Response('503 Service Unavailable', { status: 503 });
+      }
+      if (urlStr.includes('.json')) {
+        return new Response(point44136Json, { status: 200 });
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const amedasState = new AmedasFetchState(eastVenueId);
+    const adapter = new AmedasScheduledAdapter(database.connection, amedasState, 600, {
+      fetchOptions: { fetchFn: customFetch, venueRegistry: testVenueRegistry },
+      now: () => new Date('2026-09-12T01:00:00.000Z'),
+    });
+
+    // (1) adapter.runManual() が reject する (M1)
+    await assert.rejects(
+      adapter.runManual(),
+      /アメダス最新時刻の取得に失敗しました/,
+      'latest_time 失敗時に runManual が例外を投げること',
+    );
+
+    // (2) 別に新しい scheduler(未start) で runManualOnce() の failedSources に 'amedas' が含まれる
+    const xmlService = new FakeXmlPollingService();
+    const scheduler = new TimeBasedPollingScheduler({
+      schedule: defaultSchedule,
+      adapters: [
+        new FakeScheduledAdapter('nowcast'),
+        new FakeScheduledAdapter('kikikuru'),
+        adapter,
+      ],
+      xmlPollingService: xmlService as unknown as JmaXmlPollingService,
+      now: () => new Date('2026-09-12T01:00:00.000Z'),
+      setTimer: () => 1,
+      clearTimer: () => {},
+    });
+
+    const result = await scheduler.runManualOnce();
+    assert.ok(result.failedSources.includes('amedas'), 'failedSources に amedas が含まれること');
+    assert.equal(result.failedSources.includes('xml'), false, 'xml は成功扱い');
+    assert.equal(result.failedSources.includes('nowcast'), false, 'nowcast は成功扱い');
+    assert.equal(result.failedSources.includes('kikikuru'), false, 'kikikuru は成功扱い');
+
+    database.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test('#166 M2: 地点データ失敗で runManual が例外を投げ、runManualOnce が amedas を failedSources に含める', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  try {
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    let pointDataCount = 0;
+
+    const customFetch: typeof fetch = async (input) => {
+      const urlStr = String(input);
+      if (urlStr.includes('latest_time.txt')) {
+        return new Response('2026-09-12T01:00:00.000Z', { status: 200 });
+      }
+      if (urlStr.includes('.json')) {
+        pointDataCount++;
+        return new Response('503 Service Unavailable', { status: 503 });
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const amedasState = new AmedasFetchState(eastVenueId);
+    const adapter = new AmedasScheduledAdapter(database.connection, amedasState, 600, {
+      fetchOptions: { fetchFn: customFetch, venueRegistry: testVenueRegistry },
+      now: () => new Date('2026-09-12T01:00:00.000Z'),
+    });
+
+    // (1) adapter.runManual() が reject する (M2)
+    await assert.rejects(
+      adapter.runManual(),
+      /アメダス地点データの取得に失敗しました/,
+      '地点データ失敗時に runManual が例外を投げること',
+    );
+
+    // 地点データへのリクエストが1回以上あったこと(=attempted)を表明
+    assert.ok(pointDataCount >= 1, '地点データへのリクエストが1回以上試行されていること');
+
+    // (2) 別に新しい scheduler(未start) で runManualOnce() の failedSources に 'amedas' が含まれる
+    const xmlService = new FakeXmlPollingService();
+    const scheduler = new TimeBasedPollingScheduler({
+      schedule: defaultSchedule,
+      adapters: [
+        new FakeScheduledAdapter('nowcast'),
+        new FakeScheduledAdapter('kikikuru'),
+        adapter,
+      ],
+      xmlPollingService: xmlService as unknown as JmaXmlPollingService,
+      now: () => new Date('2026-09-12T01:00:00.000Z'),
+      setTimer: () => 1,
+      clearTimer: () => {},
+    });
+
+    const result = await scheduler.runManualOnce();
+    assert.ok(result.failedSources.includes('amedas'), 'failedSources に amedas が含まれること');
+    assert.equal(result.failedSources.includes('xml'), false, 'xml は成功扱い');
+    assert.equal(result.failedSources.includes('nowcast'), false, 'nowcast は成功扱い');
+    assert.equal(result.failedSources.includes('kikikuru'), false, 'kikikuru は成功扱い');
+
+    database.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test('#166 M3/M3a/M3b: 定期取得実行中に強制更新が合流し、定期取得の失敗が failedSources に反映される', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  try {
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+    let latestTimeCount = 0;
+    let gateResolved = false;
+    let resolveGate: (() => void) | null = null;
+    const gatePromise = new Promise<void>((resolve) => {
+      resolveGate = () => {
+        gateResolved = true;
+        resolve();
+      };
+    });
+
+    const customFetch: typeof fetch = async (input) => {
+      const urlStr = String(input);
+      if (urlStr.includes('latest_time.txt')) {
+        latestTimeCount++;
+        await gatePromise;
+        return new Response('503 Service Unavailable', { status: 503 });
+      }
+      if (urlStr.includes('.json')) {
+        return new Response(point44136Json, { status: 200 });
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    // 1. FakeTimerScheduler('2026-09-12T01:00:00.000Z')(稼働時間帯)を scheduler とアメダスアダプターの時刻源に渡す
+    const timer = new FakeTimerScheduler('2026-09-12T01:00:00.000Z');
+    const amedasState = new AmedasFetchState(eastVenueId);
+    const adapter = new AmedasScheduledAdapter(database.connection, amedasState, 600, {
+      fetchOptions: { fetchFn: customFetch, venueRegistry: testVenueRegistry },
+      now: timer.now,
+    });
+    const xmlService = new FakeXmlPollingService(timer);
+    const scheduler = new TimeBasedPollingScheduler({
+      schedule: defaultSchedule,
+      adapters: [
+        new FakeScheduledAdapter('nowcast'),
+        new FakeScheduledAdapter('kikikuru'),
+        adapter,
+      ],
+      xmlPollingService: xmlService as unknown as JmaXmlPollingService,
+      now: timer.now,
+      setTimer: timer.setTimer,
+      clearTimer: timer.clearTimer,
+    });
+
+    try {
+      // 3. await scheduler.start() 後、latest_time のリクエスト回数が1になるまで setImmediate を上限付きで繰り返す
+      await scheduler.start();
+      let loopCount = 0;
+      while (latestTimeCount < 1 && loopCount < 50) {
+        loopCount++;
+        await new Promise((r) => setImmediate(r));
+      }
+      if (latestTimeCount !== 1) {
+        assert.fail('定期取得の latest_time リクエストが上限回数内に開始されませんでした');
+      }
+
+      // 4. 合流の前提表明: 強制更新開始時点で定期取得が実行中であること(latest_time要求が1回、ゲート未解決)
+      assert.equal(latestTimeCount, 1, '前提: 定期取得の latest_time リクエストが1回であること');
+      assert.equal(gateResolved, false, '前提: ゲートが未解決(定期取得が実行中)であること');
+
+      // 5. const manual = scheduler.runManualOnce() を await せずに開始し、ゲートを解決する
+      const manual = scheduler.runManualOnce();
+      resolveGate!();
+
+      // 6. 期限付きの待ち: manual を実時間の上限(2000ms)との Promise.race で待つ
+      let timeoutId: NodeJS.Timeout | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(
+            new Error(
+              'runManualOnce が期限内に完了しなかった(M3a/M3b の合流経路が壊れている可能性)',
+            ),
+          );
+        }, 2000);
+      });
+
+      let result: ManualRunResult;
+      try {
+        result = await Promise.race([manual, timeoutPromise]);
+      } catch (err) {
+        assert.fail(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      // 7. 合流の事後表明: 上流 latest_time 要求回数が増えていないこと(合計1回のままであること)
+      assert.equal(latestTimeCount, 1, '事後: latest_time リクエスト回数が合計1回のままであること');
+
+      // 8. result.failedSources に 'amedas' が含まれる
+      assert.ok(result.failedSources.includes('amedas'), 'failedSources に amedas が含まれること');
+    } finally {
+      // 9. finally で await scheduler.stop()
+      await scheduler.stop();
+    }
+
+    database.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test('#166 対照: 上流がすべて成功なら runManualOnce の failedSources は空', async () => {
+  const { databasePath, cleanup } = createTempDb();
+  try {
+    const database = initializeDatabase({ databasePath, migrationsDirectory });
+
+    const customFetch: typeof fetch = async (input) => {
+      const urlStr = String(input);
+      if (urlStr.includes('latest_time.txt')) {
+        return new Response('2026-09-12T01:00:00.000Z', { status: 200 });
+      }
+      if (urlStr.includes('.json')) {
+        return new Response(point44136Json, { status: 200 });
+      }
+      return new Response('Not found', { status: 404 });
+    };
+
+    const amedasState = new AmedasFetchState(eastVenueId);
+    const adapter = new AmedasScheduledAdapter(database.connection, amedasState, 600, {
+      fetchOptions: { fetchFn: customFetch, venueRegistry: testVenueRegistry },
+      now: () => new Date('2026-09-12T01:00:00.000Z'),
+    });
+
+    const xmlService = new FakeXmlPollingService();
+    const scheduler = new TimeBasedPollingScheduler({
+      schedule: defaultSchedule,
+      adapters: [
+        new FakeScheduledAdapter('nowcast'),
+        new FakeScheduledAdapter('kikikuru'),
+        adapter,
+      ],
+      xmlPollingService: xmlService as unknown as JmaXmlPollingService,
+      now: () => new Date('2026-09-12T01:00:00.000Z'),
+      setTimer: () => 1,
+      clearTimer: () => {},
+    });
+
+    const result = await scheduler.runManualOnce();
+    assert.equal(
+      result.failedSources.includes('amedas'),
+      false,
+      'amedas が failedSources に含まれないこと',
+    );
+    assert.deepEqual(result.failedSources, [], 'failedSources は空であること');
 
     database.close();
   } finally {
