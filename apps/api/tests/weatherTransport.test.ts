@@ -239,7 +239,7 @@ test('payloadの未ACK2frameが停止制御の独立枠を塞がない', async (
 
 test('frame slotが埋まりindex 0未送信のまま中断された要求はframeを送らない', async () => {
   const { port1, port2 } = new MessageChannel();
-  const receivedTypes: string[] = [];
+  const sent: { type: string; id: string }[] = [];
   const heldAcks: unknown[] = [];
   const originalPost2 = port2.postMessage.bind(port2);
   port2.postMessage = ((message: { type?: string }) => {
@@ -251,8 +251,8 @@ test('frame slotが埋まりindex 0未送信のまま中断された要求はfra
   }) as typeof port2.postMessage;
 
   const originalPost1 = port1.postMessage.bind(port1);
-  port1.postMessage = ((message: { type?: string }) => {
-    receivedTypes.push(message.type ?? 'unknown');
+  port1.postMessage = ((message: { type?: string; id?: string }) => {
+    sent.push({ type: message.type ?? 'unknown', id: message.id ?? '' });
     originalPost1(message);
   }) as typeof port1.postMessage;
 
@@ -278,26 +278,30 @@ test('frame slotが埋まりindex 0未送信のまま中断された要求はfra
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
 
-    const initialTypesCount = receivedTypes.length;
+    const initialSentCount = sent.length;
     const controller = new AbortController();
     const queued = left.call('tile.ensure', { id: 3 }, 5000, controller.signal);
 
     controller.abort();
     await assert.rejects(queued, { message: 'deadline_exceeded' });
 
+    port2.postMessage = originalPost2;
     heldAcks.forEach((ack) => originalPost2(ack));
     heldAcks.length = 0;
     await blocker1;
     await blocker2;
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 番兵: 送信枠はFIFOで空き、MessagePortは送った順に届けるので、中断した要求のframeが
+    // 送られていれば番兵のframeより先に記録される。番兵の応答を待てば固定の待ちは要らない。
+    await left.call('tile.ensure', { id: 4 }, 5000);
 
-    const subsequentTypes = receivedTypes.slice(initialTypesCount);
-    // 中断時のcancel送信は従来どおり(Worker側は未受信idのcancelを捨てる)。frameは1つも送らない
-    assert.deepEqual(
-      subsequentTypes.filter((type) => type === 'frame'),
-      [],
-    );
+    // 中断時のcancel送信は従来どおり(Worker側は未受信idのcancelを捨てる)。
+    // 中断後に送られたframeは番兵の1件だけで、中断した要求のframeは1つも無い
+    const frameIds = sent
+      .slice(initialSentCount)
+      .filter((entry) => entry.type === 'frame' || entry.type === 'control')
+      .map((entry) => entry.id);
+    assert.equal(frameIds.length, 1);
   } finally {
     left.close();
     right.close();
