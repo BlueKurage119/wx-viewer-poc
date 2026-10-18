@@ -28,10 +28,6 @@ const transport = new WeatherTransport(
       return { now: Date.now() };
     }
     if (method === 'fixture.run') {
-      const injectDelays = (process.env.WX_TEST_INJECT_DELAY ?? '').split(',').map((s) => s.trim());
-      if (injectDelays.includes('282-run')) {
-        await new Promise((resolve) => realSetTimeout(resolve, 600));
-      }
       const promise = decisions.runUpdate(
         {
           scopes: [value.target],
@@ -119,11 +115,18 @@ const transport = new WeatherTransport(
       );
     }
     if (method === 'fixture.pause') {
+      // 遅延注入(試験用)。対象テストの pause(残り 0〜1000ms)にだけ効かせる。残りは Worker 内の時計で計算する。
+      // 282-pause: decisions.pause に渡す前に待つ(受理前の遅れ)。
+      // 282-run: pause を受理したあと、テストへ応答する前に待つ(run を送るのを遅らせる)。
+      // 待ちは mock.timers を有効にする前に退避した本物の setTimeout で行う。
       const injectDelays = (process.env.WX_TEST_INJECT_DELAY ?? '').split(',').map((s) => s.trim());
-      if (injectDelays.includes('282-pause')) {
-        await new Promise((resolve) => realSetTimeout(resolve, 600));
-      }
-      return decisions.pause(value.token, value.expiresAt);
+      const remaining = Date.parse(value.expiresAt) - Date.now();
+      const targeted = remaining > 0 && remaining <= 1000;
+      const realDelay = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms));
+      if (targeted && injectDelays.includes('282-pause')) await realDelay(600);
+      const accepted = await decisions.pause(value.token, value.expiresAt);
+      if (targeted && injectDelays.includes('282-run')) await realDelay(600);
+      return accepted;
     }
     if (method === 'fixture.release') return decisions.release(value.token);
     if (method === 'fixture.inspect')
