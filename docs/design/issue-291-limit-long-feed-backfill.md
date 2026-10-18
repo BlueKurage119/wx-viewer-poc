@@ -146,7 +146,7 @@ readonly skippedBackfillLimitCount: number; // 初回・復旧の集約電文絞
 - 同じフィードを `trigger='scheduled'` で処理すると全件GETされ、`skippedBackfillLimitCount === 0`
 - `trigger='recovery'` で最新1件が既受信のとき、GETは残り2件だけ（既受信を3件に数える）
 - 最新の VPWP50 の取得が失敗しても、2・3番目が取得され、snapshot は2番目の内容になる。4番目以降はGETされない
-- 古い3件以外を除外しても、snapshot（VPWP50/VPFD51/VPFD61/VPFW60 のいずれか1種別で可）と警報現況（VPWS50）が、全件取り込んだ場合と同じ行になる
+- 古い3件以外を除外しても、snapshot（VPWP50/VPFD51/VPFD61/VPFW60 の4種別すべて。各テーブルが空でないことも確かめる）と警報現況（VPWS50）が、全件取り込んだ場合と同じ行になる
 
 ## 5. 受け入れ条件
 
