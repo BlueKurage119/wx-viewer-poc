@@ -61,11 +61,11 @@
 | `b18-ready` | 子プロセス用 preload(`tests/helpers/` に新設) | 提供Worker の `ready` への遷移を30秒遅らせる(旧期限10秒の3倍)。**transport の外で遅らせる**: 例として preload で `DeliveryWorkerHost.prototype.connectReader` を包み、元の処理(transport の `reader.connect` 呼び出し)を始める前に30秒待つ。`listening` の出力より前に効く場所だった場合や、別の期限(`authorizeUntil` 等)に掛かる場合は場所を変える。製造の手順2で、失敗理由が「ready 待ち10秒の期限切れ」であり、子プロセス出力に `handshake_timeout`・`initialization_failed` が無いことを確かめる | ready 待ち10秒の失敗(一致) |
 | `277-idle` | `workerScopeRead.test.ts` | (b)(c) の各待ちの直後、次の `fetch` の前に「サーバーの keepAliveTimeout 付近(5000ms 前後を数点)」待つ | H1 の検証用(仮説確認。症状一致は製造で確かめる) |
 | `277-exit` | `tests/fixtures/worker/publication.ts` | `process.exit(1)` までを100ms→8000msに延ばす(旧待ち2秒の4倍) | (c) の2秒待ちの失敗(H2 の仮説確認。素直な症状は `false !== true` で Issue の socket closed と**一致しない**) |
-| `280-frame` | `deliveryRealMissBarrier.test.ts` の `onAcquisitionWorkerCreated` | `worker.postMessage` をラップし、対象の call frame の配送を1000ms遅らせる(旧固定待ち100ms の10倍、ack 期限5000ms 未満)。`cancel` は遅らせない | `tileFetches` 8(一致) |
+| `280-frame` | `deliveryRealMissBarrier.test.ts` の `onAcquisitionWorkerCreated` | 取得Worker から親への `ack` を一時的に保留し、payload の送信枠(未ack 2frame)を埋める。tile(5)〜(8) の要求の前に保留を始め、tile(9) の中断と `pendingRequests` の減少を確かめた後に解除する。保留する時間は ack 期限5000ms 未満 | `tileFetches` 8(一致)。修正なしでは9 |
 | `282-pause` | `tests/fixtures/acquisition-worker/decisions-fixture.mjs` | `fixture.pause` を `decisions.pause` に渡す前に、退避した本物の `setTimeout` で600ms待つ(旧期限150ms の4倍) | 2回目 pause の `deadline_exceeded`(一致) |
 | `282-run` | 同上 | `fixture.run` の受け取り後、`decisions` に渡す前に本物の `setTimeout` で600ms待つ(`delay(50)` 後の `commits()` 検証を崩す) | `commits()` が `['east']`(同じテストの第2の実時間依存。Issue の症状とは別だが同じ原因系統) |
 
-`280-frame` で遅らせる frame の特定: 対象は「`pendingRequests` が4になった後(tile(9) の要求開始後)に親が送った、`type === 'frame'` かつ `index === 0` かつ `final === true` の最初の message」とする(tile.ensure の要求本文は256KiB 未満で1 frame に収まる想定。`final` が false の frame が来た場合は想定外として注入側で例外にし、製造の手順2で気付けるようにする)。ack(`type: 'ack'` 等)・`control`・`cancel` は遅らせない。特定した id を記録し、同じ id の `cancel` がその後に送られたことを手順2の記録に含める。
+`280-frame` の作り方の根拠(2026-10-18 改訂): MessagePort は送った順に届けるため、すでに送った frame を後から送った `cancel` が追い越すことはない。そのため、送ったあとの frame の配送を遅らせる旧方式は、実際には起きない順序を作ってしまっていた(旧方式では修正の有無にかかわらず結果が揺れた)。最小の修正が防ぐ実際の競合は、送信枠の空きを待つあいだの中断である。新方式では、保留した ack が2件そろったこと(送信枠が埋まったこと)を確かめてから tile(9) を中断する。これにより tile(9) の index 0 は、必ず送信枠の空き待ちのあいだに中断される。
 
 **AC-1/AC-2 の前後比較の対象**: 症状が Issue と一致する注入(`b18-start`・`b18-ready`・`280-frame`・`282-pause`)と、`282-run` を対象にする。#277 の注入は仮説確認用で、手順2で Issue と同じ症状(socket closed 系)を再現できた注入だけを比較の対象に加える。症状が違う注入(例: `277-exit` で `false !== true`)は仮説の棄却・採択の記録に使い、比較の対象にしない。
 
@@ -101,9 +101,8 @@
 | B | Worker 側で、未受信 id への cancel を上限付きで記録し、後から届いた call を即中断する(`acquisitionWorker.ts`/`weatherTransport.ts`) | 送信途中の中断も含めて取りこぼさない | 記録の上限・期限の設計が要る。変更量が A より多い |
 | C | 製品は変えない。テストが tile(9) の call frame が**実際に Worker へ配送された**(注入の遅延の後の、本物の `postMessage` の呼び出し)ことを確かめてから中断する | 本番コード無変更 | 製品の取りこぼしを残したまま、テストが競合を避けるだけになる。実運用で中断済み要求が上流取得を1件余分に行いうる。`280-frame` 下での合格は製品の安全性を示さない |
 
-- 最小範囲との関係: 単体テスト(1)の「全 frame → cancel」の順が、最初の frame 直前の確認だけでは満たせず、既存の cancel 送信処理の変更が要ると分かった場合は、変更せずに止めて統括へ報告する。
-- 案A の送信途中の中断の扱い(案A を採る場合の仕様): 1 frame 以上送った後に中断された call は、残りの frame を最後まで送り、**`cancel` は最後の frame を送り終えた後に送る**(Worker 側で組み立て途中の要求を残さず、かつ cancel が組み立て完了前に届いて捨てられることを防ぐ)。index 0 を送る前に中断されていれば1 frame も送らず、`cancel` も送らない。
-  - 検証: tile.ensure は1 frame に収まるため、統合テストでは送信途中の中断は起きない。そこで `tests/weatherTransport.test.ts` に単体テストを2件足す。(1) 複数 frame になる大きさの要求(既存の「256KiBでframe化」テストと同じ作り方)で、index 0 の ack を保留した状態で中断 → Worker 側(相手 endpoint)が受け取る message の順が「全 frame → cancel」であること。(2) frame slot が埋まって index 0 が未送信のまま中断 → frame も cancel も届かないこと。
+- 送信途中で中断されたときの決まり(残りの frame を送り切ってから cancel を送る)は**実装しない**(【確定】2026-10-18)。理由: cancel を送るのは tile.ensure だけで、tile.ensure は frame 1つに収まるため、この経路は実際には通らない。また、オーナーの「そこまで頑張る必要はない」という判断による。中断時は従来どおり、すぐに `pending` から削除し、tile.ensure なら cancel を送る(Worker は、まだ受け取っていない id への cancel を捨てる)。
+  - 検証: `tests/weatherTransport.test.ts` に単体テストを1件足す。frame slot が埋まり、index 0 が未送信のまま中断された要求は、frame を1つも送らない(cancel は従来どおり送ってよい)。
 - 案C を採る場合の合格条件: AC-2 の `280-frame` 下で、番兵込みの期待値8で合格すること(tile(9) の call が先に Worker に届き、その後の cancel で `cancelQueued` されるため。中断前の待ちが「ラップ前の呼び出し」を見ていると注入の遅延中に中断してしまい9になるので、本物の `postMessage` の呼び出しを待つこと)。AC-8 の「製品修正を外すと落ちる」は案C には適用せず、代わりに中断済み要求の取りこぼしを製品の既知事項として別Issue化を統括に提案する(後続への引き継ぎ)。
 - 設計担当の推奨は A(最小で原因に直接効く)で、オーナー判断により A に確定した。
 
@@ -162,9 +161,9 @@ node --import tsx --import ./tests/helpers/venueConfigPreload.ts --test \
 - [ ] AC-7 検証力(本番コードをわざと壊す。各1回、終了後は元に戻し `git diff --stat apps/api/src` が意図した差分以外なし):
   - B18: `startWorkerServer` の先頭で例外を投げる → 子プロセス終了による失敗で即座に落ちる(安全網の timeout で落ちるのではない)。
   - #277: `acquisitionWorkerHost.ts` の `unknownScopes` から `workerGone ? pendingScopes : []` を除く → 落ちる。
-  - #280: `tileEnsureQueue.ts` の `task.cancelQueued()` 呼び出しを除く → `tileFetches` の検証で落ちる。案A の場合はさらに、`pending.has(id)` の確認を除く → `280-frame` 下で落ちる。cancel を最後の frame の後に送る処理を除く(即時送信に戻す) → 追加した単体テスト(1)が落ちる。
+  - #280: `tileEnsureQueue.ts` の `task.cancelQueued()` 呼び出しを除く → `tileFetches` の検証で落ちる。index 0 の前のチェックを除く → `280-frame` の下で10回中10回落ち(9件)、追加した単体テストも落ちる。
   - #282: `workerDecisions.ts` の `remaining <= 0` 判定を除く → 期限切れ pause 拒否の検証で落ちる。期限タイマーの `release()` を除く → 手順5の `released: true` 検証で落ちる(ハングしない)。
-- [ ] AC-8 #280 の製品判断: 確定した案A の通り(最小範囲)に実装されている。`280-frame` 注入下で番兵込みの期待値で合格し、製品修正を外すと同注入下で落ちる。
+- [ ] AC-8 #280 の製品判断: 確定した案A の通り(最小範囲。`send()` の index 0 の前のチェックだけ)に実装されている。`git diff origin/main -- apps/api/src` はそのチェックの数行だけ。`280-frame` の下で番兵込みの期待値で10回中10回合格し、チェックを外すと同じ注入の下で10回中10回落ちる。
 - [ ] AC-9 注入の無害性: `WX_TEST_INJECT_DELAY` 未設定で、注入コードが何もしないことを差分の目視で確認する。注入コードが `apps/api/src/**` に無い。
 - [ ] AC-10 `npm run lint`・`npm run typecheck`・`npm run format:check` が成功する。
 - [ ] AC-11 #277 の原因記録: 実測記録に、確定した原因(H1/H2/その他)と根拠のエラー全体がある。確定できなかった場合は製造を止めて統括へ報告した記録がある。
@@ -175,7 +174,7 @@ node --import tsx --import ./tests/helpers/venueConfigPreload.ts --test \
 
 - B18 の13.6秒の内訳。`b18-ready` の実現方法(Worker のラップが tsx 経由の子プロセスで効くか)。
 - #277 の socket closed の発生箇所と原因(H1〜H3 すべて推測)。
-- #280 で自然状態の frame slot が実際に詰まるか、tile.ensure の lane。`280-frame` は「frame が遅れる」状況の模擬であり、自然発生の経路と同一である保証はない。
+- #280 で、自然な状態でも送信枠が実際に埋まるかは確かめていない。`280-frame` は送信枠が埋まった状況を作るもので、MessagePort の順序保証に反する状況は作らない。
 - #282 で Worker 内の `mock.timers` が transport と共存できるか。
 - 各注入で10/10失敗になるか(遅延量は推定値)。
 - `b18-ready` を `connectReader` の手前で遅らせたとき、`listening` 出力の前後関係と、他の期限(`authorizeUntil` 等)に掛からないか。
@@ -217,7 +216,7 @@ B18 テスト（`apps/api/tests/nowcastApi.test.ts` 内「B18: 提供Workerサ�
 | --- | --- | --- | --- | --- |
 | `b18-start` | B18 | 2,500ms（旧期限 2,000ms × 1.25） | 10 / 10 | `ERR_TEST_FAILURE`: `Worker server process did not start in time (waited 2000ms)` |
 | `b18-ready` | B18 | 6,000ms（旧期限 5,000ms × 1.2） | 10 / 10 | `ERR_TEST_FAILURE`: `Ready state wait timed out after 5000ms` |
-| `280-frame` | #280 deliveryRealMissBarrier | 250ms | 10 / 10 | `AssertionError`: `expected [ 5, 6, 7, 8 ] to deeply equal [ 5, 6, 7, 8, 9 ]` |
+| `280-frame` | #280 deliveryRealMissBarrier | ack 保留(送信枠を埋める) | 10 / 10 | `AssertionError`: `中断した未開始タイルは上流取得しない`、actual 9 / expected 8(2026-10-18、index 0 のチェックを外した状態で再測定。`apps/api/src` は main と同じ) |
 | `282-pause` | #282 workerDecisions | 200ms | 10 / 10 | `AssertionError`: `expected 'active' to equal 'paused'` (手順2で active のまま) |
 | `282-run` | #282 workerDecisions | 200ms | 10 / 10 | `AssertionError`: `expected 'active' to equal 'paused'` (手順4で pause が期限切れになり active 復帰) |
 | `277-exit` | #277 workerScopeRead | 100ms | 10 / 10 | `TypeError: fetch failed` (`UND_ERR_SOCKET: other side closed`) |
@@ -246,7 +245,7 @@ B18 テスト（`apps/api/tests/nowcastApi.test.ts` 内「B18: 提供Workerサ�
 | --- | --- | --- | --- | --- |
 | `b18-start` | B18 | 10 | 10 | 合格 (10/10) |
 | `b18-ready` | B18 | 10 | 10 | 合格 (10/10) |
-| `280-frame` | #280 deliveryRealMissBarrier | 10 | 10 | 合格 (10/10) |
+| `280-frame` | #280 deliveryRealMissBarrier | 10 | 10 | 合格 (10/10、2026-10-18 再測定) |
 | `282-pause` | #282 workerDecisions | 10 | 10 | 合格 (10/10) |
 | `282-run` | #282 workerDecisions | 10 | 10 | 合格 (10/10) |
 
@@ -286,8 +285,7 @@ B18 テスト（`apps/api/tests/nowcastApi.test.ts` 内「B18: 提供Workerサ�
 - **#277**: `acquisitionWorkerHost.ts` の `unknownScopes` から `workerGone ? pendingScopes : []` を除外したところ、期待値 200 に対して 503 となり正しく失敗することを確認。
 - **#280**:
   - `tileEnsureQueue.ts` の `task.cancelQueued()` 呼び出しを除外したところ、`tileFetches` が期待値 4 に対して 5 となり失敗することを確認。
-  - `weatherTransport.ts` の `pending.has(id)` による中断確認ガードを除外したところ、`280-frame` 注入下で `activeTiles` が `[5, 6, 7, 8, 9]` にならず `[5, 6, 7, 8]` となり失敗することを確認。
-  - `weatherTransport.ts` の cancel 送信延期処理（最後の frame 送信完了後に cancel 送信）を除外し即時送信に戻したところ、単体テスト「フレーム送信中に要求が中断された場合、Workerへのcancel送信は全フレーム送信完了後に行われること」が失敗することを確認。
+  - `weatherTransport.ts` の index 0 の前のチェックを外すと、新しい `280-frame` の下で10回中10回、`tileFetches` が9(期待8)になって落ちることを確かめた(2026-10-18)。単体テストも落ちる。
 - **#282**:
   - `workerDecisions.ts` の `remaining <= 0` 判定を除外したところ、期限切れ pause 拒否の検証で失敗することを確認。
   - `workerDecisions.ts` の `release()` 呼び出しを除外したところ、手順5の `released: true` 検証でハングすることなく正しく失敗することを確認。
@@ -295,5 +293,5 @@ B18 テスト（`apps/api/tests/nowcastApi.test.ts` 内「B18: 提供Workerサ�
 
 ### 9. 設計との差異・判断事項
 
-- **#280**: 案A（最小範囲）を採択して実装。中断済み要求に対する不要なフレーム送信を防止するとともに、全フレーム送信完了後に cancel を送信するようトランスポート層を整流化した。
+- **#280**: 案A(最小範囲)を実装した。`send()` で index 0 を送る直前に中断済みかを確かめ、中断済みなら frame を送らない。送信途中の中断の決まり(cancel を最後に送る)は、2026-10-18 のオーナー判断で実装しない(案A の節を参照)。
 - **#282**: 本番コードへの第4引数 `clock` 注入（代替案）は不要となり、第一案である Worker fixture 内での `node:test` `mock.timers` 利用で成立した。これにより本番コードを変更せず、テスト側のみの変更で完全な決定論的テストを実現した。

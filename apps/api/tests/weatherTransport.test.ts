@@ -237,68 +237,7 @@ test('payloadの未ACK2frameが停止制御の独立枠を塞がない', async (
   }
 });
 
-test('送信途中で中断されたtile.ensureは全frame送信完了後にcancelを送る', async () => {
-  const { port1, port2 } = new MessageChannel();
-  const receivedTypes: string[] = [];
-  const heldAcks: unknown[] = [];
-  const originalPost2 = port2.postMessage.bind(port2);
-  port2.postMessage = ((message: { type?: string; index?: number }) => {
-    if (message?.type === 'ack' && message.index === 0) {
-      heldAcks.push(message);
-    } else {
-      originalPost2(message);
-    }
-  }) as typeof port2.postMessage;
-
-  const originalPost1 = port1.postMessage.bind(port1);
-  port1.postMessage = ((message: { type?: string }) => {
-    receivedTypes.push(message.type ?? 'unknown');
-    originalPost1(message);
-  }) as typeof port1.postMessage;
-
-  const left = new WeatherTransport(
-    port1,
-    'g',
-    () => null,
-    () => {},
-  );
-  const right = new WeatherTransport(
-    port2,
-    'g',
-    () => new Promise(() => {}),
-    () => {},
-  );
-
-  try {
-    const controller = new AbortController();
-    const payload = 'x'.repeat(300_000);
-    const pending = left.call('tile.ensure', { data: payload }, 5000, controller.signal);
-
-    for (let i = 0; heldAcks.length === 0; i++) {
-      assert.ok(i < 100);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    controller.abort();
-    await assert.rejects(pending, { message: 'deadline_exceeded' });
-
-    heldAcks.forEach((ack) => originalPost2(ack));
-    heldAcks.length = 0;
-
-    for (let i = 0; !receivedTypes.includes('cancel'); i++) {
-      assert.ok(i < 100);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-
-    assert.deepEqual(receivedTypes, ['frame', 'frame', 'cancel']);
-  } finally {
-    left.close();
-    right.close();
-    port1.close();
-    port2.close();
-  }
-});
-
-test('frame slotが埋まりindex 0未送信のまま中断された要求はframeもcancelも届かない', async () => {
+test('frame slotが埋まりindex 0未送信のまま中断された要求はframeを送らない', async () => {
   const { port1, port2 } = new MessageChannel();
   const receivedTypes: string[] = [];
   const heldAcks: unknown[] = [];
@@ -354,7 +293,11 @@ test('frame slotが埋まりindex 0未送信のまま中断された要求はfra
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const subsequentTypes = receivedTypes.slice(initialTypesCount);
-    assert.deepEqual(subsequentTypes, []);
+    // 中断時のcancel送信は従来どおり(Worker側は未受信idのcancelを捨てる)。frameは1つも送らない
+    assert.deepEqual(
+      subsequentTypes.filter((type) => type === 'frame'),
+      [],
+    );
   } finally {
     left.close();
     right.close();

@@ -245,7 +245,16 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
   let worker: Worker | undefined;
   let deliveryWorker: Worker | undefined;
   const observed: string[] = [];
-  let tile9Started = false;
+  const injectDelay280 = (process.env.WX_TEST_INJECT_DELAY ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .includes('280-frame');
+  let holdAcks = false;
+  const heldAcks: (() => void)[] = [];
+  const releaseHeldAcks = () => {
+    holdAcks = false;
+    for (const deliver of heldAcks.splice(0)) deliver();
+  };
   let entered!: (value: number) => void;
   let tileFetches = 0;
   const waitingForEnsure = new Promise<number>((resolve) => {
@@ -275,36 +284,21 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
           entered(message.tileFetches);
         }
       });
-      const injectDelays = (process.env.WX_TEST_INJECT_DELAY ?? '').split(',').map((s) => s.trim());
-      if (injectDelays.includes('280-frame')) {
-        const originalPostMessage = value.postMessage.bind(value);
-        let delayedId: string | null = null;
-        let delayedFrameSent = false;
-        value.postMessage = ((message: unknown, transfer?: readonly ArrayBuffer[]) => {
-          const packet = message as {
-            type?: string;
-            index?: number;
-            final?: boolean;
-            id?: string;
-          };
-          if (tile9Started && packet?.type === 'frame' && packet.index === 0 && !delayedFrameSent) {
-            if (packet.final !== true) {
-              throw new Error('280-frame: unexpected multi-frame tile.ensure request');
+      if (injectDelay280) {
+        // 280-frame: 取得Workerからのackを一時的に保留し、payload の送信枠(未ack 2frame)を埋める。
+        // tile(9) の index 0 は送信枠の空き待ちのまま中断され、保留解除後に送信の可否が決まる。
+        // MessagePort は送った順に届くため、送信済みframeをcancelが追い越す状況は作らない。
+        const on = value.on.bind(value);
+        value.on = ((event: string, listener: (message: unknown) => void) => {
+          if (event !== 'message') return on(event, listener);
+          return on(event, (message: unknown) => {
+            if (holdAcks && (message as { type?: string } | null)?.type === 'ack') {
+              heldAcks.push(() => listener(message));
+              return;
             }
-            delayedFrameSent = true;
-            delayedId = packet.id ?? null;
-            setTimeout(() => {
-              originalPostMessage(message, transfer as ArrayBuffer[]);
-            }, 1000);
-            return;
-          }
-          if (packet?.type === 'cancel' && packet.id === delayedId) {
-            (
-              globalThis as unknown as { __last280CancelRecorded?: string }
-            ).__last280CancelRecorded = packet.id;
-          }
-          originalPostMessage(message, transfer as ArrayBuffer[]);
-        }) as typeof value.postMessage;
+            listener(message);
+          });
+        }) as typeof value.on;
       }
     },
   });
@@ -493,6 +487,7 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
     }
     assert.equal(tileFetches, 3);
     worker!.postMessage({ test: 'release-tile' });
+    holdAcks = injectDelay280;
     const activeTiles = [5, 6, 7, 8].map((x) => fetch(tile(x)));
     const queuedStarted = performance.now();
     while (server.acquisitionHost.status().pendingRequests < 4) {
@@ -501,10 +496,14 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     const queuedController = new AbortController();
-    tile9Started = true;
     const queuedTile = fetch(tile(9), { signal: queuedController.signal });
     while (server.acquisitionHost.status().pendingRequests < 5) {
       if (performance.now() - queuedStarted > 5000) throw new Error('取得待機要求が登録されません');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    while (injectDelay280 && heldAcks.length < 2) {
+      if (performance.now() - queuedStarted > 5000)
+        throw new Error('280-frame: 送信枠が埋まりません');
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     queuedController.abort();
@@ -513,6 +512,7 @@ test('実取得Workerのcache miss保留中も提供Workerの保存済みtileと
       if (performance.now() - queuedStarted > 5000) throw new Error('取得待機要求が解除されません');
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
+    releaseHeldAcks();
     worker!.postMessage({ test: 'release-all' });
     for (const activeTile of activeTiles) {
       const activeResponse = await activeTile;

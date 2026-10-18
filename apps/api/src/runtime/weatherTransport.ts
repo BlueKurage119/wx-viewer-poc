@@ -14,13 +14,7 @@ type Packet = {
   value: unknown;
   error: string | null;
 };
-interface CallSendState {
-  sentAnyFrame: boolean;
-  completed: boolean;
-  aborted: boolean;
-  cancelled: boolean;
-}
-
+/** 両方向のACK付き通信。巨大候補も1フレームずつ送り、未確認の更新を進めない。 */
 export class WeatherTransport {
   private readonly pending = new Map<
     string,
@@ -191,7 +185,7 @@ export class WeatherTransport {
       );
     }
   }
-  private async send(packet: Packet, lane: Lane, sendState?: CallSendState): Promise<void> {
+  private async send(packet: Packet, lane: Lane): Promise<void> {
     assertWeatherData(packet);
     const bytes = Buffer.from(JSON.stringify(packet));
     const control = lane !== 'payload';
@@ -215,13 +209,8 @@ export class WeatherTransport {
         await this.acquireFrameSlot(lane);
         try {
           if (this.closed) throw new WeatherRequestError('not_ready');
-          if (
-            packet.kind === 'call' &&
-            index === 0 &&
-            (sendState?.aborted || !this.pending.has(packet.id))
-          ) {
-            return;
-          }
+          // 送信枠を待つ間に中断された要求は、Workerへ1frameも送らない(#280)
+          if (packet.kind === 'call' && index === 0 && !this.pending.has(packet.id)) return;
           await new Promise<void>((resolve, reject) => {
             const key = `${packet.id}:${index}`;
             const timer = setTimeout(() => {
@@ -234,7 +223,6 @@ export class WeatherTransport {
               this.acknowledgements.delete(key);
               resolve();
             });
-            if (sendState) sendState.sentAnyFrame = true;
             this.endpoint.postMessage({
               protocolVersion: 1,
               type: control ? 'control' : 'frame',
@@ -247,26 +235,6 @@ export class WeatherTransport {
           });
         } finally {
           this.releaseFrameSlot(lane);
-        }
-      }
-      if (sendState) {
-        sendState.completed = true;
-        if (
-          sendState.sentAnyFrame &&
-          sendState.aborted &&
-          packet.method === 'tile.ensure' &&
-          !sendState.cancelled
-        ) {
-          sendState.cancelled = true;
-          this.endpoint.postMessage({
-            protocolVersion: 1,
-            type: 'cancel',
-            generation: this.generation,
-            id: packet.id,
-          });
-        }
-        if (sendState.aborted) {
-          this.pending.delete(packet.id);
         }
       }
     } finally {
@@ -283,52 +251,32 @@ export class WeatherTransport {
     )
       return Promise.reject(new WeatherRequestError('busy'));
     const id = randomUUID();
-    const sendState: CallSendState = {
-      sentAnyFrame: false,
-      completed: false,
-      aborted: false,
-      cancelled: false,
-    };
     return new Promise<T>((resolve, reject) => {
       const onAbort = () => {
         const pending = this.pending.get(id);
         if (!pending) return;
         clearTimeout(pending.timer);
+        this.pending.delete(id);
         pending.cleanup();
-        sendState.aborted = true;
-        if (!sendState.sentAnyFrame) {
-          this.pending.delete(id);
-        } else if (sendState.completed) {
-          if (method === 'tile.ensure' && !sendState.cancelled) {
-            sendState.cancelled = true;
-            this.endpoint.postMessage({
-              protocolVersion: 1,
-              type: 'cancel',
-              generation: this.generation,
-              id,
-            });
-          }
-          this.pending.delete(id);
-        }
+        if (method === 'tile.ensure')
+          this.endpoint.postMessage({
+            protocolVersion: 1,
+            type: 'cancel',
+            generation: this.generation,
+            id,
+          });
         reject(new WeatherRequestError('deadline_exceeded'));
       };
       const timer = setTimeout(() => {
+        this.pending.delete(id);
         signal?.removeEventListener('abort', onAbort);
-        sendState.aborted = true;
-        if (!sendState.sentAnyFrame) {
-          this.pending.delete(id);
-        } else if (sendState.completed) {
-          if (method === 'tile.ensure' && !sendState.cancelled) {
-            sendState.cancelled = true;
-            this.endpoint.postMessage({
-              protocolVersion: 1,
-              type: 'cancel',
-              generation: this.generation,
-              id,
-            });
-          }
-          this.pending.delete(id);
-        }
+        if (method === 'tile.ensure')
+          this.endpoint.postMessage({
+            protocolVersion: 1,
+            type: 'cancel',
+            generation: this.generation,
+            id,
+          });
         reject(new Error('handshake_timeout'));
         if (
           method !== 'status' &&
@@ -350,16 +298,14 @@ export class WeatherTransport {
         onAbort();
         return;
       }
-      void this.send({ kind: 'call', id, method, value, error: null }, lane, sendState).catch(
-        (error) => {
-          if (this.pending.has(id)) {
-            clearTimeout(timer);
-            this.pending.delete(id);
-            signal?.removeEventListener('abort', onAbort);
-            reject(error);
-          }
-        },
-      );
+      void this.send({ kind: 'call', id, method, value, error: null }, lane).catch((error) => {
+        if (this.pending.has(id)) {
+          clearTimeout(timer);
+          this.pending.delete(id);
+          signal?.removeEventListener('abort', onAbort);
+          reject(error);
+        }
+      });
     });
   }
   get size() {
