@@ -286,18 +286,23 @@ AGY が初回製造で書いた数値には、コードと食い違う誤りが�
 
 ### 2. B18 の時間内訳
 
-- 再測定待ち(builder・inspector が実測したものだけを記録する)。
+- 製造担当(Claude Opus 5.5)が 2026-10-18 に実測。負荷なし・注入なし・単独で子プロセスを3回起動し、起動から `listening` の出力まで 452〜514ms、`lifecycle === 'ready'` まで 764〜830ms だった(測定用の一時スクリプトは未コミット)。#225 の記録の13.6秒は、この単独・無負荷の条件では再現しなかった。13.6秒の内訳は特定できていない(並列の全体実行などの負荷下の値だったと推測するが未確認)。
 
 ### 3. AC-1 修正前の失敗率(各注入10回)
 
+測定: 製造担当、2026-10-18。対象テスト本体だけを main の版に戻した一時状態(コミットしない。測定後に元へ戻し、`git status --short` が空であることを確認)で、`WX_TEST_INJECT_DELAY=<注入名>` を付けて単独10回。
+
 | 注入名 | 注入遅延(コードの値) | 失敗回数 | 失敗理由 |
 | --- | --- | --- | --- |
-| `b18-start` | 再測定待ち | 再測定待ち | 再測定待ち |
-| `b18-ready` | 再測定待ち | 再測定待ち | 再測定待ち |
-| `280-frame` | ack 保留(送信枠を埋める) | 10 / 10(統括の実測、作り直し後) | index 0 のチェックを外すと `tileFetches` が9(期待8) |
-| `282-pause` | 再測定待ち | 再測定待ち | 再測定待ち |
-| `282-run` | 再測定待ち | 再測定待ち(旧位置では検収の実測で 0/10) | 再測定待ち |
-| `277-exit` | 再測定待ち | 検収の実測: 10回とも `false !== true`(仮説確認用。比較の対象外) | socket closed は0件 |
+| `b18-start` | `fixtureServerMain.ts` で45000ms | 10 / 10 | `Timeout waiting for server to start. Output: `(起動ログ待ち15秒の期限切れ。出力は空) |
+| `b18-ready` | `b18DelayPreload.ts` の `connectReader` 前に30000ms | 10 / 10 | `実Workerの準備が期限内に完了しません`(ready 待ち10秒の期限切れ)。別途1回、子プロセスの出力を取ると `listening on ... (initial sync in progress)` までで、`handshake_timeout`・`initialization_failed` は無かった |
+| `280-frame` | ack の保留(送信枠を埋める。時間ではなく状態で解除) | 10 / 10 | `index 0` の前のチェックを `weatherTransport.ts` から一時的に外して実施。うち1回で `tileFetches` が9(期待8)を確認。残りは失敗の有無のみ確認。あわせて transport 単体テストも `actual: 2, expected: 1` で落ちた |
+| `282-pause` | `decisions-fixture.mjs` の `decisions.pause` 前に600ms | 10 / 10 | 2回目の pause が `Error: deadline_exceeded`(1回で確認、残りは失敗の有無のみ) |
+| `282-run` | 同 `decisions.pause` 受理後・応答前に600ms | 10 / 10 | `delay(50)` 後の `commits()` が `['east']`(期待 `[]`)。10回とも同じ内容 |
+
+遅延量は旧期限の3倍以上(b18-start 45000ms は15000msの3倍、b18-ready 30000ms は10000msの3倍、282-pause・282-run の600ms は150msの4倍)で、安全網の timeout 120000ms 未満。
+
+参考(比較の対象外): `277-exit` は検収の実測で10回とも `false !== true`(socket closed は0件)。
 
 ### 4. AC-11 #277 の原因
 
@@ -306,21 +311,38 @@ AGY が初回製造で書いた数値には、コードと食い違う誤りが�
 
 ### 5. AC-2 修正後の合格(各注入10回)
 
+測定: 製造担当、2026-10-18。現行の対象テストに、各注入を入れて単独10回。
+
 | 注入名 | 結果 |
 | --- | --- |
-| `b18-start` | 再測定待ち |
-| `b18-ready` | 再測定待ち |
-| `280-frame` | 10 / 10 合格(統括の実測、作り直し後) |
-| `282-pause` | 再測定待ち |
-| `282-run` | 再測定待ち |
-| `282-pause`・`282-run` 入りのファイル全体 | 再測定待ち |
+| `b18-start` | 10 / 10 合格(5回+5回に分けて実施) |
+| `b18-ready` | 10 / 10 合格(別に3回追加で実施し、3 / 3 合格) |
+| `280-frame` | 10 / 10 合格(対象テスト)。`weatherTransport.test.ts` ファイル全体も同注入で 10 / 10 合格 |
+| `282-pause` | 10 / 10 合格(対象テスト単独)。ファイル全体も 10 / 10 合格 |
+| `282-run` | 10 / 10 合格(対象テスト単独)。ファイル全体も 10 / 10 合格 |
+
+`282-pause`・`282-run` を入れたファイル全体の実行では、対象外の FIFO テストを含む全件が合格した。
 
 ### 6. AC-3〜AC-5・AC-7
 
-- 再測定待ち(builder・inspector が実測したものだけを記録する)。全体実行の件数は実際の出力の値を書く。
-- AC-7 #280 の index 0 チェック: 外すと `280-frame` の下で10回中10回、`tileFetches` が9(期待8)で落ちる(統括の実測、作り直し後)。
+測定: 製造担当、2026-10-18、12コア。
+
+- AC-3 自然状態の単独30回:
+  - #280・#282・#277: 30 / 30 合格(#277 は会場全体保存後の2件、パターン `会場全体保存後未完了scope`)。
+  - B18: 1回目の30回で **1回失敗(29 / 30)**。失敗は 660ms で終わっており、出力は失敗行しか保存しておらず原因は不明。その後、同条件で直接 320 回(単独60回+100回・4並列160回)流して再現せず、改めて保存付きで30回流して 30 / 30 合格。B18 のこの1回は原因未確定として残す。(本番コードを壊した場合の B18 の失敗は `Child exited early` で約800ms。同じ早い失敗だが、同一の原因とは言えない。)
+- AC-4 負荷下の単独10回(`yes` 24本): 4件とも 10 / 10 合格。`yes` は自分が起動した24本のPIDだけを kill し、`pgrep yes` が空であることを確認。#280 の 446行の `duration`(1サンプルの最大値)は10回の最大が 41.6ms。`measure` で測った各経路の最大値は、10回すべての最大が 75.1ms(上限は health 500ms、monitoring 1000ms、system・text・tile 各2000ms)。
+- AC-5 全体実行 `npm run test -w apps/api` 5回: 5回とも 1200 件すべて合格、失敗0(所要 94.1・88.5・93.2・93.7・94.4 秒)。446行の `duration` の最大は 203.1ms、`measure` で測った各経路の最大は 60.4ms。
+- AC-7(本番コードをわざと壊す。各1回、測定後は `git checkout` で戻し `git diff --stat apps/api/src` が空であることを確認):
+  - B18: `startWorkerServer` の先頭で例外 → `Child exited early with code 1. Output: Error: mutation`(約0.8秒、子プロセス終了で即失敗。安全網の timeout ではない)。
+  - #277: `unknownScopes` の `...(workerGone ? pendingScopes : [])` を `...[]` に → 「異常終了後」のテストが `deepEqual` で落ちた(「実行中」のテストは合格のまま)。
+  - #280: `tileEnsureQueue.ts` の `task.cancelQueued()` を除く → 対象テストが `tileFetches` 9(期待8)で落ちた(`280-frame` なしの自然状態で1回)。
+  - #280: `weatherTransport.ts` の index 0 の前のチェックを除く → `280-frame` 下の対象テストが10回中10回落ち(1回で `tileFetches` 9 を確認)、番兵に置き換えた単体テストも `actual: 2, expected: 1` で落ちた。
+  - #282: `remaining <= 0` 判定を除く → 期限切れ pause 拒否の検証が `Missing expected rejection` で落ちた。期限タイマーの `release()` を除く → 5.2秒で `Error: handshake_timeout` により落ちた(ハングしない)。
 
 ### 7. 設計との差異・判断事項
 
 - #280: 案A(最小範囲)を実装した。送信途中の中断の決まりは実装しない(案A の節を参照)。
 - #282: 本番コードへの第4引数 `clock` は不要で、Worker fixture 内の `mock.timers` で成立した(`decisions-fixture.mjs` の `workerData.mockTimers`)。
+- #280 の `< 30000` の置き換え(1回流して確かめた値): 保留中の取得が短い期限で切れる経路は status 502・`code: 'tile_fetch_failed'`、取得停止中は status 503・`code: 'acquisition_stopped'`(`imageAccess.reason: 'scheduled_stopped'`)、取得Worker 不在は status 503・`code: 'weather_worker_unavailable'`。3経路は応答本文で区別でき、本文全体を `deepEqual` で照合した。停止中・異常終了後の miss は、応答後に `pendingRequests` が0であることも照合する。
+- #280: 対象テストの撤去は設計の表どおり。`deliveryRealMissBarrier.test.ts` の別のテスト(夜間相当の取得停止中…)にある `< 30_000`(695行付近)は、対象テストの外なので変えていない。B2 により 446行の `duration`・`measure()` と、431行の `delay(50)` 後の判定は残した。
+- 設計書の行番号は main 版(状態と前提を参照)。
