@@ -171,9 +171,9 @@ readonly skippedBackfillLimitCount: number; // 初回・復旧の集約電文絞
 
 | 項目 | 変更前 | 変更後 | 計測日時・条件 |
 | --- | --- | --- | --- |
-| 個別取得予定件数（種別ごと） | | | |
-| 初回同期の所要時間 | | | |
-| 取得容量（`response_bytes` 合計） | | | |
+| 個別取得予定件数（種別ごと） | 計6,860件（VPWP50 1677・VPFD51 1247・VPFD61 1228・VPWS50 1008・VPFW60 784・VPWW61 439・VPWW58 237・VPWW59 167・VPWW55 43・VPWW56 18・VPHW50 6・VPHW51 6） | 計1,597件（VPWP50 174・VPFD51 168・VPFD61 168・VPFW60 168・VPWS50 3、他の10種別は変更前と同数） | 検収担当、2026-10-18 23:54 JST、本番 `regular_l`（9321件）・`extra_l`（4014件）を取得し、15種別・URL重複除去後に `selectBackfillExcludedUrls` を適用して計数（空DB前提） |
+| 初回同期の所要時間 | 統括担当の実測を引用（約6,860件。2026-10-18 23:07 JST） | 330秒（ログ `completed initial JMA XML feed fetch (330307ms)`） | 検収担当、2026-10-19 00:05 JST 開始、変更後コード、別ポート（3091）・新規の一時DB、XML以外の取得は停止した設定で1回 |
+| 取得容量（`response_bytes` 合計） | 約3.05GB（統括担当の実測を引用） | 約275MB（`xml_document` 成功1,655行で 274,945,404 bytes。高頻度フィード由来の電文を含む） | 同上 |
 
 ## 8. 実挙動未確認の事項
 
