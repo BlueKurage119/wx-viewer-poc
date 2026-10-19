@@ -21,8 +21,8 @@ Issue #260 の 2 Worker 構成を対象とする。操作前に対象環境の�
 
 1. 正規の停止経路でメインと取得・提供 Worker を終了する。取得停止操作だけでは全接続を閉じない。read-only 接続、タイマー、lease、SQLite ツールも終了を確認する。
 2. 気象 DB・保持 DB と各付随ファイル (`-wal`、`-shm`、`-journal`) を停止時の一組として保全し、コピーを検査する。付随ファイルだけを手動削除しない。
-3. `npm run db:reset:weather -- --plan --confirm-stopped` を実行し、対象パス、role、instance、削除対象、digest を確認する。
-4. 承認された対象に限り `npm run db:reset:weather -- --apply --confirm <planDigest> --confirm-stopped` を実行する。途中失敗では journal を保持し、保守手順の `--resume` を用いる。保持 DB とタイル cache は reset 対象外である。
+3. 停止中に `npm run db:reset:weather` を実行し、残留ロックの解除確認・停止自己申告を行い、plan 表示で削除対象一覧・気象 DB 情報・保持対象の保全案内を確認する。
+4. 内容を確認の上で y を入力して削除を実行する。途中失敗時は journal を手動削除せず、同じコマンドを再実行して自動再開する（詳細は [気象 DB 保守手順](../weather-db-maintenance.md) を参照）。保持 DB とタイル cache は reset 対象外である。
 5. 正規起動後、新しい気象 DB 世代、取得・提供の ready、保持履歴の件数と sequence、保存済み情報の再取得状態を確認する。空の気象 DB を正常な最新データと表示しない。
 
 ## rollback
