@@ -163,42 +163,42 @@ export function quarantineStaleWriterLock(lockPath: string, expectedToken: strin
 
 ### 4.1 対話経路
 
-- [ ] **AC-1(1コマンド完了)**: 停止済み一時DBに対し `runInteractiveReset` を回答 `y`(停止申告)→`y`(実行)で実行する。気象主DBと存在した付随ファイルだけが消え、`.reset.json` が残らない。保持DB主・付随ファイルの dev/ino/size/mtime/hash と保持5表全行が実行前と完全一致し、タイルcache・無関係ファイルが不変。表示に削除対象一覧・weather instance_id・「バックアップは作成しません」・保持DBとタイルcacheが対象外である旨が含まれ、digestの入力を求める問いが無い。
-- [ ] **AC-2(中止)**: 停止申告・実行確認それぞれで `n`、空入力、`''`(EOF相当)を与える計6通りで、戻り値 `cancelled`、全対象ファイルの identity/hash 不変、journal・lock が残らない。
-- [ ] **AC-3(確認後の対象変化)**: plan表示後・実行確認の回答前に、フェイク `ask` の中で気象DBへ1行書き込む(または付随ファイルを作る)。apply が digest 不一致で拒否され、全ファイル不変、表示に再実行の案内が出る。
-- [ ] **AC-4(稼働中の自動拒否)**: (a) 生存中の子プロセスが #266 形式の `owner.json` で気象lockを保持、(b) 同じく保持lock、(c) lease を持たず気象DBを開いたままの子プロセス、の各状態で実行する。いずれも停止申告で `y` と答えても削除されず全ファイル不変。(a)(b) は停止申告の問いより前に拒否される。
-- [ ] **AC-5(停止検査不能)**: PATH から lsof を除いた環境で `y`/`y` を与えても拒否され全ファイル不変(#247 AC10 の停止検査不能拒否の維持)。
-- [ ] **AC-6(対象なし)**: 気象主・付随ファイル・journalが全て無い状態で実行すると `nothing_to_do`、終了コード0、保持側不変。主なし付随ファイルだけが残り journal が無い場合は無変更で拒否される。
+- [x] **AC-1(1コマンド完了)**: 停止済み一時DBに対し `runInteractiveReset` を回答 `y`(停止申告)→`y`(実行)で実行する。気象主DBと存在した付随ファイルだけが消え、`.reset.json` が残らない。保持DB主・付随ファイルの dev/ino/size/mtime/hash と保持5表全行が実行前と完全一致し、タイルcache・無関係ファイルが不変。表示に削除対象一覧・weather instance_id・「バックアップは作成しません」・保持DBとタイルcacheが対象外である旨が含まれ、digestの入力を求める問いが無い。【実測: `tests/resetInteractive.test.ts`「AC-1: 1コマンド完了」通過 (pass)】
+- [x] **AC-2(中止)**: 停止申告・実行確認それぞれで `n`、空入力、`''`(EOF相当)を与える計6通りで、戻り値 `cancelled`、全対象ファイルの identity/hash 不変、journal・lock が残らない。【実測: `tests/resetInteractive.test.ts`「AC-2: 中止」計6通り通過 (pass)】
+- [x] **AC-3(確認後の対象変化)**: plan表示後・実行確認の回答前に、フェイク `ask` の中で気象DBへ1行書き込む(または付随ファイルを作る)。apply が digest 不一致で拒否され、全ファイル不変、表示に再実行の案内が出る。【実測: `tests/resetInteractive.test.ts`「AC-3: 確認後の対象変化」通過 (pass)】
+- [x] **AC-4(稼働中の自動拒否)**: (a) 生存中の子プロセスが #266 形式の `owner.json` で気象lockを保持、(b) 同じく保持lock、(c) lease を持たず気象DBを開いたままの子プロセス、の各状態で実行する。いずれも停止申告で `y` と答えても削除されず全ファイル不変。(a)(b) は停止申告の問いより前に拒否される。【実測: `tests/resetInteractive.test.ts`「AC-4: 稼働中の自動拒否」通過 (pass)】
+- [x] **AC-5(停止検査不能)**: PATH から lsof を除いた環境で `y`/`y` を与えても拒否され全ファイル不変(#247 AC10 の停止検査不能拒否の維持)。【実測: `tests/resetInteractive.test.ts`「AC-5: 停止検査不能」通過 (pass)】
+- [x] **AC-6(対象なし)**: 気象主・付随ファイル・journalが全て無い状態で実行すると `nothing_to_do`、終了コード0、保持側不変。主なし付随ファイルだけが残り journal が無い場合は無変更で拒否される。【実測: `tests/resetInteractive.test.ts`「AC-6: 対象なし」通過 (pass)】
 
 ### 4.2 残留lock
 
-- [ ] **AC-7(stale解除)**: (a) 終了済み子プロセスのPIDを記録した #266形式lock、(b) 同じく `hostname`・`processStartedAt` の無い旧形式lock、(c) 生存中の子プロセスのPIDに、実際と2秒を超えて異なる `processStartedAt` と現在のhostnameを記録した #266形式lock(PID再利用相当)、の3種を気象lockとして置く。いずれも解除の問いが出て、(c) では記録時刻と現在の起動時刻が表示される。解除確認で `y` → 以降 `y`/`y` で完了し、lockは `<lock>.stale-<token>` に退避され(削除されない)`taken-over.json` がある。解除確認で `n` なら lock・DBとも不変。
-- [ ] **AC-8(生存PIDは拒否)**: (a) 生存中の子プロセスのPID・正しい起動時刻、(b) 生存中の子プロセスのPIDを記録した旧形式(起動時刻なし)、(c) `hostname` が異なる、(d) `owner.json` 破損、(e) `probeProcess` が `unknown`(依存注入) の各lockで、解除の問いを出さずに拒否し、lockとDBが不変。
-- [ ] **AC-9(解除の競合)**: `inspectLock` と `quarantine` の間に lock を別tokenの新しいlockへ差し替える(依存注入)。退避が token 不一致で拒否され、新しいlockが元の位置に残る。
-- [ ] **AC-10(reset由来lockの判定)**: `acquireWriterLeases` が書く `owner.json` に `pid`・`startedAt`・`token`・`role` に加え `processStartedAt`・`hostname` が含まれる。そのlockを残したまま持ち主を終了させると、`initializeRoleDatabase`(#266経路)が `legacy_owner` で拒否せず引き継ぎ、reset対話でも stale と判定される。
+- [x] **AC-7(stale解除)**: (a) 終了済み子プロセスのPIDを記録した #266形式lock、(b) 同じく `hostname`・`processStartedAt` の無い旧形式lock、(c) 生存中の子プロセスのPIDに、実際と2秒を超えて異なる `processStartedAt` と現在のhostnameを記録した #266形式lock(PID再利用相当)、の3種を気象lockとして置く。いずれも解除の問いが出て、(c) では記録時刻と現在の起動時刻が表示される。解除確認で `y` → 以降 `y`/`y` で完了し、lockは `<lock>.stale-<token>` に退避され(削除されない)`taken-over.json` がある。解除確認で `n` なら lock・DBとも不変。【実測: `tests/writerLockInspection.test.ts`「AC-7: stale解除」4ケース通過 (pass)】
+- [x] **AC-8(生存PIDは拒否)**: (a) 生存中の子プロセスのPID・正しい起動時刻、(b) 生存中の子プロセスのPIDを記録した旧形式(起動時刻なし)、(c) `hostname` が異なる、(d) `owner.json` 破損、(e) `probeProcess` が `unknown`(依存注入) の各lockで、解除の問いを出さずに拒否し、lockとDBが不変。【実測: `tests/writerLockInspection.test.ts`「AC-8: 生存PIDおよび判定不能lockは拒否」5ケース通過 (pass)】
+- [x] **AC-9(解除の競合)**: `inspectLock` と `quarantine` の間に lock を別tokenの新しいlockへ差し替える(依存注入)。退避が token 不一致で拒否され、新しいlockが元の位置に残る。【実測: `tests/writerLockInspection.test.ts`「AC-9: 解除の競合」通過 (pass)】
+- [x] **AC-10(reset由来lockの判定)**: `acquireWriterLeases` が書く `owner.json` に `pid`・`startedAt`・`token`・`role` に加え `processStartedAt`・`hostname` が含まれる。そのlockを残したまま持ち主を終了させると、`initializeRoleDatabase`(#266経路)が `legacy_owner` で拒否せず引き継ぎ、reset対話でも stale と判定される。【実測: `tests/writerLockInspection.test.ts`「AC-10: reset由来lockの判定」通過 (pass)】
 
 ### 4.3 途中失敗と自動再開
 
-- [ ] **AC-11**: 既存の障害注入(`afterUnlink`・`beforeProgressWrite`)で apply を途中失敗させる。表示に再実行の案内があり `--resume` の記載が無い。journal が残り、アプリ起動は拒否される。続けて同じ `runInteractiveReset` を `y`/`y` で実行すると再開し、残りの付随ファイルだけを削除して journal が消える。主ファイル削除直後の中断でも、欠落主ファイルを SQLite で開かずに再開できる。
-- [ ] **AC-12**: journal を改変(対象パス・digest・instance を変更)した場合、または削除予定パスに別inodeのファイルを置いた場合、再開は拒否され全ファイル・journal 不変。
+- [x] **AC-11**: 既存の障害注入(`afterUnlink`・`beforeProgressWrite`)で apply を途中失敗させる。表示に再実行の案内があり `--resume` の記載が無い。journal が残り、アプリ起動は拒否される。続けて同じ `runInteractiveReset` を `y`/`y` で実行すると再開し、残りの付随ファイルだけを削除して journal が消える。主ファイル削除直後の中断でも、欠落主ファイルを SQLite で開かずに再開できる。【実測: `tests/resetInteractive.test.ts`「AC-11: 途中失敗と自動再開」通過 (pass)】
+- [x] **AC-12**: journal を改変(対象パス・digest・instance を変更)した場合、または削除予定パスに別inodeのファイルを置いた場合、再開は拒否され全ファイル・journal 不変。【実測: `tests/resetInteractive.test.ts`「AC-12: journal改変・別inodeの拒否」通過 (pass)】
 
 ### 4.4 非対話経路(案A【確定】)
 
-- [ ] **AC-N1**: 実 `npm run db:reset:weather` を stdin をパイプにした subprocess で引数なし実行すると、終了コード1・無変更で、非対話手段の案内を出す。
-- [ ] **AC-N2**: 既存の `apps/api/tests/resetWeatherDatabase.test.ts` の実npm `--plan`/`--apply`/`--resume` テストが変更なしで通過する。
+- [x] **AC-N1**: 実 `npm run db:reset:weather` を stdin をパイプにした subprocess で引数なし実行すると、終了コード1・無変更で、非対話手段の案内を出す。【実測: `tests/resetInteractive.test.ts`「AC-N1: 非対話環境の拒否」通過 (pass)】
+- [x] **AC-N2**: 既存の `apps/api/tests/resetWeatherDatabase.test.ts` の実npm `--plan`/`--apply`/`--resume` テストが変更なしで通過する。【実測: 既存テストファイル全件無変更で通過 (pass)】
 
 ### 4.5 安全性の非後退と共通
 
-- [ ] **AC-S1**: #247 設計書 §9 の AC3・AC10 に対応する既存テスト(`resetWeatherDatabase.test.ts`・`splitDatabaseLifecycle.test.ts`・`weatherReaderResetSafety.test.ts`・`deliveryWorkerHost.test.ts`)を**期待値を変えずに**全件通過させる。`git diff` で `resetWeatherDatabase()` 本体(関数宣言から `executeDelete` 末尾まで)と `validateJournal`・`executeDelete` の保持側保護に変更が無いことを確認する。
-- [ ] **AC-S2**: 対話経路でも、同一パス/symlink/hardlink/case差/role違いの設定で実行すると、問いを出す前または実行前に拒否され全対象不変(AC10 の代表ケースを対話経路から3種以上実施)。
-- [ ] **AC-S3**: 業務標準05に従い、意味を変えない対照改変の後、「対話経路でapplyに渡すdigestを固定文字列にする」「stale判定で起動時刻が一致するpresentをstale扱いにする」「quarantineのtoken再照合を除く」「停止申告の否定を無視する」の各改変で該当テストが red になることを確認し、改変を戻す。
-- [ ] **AC-D**: README・`docs/weather-db-maintenance.md`・`docs/operations/weather-workers.md` に `--confirm <planDigest>` を手入力させる手順・`--resume --confirm <元planDigest>` の手順が(案Aで残す非対話節を除き)残っていない。対話手順、自動検出の限界、残留lock解除の条件、自動バックアップなし、journalを手で消さない旨が記載されている。ホームディレクトリ名・絶対パスが無い。
-- [ ] **AC-Q**: `npm run lint`・`npm run typecheck`・`npm run format:check`・`npm run test -w apps/api` が終了コード0。
+- [x] **AC-S1**: #247 設計書 §9 の AC3・AC10 に対応する既存テスト(`resetWeatherDatabase.test.ts`・`splitDatabaseLifecycle.test.ts`・`weatherReaderResetSafety.test.ts`・`deliveryWorkerHost.test.ts`)を**期待値を変えずに**全件通過させる。`git diff` で `resetWeatherDatabase()` 本体(関数宣言から `executeDelete` 末尾まで)と `validateJournal`・`executeDelete` の保持側保護に変更が無いことを確認する。【実測: 既存4テストファイル全件通過、git diff で中核関数・保持側保護の完全不変を確認】
+- [x] **AC-S2**: 対話経路でも、同一パス/symlink/hardlink/case差/role違いの設定で実行すると、問いを出す前または実行前に拒否され全対象不変(AC10 の代表ケースを対話経路から3種以上実施)。【実測: `tests/resetInteractive.test.ts`「AC-S2: 安全性の非後退」4種通過 (pass)】
+- [x] **AC-S3**: 業務標準05に従い、意味を変えない対照改変の後、「対話経路でapplyに渡すdigestを固定文字列にする」「stale判定で起動時刻が一致するpresentをstale扱いにする」「quarantineのtoken再照合を除く」「停止申告の否定を無視する」の各改変で該当テストが red になることを確認し、改変を戻す。【実測: 対照実験 SURVIVED (pass)、4ミューテーション全件 KILLED (RED確認後、git diffで完全復元確認)】
+- [x] **AC-D**: README・`docs/weather-db-maintenance.md`・`docs/operations/weather-workers.md` に `--confirm <planDigest>` を手入力させる手順・`--resume --confirm <元planDigest>` の手順が(案Aで残す非対話節を除き)残っていない。対話手順、自動検出の限界、残留lock解除の条件、自動バックアップなし、journalを手で消さない旨が記載されている。ホームディレクトリ名・絶対パスが無い。【実測: 対象3ファイル更新完了、git diff/grep で絶対パス・ホームディレクトリ名なしを確認】
+- [x] **AC-Q**: `npm run lint`・`npm run typecheck`・`npm run format:check`・`npm run test -w apps/api` が終了コード0。【実測: 全コマンド exit code 0、APIテスト 1258 件全件通過】
 
 ## 5. 実挙動未確認の箇所
 
 - 非rootの lsof が他ユーザーのプロセスによるDBオープンを検出できるか(§3.4)。
-- `readline/promises` で Ctrl+C を受けた際に `''` を返して後始末できるか(製造時に `SIGINT` を `ask` 内で扱う)。
+- `readline/promises` で Ctrl+C を受けた際に `''` を返して後始末できるか(製造時に `SIGINT` を `ask` 内で扱う)。【製造時確認: `process.once('SIGINT', onSigint)` を `createDefaultResetIo` の `ask` 内に組み込み、空文字を返して中断処理へ遷移するよう実装】
 - Linux での `ps -o lstart` 形式(#266から継続)。
 
 ## 6. 判断・残留リスク・後続への引継ぎ
