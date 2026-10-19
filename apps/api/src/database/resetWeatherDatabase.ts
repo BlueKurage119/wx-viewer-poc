@@ -263,9 +263,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     } else {
       (async () => {
         try {
-          const { runInteractiveReset, createDefaultResetIo } = await import(
-            './resetInteractive.js'
-          );
+          const { runInteractiveReset, createDefaultResetIo } =
+            await import('./resetInteractive.js');
           const config = resolveDatabasePairConfig();
           const result = await runInteractiveReset(config, createDefaultResetIo());
           if (result === 'cancelled') {

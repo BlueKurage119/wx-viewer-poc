@@ -10,28 +10,16 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import {
-  initializeDatabases,
-  resolveDatabasePairConfig,
-} from '../src/database/index.js';
-import {
-  acquireWriterLeases,
-  captureFiles,
-} from '../src/database/pairSafety.js';
-import {
-  runInteractiveReset,
-  type ResetIo,
-} from '../src/database/resetInteractive.js';
+import { initializeDatabases, resolveDatabasePairConfig } from '../src/database/index.js';
+import { acquireWriterLeases, captureFiles } from '../src/database/pairSafety.js';
+import { runInteractiveReset, type ResetIo } from '../src/database/resetInteractive.js';
 import {
   inspectWriterLock,
   quarantineStaleWriterLock,
 } from '../src/database/writerLockInspection.js';
-import {
-  currentIdentity,
-  probeProcess,
-} from '../src/database/writerLock.js';
+import { currentIdentity, probeProcess } from '../src/database/writerLock.js';
 import { initializeRoleDatabase } from '../src/database/roleDatabase.js';
 
 class FakeResetIo implements ResetIo {

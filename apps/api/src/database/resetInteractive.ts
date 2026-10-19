@@ -2,10 +2,7 @@ import * as readline from 'node:readline/promises';
 import { stdin as defaultInput, stdout as defaultOutput } from 'node:process';
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
-import {
-  validateDatabasePairConfig,
-  type DatabasePairConfig,
-} from './pairConfig.js';
+import { validateDatabasePairConfig, type DatabasePairConfig } from './pairConfig.js';
 import {
   describeResetPlan,
   readResetJournalStatus,

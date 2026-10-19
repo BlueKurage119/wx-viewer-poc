@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import {
-  copyFileSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -12,24 +11,17 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import BetterSqlite3 from 'better-sqlite3';
-import {
-  initializeDatabases,
-  resolveDatabasePairConfig,
-} from '../src/database/index.js';
-import {
-  assertFilesUnchanged,
-  captureFiles,
-  fileIdentity,
-} from '../src/database/pairSafety.js';
+import { initializeDatabases, resolveDatabasePairConfig } from '../src/database/index.js';
+import { assertFilesUnchanged, captureFiles } from '../src/database/pairSafety.js';
 import {
   runInteractiveReset,
   type ResetIo,
   type InteractiveResetDeps,
 } from '../src/database/resetInteractive.js';
-import { resetWeatherDatabase, type ResetPlan } from '../src/database/resetWeatherDatabase.js';
+import { resetWeatherDatabase } from '../src/database/resetWeatherDatabase.js';
 import { probeProcess } from '../src/database/writerLock.js';
 
 class FakeResetIo implements ResetIo {
@@ -97,7 +89,12 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
         .prepare(
           "INSERT INTO notification_output_history (notification_id,category,source_type,occurred_at,detected_at,change_type,ack_required,summary,related_refs_json,origin,detection_context,is_training,weather_database_generation_id) VALUES (?, 'warning','telegram','2026-10-07','2026-10-07','new',1,?,'[]',?,'normal',0,?)",
         )
-        .run(origin, origin, origin, origin === 'weather' ? pair.weatherDatabaseGenerationId : null);
+        .run(
+          origin,
+          origin,
+          origin,
+          origin === 'weather' ? pair.weatherDatabaseGenerationId : null,
+        );
     }
 
     const generation = pair.weatherDatabaseGenerationId;
@@ -181,7 +178,9 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
         'バックアップは作成しませんが含まれる',
       );
       assert.ok(
-        outputText.includes('保持DB(操作記録・通知履歴・session・起動claim・応答監査)とタイルcacheは対象外です'),
+        outputText.includes(
+          '保持DB(操作記録・通知履歴・session・起動claim・応答監査)とタイルcacheは対象外です',
+        ),
         '保持DBとタイルcacheが対象外である旨が含まれる',
       );
       assert.ok(
@@ -234,7 +233,9 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
           // 実行確認の直前に気象DBへ1行書き込む
           const db = new BetterSqlite3(f.config.weather.databasePath);
           try {
-            db.exec('CREATE TABLE IF NOT EXISTS test_tamper (id INT); INSERT INTO test_tamper VALUES (1);');
+            db.exec(
+              'CREATE TABLE IF NOT EXISTS test_tamper (id INT); INSERT INTO test_tamper VALUES (1);',
+            );
           } finally {
             db.close();
           }
@@ -242,10 +243,7 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
         },
       ]);
 
-      await assert.rejects(
-        () => runInteractiveReset(f.config, io),
-        /planDigestが一致しません/,
-      );
+      await assert.rejects(() => runInteractiveReset(f.config, io), /planDigestが一致しません/);
 
       // 表示に再実行案内が出る
       const outputText = io.outputs.join('\n');
@@ -254,6 +252,8 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
         '再実行案内が含まれること',
       );
       assert.equal(existsSync(`${f.config.weather.databasePath}.reset.json`), false);
+      assert.deepEqual(captureFiles(f.config.retained.databasePath), retainedBefore);
+      assert.notDeepEqual(captureFiles(f.config.weather.databasePath), weatherBefore);
     });
   });
 
@@ -329,7 +329,12 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
         const db = new BetterSqlite3(process.argv[1]);
         setInterval(() => {}, 1000);
       `;
-      const cp = spawn(process.execPath, ['--input-type=module', '-e', holderScript, f.config.weather.databasePath]);
+      const cp = spawn(process.execPath, [
+        '--input-type=module',
+        '-e',
+        holderScript,
+        f.config.weather.databasePath,
+      ]);
       childProcesses.push(cp);
 
       // 子プロセスがファイルを開くまで少し待機
@@ -437,10 +442,7 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
 
       // journal が残り、アプリ起動は拒否される
       assert.equal(existsSync(journalPath), true, 'journalが残る');
-      assert.throws(
-        () => initializeDatabases(f.config),
-        /未完了resetがあります/,
-      );
+      assert.throws(() => initializeDatabases(f.config), /未完了resetがあります/);
 
       // 続けて同じ runInteractiveReset を y/y で実行すると再開
       const io2 = new FakeResetIo(['y', 'y']);
@@ -593,15 +595,12 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
       const f = setupFixture();
       const weatherBefore = captureFiles(f.config.weather.databasePath);
       const wrongRoleConfig = {
-        weather: { ...f.config.weather, role: 'invalid_role' as any },
+        weather: { ...f.config.weather, role: 'invalid_role' as unknown as 'weather' },
         retained: f.config.retained,
       };
 
       const io = new FakeResetIo([]);
-      await assert.rejects(
-        () => runInteractiveReset(wrongRoleConfig, io),
-        /DB role設定が不正です/,
-      );
+      await assert.rejects(() => runInteractiveReset(wrongRoleConfig, io), /DB role設定が不正です/);
       assert.equal(io.questions.length, 0);
       assert.deepEqual(captureFiles(f.config.weather.databasePath), weatherBefore);
     });
