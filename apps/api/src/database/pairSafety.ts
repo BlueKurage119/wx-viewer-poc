@@ -25,6 +25,7 @@ import {
   type RoleDatabaseConfig,
 } from './pairConfig.js';
 import { verifyExistingMigrations } from './migrations.js';
+import { currentIdentity } from './writerLock.js';
 
 export const SCHEMA_FAMILY = 'wx-viewer-split-v1';
 export interface DatabaseIdentity {
@@ -130,6 +131,7 @@ export function acquireWriterLeases(config: DatabasePairConfig): () => void {
       mkdirSync(dirname(lock), { recursive: true });
       mkdirSync(lock);
       owned.add(lock);
+      const identity = currentIdentity();
       writeFileSync(
         join(lock, 'owner.json'),
         JSON.stringify({
@@ -137,6 +139,8 @@ export function acquireWriterLeases(config: DatabasePairConfig): () => void {
           startedAt: new Date().toISOString(),
           token,
           role: c.role,
+          processStartedAt: identity.processStartedAt,
+          hostname: identity.hostname,
         }),
         { flag: 'wx' },
       );

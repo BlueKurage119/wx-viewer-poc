@@ -44,7 +44,7 @@ APIはHTTP待受の前に気象DBと保持DBを初期化する。気象DBは `ap
 WX_VIEWER_WEATHER_DB_PATH=./data/weather.sqlite3 WX_VIEWER_RETAINED_DB_PATH=./data/retained.sqlite3 npm run dev -w apps/api
 ```
 
-気象DBだけの明示初期化は停止中に `npm run db:reset:weather -- --plan --confirm-stopped` で対象を確認し、表示されたdigestを `--apply --confirm <planDigest> --confirm-stopped` に渡す。操作記録・通知履歴・session・起動claim・応答監査とタイルcacheは保持する。初回導入、途中再開、rollback、データ保全の手順は [気象DB保守手順](docs/weather-db-maintenance.md) を参照する。
+気象DBだけの明示初期化は停止中に `npm run db:reset:weather` を実行し、表示内容を確認して y で実行する。途中で失敗したら同じコマンドを再実行する。操作記録・通知履歴・session・起動claim・応答監査とタイルcacheは保持する。初回導入、途中再開、rollback、データ保全の手順は [気象DB保守手順](docs/weather-db-maintenance.md) を参照する。
 
 ## テーマ(MD3)
 

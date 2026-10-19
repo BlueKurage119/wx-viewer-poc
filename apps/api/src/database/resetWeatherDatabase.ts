@@ -218,51 +218,111 @@ export function parseResetOptions(args: string[]): ResetOptions {
   }
   return { mode, confirmStopped, ...(confirm === undefined ? {} : { confirm }) };
 }
+
+export function describeResetPlan(plan: ResetPlan): string {
+  const lines: string[] = [
+    `対象気象DB: ${plan.weatherPath}`,
+    `role: ${plan.identity?.role ?? 'weather'}`,
+    `instance_id: ${plan.identity?.instance_id ?? '不明'}`,
+    '削除対象ファイル:',
+    ...plan.deletePaths.map((path) => `  - ${path}`),
+    '気象原文・取得履歴・派生値を削除します。バックアップは作成しません。保持DB(操作記録・通知履歴・session・起動claim・応答監査)とタイルcacheは対象外です。',
+  ];
+  return lines.join('\n');
+}
+
+export interface ResetJournalStatus {
+  journalPath: string;
+  plan: ResetPlan;
+  completedPaths: string[];
+  remainingPaths: string[];
+}
+
+export function readResetJournalStatus(config: DatabasePairConfig): ResetJournalStatus | null {
+  const journalPath = `${config.weather.databasePath}.reset.json`;
+  if (!existsSync(journalPath)) return null;
+  assertRegularFile(journalPath);
+  const value = JSON.parse(readFileSync(journalPath, 'utf8')) as ResetJournal;
+  const journal = validateJournal(value, config, value.plan.planDigest, false);
+  return {
+    journalPath,
+    plan: journal.plan,
+    completedPaths: journal.plan.deletePaths.filter((path) => !existsSync(path)),
+    remainingPaths: journal.plan.deletePaths.filter(existsSync),
+  };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  let config: DatabasePairConfig | undefined;
-  try {
-    const options = parseResetOptions(process.argv.slice(2));
-    config = resolveDatabasePairConfig();
-    const plan = resetWeatherDatabase(config, options);
-    console.log(
-      JSON.stringify(
-        {
-          mode: options.mode,
-          ...plan,
-          notice:
-            options.mode === 'plan'
-              ? '気象原文・取得履歴・派生値を削除します。保持DBとタイルcacheは対象外です。'
-              : '完了しました。次回の正規起動で気象schemaを再作成し、再取得してください。',
-        },
-        null,
-        2,
-      ),
-    );
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : '気象DB resetに失敗しました。');
-    if (config && existsSync(`${config.weather.databasePath}.reset.json`)) {
-      const journalPath = `${config.weather.databasePath}.reset.json`;
-      try {
-        assertRegularFile(journalPath);
-        const value = JSON.parse(readFileSync(journalPath, 'utf8')) as ResetJournal;
-        const journal = validateJournal(value, config, value.plan.planDigest, false);
-        console.error(
-          JSON.stringify({
-            resetIncomplete: true,
-            journalPath,
-            planDigest: journal.plan.planDigest,
-            completedPaths: journal.plan.deletePaths.filter((path) => !existsSync(path)),
-            remainingPaths: journal.plan.deletePaths.filter(existsSync),
-            notice:
-              'journalを保持しました。同じ対象・元digestで --resume --confirm-stopped を実行してください。',
-          }),
-        );
-      } catch {
-        console.error(
-          'reset journalの対象・進捗を検証できません。journalを保持したまま保守確認してください。',
-        );
-      }
+  const args = process.argv.slice(2);
+  if (args.length === 0) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      console.error(
+        '非対話環境です。引数を指定して実行してください (--plan / --apply --confirm <digest> --confirm-stopped / --resume --confirm <digest> --confirm-stopped)。',
+      );
+      process.exitCode = 1;
+    } else {
+      (async () => {
+        try {
+          const { runInteractiveReset, createDefaultResetIo } = await import(
+            './resetInteractive.js'
+          );
+          const config = resolveDatabasePairConfig();
+          const result = await runInteractiveReset(config, createDefaultResetIo());
+          if (result === 'cancelled') {
+            process.exitCode = 1;
+          }
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : '気象DB resetに失敗しました。');
+          process.exitCode = 1;
+        }
+      })();
     }
-    process.exitCode = 1;
+  } else {
+    let config: DatabasePairConfig | undefined;
+    try {
+      const options = parseResetOptions(args);
+      config = resolveDatabasePairConfig();
+      const plan = resetWeatherDatabase(config, options);
+      console.log(
+        JSON.stringify(
+          {
+            mode: options.mode,
+            ...plan,
+            notice:
+              options.mode === 'plan'
+                ? '気象原文・取得履歴・派生値を削除します。保持DBとタイルcacheは対象外です。'
+                : '完了しました。次回の正規起動で気象schemaを再作成し、再取得してください。',
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : '気象DB resetに失敗しました。');
+      if (config && existsSync(`${config.weather.databasePath}.reset.json`)) {
+        const journalPath = `${config.weather.databasePath}.reset.json`;
+        try {
+          assertRegularFile(journalPath);
+          const value = JSON.parse(readFileSync(journalPath, 'utf8')) as ResetJournal;
+          const journal = validateJournal(value, config, value.plan.planDigest, false);
+          console.error(
+            JSON.stringify({
+              resetIncomplete: true,
+              journalPath,
+              planDigest: journal.plan.planDigest,
+              completedPaths: journal.plan.deletePaths.filter((path) => !existsSync(path)),
+              remainingPaths: journal.plan.deletePaths.filter(existsSync),
+              notice:
+                'journalを保持しました。同じ対象・元digestで --resume --confirm-stopped を実行してください。',
+            }),
+          );
+        } catch {
+          console.error(
+            'reset journalの対象・進捗を検証できません。journalを保持したまま保守確認してください。',
+          );
+        }
+      }
+      process.exitCode = 1;
+    }
   }
 }

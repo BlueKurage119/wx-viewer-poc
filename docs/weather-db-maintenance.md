@@ -13,42 +13,76 @@ Issue #247の物理分離後は、気象DBと保持DBを別ファイルで扱う
 
 ## 導入後の気象DB初期化
 
-1. 全writerを正規手順で停止し、保守中に他のSQLiteツールを起動しない。leaseは協調writerの排他であり、非協調writerの新規起動をOSレベルで禁止するものではない。
-2. 必要なデータ保全を行う。保全は停止時に主DBと存在する `-wal` / `-shm` / `-journal` を一組として扱い、コピーの検証を行う。検査用の一時コピーは保全・移行・バックアップの代用ではない。保持DBを初期化対象に含めない。
-3. 同じ設定を使用して次を実行する。
+日常の開発や検証では、対話型の1コマンドで初期化を行う。**自動バックアップや退避は行わない**ため、必要なデータがある場合は事前に全プロセス停止状態で主DBと存在する付随ファイル（`-wal` / `-shm` / `-journal`）を一組として手動で保全すること。保持DBを初期化対象に含めてはならない。
+
+1. 全writerを正規手順で停止する。
+2. 次のコマンドを実行する。
 
    ```bash
-   npm run db:reset:weather -- --plan --confirm-stopped
+   npm run db:reset:weather
    ```
 
-4. 出力された正規保存先、weather role・instance、主ファイル・付随ファイル一覧を確認する。気象原文・取得履歴・派生値が消失すること、保持DB・タイルcacheは対象外であることを確認し、実施承認を得る。
-5. 出力されたdigestで実施する。
+3. 対話プロンプトに従って確認を進める。
+   - **残留writer-lockの確認**: 持ち主プロセスが存在しない（PID不在またはPID再利用）残留lockがあれば、内容（lock名、role、PID、起動時刻、判定理由）が表示され、解除の確認（`y/N`）を求められる。承諾時は `<lock>.stale-<token>` へ退避される。稼働中プロセスや判定不能なlockがある場合は安全のため拒否される。
+   - **停止の自己申告**: 「API・取得Worker・SQLiteツールを全て正規手順で停止しましたか? [y/N]」の自己申告を行う。
+   - **削除planの確認**: 気象DBの正規保存先、weather role・instance_id、削除対象ファイル一覧、保持DBおよびタイルcacheが対象外である旨が表示される。「削除を実行しますか? [y/N]」に対し `y` を入力して実行する。
+4. 完了メッセージが表示されたら正規起動する。コマンド内ではschemaを作成しない。次回起動で新しい気象instanceと空schemaを作り、気象データの再取得を行う。
 
-   ```bash
-   npm run db:reset:weather -- --apply --confirm <planDigest> --confirm-stopped
-   ```
+### 自動検出の範囲と限界
 
-6. 正規起動する。コマンド内ではschemaを作成しない。次回起動で新しい気象instanceと空schemaを作り、既存の初期取得・会場評価ゲート完了後に通知を取得する。取得失敗を正常空として扱わない。
+コマンド実行時には自動検出が行われるが、検出できる範囲には技術的な限界がある。
 
-planは元DBをSQLiteで開かず、一時領域に主・付随ファイルをコピーしてrole・checksum・整合性を検査する。検査前後の元ファイルstat/hashが一致しない場合は拒否する。applyは正規パス・世代・各ファイルのidentity/hashとdigestを照合してから、気象主DBとその3種類の付随ファイルだけを削除する。保持DB、設定、cache、directory全体は削除しない。
+| 状況 | 検出可否 | 検出手段 |
+| --- | --- | --- |
+| API/取得Workerが起動中（lease保持） | 検出可能 | writer lease（ディレクトリ排他）により拒否 |
+| leaseを持たないがDBファイルを開いているプロセス（sqlite3 CLI等） | 検出可能 | `lsof` による検査（同一ユーザーのプロセス） |
+| 持ち主が終了した残留lock | 検出可能 | stale判定の上、対話確認で退避 |
+| 他ユーザーのプロセスがDBを開いている | 未確認（非rootのlsofで見えない可能性あり） | `lsof` |
+| 確認後に新しく起動される非協調writer | 検出不可 | OSレベルの排他ロックではないため |
+| 別ホストからネットワーク共有越しに開いている | 検出不可 | - |
 
-停止確認flag不足、digest相違、利用中のDB、停止検査不能、不正なlink、別role、主なし付随ファイルは無変更で拒否する。両DBのwriter lease取得にも成功する必要がある。
+停止の自己申告（手順3）は、上記のようなOS・環境起因で自動検出できない範囲を利用者の確認で補う位置付けである。
+
+### 残留writer-lockの解除条件
+
+協調writerが異常終了した際などに残る `<DB>.writer-lock` は、以下の条件で判定される。
+
+- **解除可能（stale）**: 記録されたPIDが存在しない場合、またはPIDは存在するが起動時刻が異なり別プロセスにPIDが再利用されている場合。対話プロンプトで確認のうえ `<lock>.stale-<token>` へ退避される（削除はされず、1時間後のアプリ起動時に清掃される）。
+- **解除拒否**: 同一プロセスが生存している場合、旧形式lock（起動時刻未記録）でPIDが生存している場合、別ホストのlock、`owner.json` の破損、プロセス状態の取得失敗。これらは稼働中または危険と判断し、問いを出さずに拒否する。
 
 ## 途中失敗と再実行
 
-削除中の障害は非0終了し、`<weather DB>.reset.json` が残る。アプリはこのjournalが残る間、DBを開く前に起動を拒否する。
+削除処理の途中で障害（停電、強制終了等）が発生した場合は非0終了し、`<weather DB>.reset.json`（journal）が残る。アプリはこのjournalが残る間、DBを開く前に起動を拒否する。**journalを手動で消して起動を通そうとしてはならない。**
+
+途中失敗後は、同じコマンドを再実行する。
 
 ```bash
-npm run db:reset:weather -- --resume --confirm <元planDigest> --confirm-stopped
+npm run db:reset:weather
 ```
 
-resumeは元journalの対象・role・instance・digestと残存ファイルidentity/hashを検証する。削除済みの主ファイルを再作成したりSQLiteで開いたりせず、記録済みの付随ファイルだけを続行する。別inode・再生成DB・改変journalは削除しない。journalを手動で消して起動を通さないこと。
+journalが検出されると自動的に再開モードとなり、完了済みパスと残りパスが表示される。停止申告および再開確認（`y/N`）を経て、残りの付随ファイルだけを安全に削除し、journalを消去して完了する。削除済みの主ファイルを再作成したりSQLiteで開いたりすることはない。
+別inodeへの再生成、改変されたjournalが検出された場合は安全のため再開を拒否する。
 
-完了後のapply再実行は主・付随ファイル・journalが全て不在ならno-opとなる。主なし付随ファイルだけが残り、正当なjournalがない場合は帰属不明で拒否する。
-
-writer-lockが残った場合はstaleと推測して自動削除しない。全writer停止、所有token、対象確認に基づく保守判断を行う。resetにforce/unlockオプションはない。
+完了後の再実行は、主・付随ファイル・journalが全て不在なら何もしない（`nothing_to_do`、終了コード0）。主なし付随ファイルだけが残り、正当なjournalがない場合は帰属不明で拒否する。
 
 タイルcache本体は残る。DB索引が消えた状態でcacheだけを根拠にavailableにはせず、再取得後の新索引とファイルが一致するtileだけを配信する。既存の参照外cache清掃方針は変わらない。
+
+## 非対話環境での実行（自動化・CI向け）
+
+TTYのない非対話環境やスクリプト自動化向けに、明示的な引数（flag）を指定する方式も提供されている。非対話方式では残留lockの解除は行われない。
+
+1. planの作成・確認:
+   ```bash
+   npm run db:reset:weather -- --plan --confirm-stopped
+   ```
+2. 出力された `planDigest` を指定して削除実行:
+   ```bash
+   npm run db:reset:weather -- --apply --confirm <planDigest> --confirm-stopped
+   ```
+3. 途中失敗からの再開:
+   ```bash
+   npm run db:reset:weather -- --resume --confirm <元planDigest> --confirm-stopped
+   ```
 
 ## コードrollbackとデータ復元
 
