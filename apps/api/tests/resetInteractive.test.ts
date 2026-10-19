@@ -778,6 +778,30 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
       assert.equal(readFileSync(journalPath, 'utf8'), journalBefore);
     });
 
+    it('journalが有効なまま削除が進まず拒否された場合、再開を案内せず原因解消を促す', async () => {
+      const f = setupFixture();
+      addSidecars(f);
+      await leaveInterruptedJournal(f);
+      const journalPath = `${f.config.weather.databasePath}.reset.json`;
+      const journalBefore = readFileSync(journalPath, 'utf8');
+
+      const io = new FakeResetIo(['y', 'y']);
+      await assert.rejects(
+        () =>
+          runInteractiveReset(f.config, io, {
+            reset: () => {
+              throw new Error('削除前の拒否');
+            },
+          }),
+        /削除前の拒否/,
+      );
+      const out = io.outputs.join('\n');
+      assert.ok(out.includes('残りパス:'), 'journal状態は表示する');
+      assert.ok(out.includes('削除は進んでいません'));
+      assert.ok(!out.includes('再実行すると再開します'));
+      assert.equal(readFileSync(journalPath, 'utf8'), journalBefore);
+    });
+
     it('再開の確認中に対象が変わって削除前に拒否された場合、再開を案内しない', async () => {
       const f = setupFixture();
       const [wal] = addSidecars(f);
