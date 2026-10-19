@@ -1,12 +1,18 @@
 import * as readline from 'node:readline/promises';
 import { stdin as defaultInput, stdout as defaultOutput } from 'node:process';
-import { existsSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import { basename } from 'node:path';
-import { validateDatabasePairConfig, type DatabasePairConfig } from './pairConfig.js';
+import {
+  assertFixedDatabasePairConfig,
+  validateDatabasePairConfig,
+  type DatabasePairConfig,
+} from './pairConfig.js';
+import { acquireWriterLeases, assertStopped, inspectDatabaseCopy } from './pairSafety.js';
 import {
   describeResetPlan,
   readResetJournalStatus,
   resetWeatherDatabase,
+  type ResetJournalStatus,
   type ResetPlan,
 } from './resetWeatherDatabase.js';
 import {
@@ -24,12 +30,70 @@ export interface InteractiveResetDeps {
   inspectLock(lockPath: string): WriterLockInspection;
   quarantine(lockPath: string, expectedToken: string): void;
   reset: typeof resetWeatherDatabase;
+  /** 再開モードで確認の問いの前に行う、lease・停止・保持DBの事前検査。 */
+  precheck(config: DatabasePairConfig): void;
+}
+
+const MAINTENANCE_MESSAGE =
+  'reset journalの対象・進捗を検証できません。journalを保持したまま保守確認してください。';
+
+/** 壊れたsymlinkも「存在する」として扱う(ENOENTだけを不在とする)。 */
+function pathExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    return true;
+  }
+}
+
+function defaultPrecheck(config: DatabasePairConfig): void {
+  const release = acquireWriterLeases(config);
+  try {
+    assertFixedDatabasePairConfig(config);
+    assertStopped(config);
+    inspectDatabaseCopy(config.retained);
+  } finally {
+    release();
+  }
+}
+
+function reportFailure(
+  io: ResetIo,
+  config: DatabasePairConfig,
+  before: ResetJournalStatus | null,
+): void {
+  io.print('気象DB resetに失敗しました。');
+  let status: ResetJournalStatus | null = null;
+  try {
+    status = readResetJournalStatus(config);
+  } catch {
+    status = null;
+  }
+  if (!status) {
+    io.print(MAINTENANCE_MESSAGE);
+    return;
+  }
+  io.print(
+    `完了済みパス: ${status.completedPaths.length > 0 ? status.completedPaths.join(', ') : 'なし'}`,
+  );
+  io.print(`残りパス: ${status.remainingPaths.join(', ')}`);
+  const progressed = before === null || status.completedPaths.length > before.completedPaths.length;
+  if (progressed) {
+    io.print('同じコマンド npm run db:reset:weather を再実行すると再開します。');
+  } else {
+    io.print(
+      '削除は進んでいません(journalは前回のままです)。原因を解消してから再実行してください。',
+    );
+  }
 }
 
 const defaultDeps: InteractiveResetDeps = {
   inspectLock: inspectWriterLock,
   quarantine: quarantineStaleWriterLock,
   reset: resetWeatherDatabase,
+  precheck: defaultPrecheck,
 };
 
 function isAffirmative(answer: string): boolean {
@@ -80,63 +144,77 @@ export async function runInteractiveReset(
   // 1. 設定検証
   const validatedConfig = validateDatabasePairConfig(config);
 
-  // 2. 残留lockの確認
+  // 2. 残留lockの確認: 両方を先に判定し、拒否すべきものがあれば何も変更せず拒否する
   const locks = [
     { role: 'weather', path: `${validatedConfig.weather.databasePath}.writer-lock` },
     { role: 'retained', path: `${validatedConfig.retained.databasePath}.writer-lock` },
-  ];
+  ].map((lock) => ({ ...lock, inspection: effectiveDeps.inspectLock(lock.path) }));
 
+  const rejections: string[] = [];
   for (const lock of locks) {
-    const inspection = effectiveDeps.inspectLock(lock.path);
-    if (inspection.state === 'absent') {
-      continue;
-    }
+    const { inspection } = lock;
     if (inspection.state === 'alive') {
-      io.print(
+      rejections.push(
         `writer lock が存在し、プロセスが稼働中です (path: ${basename(lock.path)}, role: ${inspection.role ?? lock.role}, pid: ${inspection.pid}, reason: ${inspection.reason})。`,
       );
-      throw new Error(`writer lock が存在し、プロセスが稼働中です (${lock.path})。`);
-    }
-    if (inspection.state === 'undeterminable') {
-      io.print(
+    } else if (inspection.state === 'undeterminable') {
+      rejections.push(
         `writer lock の状態を判定できません (path: ${basename(lock.path)}, reason: ${inspection.reason})。`,
       );
-      throw new Error(`writer lock の状態を判定できません (${lock.path})。`);
     }
-    if (inspection.state === 'stale') {
-      const lines = [
-        '残留 writer lock を検出しました:',
-        `  lock: ${basename(lock.path)}`,
-        `  role: ${inspection.role ?? lock.role}`,
-        `  pid: ${inspection.pid}`,
-        `  判定理由: ${inspection.reason}`,
-      ];
-      if (inspection.startedAt) {
-        lines.push(`  記録された開始時刻: ${inspection.startedAt}`);
-      }
-      if (inspection.processStartedAt) {
-        lines.push(`  記録されたプロセス起動時刻: ${inspection.processStartedAt}`);
-      }
-      if (inspection.currentProcessStartedAt) {
-        lines.push(`  現在のプロセス起動時刻: ${inspection.currentProcessStartedAt}`);
-      }
-      io.print(lines.join('\n'));
+  }
+  if (rejections.length > 0) {
+    for (const message of rejections) io.print(message);
+    throw new Error(rejections.join('\n'));
+  }
 
-      const answer = await io.ask('この残留ロックを解除しますか? [y/N]');
-      if (!isAffirmative(answer)) {
-        io.print('中止しました。変更はありません。');
-        return 'cancelled';
-      }
-      effectiveDeps.quarantine(lock.path, inspection.token);
+  // 残留ロックの退避は、確認後に実行する。退避後の中止では「変更なし」と表示しない。
+  let quarantinedCount = 0;
+  const cancelMessage = (): string =>
+    quarantinedCount > 0
+      ? '中止しました。残留ロックの退避以外に変更はありません。'
+      : '中止しました。変更はありません。';
+
+  const staleLocks: { path: string; token: string }[] = [];
+  for (const lock of locks) {
+    const { inspection } = lock;
+    if (inspection.state !== 'stale') continue;
+    const lines = [
+      '残留 writer lock を検出しました:',
+      `  lock: ${basename(lock.path)}`,
+      `  role: ${inspection.role ?? lock.role}`,
+      `  pid: ${inspection.pid}`,
+      `  判定理由: ${inspection.reason}`,
+    ];
+    if (inspection.startedAt) {
+      lines.push(`  記録された開始時刻: ${inspection.startedAt}`);
     }
+    if (inspection.processStartedAt) {
+      lines.push(`  記録されたプロセス起動時刻: ${inspection.processStartedAt}`);
+    }
+    if (inspection.currentProcessStartedAt) {
+      lines.push(`  現在のプロセス起動時刻: ${inspection.currentProcessStartedAt}`);
+    }
+    io.print(lines.join('\n'));
+
+    const answer = await io.ask('この残留ロックを解除しますか? [y/N]');
+    if (!isAffirmative(answer)) {
+      io.print(cancelMessage());
+      return 'cancelled';
+    }
+    staleLocks.push({ path: lock.path, token: inspection.token });
+  }
+  for (const stale of staleLocks) {
+    effectiveDeps.quarantine(stale.path, stale.token);
+    quarantinedCount++;
   }
 
   // 3. journalの確認
   const journalPath = `${validatedConfig.weather.databasePath}.reset.json`;
   let isResume = false;
-  let journalStatus: ReturnType<typeof readResetJournalStatus> = null;
+  let journalStatus: ResetJournalStatus | null = null;
 
-  if (existsSync(journalPath)) {
+  if (pathExists(journalPath)) {
     isResume = true;
     try {
       journalStatus = readResetJournalStatus(validatedConfig);
@@ -144,12 +222,8 @@ export async function runInteractiveReset(
         throw new Error('reset journalが見つかりません。');
       }
     } catch {
-      io.print(
-        'reset journalの対象・進捗を検証できません。journalを保持したまま保守確認してください。',
-      );
-      throw new Error(
-        'reset journalの対象・進捗を検証できません。journalを保持したまま保守確認してください。',
-      );
+      io.print(MAINTENANCE_MESSAGE);
+      throw new Error(MAINTENANCE_MESSAGE);
     }
     io.print('中断された前回のreset journalを検出しました。');
     io.print(
@@ -163,11 +237,11 @@ export async function runInteractiveReset(
     'API・取得Worker・SQLiteツールを全て正規手順で停止しましたか? [y/N]',
   );
   if (!isAffirmative(stoppedAnswer)) {
-    io.print('中止しました。変更はありません。');
+    io.print(cancelMessage());
     return 'cancelled';
   }
 
-  // 5. plan (新規時)
+  // 5. plan (新規時) / 事前検査 (再開時)
   let plan: ResetPlan;
   if (!isResume) {
     plan = effectiveDeps.reset(validatedConfig, { mode: 'plan', confirmStopped: true });
@@ -179,6 +253,8 @@ export async function runInteractiveReset(
       throw new Error('識別済み気象DBだけをresetできます。');
     }
   } else {
+    // 確認の問いの前に、lease・停止・保持DBを再開時と同じ条件で検査する。
+    effectiveDeps.precheck(validatedConfig);
     plan = journalStatus!.plan;
   }
 
@@ -187,7 +263,7 @@ export async function runInteractiveReset(
     io.print(describeResetPlan(plan));
     const confirmAnswer = await io.ask('削除を実行しますか? [y/N]');
     if (!isAffirmative(confirmAnswer)) {
-      io.print('中止しました。変更はありません。');
+      io.print(cancelMessage());
       return 'cancelled';
     }
   } else {
@@ -202,32 +278,23 @@ export async function runInteractiveReset(
     io.print(lines.join('\n'));
     const confirmAnswer = await io.ask('再開しますか? [y/N]');
     if (!isAffirmative(confirmAnswer)) {
-      io.print('中止しました。変更はありません。');
+      io.print(cancelMessage());
       return 'cancelled';
     }
   }
 
   // 7. 実行
   try {
-    if (!isResume) {
-      effectiveDeps.reset(validatedConfig, {
-        mode: 'apply',
-        confirmStopped: true,
-        confirm: plan.planDigest,
-      });
-    } else {
-      effectiveDeps.reset(validatedConfig, {
-        mode: 'resume',
-        confirmStopped: true,
-        confirm: plan.planDigest,
-      });
-    }
+    effectiveDeps.reset(validatedConfig, {
+      mode: isResume ? 'resume' : 'apply',
+      confirmStopped: true,
+      confirm: plan.planDigest,
+    });
   } catch (error) {
     if (error instanceof Error && error.message.includes('planDigestが一致しません')) {
       io.print('対象が変わりました。もう一度実行してください。');
-    } else if (existsSync(journalPath)) {
-      io.print('気象DB resetに失敗しました。');
-      io.print('同じコマンド npm run db:reset:weather を再実行すると再開します。');
+    } else if (pathExists(journalPath)) {
+      reportFailure(io, validatedConfig, journalStatus);
     }
     throw error;
   }

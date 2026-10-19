@@ -10,16 +10,17 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { initializeDatabases, resolveDatabasePairConfig } from '../src/database/index.js';
-import { acquireWriterLeases, captureFiles } from '../src/database/pairSafety.js';
+import { captureFiles } from '../src/database/pairSafety.js';
 import { runInteractiveReset, type ResetIo } from '../src/database/resetInteractive.js';
 import {
   inspectWriterLock,
   quarantineStaleWriterLock,
 } from '../src/database/writerLockInspection.js';
-import { currentIdentity, probeProcess } from '../src/database/writerLock.js';
+import { probeProcess } from '../src/database/writerLock.js';
 import { initializeRoleDatabase } from '../src/database/roleDatabase.js';
 
 class FakeResetIo implements ResetIo {
@@ -419,77 +420,137 @@ describe('writerLockInspection & 残留lock受け入れ条件', () => {
   });
 
   describe('AC-9: 解除の競合', () => {
-    it('退避前にlockが別tokenへ差し替えられた場合、token不一致で拒否され新lockが元の位置に残る', () => {
-      const lockPath = join(dir, 'competing.writer-lock');
+    function writeOwner(lockPath: string, token: string, pid: number): void {
       mkdirSync(lockPath);
       writeFileSync(
         join(lockPath, 'owner.json'),
         JSON.stringify({
-          pid: 1234,
-          token: 'token-original',
+          pid,
+          token,
           role: 'weather',
+          startedAt: new Date().toISOString(),
+          processStartedAt: '2026-10-01T00:00:00.000Z',
+          hostname: hostname(),
         }),
       );
+    }
 
-      // quarantineStaleWriterLock を呼ぶが、期待トークンを別にして呼ぶ
+    it('inspectとquarantineの間にlockが別tokenへ差し替わると、退避は拒否され新lockが元の位置に残る', async () => {
+      const config = setupDatabases();
+      const lockPath = `${config.weather.databasePath}.writer-lock`;
+      writeOwner(lockPath, 'token-old', getDeadPid());
+      const weatherBefore = captureFiles(config.weather.databasePath);
+
+      const io = new FakeResetIo(['y']);
+      await assert.rejects(
+        () =>
+          runInteractiveReset(config, io, {
+            quarantine: (path, token) => {
+              // 対話待ちの間に、別の稼働中プロセスが取り直した状況を再現する
+              rmSync(path, { recursive: true });
+              writeOwner(path, 'token-new', process.pid);
+              quarantineStaleWriterLock(path, token);
+            },
+          }),
+        /token不一致/,
+      );
+      const owner = JSON.parse(readFileSync(join(lockPath, 'owner.json'), 'utf8'));
+      assert.equal(owner.token, 'token-new', '新しいlockが元の位置に残る');
+      assert.equal(existsSync(`${lockPath}.stale-token-old`), false);
+      assert.deepEqual(captureFiles(config.weather.databasePath), weatherBefore);
+    });
+
+    it('rename前にtokenを照合し、不一致ならlockを一時的にも移動させない', () => {
+      const lockPath = join(dir, 'competing.writer-lock');
+      writeOwner(lockPath, 'token-original', 1234);
+      // 移動していれば renameSync が ENOTEMPTY で失敗し、token不一致のエラーにならない
+      const stalePath = `${lockPath}.stale-token-different`;
+      mkdirSync(stalePath);
+      writeFileSync(join(stalePath, 'marker'), 'x');
+
       assert.throws(
         () => quarantineStaleWriterLock(lockPath, 'token-different'),
         /残留lockの退避に失敗しました\(token不一致\)/,
       );
+      const owner = JSON.parse(readFileSync(join(lockPath, 'owner.json'), 'utf8'));
+      assert.equal(owner.token, 'token-original');
+      assert.equal(readFileSync(join(stalePath, 'marker'), 'utf8'), 'x');
+    });
+  });
 
-      // 元の位置に lock が残っていること
-      assert.equal(existsSync(lockPath), true);
-      const ownerJson = JSON.parse(readFileSync(join(lockPath, 'owner.json'), 'utf8'));
-      assert.equal(ownerJson.token, 'token-original');
-      assert.equal(existsSync(`${lockPath}.stale-token-different`), false);
+  describe('壊れたsymlinkの扱い', () => {
+    it('リンク先のないsymlinkのlockは absent ではなく not_directory', () => {
+      const lockPath = join(dir, 'dangling.writer-lock');
+      symlinkSync(join(dir, 'no-such-target'), lockPath);
+      assert.deepEqual(inspectWriterLock(lockPath), {
+        state: 'undeterminable',
+        reason: 'not_directory',
+      });
     });
   });
 
   describe('AC-10: reset由来lockの判定', () => {
-    it('acquireWriterLeases が書く owner.json に processStartedAt と hostname が含まれ、終了後に #266 で引き継ぎ可能かつ対話で stale 判定される', () => {
+    function leaveLocksFromChild(configPaths: { weather: string; retained: string }): void {
+      const database = pathToFileURL(resolve(import.meta.dirname, '../src/database/index.js')).href;
+      const safety = pathToFileURL(
+        resolve(import.meta.dirname, '../src/database/pairSafety.js'),
+      ).href;
+      const code = `
+        import { resolveDatabasePairConfig } from ${JSON.stringify(database)};
+        import { acquireWriterLeases } from ${JSON.stringify(safety)};
+        acquireWriterLeases(resolveDatabasePairConfig());
+        process.exit(0);
+      `;
+      const result = spawnSync(
+        process.execPath,
+        ['--import', 'tsx', '--input-type=module', '-e', code],
+        {
+          env: {
+            ...process.env,
+            WX_VIEWER_WEATHER_DB_PATH: configPaths.weather,
+            WX_VIEWER_RETAINED_DB_PATH: configPaths.retained,
+          },
+          encoding: 'utf8',
+        },
+      );
+      assert.equal(result.status, 0, result.stderr);
+    }
+
+    it('子プロセスがacquireWriterLeasesで残したlockの owner.json は processStartedAt(文字列)と hostname を持つ', () => {
       const config = setupDatabases();
-      const release = acquireWriterLeases(config);
-      const weatherLockPath = `${config.weather.databasePath}.writer-lock`;
-      const ownerContent = JSON.parse(
-        readFileSync(join(weatherLockPath, 'owner.json'), 'utf8'),
-      ) as Record<string, unknown>;
+      leaveLocksFromChild({
+        weather: config.weather.databasePath,
+        retained: config.retained.databasePath,
+      });
+      for (const c of [config.weather, config.retained]) {
+        const owner = JSON.parse(
+          readFileSync(join(`${c.databasePath}.writer-lock`, 'owner.json'), 'utf8'),
+        ) as Record<string, unknown>;
+        assert.equal(typeof owner.pid, 'number');
+        assert.equal(typeof owner.startedAt, 'string');
+        assert.equal(typeof owner.token, 'string');
+        assert.equal(owner.role, c.role);
+        assert.equal(typeof owner.processStartedAt, 'string');
+        assert.ok(Number.isFinite(Date.parse(owner.processStartedAt as string)));
+        assert.equal(owner.hostname, hostname());
+        assert.equal(inspectWriterLock(`${c.databasePath}.writer-lock`).state, 'stale');
+      }
+    });
 
-      // 1. 各フィールドの存在確認
-      assert.equal(typeof ownerContent.pid, 'number');
-      assert.equal(typeof ownerContent.startedAt, 'string');
-      assert.equal(typeof ownerContent.token, 'string');
-      assert.equal(ownerContent.role, 'weather');
-      assert.equal(typeof ownerContent.hostname, 'string');
-      assert.ok(
-        ownerContent.processStartedAt === null || typeof ownerContent.processStartedAt === 'string',
-      );
+    it('その残留lockを #266 経路(initializeRoleDatabase)が legacy_owner で拒否せず引き継ぐ', () => {
+      const config = setupDatabases();
+      leaveLocksFromChild({
+        weather: config.weather.databasePath,
+        retained: config.retained.databasePath,
+      });
+      const lockPath = `${config.weather.databasePath}.writer-lock`;
+      const token = (
+        JSON.parse(readFileSync(join(lockPath, 'owner.json'), 'utf8')) as {
+          token: string;
+        }
+      ).token;
 
-      // release は実行せず、プロセス終了をシミュレートするため終了済みPIDのlockを作る
-      release(); // いったん正常解放してクリーンアップ
-
-      // 改めて acquireWriterLeases で書かれる内容と同等の owner.json を deadPid で配置
-      const deadPid = getDeadPid();
-      const identity = currentIdentity();
-      mkdirSync(weatherLockPath);
-      writeFileSync(
-        join(weatherLockPath, 'owner.json'),
-        JSON.stringify({
-          pid: deadPid,
-          startedAt: new Date().toISOString(),
-          token: 'reset-origin-token',
-          role: 'weather',
-          processStartedAt: identity.processStartedAt ?? '2026-10-01T00:00:00.000Z',
-          hostname: identity.hostname,
-        }),
-      );
-
-      // 2. 対話判定で stale と判定されること
-      const inspection = inspectWriterLock(weatherLockPath);
-      assert.equal(inspection.state, 'stale');
-      assert.equal(inspection.reason, 'pid_not_found');
-
-      // 3. initializeRoleDatabase (#266 経路) が legacy_owner で拒否せず引き継げること
-      const newOwner = {
+      const roleDb = initializeRoleDatabase(config, {
         pid: process.pid,
         role: 'weather' as const,
         token: 'new-owner-token',
@@ -497,15 +558,20 @@ describe('writerLockInspection & 残留lock受け入れ条件', () => {
         serverGenerationId: 'gen-1',
         workerGeneration: null,
         threadId: null,
-      };
-      const roleDb = initializeRoleDatabase(config, newOwner);
+      });
       roleDb.close();
-      assert.equal(existsSync(weatherLockPath), false, 'roleDb が正常に引き継ぎ・解放した');
-      assert.equal(
-        existsSync(`${weatherLockPath}.stale-reset-origin-token`),
-        true,
-        'stale lock に退避された',
-      );
+      assert.equal(existsSync(`${lockPath}.stale-${token}`), true, 'stale lock に退避された');
+    });
+
+    it('その残留lockを reset 対話が stale と判定して解除し、完了できる', async () => {
+      const config = setupDatabases();
+      leaveLocksFromChild({
+        weather: config.weather.databasePath,
+        retained: config.retained.databasePath,
+      });
+      const io = new FakeResetIo(['y', 'y', 'y', 'y']); // 解除x2, 停止申告, 実行
+      assert.equal(await runInteractiveReset(config, io), 'completed');
+      assert.deepEqual(captureFiles(config.weather.databasePath), [null, null, null, null]);
     });
   });
 });

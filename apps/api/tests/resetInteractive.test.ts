@@ -605,4 +605,364 @@ describe('resetInteractive 受け入れ条件 (AC-1〜6, 11, 12, N1, S2)', () =>
       assert.deepEqual(captureFiles(f.config.weather.databasePath), weatherBefore);
     });
   });
+
+  // 付随ファイル(-wal / -shm)を実在させる。主DBのヘッダはWALではないため無視される。
+  function addSidecars(f: ReturnType<typeof setupFixture>): [string, string] {
+    const wal = `${f.config.weather.databasePath}-wal`;
+    const shm = `${f.config.weather.databasePath}-shm`;
+    writeFileSync(wal, 'sidecar-wal');
+    writeFileSync(shm, 'sidecar-shm');
+    return [wal, shm];
+  }
+
+  function stalePidLock(path: string, token: string): void {
+    const dead = spawnSync(process.execPath, ['-e', '']);
+    mkdirSync(path);
+    writeFileSync(
+      join(path, 'owner.json'),
+      JSON.stringify({
+        pid: dead.pid,
+        token,
+        role: 'weather',
+        startedAt: new Date().toISOString(),
+        processStartedAt: '2026-10-01T00:00:00.000Z',
+        hostname: hostname(),
+      }),
+    );
+  }
+
+  describe('指摘1: lockの先行判定', () => {
+    it('気象lockがstaleでも保持lockが判定不能なら、問いも退避もせず拒否する', async () => {
+      const f = setupFixture();
+      const weatherLock = `${f.config.weather.databasePath}.writer-lock`;
+      const retainedLock = `${f.config.retained.databasePath}.writer-lock`;
+      stalePidLock(weatherLock, 'tok-w');
+      mkdirSync(retainedLock);
+      writeFileSync(join(retainedLock, 'owner.json'), 'broken');
+
+      const io = new FakeResetIo([]);
+      await assert.rejects(() => runInteractiveReset(f.config, io), /判定できません/);
+      assert.equal(io.questions.length, 0, '解除の問いが出ない');
+      assert.equal(existsSync(weatherLock), true, '気象lockは元の位置に残る');
+      assert.equal(existsSync(`${weatherLock}.stale-tok-w`), false, '退避されない');
+    });
+
+    it('退避後に停止申告で中止した場合、変更なしとは表示しない', async () => {
+      const f = setupFixture();
+      const weatherLock = `${f.config.weather.databasePath}.writer-lock`;
+      stalePidLock(weatherLock, 'tok-cancel');
+
+      const io = new FakeResetIo(['y', 'n']);
+      const result = await runInteractiveReset(f.config, io);
+      assert.equal(result, 'cancelled');
+      assert.equal(existsSync(`${weatherLock}.stale-tok-cancel`), true, '退避は実行済み');
+      const out = io.outputs.join('\n');
+      assert.ok(out.includes('残留ロックの退避以外に変更はありません。'));
+      assert.ok(!out.includes('中止しました。変更はありません。'));
+    });
+
+    it('両方staleで2つ目の解除を拒否した場合、1つ目も退避しない', async () => {
+      const f = setupFixture();
+      const weatherLock = `${f.config.weather.databasePath}.writer-lock`;
+      const retainedLock = `${f.config.retained.databasePath}.writer-lock`;
+      stalePidLock(weatherLock, 'tok-1');
+      stalePidLock(retainedLock, 'tok-2');
+
+      const io = new FakeResetIo(['y', 'n']);
+      assert.equal(await runInteractiveReset(f.config, io), 'cancelled');
+      assert.equal(existsSync(weatherLock), true);
+      assert.equal(existsSync(retainedLock), true);
+      assert.ok(io.outputs.includes('中止しました。変更はありません。'));
+    });
+  });
+
+  describe('指摘2: 失敗時の表示と再開時の事前検査', () => {
+    function failingDeps(
+      hooks: Parameters<typeof resetWeatherDatabase>[2],
+    ): Partial<InteractiveResetDeps> {
+      let injected = false;
+      return {
+        reset: (cfg, opts, h) => {
+          if (opts.mode === 'apply' && !injected) {
+            injected = true;
+            return resetWeatherDatabase(cfg, opts, hooks);
+          }
+          return resetWeatherDatabase(cfg, opts, h);
+        },
+      };
+    }
+
+    it('途中失敗時は完了済みパスと残りパスを表示して再開を案内する', async () => {
+      const f = setupFixture();
+      const [wal] = addSidecars(f);
+      const io = new FakeResetIo(['y', 'y']);
+      await assert.rejects(
+        () =>
+          runInteractiveReset(
+            f.config,
+            io,
+            failingDeps({
+              afterUnlink: () => {
+                throw new Error('障害注入');
+              },
+            }),
+          ),
+        /障害注入/,
+      );
+      const out = io.outputs.join('\n');
+      assert.ok(out.includes(`完了済みパス: ${f.config.weather.databasePath}`));
+      assert.ok(out.includes(`残りパス: ${wal}`));
+      assert.ok(out.includes('再実行すると再開します。'));
+    });
+
+    it('journalを検証できない失敗では再開を案内せず保守確認を案内する', async () => {
+      const f = setupFixture();
+      const journalPath = `${f.config.weather.databasePath}.reset.json`;
+      const io = new FakeResetIo(['y', 'y']);
+      await assert.rejects(
+        () =>
+          runInteractiveReset(
+            f.config,
+            io,
+            failingDeps({
+              afterUnlink: () => {
+                writeFileSync(journalPath, '{broken');
+                throw new Error('障害注入');
+              },
+            }),
+          ),
+        /障害注入/,
+      );
+      const out = io.outputs.join('\n');
+      assert.ok(out.includes('保守確認してください'));
+      assert.ok(!out.includes('再実行すると再開します'));
+    });
+
+    async function leaveInterruptedJournal(f: ReturnType<typeof setupFixture>) {
+      const io = new FakeResetIo(['y', 'y']);
+      await assert.rejects(() =>
+        runInteractiveReset(
+          f.config,
+          io,
+          failingDeps({
+            afterUnlink: () => {
+              throw new Error('障害注入');
+            },
+          }),
+        ),
+      );
+    }
+
+    it('再開モードでも確認の問いの前に停止検査を行い、不能なら再開の問いを出さない', async () => {
+      const f = setupFixture();
+      addSidecars(f);
+      await leaveInterruptedJournal(f);
+      const journalPath = `${f.config.weather.databasePath}.reset.json`;
+      const journalBefore = readFileSync(journalPath, 'utf8');
+
+      const originalPath = process.env.PATH;
+      try {
+        process.env.PATH = '';
+        const io = new FakeResetIo(['y']);
+        await assert.rejects(
+          () => runInteractiveReset(f.config, io),
+          /対象DBの停止検査コマンドが利用できません/,
+        );
+        assert.deepEqual(io.questions, [
+          'API・取得Worker・SQLiteツールを全て正規手順で停止しましたか? [y/N]',
+        ]);
+        assert.ok(!io.outputs.join('\n').includes('再実行すると再開します'));
+      } finally {
+        process.env.PATH = originalPath;
+      }
+      assert.equal(readFileSync(journalPath, 'utf8'), journalBefore);
+    });
+
+    it('再開の確認中に対象が変わって削除前に拒否された場合、再開を案内しない', async () => {
+      const f = setupFixture();
+      const [wal] = addSidecars(f);
+      await leaveInterruptedJournal(f);
+      const journalPath = `${f.config.weather.databasePath}.reset.json`;
+      const journalBefore = readFileSync(journalPath, 'utf8');
+
+      const io = new FakeResetIo([
+        'y',
+        () => {
+          rmSync(wal);
+          writeFileSync(wal, 'different-inode-sidecar');
+          return 'y';
+        },
+      ]);
+      await assert.rejects(() => runInteractiveReset(f.config, io), /再生成または変更/);
+      const out = io.outputs.join('\n');
+      assert.ok(!out.includes('再実行すると再開します'));
+      assert.equal(readFileSync(journalPath, 'utf8'), journalBefore);
+      assert.equal(readFileSync(wal, 'utf8'), 'different-inode-sidecar');
+    });
+  });
+
+  describe('指摘3: AC-11 付随ファイル実在での再開', () => {
+    async function interruptThenResume(hooks: Parameters<typeof resetWeatherDatabase>[2]) {
+      const f = setupFixture();
+      const retainedBefore = captureFiles(f.config.retained.databasePath);
+      const [wal, shm] = addSidecars(f);
+      const journalPath = `${f.config.weather.databasePath}.reset.json`;
+      let injected = false;
+      const deps: Partial<InteractiveResetDeps> = {
+        reset: (cfg, opts, h) => {
+          if (opts.mode === 'apply' && !injected) {
+            injected = true;
+            return resetWeatherDatabase(cfg, opts, hooks);
+          }
+          return resetWeatherDatabase(cfg, opts, h);
+        },
+      };
+      const io1 = new FakeResetIo(['y', 'y']);
+      await assert.rejects(() => runInteractiveReset(f.config, io1, deps), /障害注入/);
+      assert.equal(existsSync(journalPath), true);
+      assert.equal(existsSync(wal), true, '中断時点で付随ファイルが残っている');
+      assert.equal(existsSync(shm), true);
+      assert.throws(() => initializeDatabases(f.config), /未完了resetがあります/);
+
+      const io2 = new FakeResetIo(['y', 'y']);
+      assert.equal(await runInteractiveReset(f.config, io2), 'resumed');
+      assert.equal(existsSync(wal), false, '再開で付随ファイルが削除される');
+      assert.equal(existsSync(shm), false);
+      assert.equal(existsSync(journalPath), false);
+      assert.deepEqual(captureFiles(f.config.weather.databasePath), [null, null, null, null]);
+      assertRetainedIntact(f, retainedBefore);
+    }
+
+    it('afterUnlink(主DB削除直後)で中断しても、再開で残りの付随ファイルが削除される', async () => {
+      await interruptThenResume({
+        afterUnlink: () => {
+          throw new Error('障害注入: afterUnlink');
+        },
+      });
+    });
+
+    it('beforeProgressWrite で中断しても、再開で残りの付随ファイルが削除される', async () => {
+      await interruptThenResume({
+        beforeProgressWrite: () => {
+          throw new Error('障害注入: beforeProgressWrite');
+        },
+      });
+    });
+  });
+
+  describe('指摘3: AC-12 改変ケースの拡充', () => {
+    async function leaveJournal(f: ReturnType<typeof setupFixture>) {
+      let injected = false;
+      const deps: Partial<InteractiveResetDeps> = {
+        reset: (cfg, opts, h) => {
+          if (opts.mode === 'apply' && !injected) {
+            injected = true;
+            return resetWeatherDatabase(cfg, opts, {
+              afterUnlink: () => {
+                throw new Error('fault');
+              },
+            });
+          }
+          return resetWeatherDatabase(cfg, opts, h);
+        },
+      };
+      await assert.rejects(() => runInteractiveReset(f.config, new FakeResetIo(['y', 'y']), deps));
+    }
+
+    interface TamperableJournal {
+      plan: {
+        weatherPath: string;
+        deletePaths: string[];
+        planDigest: string;
+        identity: { instance_id: string };
+      };
+    }
+    const tamperers: [string, (journal: TamperableJournal, dir: string) => void][] = [
+      [
+        '対象パス',
+        (j, d) => {
+          j.plan.weatherPath = join(d, 'other.sqlite3');
+        },
+      ],
+      [
+        '削除予定パス',
+        (j, d) => {
+          j.plan.deletePaths[1] = join(d, 'other.sqlite3-wal');
+        },
+      ],
+      [
+        'instance_id',
+        (j) => {
+          j.plan.identity.instance_id = '00000000-0000-4000-8000-000000000000';
+        },
+      ],
+      [
+        'planDigest',
+        (j) => {
+          j.plan.planDigest = '0'.repeat(64);
+        },
+      ],
+    ];
+
+    for (const [name, tamper] of tamperers) {
+      it(`journalの${name}を改変すると再開は拒否され、全ファイルとjournalが不変`, async () => {
+        const f = setupFixture();
+        const retainedBefore = captureFiles(f.config.retained.databasePath);
+        const [wal, shm] = addSidecars(f);
+        await leaveJournal(f);
+        const journalPath = `${f.config.weather.databasePath}.reset.json`;
+        const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as TamperableJournal;
+        tamper(journal, dir);
+        const tampered = JSON.stringify(journal);
+        writeFileSync(journalPath, tampered);
+        const weatherBefore = captureFiles(f.config.weather.databasePath);
+
+        const io = new FakeResetIo(['y', 'y']);
+        await assert.rejects(
+          () => runInteractiveReset(f.config, io),
+          /reset journalの対象・進捗を検証できません/,
+        );
+        assert.equal(readFileSync(journalPath, 'utf8'), tampered, 'journal不変');
+        assert.deepEqual(captureFiles(f.config.weather.databasePath), weatherBefore);
+        assert.equal(readFileSync(wal, 'utf8'), 'sidecar-wal');
+        assert.equal(readFileSync(shm, 'utf8'), 'sidecar-shm');
+        assert.ok(!io.outputs.join('\n').includes('再実行すると再開します'));
+        assertFilesUnchanged(f.config.retained.databasePath, retainedBefore);
+      });
+    }
+
+    it('削除予定パスの別inodeファイルは再開で削除されず、journal・保持DBも不変', async () => {
+      const f = setupFixture();
+      const retainedBefore = captureFiles(f.config.retained.databasePath);
+      const [wal] = addSidecars(f);
+      await leaveJournal(f);
+      const journalPath = `${f.config.weather.databasePath}.reset.json`;
+      const journalBefore = readFileSync(journalPath, 'utf8');
+      rmSync(wal);
+      writeFileSync(wal, 'different-inode-file');
+
+      const io = new FakeResetIo(['y', 'y']);
+      await assert.rejects(
+        () => runInteractiveReset(f.config, io),
+        /reset journalの対象・進捗を検証できません/,
+      );
+      assert.equal(readFileSync(wal, 'utf8'), 'different-inode-file', '別inodeファイルが残る');
+      assert.equal(readFileSync(journalPath, 'utf8'), journalBefore, 'journal不変');
+      assertFilesUnchanged(f.config.retained.databasePath, retainedBefore);
+    });
+  });
+
+  describe('指摘4: 壊れたsymlinkのjournal', () => {
+    it('壊れたsymlinkの.reset.jsonは存在扱いとなり、問いを出さず保守確認で拒否する', async () => {
+      const f = setupFixture();
+      const weatherBefore = captureFiles(f.config.weather.databasePath);
+      const journalPath = `${f.config.weather.databasePath}.reset.json`;
+      symlinkSync(join(dir, 'no-such-target'), journalPath);
+
+      const io = new FakeResetIo([]);
+      await assert.rejects(() => runInteractiveReset(f.config, io), /保守確認してください/);
+      assert.equal(io.questions.length, 0);
+      assert.deepEqual(captureFiles(f.config.weather.databasePath), weatherBefore);
+    });
+  });
 });

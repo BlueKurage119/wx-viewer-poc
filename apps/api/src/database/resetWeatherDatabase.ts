@@ -243,7 +243,7 @@ export function readResetJournalStatus(config: DatabasePairConfig): ResetJournal
   if (!existsSync(journalPath)) return null;
   assertRegularFile(journalPath);
   const value = JSON.parse(readFileSync(journalPath, 'utf8')) as ResetJournal;
-  const journal = validateJournal(value, config, value.plan.planDigest, false);
+  const journal = validateJournal(value, config, value?.plan?.planDigest ?? '', false);
   return {
     journalPath,
     plan: journal.plan,
@@ -299,22 +299,21 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     } catch (error) {
       console.error(error instanceof Error ? error.message : '気象DB resetに失敗しました。');
       if (config && existsSync(`${config.weather.databasePath}.reset.json`)) {
-        const journalPath = `${config.weather.databasePath}.reset.json`;
         try {
-          assertRegularFile(journalPath);
-          const value = JSON.parse(readFileSync(journalPath, 'utf8')) as ResetJournal;
-          const journal = validateJournal(value, config, value.plan.planDigest, false);
-          console.error(
-            JSON.stringify({
-              resetIncomplete: true,
-              journalPath,
-              planDigest: journal.plan.planDigest,
-              completedPaths: journal.plan.deletePaths.filter((path) => !existsSync(path)),
-              remainingPaths: journal.plan.deletePaths.filter(existsSync),
-              notice:
-                'journalを保持しました。同じ対象・元digestで --resume --confirm-stopped を実行してください。',
-            }),
-          );
+          const status = readResetJournalStatus(config);
+          if (status) {
+            console.error(
+              JSON.stringify({
+                resetIncomplete: true,
+                journalPath: status.journalPath,
+                planDigest: status.plan.planDigest,
+                completedPaths: status.completedPaths,
+                remainingPaths: status.remainingPaths,
+                notice:
+                  'journalを保持しました。同じ対象・元digestで --resume --confirm-stopped を実行してください。',
+              }),
+            );
+          }
         } catch {
           console.error(
             'reset journalの対象・進捗を検証できません。journalを保持したまま保守確認してください。',

@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import {
   probeProcess,
@@ -59,14 +59,12 @@ export function inspectWriterLock(
 ): WriterLockInspection {
   const effectiveDeps: WriterLockInspectionDeps = { ...defaultDeps, ...deps };
 
-  if (!existsSync(lockPath)) {
-    return { state: 'absent' };
-  }
-
   let stat;
   try {
     stat = lstatSync(lockPath);
-  } catch {
+  } catch (error) {
+    // 壊れたsymlinkはlstatできるため、ENOENTだけを不在として扱う。
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'absent' };
     return { state: 'undeterminable', reason: 'not_directory' };
   }
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
@@ -132,6 +130,11 @@ export function inspectWriterLock(
 export function quarantineStaleWriterLock(lockPath: string, expectedToken: string): void {
   const lock = basename(lockPath);
   const stalePath = `${lockPath}.stale-${expectedToken}`;
+
+  // 対話の待ち時間中に差し替わった稼働中lockを、一時的にも動かさない。
+  if (readOwnerFile(join(lockPath, 'owner.json'))?.token !== expectedToken) {
+    throw new Error('残留lockの退避に失敗しました(token不一致)。lockは移動していません。');
+  }
 
   renameSync(lockPath, stalePath);
 
