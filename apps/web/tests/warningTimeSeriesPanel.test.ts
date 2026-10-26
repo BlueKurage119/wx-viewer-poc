@@ -39,7 +39,8 @@ import {
   type WtsColumn,
 } from '../src/map/panels/warningTimeSeries/warningTimeSeriesModel';
 import { InfoPanelColumn } from '../src/map/panels/InfoPanelColumn.tsx';
-import { eastVenue } from './venueConfigPreload.ts';
+import { VenueRegistryContext } from '../src/venueRegistryContext.ts';
+import { eastVenue, testVenueRegistry } from './venueConfigPreload.ts';
 import { DetailDialogInner } from '../src/map/detail/DetailDialog.tsx';
 import {
   WarningTimeSeriesDetail,
@@ -47,6 +48,7 @@ import {
 } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesDetail.tsx';
 import { Switch } from '../src/components/md/Switch.tsx';
 import {
+  WarningTimeSeriesContent,
   renderNarrowSwitchAction,
   renderRiskCellContent,
 } from '../src/map/panels/warningTimeSeries/WarningTimeSeriesContent.tsx';
@@ -1552,4 +1554,27 @@ test('AC-19: 同じ行の備考はblockの出現順を優先して連結する(s
   const rows = [{ key: 'dry', propertyType: '乾燥危険度', areaDivision: null }];
   const remarks = buildRemarks([later, earlier], rows, ['block1', 'block1', 'block2', 'block3']);
   assert.equal(remarks?.byRow.get('dry'), '先行block、後続block');
+});
+
+test('Issue #295: WarningTimeSeriesContent の SSR 出力に info-panel-card-detail-button クラスを持つ「詳細」ボタンが1つあること', () => {
+  const values: WarningTimeseriesValue[] = [riskValue('block1', 't0', '大雨浸水危険度', '30')];
+  const data: WarningTimeseriesData = { timeDefines: COLS, values, additions: null };
+  const table = buildRiskTable(data, Date.parse('2026-09-27T07:00:00Z'));
+  const html = renderToStaticMarkup(
+    el(
+      VenueRegistryContext.Provider,
+      { value: testVenueRegistry },
+      el(WarningTimeSeriesContent, {
+        response: response(data),
+        table,
+      }),
+    ),
+  );
+
+  const buttonMatches = [...html.matchAll(/class="[^"]*info-panel-card-detail-button[^"]*"/g)];
+  assert.equal(buttonMatches.length, 1);
+  assert.match(
+    html,
+    /<md-gb-button[^>]*class="[^"]*info-panel-card-detail-button[^"]*"[^>]*>詳細<\/md-gb-button>/,
+  );
 });

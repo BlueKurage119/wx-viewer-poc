@@ -773,3 +773,28 @@ test('詳細の対象地域は応答から取得し、短期と長期が異な�
     '南部',
   );
 });
+
+test('Issue #295: EarlyWarningContent の SSR 出力に info-panel-card-detail-button クラスを持つ「詳細」ボタンが1つあること', () => {
+  const data = response(
+    segment('near', '2026-09-28T00:00:00Z', [nearDate], [rain('1', '大雨の警報級の可能性', '高')]),
+    segment('far', '2026-09-28T00:00:00Z', [], []),
+  );
+  const issuedTimes = {
+    near: { kind: 'issued' as const, value: '2026-09-28T00:00:00Z' },
+    far: { kind: 'unavailable' as const },
+  };
+  const html = renderToStaticMarkup(
+    createElement(EarlyWarningContent, {
+      response: data,
+      issuedTimes,
+      now: Date.parse('2026-09-28T01:00:00Z'),
+    }),
+  );
+
+  const buttonMatches = [...html.matchAll(/class="[^"]*info-panel-card-detail-button[^"]*"/g)];
+  assert.equal(buttonMatches.length, 1);
+  assert.match(
+    html,
+    /<md-gb-button[^>]*class="[^"]*info-panel-card-detail-button[^"]*"[^>]*>詳細<\/md-gb-button>/,
+  );
+});
