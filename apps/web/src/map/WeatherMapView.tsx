@@ -45,7 +45,7 @@ export interface WeatherMapViewProps {
   onLayerSelect?: (layerId: MapLayerId) => void;
 }
 
-const NOWCAST_LAYER_OPACITY = 1;
+const NOWCAST_LAYER_OPACITY = 0.75;
 const KIKIKURU_LAYER_OPACITY = 0.75;
 const SWAP_TIMEOUT_MS = 12_000;
 

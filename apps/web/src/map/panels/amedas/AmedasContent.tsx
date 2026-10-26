@@ -1,13 +1,10 @@
 import { useState } from 'react';
-import type {
-  AmedasObservationDto,
-  AmedasPublicElement,
-  AmedasResponse,
-} from '@wx-viewer-poc/shared';
+import type { AmedasObservationDto, AmedasResponse } from '@wx-viewer-poc/shared';
 import { GbButton } from '../../../components/md';
 import { DetailDialog } from '../../detail/DetailDialog';
 import { useDetailDialogScrollContainer } from '../../detail/DetailDialogScrollContainerContext';
 import {
+  AMEDAS_CARD_FIELDS,
   AMEDAS_FIELDS,
   AMEDAS_TABLE_FIELDS,
   hourlyPrecipitationRows,
@@ -242,45 +239,51 @@ export function AmedasContent({
       )}
       {row ? (
         <dl className="amedas-values">
-          {AMEDAS_FIELDS.map((field) => (
-            <div key={field.key}>
-              <dt>{field.label}</dt>
-              <dd>
-                {(() => {
-                  const display = amedasDisplayValue(
-                    response,
-                    row,
-                    field.key as AmedasPublicElement,
-                  );
-                  return display.accessibleLabel ? (
-                    <span aria-label={display.accessibleLabel}>{display.text}</span>
-                  ) : (
-                    display.text
-                  );
-                })()}
-              </dd>
-            </div>
-          ))}
+          {AMEDAS_CARD_FIELDS.map((key) => {
+            const field = AMEDAS_FIELDS.find((item) => item.key === key)!;
+            return (
+              <div key={key}>
+                <dt>{field.label}</dt>
+                <dd>
+                  {(() => {
+                    const display = amedasDisplayValue(response, row, key);
+                    return display.accessibleLabel ? (
+                      <span aria-label={display.accessibleLabel}>{display.text}</span>
+                    ) : (
+                      display.text
+                    );
+                  })()}
+                </dd>
+              </div>
+            );
+          })}
         </dl>
       ) : (
         <p>取得できません</p>
       )}
-      <GbButton color="text" size="sm" onClick={() => setOpen(true)}>
+      <GbButton
+        color="text"
+        size="sm"
+        className="info-panel-card-detail-button"
+        onClick={() => setOpen(true)}
+      >
         詳細
       </GbButton>
-      <DetailDialog
-        open={open}
-        meta={{
-          title: 'アメダス',
-          target: response.station.name,
-          time: { kind: 'observed', value: row?.observedAt ?? null },
-          isTraining: response.isTraining,
-        }}
-        onClose={() => setOpen(false)}
-        scrollContainer={scrollContainer}
-      >
-        <Detail response={response} now={detailEnd} staleMessage={staleMessage} />
-      </DetailDialog>
+      {typeof document !== 'undefined' && typeof document.createTreeWalker === 'function' && (
+        <DetailDialog
+          open={open}
+          meta={{
+            title: 'アメダス',
+            target: response.station.name,
+            time: { kind: 'observed', value: row?.observedAt ?? null },
+            isTraining: response.isTraining,
+          }}
+          onClose={() => setOpen(false)}
+          scrollContainer={scrollContainer}
+        >
+          <Detail response={response} now={detailEnd} staleMessage={staleMessage} />
+        </DetailDialog>
+      )}
     </div>
   );
 }

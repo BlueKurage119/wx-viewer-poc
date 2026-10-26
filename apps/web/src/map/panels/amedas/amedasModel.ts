@@ -30,6 +30,13 @@ export const AMEDAS_FIELDS: readonly { key: AmedasPublicElement; label: string; 
   { key: 'wind', label: '風速', unit: 'm/s' },
   { key: 'precipitation1h', label: '時雨量', unit: 'mm' },
 ];
+/** カード本文の表示項目。2列グリッドに行優先で並べ、1行目「気温・時雨量」、2行目「風向・風速」になる。 */
+export const AMEDAS_CARD_FIELDS: readonly AmedasPublicElement[] = [
+  'temp',
+  'precipitation1h',
+  'windDirection',
+  'wind',
+];
 export const AMEDAS_TABLE_FIELDS: readonly {
   key: AmedasPublicElement;
   label: string;
