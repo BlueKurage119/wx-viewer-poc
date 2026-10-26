@@ -1,6 +1,7 @@
 /* 右側情報パネル共通枠 (G1) */
 
 .info-panel-card {
+  position: relative;
   pointer-events: auto;
   background: var(--md-sys-color-surface-container);
   color: var(--md-sys-color-on-surface);
@@ -23,6 +24,23 @@
   background: var(--md-sys-color-tertiary-container);
   color: var(--md-sys-color-on-tertiary-container);
   padding: 11px 15px;
+}
+
+/* 本文中の「詳細」をカード見出し行の右端に重ねる */
+.info-panel-card-detail-button {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-end: 16px;
+}
+
+.info-panel-card[data-training-overlay='true'] .info-panel-card-detail-button {
+  inset-block-start: 11px;
+  inset-inline-end: 15px;
+}
+
+/* ボタンがあるカードだけ、見出しの右側にボタン幅ぶんの余白を取る */
+.info-panel-card:has(.info-panel-card-detail-button) .info-panel-card-heading {
+  padding-inline-end: 72px;
 }
 
 .info-panel-card-heading {

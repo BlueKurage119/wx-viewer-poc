@@ -197,6 +197,7 @@ export function WarningTimeSeriesContent({ response, table }: WarningTimeSeriesC
       <GbButton
         color="text"
         size="sm"
+        className="info-panel-card-detail-button"
         onClick={() => {
           setNarrowed(false);
           setOpen(true);

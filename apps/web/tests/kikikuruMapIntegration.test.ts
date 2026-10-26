@@ -2,6 +2,7 @@ import './setupEnv.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
+(globalThis as unknown as { React: typeof React }).React = React;
 import { flushSync } from 'react-dom';
 import { renderToStaticMarkup } from 'react-dom/server';
 import L from 'leaflet';
@@ -167,8 +168,8 @@ test('MapViewport: Leaflet 本体・背景地図・命令的ズームが 9〜18 
   assert.equal(mapViewportConfiguration.clampMapZoom(19), 18);
 });
 
-test('WeatherMapView: ナウキャストだけを不透明にし、キキクルの不透明度は維持すること', () => {
-  assert.equal(weatherMapViewConfiguration.nowcastLayerOpacity, 1);
+test('WeatherMapView: ナウキャストとキキクルの不透明度がともに 0.75 であること (Issue #295)', () => {
+  assert.equal(weatherMapViewConfiguration.nowcastLayerOpacity, 0.75);
   assert.equal(weatherMapViewConfiguration.kikikuruLayerOpacity, 0.75);
 });
 

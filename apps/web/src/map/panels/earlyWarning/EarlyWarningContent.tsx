@@ -174,7 +174,12 @@ export function EarlyWarningContent({
   return (
     <div className="ew-panel">
       <NearPanel response={response} now={now} />
-      <GbButton color="text" size="sm" onClick={() => setOpen(true)}>
+      <GbButton
+        color="text"
+        size="sm"
+        className="info-panel-card-detail-button"
+        onClick={() => setOpen(true)}
+      >
         詳細
       </GbButton>
       <DetailDialog

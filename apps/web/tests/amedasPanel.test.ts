@@ -12,7 +12,9 @@ import {
 import { parseAmedasResponse } from '../src/api/amedas';
 import { testVenueRegistry } from './venueConfigPreload.ts';
 import { buildAmedasCard, buildAmedasFailedCard } from '../src/map/panels/amedas/useAmedas';
+import { AmedasContent } from '../src/map/panels/amedas/AmedasContent';
 import {
+  AMEDAS_CARD_FIELDS,
   AMEDAS_FIELDS,
   AMEDAS_TABLE_FIELDS,
   hourlyPrecipitationRows,
@@ -316,5 +318,46 @@ test('折れ線は10分を超える未取得区間と欠測行で分断する', 
       (value) => value,
     ),
     ['M 0 1 L 10 2', 'M 30 3 L 40 4', 'M 240 5 L 250 6'],
+  );
+});
+
+test('Issue #295: AmedasContentのカード本文は2x2(気温・時雨量・風向・風速)で湿度を含まず、詳細には湿度が残ること', () => {
+  assert.deepEqual(
+    AMEDAS_CARD_FIELDS.map((field) => field.key),
+    ['temp', 'precipitation1h', 'windDirection', 'wind'],
+  );
+
+  assert.equal(
+    AMEDAS_TABLE_FIELDS.some((field) => field.key === 'humidity'),
+    true,
+  );
+
+  const html = renderToStaticMarkup(
+    React.createElement(AmedasContent, {
+      response,
+      now: Date.parse(at),
+      staleMessage: null,
+    }),
+  );
+
+  const dtMatches = [...html.matchAll(/<dt>([^<]+)<\/dt>/g)].map((m) => m[1]);
+  assert.deepEqual(dtMatches, ['気温', '時雨量', '風向', '風速']);
+  assert.equal(dtMatches.includes('湿度'), false);
+});
+
+test('Issue #295: AmedasContent の SSR 出力に info-panel-card-detail-button クラスを持つ「詳細」ボタンが1つあること', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(AmedasContent, {
+      response,
+      now: Date.parse(at),
+      staleMessage: null,
+    }),
+  );
+
+  const buttonMatches = [...html.matchAll(/class="[^"]*info-panel-card-detail-button[^"]*"/g)];
+  assert.equal(buttonMatches.length, 1);
+  assert.match(
+    html,
+    /<md-gb-button[^>]*class="[^"]*info-panel-card-detail-button[^"]*"[^>]*>詳細<\/md-gb-button>/,
   );
 });

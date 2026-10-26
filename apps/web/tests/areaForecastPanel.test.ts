@@ -392,3 +392,18 @@ test('Issue #58 AC-19: パネル表は行見出しの最小幅を確保し、値
     assert.match(css, new RegExp(`\\.${cls} \\{\\s*inline-size: 100%;`));
   }
 });
+
+test('Issue #295: AreaForecastPanel の SSR 出力に info-panel-card-detail-button が含まれないこと', () => {
+  const now = Date.parse('2026-09-28T03:00:00Z');
+  const fixture = sampleFixtureResponse(now);
+  const panelHtml = renderToStaticMarkup(
+    createElement(AreaForecastPanel, {
+      response: fixture,
+      now,
+      fontStatus: { outlinedReady: true, sharpReady: true },
+      onOpenDetail: () => {},
+    }),
+  );
+
+  assert.equal(panelHtml.includes('info-panel-card-detail-button'), false);
+});
