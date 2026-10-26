@@ -1,11 +1,11 @@
 import type { TerminalMode } from '@wx-viewer-poc/shared';
-import { confirmNotification, type NotificationUiState } from './notificationStore';
+import { confirmNotification, isSettled, type NotificationUiState } from './notificationStore';
 
 export function nextAutoConfirmationDeadline(state: NotificationUiState): number | null {
   const deadlines = Object.entries(state.warningPresentationByFeedKey)
     .filter(
       ([key, presentation]) =>
-        !state.confirmedFeedKeys.has(key) && presentation.autoConfirmDeadlineMs !== null,
+        !isSettled(state, key) && presentation.autoConfirmDeadlineMs !== null,
     )
     .map(([, presentation]) => presentation.autoConfirmDeadlineMs as number);
   return deadlines.length ? Math.min(...deadlines) : null;
