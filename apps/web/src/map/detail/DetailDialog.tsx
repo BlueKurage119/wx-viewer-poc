@@ -187,5 +187,9 @@ export function DetailDialogInner({
 
 /** 公開コンポーネント。`document.body` 直下へ `createPortal` する（理由: 設計書 §3.1）。 */
 export function DetailDialog(props: DetailDialogProps) {
+  // サーバーレンダラ(単体テスト)には portal 先の document が無いため、ダイアログを描かない
+  if (typeof document === 'undefined' || typeof document.createTreeWalker !== 'function') {
+    return null;
+  }
   return createPortal(<DetailDialogInner {...props} />, document.body);
 }

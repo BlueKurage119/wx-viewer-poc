@@ -205,30 +205,28 @@ export function WarningTimeSeriesContent({ response, table }: WarningTimeSeriesC
       >
         詳細
       </GbButton>
-      {typeof document !== 'undefined' &&
-        typeof document.createTreeWalker === 'function' &&
-        data !== null && (
-          <DetailDialog
-            open={open}
-            meta={{
-              title: '警報等時系列',
-              target: (() => {
-                const venueId = registry.resolveVenueId(response.venueId);
-                return venueId
-                  ? (resolvePanelTarget(registry.getVenue(venueId), 'warningTimeSeries') ?? null)
-                  : null;
-              })(),
-              time: { kind: 'issued', value: response.metadata.issuedAt },
-              isTraining: response.isTraining,
-            }}
-            onClose={() => setOpen(false)}
-            scrollContainer={scrollContainer}
-            initialFocusRef={switchRef}
-            metaAction={renderNarrowSwitchAction(narrowed, setNarrowed, switchRef)}
-          >
-            <WarningTimeSeriesDetail data={data} table={table} narrowed={narrowed} />
-          </DetailDialog>
-        )}
+      {data !== null && (
+        <DetailDialog
+          open={open}
+          meta={{
+            title: '警報等時系列',
+            target: (() => {
+              const venueId = registry.resolveVenueId(response.venueId);
+              return venueId
+                ? (resolvePanelTarget(registry.getVenue(venueId), 'warningTimeSeries') ?? null)
+                : null;
+            })(),
+            time: { kind: 'issued', value: response.metadata.issuedAt },
+            isTraining: response.isTraining,
+          }}
+          onClose={() => setOpen(false)}
+          scrollContainer={scrollContainer}
+          initialFocusRef={switchRef}
+          metaAction={renderNarrowSwitchAction(narrowed, setNarrowed, switchRef)}
+        >
+          <WarningTimeSeriesDetail data={data} table={table} narrowed={narrowed} />
+        </DetailDialog>
+      )}
     </div>
   );
 }

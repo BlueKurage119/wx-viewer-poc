@@ -239,8 +239,8 @@ export function AmedasContent({
       )}
       {row ? (
         <dl className="amedas-values">
-          {AMEDAS_CARD_FIELDS.map((key) => {
-            const field = AMEDAS_FIELDS.find((item) => item.key === key)!;
+          {AMEDAS_CARD_FIELDS.map((field) => {
+            const key = field.key;
             return (
               <div key={key}>
                 <dt>{field.label}</dt>
@@ -269,21 +269,19 @@ export function AmedasContent({
       >
         詳細
       </GbButton>
-      {typeof document !== 'undefined' && typeof document.createTreeWalker === 'function' && (
-        <DetailDialog
-          open={open}
-          meta={{
-            title: 'アメダス',
-            target: response.station.name,
-            time: { kind: 'observed', value: row?.observedAt ?? null },
-            isTraining: response.isTraining,
-          }}
-          onClose={() => setOpen(false)}
-          scrollContainer={scrollContainer}
-        >
-          <Detail response={response} now={detailEnd} staleMessage={staleMessage} />
-        </DetailDialog>
-      )}
+      <DetailDialog
+        open={open}
+        meta={{
+          title: 'アメダス',
+          target: response.station.name,
+          time: { kind: 'observed', value: row?.observedAt ?? null },
+          isTraining: response.isTraining,
+        }}
+        onClose={() => setOpen(false)}
+        scrollContainer={scrollContainer}
+      >
+        <Detail response={response} now={detailEnd} staleMessage={staleMessage} />
+      </DetailDialog>
     </div>
   );
 }

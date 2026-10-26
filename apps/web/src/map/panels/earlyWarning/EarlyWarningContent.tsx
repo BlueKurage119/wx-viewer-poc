@@ -182,30 +182,28 @@ export function EarlyWarningContent({
       >
         詳細
       </GbButton>
-      {typeof document !== 'undefined' && typeof document.createTreeWalker === 'function' && (
-        <DetailDialog
-          open={open}
-          meta={{
-            title: '警報級の可能性',
-            target: resolveEarlyWarningDetailTarget(response),
-            time: { kind: 'issued', value: null },
-            issuedTimes,
-            isTraining: response.isTraining,
-          }}
-          onClose={() => setOpen(false)}
-          scrollContainer={scrollContainer}
-        >
-          <div className="wts-detail ew-detail">
-            <div className="wts-legend">
-              <span className="wts-legend-item">{cellContent('high', '凡例')} 高</span>
-              <span className="wts-legend-item">{cellContent('medium', '凡例')} 中</span>
-              <span className="wts-legend-item">{cellContent('none', '凡例')} なし</span>
-              <span className="wts-legend-item">{cellContent('missing', '凡例')} 欠測・未取得</span>
-            </div>
-            <EarlyWarningDetail table={buildDetailTable(response)} now={now} />
+      <DetailDialog
+        open={open}
+        meta={{
+          title: '警報級の可能性',
+          target: resolveEarlyWarningDetailTarget(response),
+          time: { kind: 'issued', value: null },
+          issuedTimes,
+          isTraining: response.isTraining,
+        }}
+        onClose={() => setOpen(false)}
+        scrollContainer={scrollContainer}
+      >
+        <div className="wts-detail ew-detail">
+          <div className="wts-legend">
+            <span className="wts-legend-item">{cellContent('high', '凡例')} 高</span>
+            <span className="wts-legend-item">{cellContent('medium', '凡例')} 中</span>
+            <span className="wts-legend-item">{cellContent('none', '凡例')} なし</span>
+            <span className="wts-legend-item">{cellContent('missing', '凡例')} 欠測・未取得</span>
           </div>
-        </DetailDialog>
-      )}
+          <EarlyWarningDetail table={buildDetailTable(response)} now={now} />
+        </div>
+      </DetailDialog>
     </div>
   );
 }

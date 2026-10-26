@@ -322,8 +322,11 @@ test('折れ線は10分を超える未取得区間と欠測行で分断する', 
 });
 
 test('Issue #295: AmedasContentのカード本文は2x2(気温・時雨量・風向・風速)で湿度を含まず、詳細には湿度が残ること', () => {
-  assert.deepEqual(AMEDAS_CARD_FIELDS, ['temp', 'precipitation1h', 'windDirection', 'wind']);
-  assert.equal((AMEDAS_CARD_FIELDS as readonly string[]).includes('humidity'), false);
+  assert.deepEqual(
+    AMEDAS_CARD_FIELDS.map((field) => field.key),
+    ['temp', 'precipitation1h', 'windDirection', 'wind'],
+  );
+
   assert.equal(
     AMEDAS_TABLE_FIELDS.some((field) => field.key === 'humidity'),
     true,
