@@ -1140,6 +1140,11 @@ test('受け入れ条件8: 単体: 保存 (alertedFeedKeyStore)', () => {
     now,
   );
   assert.deepEqual(repo.load('G1', now), ['delta:notif-1', 'delta:notif-2']);
+  // 復元時に鳴動時刻を保つ(期限が延びない)
+  assert.deepEqual(repo.loadEntries('G1', now), [
+    { feedKey: 'delta:notif-1', alertedAtMs: now - 1000 },
+    { feedKey: 'delta:notif-2', alertedAtMs: now - 2000 },
+  ]);
 
   // (ii) weather・startup: のキーは保存されない
   repo.save(

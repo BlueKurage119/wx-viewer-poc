@@ -104,13 +104,21 @@ export function useNotificationFeed({
     const onGeneration = (serverGenerationId: string, reason: 'page_open' | 'changed') => {
       generationRef.current = serverGenerationId;
       if (reason === 'page_open') {
-        const restored = alertedRepoRef.current.load(serverGenerationId, callbacks.current.clock());
+        // 鳴動時刻は保存値のまま復元する。現在時刻にすると、保存のたびに24時間の期限が延びる。
+        const restored = alertedRepoRef.current.loadEntries(
+          serverGenerationId,
+          callbacks.current.clock(),
+        );
         if (restored.length > 0) {
-          const now = callbacks.current.clock();
-          for (const key of restored) {
-            alertedTimesRef.current.set(key, now);
+          for (const entry of restored) {
+            alertedTimesRef.current.set(entry.feedKey, entry.alertedAtMs);
           }
-          update(restoreAlertedFeedKeys(stateRef.current, restored));
+          update(
+            restoreAlertedFeedKeys(
+              stateRef.current,
+              restored.map((entry) => entry.feedKey),
+            ),
+          );
         }
       } else {
         alertedRepoRef.current.clear();

@@ -24,49 +24,55 @@ export function createAlertedFeedKeyRepository(
 ): {
   /** 世代一致なら期限内のキーを返す。不一致なら保存を削除して []。失敗時は []。 */
   load(serverGenerationId: string, nowMs: number): readonly string[];
+  /** load と同じ条件で、鳴動時刻を保ったまま記録を返す。 */
+  loadEntries(serverGenerationId: string, nowMs: number): readonly StoredAlert[];
   /** delta: キーのみ、期限内・新しい順に上限まで保存。失敗は握りつぶす。 */
   save(value: StoredAlerts, nowMs: number): void;
   clear(): void;
 } {
-  return {
-    load(serverGenerationId: string, nowMs: number): readonly string[] {
-      try {
-        const raw = storage().getItem(ALERTED_FEED_KEYS_STORAGE_KEY);
-        if (raw === null) return [];
-        const parsed = JSON.parse(raw);
-        if (
-          typeof parsed !== 'object' ||
-          parsed === null ||
-          typeof parsed.serverGenerationId !== 'string' ||
-          !Array.isArray(parsed.entries)
-        ) {
-          return [];
-        }
-        if (parsed.serverGenerationId !== serverGenerationId) {
-          try {
-            storage().removeItem(ALERTED_FEED_KEYS_STORAGE_KEY);
-          } catch {
-            // 失敗は握りつぶす
-          }
-          return [];
-        }
-        const validFeedKeys: string[] = [];
-        for (const item of parsed.entries) {
-          if (
-            typeof item === 'object' &&
-            item !== null &&
-            isSavableSystemFeedKey(item.feedKey) &&
-            typeof item.alertedAtMs === 'number' &&
-            nowMs - item.alertedAtMs <= ALERTED_FEED_KEYS_DURATION_MS
-          ) {
-            validFeedKeys.push(item.feedKey);
-          }
-        }
-        return validFeedKeys;
-      } catch {
+  const loadEntries = (serverGenerationId: string, nowMs: number): readonly StoredAlert[] => {
+    try {
+      const raw = storage().getItem(ALERTED_FEED_KEYS_STORAGE_KEY);
+      if (raw === null) return [];
+      const parsed = JSON.parse(raw);
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        typeof parsed.serverGenerationId !== 'string' ||
+        !Array.isArray(parsed.entries)
+      ) {
         return [];
       }
+      if (parsed.serverGenerationId !== serverGenerationId) {
+        try {
+          storage().removeItem(ALERTED_FEED_KEYS_STORAGE_KEY);
+        } catch {
+          // 失敗は握りつぶす
+        }
+        return [];
+      }
+      const validEntries: StoredAlert[] = [];
+      for (const item of parsed.entries) {
+        if (
+          typeof item === 'object' &&
+          item !== null &&
+          isSavableSystemFeedKey(item.feedKey) &&
+          typeof item.alertedAtMs === 'number' &&
+          nowMs - item.alertedAtMs <= ALERTED_FEED_KEYS_DURATION_MS
+        ) {
+          validEntries.push({ feedKey: item.feedKey, alertedAtMs: item.alertedAtMs });
+        }
+      }
+      return validEntries;
+    } catch {
+      return [];
+    }
+  };
+  return {
+    load(serverGenerationId: string, nowMs: number): readonly string[] {
+      return loadEntries(serverGenerationId, nowMs).map((entry) => entry.feedKey);
     },
+    loadEntries,
 
     save(value: StoredAlerts, nowMs: number): void {
       try {
