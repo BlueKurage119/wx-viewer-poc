@@ -34,7 +34,11 @@ export function createNotificationFeedController(dependencies: {
     signal: AbortSignal,
     options?: { retry?: boolean },
   ) => Promise<StartupNotificationClientResult>;
-  readonly receive: (items: readonly NotificationFeedItem[]) => void;
+  readonly receive: (
+    items: readonly NotificationFeedItem[],
+    options?: { readonly initialFetch?: boolean },
+  ) => void;
+  readonly onGeneration?: (serverGenerationId: string, reason: 'page_open' | 'changed') => void;
   readonly onTransportState: (state: NotificationTransportState) => void;
   readonly setTimer: (task: () => void, delay: number) => ReturnType<typeof setTimeout>;
   readonly clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
@@ -42,6 +46,7 @@ export function createNotificationFeedController(dependencies: {
   let active = false;
   let epoch = 0;
   let generation: string | null = null;
+  let generationChanged = false;
   let controller = new AbortController();
   const channels = {
     system: {
@@ -72,10 +77,11 @@ export function createNotificationFeedController(dependencies: {
     }
   };
   const valid = (requestEpoch: number) => active && epoch === requestEpoch;
-  const restart = () => {
+  const restart = (isGenerationChanged = false) => {
     clear();
     controller = new AbortController();
     generation = null;
+    generationChanged = isGenerationChanged;
     state('system', 'starting');
     state('weather', 'starting');
     void poll('system');
@@ -94,10 +100,10 @@ export function createNotificationFeedController(dependencies: {
       { retry: isRetry },
     );
     if (!valid(requestEpoch)) return;
-    if (result.status === 'server_generation_changed') return restart();
+    if (result.status === 'server_generation_changed') return restart(true);
     if (result.status !== 'ready')
       return retry('weather', result.status === 'initializing', () => void startup(true));
-    if (result.serverGenerationId !== generation) return restart();
+    if (result.serverGenerationId !== generation) return restart(true);
     channels.weather.cursor = result.cursor;
     channels.weather.retries = 0;
     dependencies.receive(result.notifications.map(toNotificationFeedItemFromStartup));
@@ -120,7 +126,7 @@ export function createNotificationFeedController(dependencies: {
         : { terminalId: dependencies.terminalId, origin: 'system' };
     const result = await dependencies.fetchDelta(request, controller.signal);
     if (!valid(requestEpoch)) return;
-    if (result.status === 'server_generation_changed') return restart();
+    if (result.status === 'server_generation_changed') return restart(true);
     if (result.status === 'cursor_out_of_range') {
       channel.cursor = null;
       channel.retries = 0;
@@ -138,11 +144,24 @@ export function createNotificationFeedController(dependencies: {
     if (result.status !== 'ready')
       return retry(origin, result.status === 'initializing', () => void poll(origin));
     const first = generation === null;
-    if (!first && result.response.serverGenerationId !== generation) return restart();
+    if (!first && result.response.serverGenerationId !== generation) return restart(true);
+    const wasGenerationChanged = generationChanged;
     generation = result.response.serverGenerationId;
     channel.cursor = result.response.cursor;
     channel.retries = 0;
-    dependencies.receive(result.response.notifications.map(toNotificationFeedItemFromDelta));
+    if (first && origin === 'system') {
+      dependencies.onGeneration?.(
+        result.response.serverGenerationId,
+        wasGenerationChanged ? 'changed' : 'page_open',
+      );
+      generationChanged = false;
+    }
+    const feedItems = result.response.notifications.map(toNotificationFeedItemFromDelta);
+    if (first && origin === 'system') {
+      dependencies.receive(feedItems, { initialFetch: true });
+    } else {
+      dependencies.receive(feedItems);
+    }
     state(origin, 'ready');
     schedule(origin, () => void poll(origin), 15000);
     if (first) void startup();
@@ -151,7 +170,7 @@ export function createNotificationFeedController(dependencies: {
     start() {
       if (active) return;
       active = true;
-      restart();
+      restart(false);
     },
     stop() {
       active = false;

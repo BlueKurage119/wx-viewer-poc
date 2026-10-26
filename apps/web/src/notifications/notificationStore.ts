@@ -42,6 +42,8 @@ export interface NotificationUiState {
   readonly operationMessage: string;
   readonly confirmedFeedKeys: ReadonlySet<string>;
   readonly unreadFeedKeys: ReadonlySet<string>;
+  readonly historyOnlyFeedKeys: ReadonlySet<string>;
+  readonly alertedFeedKeys: ReadonlySet<string>;
   readonly selectedQuestionFeedKey: string | null;
   readonly selectedQuestionChoice: string | null;
 }
@@ -60,6 +62,8 @@ export function createNotificationUiState(): NotificationUiState {
     operationMessage: INITIAL_OPERATION_MESSAGE,
     confirmedFeedKeys: new Set(),
     unreadFeedKeys: new Set(),
+    historyOnlyFeedKeys: new Set(),
+    alertedFeedKeys: new Set(),
     selectedQuestionFeedKey: null,
     selectedQuestionChoice: null,
   };
@@ -77,6 +81,11 @@ function compareItems(a: NotificationFeedItem, b: NotificationFeedItem): number 
 
 export function isVisibleForTerminal(item: NotificationFeedItem, mode: TerminalMode): boolean {
   return mode === 'K' || item.origin !== 'system';
+}
+
+/** 通知エリア・未読・件数・ブザーの対象外か(確認済み、履歴のみ、または鳴動済み)。 */
+export function isSettled(state: NotificationUiState, feedKey: string): boolean {
+  return state.confirmedFeedKeys.has(feedKey) || state.historyOnlyFeedKeys.has(feedKey);
 }
 
 export function noticesForRow(
@@ -98,7 +107,7 @@ export function displayedNoticeForRow(
   row: 'warning' | 'question',
 ): NotificationFeedItem | undefined {
   const notices = noticesForRow(state, mode, row);
-  return notices.find((item) => !state.confirmedFeedKeys.has(item.feedKey));
+  return notices.find((item) => !isSettled(state, item.feedKey));
 }
 
 export function nextUnconfirmedChime(
@@ -106,7 +115,7 @@ export function nextUnconfirmedChime(
   mode: TerminalMode,
 ): ChimeRequest | null {
   return selectNewArrivalChime(
-    state.items.filter((item) => !state.confirmedFeedKeys.has(item.feedKey)),
+    state.items.filter((item) => !isSettled(state, item.feedKey)),
     state,
     mode,
   );
@@ -159,12 +168,170 @@ function markDisplayedRowsRead(
   return unread;
 }
 
+function notificationTargetKey(item: NotificationFeedItem): string {
+  const targets = item.targets
+    .map((t) => `${t.codeType}:${t.code}`)
+    .sort()
+    .join(';');
+  return `${item.sourceType}|${targets}`;
+}
+
+function canResolveAbnormal(
+  abnormal: NotificationFeedItem,
+  resolver: NotificationFeedItem,
+): boolean {
+  if (abnormal.origin !== 'system' || resolver.origin !== 'system') return false;
+  if (abnormal.sourceType !== resolver.sourceType) return false;
+
+  if (abnormal.sourceType === 'fetch_health') {
+    return (
+      (abnormal.changeType === 'fetch_abnormal' || abnormal.changeType === 'fetch_delayed') &&
+      resolver.changeType === 'fetch_recovered'
+    );
+  }
+
+  if (abnormal.sourceType === 'database_recovery') {
+    return (
+      abnormal.changeType === 'database_recovery_delayed' &&
+      resolver.changeType === 'database_recovery_completed'
+    );
+  }
+
+  if (abnormal.sourceType === 'weather_worker') {
+    return (
+      abnormal.changeType !== 'restart_completed' && resolver.changeType === 'restart_completed'
+    );
+  }
+
+  return false;
+}
+
+function isOccurredAfter(later: NotificationFeedItem, earlier: NotificationFeedItem): boolean {
+  if (later.occurredAt !== earlier.occurredAt) {
+    return later.occurredAt > earlier.occurredAt;
+  }
+  const seqLater = later.sequence ?? -1;
+  const seqEarlier = earlier.sequence ?? -1;
+  return seqLater > seqEarlier;
+}
+
+/** 同一取得分の中に、後続の解消通知がある異常の feedKey を返す。 */
+export function resolvedAbnormalFeedKeys(
+  items: readonly NotificationFeedItem[],
+): ReadonlySet<string> {
+  const resolved = new Set<string>();
+  for (const abnormal of items) {
+    if (abnormal.origin !== 'system') continue;
+    const targetKey = notificationTargetKey(abnormal);
+    const hasResolver = items.some(
+      (resolver) =>
+        resolver.origin === 'system' &&
+        notificationTargetKey(resolver) === targetKey &&
+        canResolveAbnormal(abnormal, resolver) &&
+        isOccurredAfter(resolver, abnormal),
+    );
+    if (hasResolver) {
+      resolved.add(abnormal.feedKey);
+    }
+  }
+  return resolved;
+}
+
+export function markAlerted(
+  state: NotificationUiState,
+  feedKeys: readonly string[],
+): NotificationUiState {
+  if (feedKeys.length === 0) return state;
+  const alertedFeedKeys = new Set(state.alertedFeedKeys);
+  let changed = false;
+  for (const key of feedKeys) {
+    if (!alertedFeedKeys.has(key)) {
+      alertedFeedKeys.add(key);
+      changed = true;
+    }
+  }
+  return changed ? { ...state, alertedFeedKeys } : state;
+}
+
+export function restoreAlertedFeedKeys(
+  state: NotificationUiState,
+  feedKeys: readonly string[],
+): NotificationUiState {
+  if (feedKeys.length === 0) return state;
+  const alertedFeedKeys = new Set(state.alertedFeedKeys);
+  for (const key of feedKeys) {
+    alertedFeedKeys.add(key);
+  }
+  return { ...state, alertedFeedKeys };
+}
+
+export function discardPreviousGeneration(
+  state: NotificationUiState,
+  mode: TerminalMode,
+): NotificationUiState {
+  const systemFeedKeysInItems = new Set(
+    state.items.filter((item) => item.origin === 'system').map((item) => item.feedKey),
+  );
+  const systemFeedKeysInHistory = new Set(
+    state.warningHistory
+      .filter((entry) => entry.item.origin === 'system')
+      .map((entry) => entry.item.feedKey),
+  );
+
+  const isTargetFeedKey = (feedKey: string) =>
+    systemFeedKeysInItems.has(feedKey) ||
+    systemFeedKeysInHistory.has(feedKey) ||
+    state.alertedFeedKeys.has(feedKey) ||
+    state.historyOnlyFeedKeys.has(feedKey);
+
+  const items = state.items.filter((item) => item.origin !== 'system');
+  const warningHistory = state.warningHistory.filter((entry) => entry.item.origin !== 'system');
+
+  const warningPresentationByFeedKey: Record<string, WarningPresentationState> = {};
+  for (const [key, value] of Object.entries(state.warningPresentationByFeedKey)) {
+    if (!isTargetFeedKey(key)) {
+      warningPresentationByFeedKey[key] = value;
+    }
+  }
+
+  const confirmedFeedKeys = new Set(
+    Array.from(state.confirmedFeedKeys).filter((key) => !isTargetFeedKey(key)),
+  );
+  const unreadFeedKeys = new Set(
+    Array.from(state.unreadFeedKeys).filter((key) => !isTargetFeedKey(key)),
+  );
+  const historyOnlyFeedKeys = new Set(
+    Array.from(state.historyOnlyFeedKeys).filter((key) => !isTargetFeedKey(key)),
+  );
+  const alertedFeedKeys = new Set(
+    Array.from(state.alertedFeedKeys).filter((key) => !isTargetFeedKey(key)),
+  );
+
+  const questionRemoved =
+    state.selectedQuestionFeedKey !== null && isTargetFeedKey(state.selectedQuestionFeedKey);
+
+  const next: NotificationUiState = {
+    ...state,
+    items,
+    warningHistory,
+    warningPresentationByFeedKey,
+    confirmedFeedKeys,
+    unreadFeedKeys,
+    historyOnlyFeedKeys,
+    alertedFeedKeys,
+    ...(questionRemoved ? { selectedQuestionFeedKey: null, selectedQuestionChoice: null } : {}),
+  };
+
+  return { ...next, unreadFeedKeys: markDisplayedRowsRead(next, mode) };
+}
+
 export function receiveNotifications(
   state: NotificationUiState,
   incoming: readonly NotificationFeedItem[],
   mode: TerminalMode,
   receivedAtMs: number,
   preferences: NotificationPreferences = EMPTY_NOTIFICATION_PREFERENCES,
+  options: { readonly initialFetch?: boolean } = {},
 ): { readonly state: NotificationUiState; readonly chime: ChimeRequest | null } {
   const existing = new Map(state.items.map((item) => [item.feedKey, item]));
   const newItems = [
@@ -172,8 +339,26 @@ export function receiveNotifications(
       incoming.filter((item) => !existing.has(item.feedKey)).map((item) => [item.feedKey, item]),
     ).values(),
   ];
-  const warningPresentationByFeedKey = { ...state.warningPresentationByFeedKey };
+
+  const historyOnlyFeedKeys = new Set(state.historyOnlyFeedKeys);
   for (const item of newItems) {
+    if (state.alertedFeedKeys.has(item.feedKey)) {
+      historyOnlyFeedKeys.add(item.feedKey);
+    }
+  }
+  if (options.initialFetch === true) {
+    const resolvedKeys = resolvedAbnormalFeedKeys(newItems);
+    for (const key of resolvedKeys) {
+      historyOnlyFeedKeys.add(key);
+    }
+  }
+
+  const alertEligibleNewItems = newItems.filter(
+    (item) => !historyOnlyFeedKeys.has(item.feedKey) && !state.alertedFeedKeys.has(item.feedKey),
+  );
+
+  const warningPresentationByFeedKey = { ...state.warningPresentationByFeedKey };
+  for (const item of alertEligibleNewItems) {
     const policy = resolveWarningPresentationPolicy(item, preferences);
     if (policy)
       warningPresentationByFeedKey[item.feedKey] = {
@@ -186,12 +371,12 @@ export function receiveNotifications(
   for (const item of incoming) existing.set(item.feedKey, item);
   const items = Array.from(existing.values()).sort(compareItems);
   const unreadFeedKeys = new Set(state.unreadFeedKeys);
-  for (const item of newItems) unreadFeedKeys.add(item.feedKey);
+  for (const item of alertEligibleNewItems) unreadFeedKeys.add(item.feedKey);
 
-  const hasQuestionInterruption = newItems.some(
+  const hasQuestionInterruption = alertEligibleNewItems.some(
     (item) => isVisibleForTerminal(item, mode) && item.category !== 'warning',
   );
-  const next: NotificationUiState = {
+  const intermediateState: NotificationUiState = {
     ...state,
     items,
     warningPresentationByFeedKey,
@@ -206,12 +391,32 @@ export function receiveNotifications(
       receivedAtMs,
     ),
     unreadFeedKeys,
+    historyOnlyFeedKeys,
     ...(hasQuestionInterruption
       ? { selectedQuestionFeedKey: null, selectedQuestionChoice: null }
       : {}),
   };
-  const chime = selectNewArrivalChime(newItems, next, mode);
-  return { state: { ...next, unreadFeedKeys: markDisplayedRowsRead(next, mode) }, chime };
+
+  const chimeCandidates = alertEligibleNewItems
+    .filter((item) => isVisibleForTerminal(item, mode))
+    .sort(compareItems);
+  const chime = selectNewArrivalChime(alertEligibleNewItems, intermediateState, mode);
+
+  // 鳴動の記録: ブザーの対象にした時点(確定 U-1)。
+  // receiveNotifications で chime 候補になった新着の system 通知すべてを記録する
+  const systemCandidatesToAlert = chimeCandidates
+    .filter((item) => item.origin === 'system')
+    .map((item) => item.feedKey);
+
+  const stateWithAlerted =
+    systemCandidatesToAlert.length > 0
+      ? markAlerted(intermediateState, systemCandidatesToAlert)
+      : intermediateState;
+
+  return {
+    state: { ...stateWithAlerted, unreadFeedKeys: markDisplayedRowsRead(stateWithAlerted, mode) },
+    chime,
+  };
 }
 
 export function expireWarningHistory(
@@ -286,7 +491,7 @@ export function confirmNotification(
   const item = state.items.find((item) => item.feedKey === feedKey);
   if (
     !item ||
-    state.confirmedFeedKeys.has(feedKey) ||
+    isSettled(state, feedKey) ||
     (cause === 'automatic' &&
       (item.category !== 'warning' ||
         state.warningPresentationByFeedKey[feedKey]?.policy.autoConfirmAfterMs !== 5000))
@@ -315,8 +520,6 @@ export function notificationCounts(
   const visible = state.items.filter((item) => isVisibleForTerminal(item, mode));
   return {
     unread: visible.filter((item) => state.unreadFeedKeys.has(item.feedKey)).length,
-    pending: visible.filter(
-      (item) => item.ackRequired && !state.confirmedFeedKeys.has(item.feedKey),
-    ).length,
+    pending: visible.filter((item) => item.ackRequired && !isSettled(state, item.feedKey)).length,
   };
 }

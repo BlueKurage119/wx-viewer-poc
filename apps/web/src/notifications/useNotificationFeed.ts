@@ -5,8 +5,10 @@ import { fetchStartupNotifications } from '../api/startupNotifications';
 import {
   confirmNotification,
   createNotificationUiState,
+  discardPreviousGeneration,
   expireWarningHistory,
   receiveNotifications,
+  restoreAlertedFeedKeys,
   selectQuestionConfirmation,
   setNotificationTransport,
   type ChimeRequest,
@@ -18,6 +20,7 @@ import {
   type NotificationPreferences,
 } from './notificationPreferences';
 import { createNotificationFeedController } from './notificationFeedController';
+import { createAlertedFeedKeyRepository } from './alertedFeedKeyStore';
 export { retryDelayMs } from './notificationFeedController';
 
 export interface UseNotificationFeedOptions {
@@ -55,6 +58,10 @@ export function useNotificationFeed({
   const callbacks = useRef({ onChimeRequest, onConfirmed, preferences, clock });
   callbacks.current = { onChimeRequest, onConfirmed, preferences, clock };
   const scheduleRef = useRef<() => void>(() => {});
+  const alertedRepoRef = useRef(createAlertedFeedKeyRepository());
+  const generationRef = useRef<string | null>(null);
+  const alertedTimesRef = useRef<Map<string, number>>(new Map());
+
   const update = useCallback((next: NotificationUiState) => {
     stateRef.current = next;
     replace(next);
@@ -93,20 +100,68 @@ export function useNotificationFeed({
       );
     };
     scheduleRef.current = schedule;
-    const receive = (items: NotificationUiState['items']) => {
+
+    const onGeneration = (serverGenerationId: string, reason: 'page_open' | 'changed') => {
+      generationRef.current = serverGenerationId;
+      if (reason === 'page_open') {
+        // 鳴動時刻は保存値のまま復元する。現在時刻にすると、保存のたびに24時間の期限が延びる。
+        const restored = alertedRepoRef.current.loadEntries(
+          serverGenerationId,
+          callbacks.current.clock(),
+        );
+        if (restored.length > 0) {
+          for (const entry of restored) {
+            alertedTimesRef.current.set(entry.feedKey, entry.alertedAtMs);
+          }
+          update(
+            restoreAlertedFeedKeys(
+              stateRef.current,
+              restored.map((entry) => entry.feedKey),
+            ),
+          );
+        }
+      } else {
+        alertedRepoRef.current.clear();
+        alertedTimesRef.current.clear();
+        update(discardPreviousGeneration(stateRef.current, mode));
+      }
+    };
+
+    const receive = (
+      items: NotificationUiState['items'],
+      options?: { readonly initialFetch?: boolean },
+    ) => {
       if (!active) return;
       advance();
+      const beforeAlertedCount = stateRef.current.alertedFeedKeys.size;
       const result = receiveNotifications(
         stateRef.current,
         items,
         mode,
         callbacks.current.clock(),
         callbacks.current.preferences,
+        options,
       );
       update(result.state);
       if (result.chime) callbacks.current.onChimeRequest?.(result.chime);
+
+      const nextAlerted = result.state.alertedFeedKeys;
+      if (generationRef.current !== null && nextAlerted.size > beforeAlertedCount) {
+        const now = callbacks.current.clock();
+        for (const key of nextAlerted) {
+          if (!alertedTimesRef.current.has(key)) {
+            alertedTimesRef.current.set(key, now);
+          }
+        }
+        const entries = Array.from(nextAlerted).map((feedKey) => ({
+          feedKey,
+          alertedAtMs: alertedTimesRef.current.get(feedKey) ?? now,
+        }));
+        alertedRepoRef.current.save({ serverGenerationId: generationRef.current, entries }, now);
+      }
       schedule();
     };
+
     const visibility = () => {
       if (!active) return;
       advance();
@@ -118,6 +173,7 @@ export function useNotificationFeed({
       fetchDelta: fetchNotificationDelta,
       fetchStartup: fetchStartupNotifications,
       receive,
+      onGeneration,
       onTransportState: (transport) => {
         if (active) update(setNotificationTransport(stateRef.current, transport));
       },
